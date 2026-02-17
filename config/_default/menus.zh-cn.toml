@@ -1,0 +1,26 @@
+[[main]]
+  name = "博客"
+  pageRef = "blog"
+  weight = 10
+
+[[main]]
+  name = "项目"
+  pageRef = "projects"
+  weight = 20
+
+[[main]]
+  name = "关于"
+  pageRef = "about"
+  weight = 30
+
+[[main]]
+  name = "标签"
+  pageRef = "tags"
+  weight = 40
+
+[[main]]
+  identifier = "search"
+  name = "搜索"
+  weight = 50
+  [main.params]
+    action = "search"

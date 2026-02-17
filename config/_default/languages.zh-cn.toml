@@ -1,0 +1,18 @@
+languageCode = "zh-CN"
+languageName = "中文"
+weight = 1
+title = "Noviorlu"
+
+[params]
+  isoCode = "zh-CN"
+  dateFormat = "2006年1月2日"
+
+[params.author]
+  name = "Noviorlu喵"
+  # image = "img/author.jpg"
+  headline = "计算机工程师 | 图形学 & AI"
+  bio = "多伦多大学计算机工程。热爱计算机图形学、渲染和 AI/ML。"
+  links = [
+    { github = "https://github.com/noviorlu" },
+    { zhihu = "https://www.zhihu.com/people/jack-chen-23-46" },
+  ]

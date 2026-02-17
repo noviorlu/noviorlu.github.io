@@ -1,0 +1,707 @@
+/* ============================================================
+   ARKNIGHTS: ENDFIELD — Dark Industrial Theme
+   Hugo + Blowfish Custom CSS
+   ============================================================ */
+
+/* ── CSS Variables ─────────────────────────────────────────── */
+:root {
+  --ef-black: #0d0d0d;
+  --ef-dark-1: #111111;
+  --ef-dark-2: #1a1a1a;
+  --ef-dark-3: #222222;
+  --ef-dark-4: #2a2a2a;
+  --ef-gray: #3a3a3a;
+  --ef-gray-light: #888888;
+  --ef-yellow: #FFD100;
+  --ef-yellow-dim: #b89b00;
+  --ef-yellow-glow: rgba(255, 209, 0, 0.15);
+  --ef-white: #e8e8e8;
+  --ef-red: #ff3b3b;
+  --ef-scan-speed: 8s;
+  --ef-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+/* ── Global Reset & Base ───────────────────────────────────── */
+*, *::before, *::after {
+  border-radius: 0 !important;
+}
+
+html {
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ef-yellow) var(--ef-dark-2);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--ef-dark-2);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--ef-yellow);
+}
+
+body {
+  background-color: var(--ef-black) !important;
+  background-image: url('/img/endfield/env-concept-1.jpg');
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  color: var(--ef-white);
+  font-feature-settings: 'liga' 1, 'calt' 1;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: var(--ef-yellow);
+  color: var(--ef-black);
+}
+
+/* ── Geometric Color Block Overlays ────────────────────────── */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -10;
+  pointer-events: none;
+  opacity: 0.25;
+  background:
+    linear-gradient(to right, var(--ef-dark-2) 0%, var(--ef-dark-2) 4%, transparent 4%) 0 0 / 100% 100% no-repeat,
+    linear-gradient(to bottom, var(--ef-dark-3) 0%, var(--ef-dark-3) 100%) 0 0 / 60% 40% no-repeat,
+    linear-gradient(to bottom, var(--ef-dark-1) 0%, var(--ef-dark-1) 100%) 60% 0 / 40% 40% no-repeat,
+    linear-gradient(to bottom, var(--ef-dark-1) 0%, var(--ef-dark-1) 100%) 0 40% / 35% 60% no-repeat,
+    linear-gradient(to bottom, var(--ef-dark-2) 0%, var(--ef-dark-2) 100%) 35% 40% / 65% 30% no-repeat,
+    linear-gradient(to bottom, var(--ef-dark-3) 0%, var(--ef-dark-3) 100%) 35% 70% / 40% 30% no-repeat,
+    linear-gradient(to bottom, var(--ef-dark-4) 0%, var(--ef-dark-4) 100%) 75% 70% / 25% 30% no-repeat;
+}
+
+/* Yellow accent block — top right corner */
+body::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 3px;
+  height: 120px;
+  background: var(--ef-yellow);
+  z-index: 100;
+  pointer-events: none;
+}
+
+/* Secondary geometric blocks on main */
+main::before {
+  content: '';
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 180px;
+  height: 3px;
+  background: var(--ef-yellow);
+  z-index: 100;
+  pointer-events: none;
+}
+
+main::after {
+  content: '';
+  position: fixed;
+  top: 50%;
+  right: 0;
+  width: 80px;
+  height: 200px;
+  background: var(--ef-dark-4);
+  z-index: -5;
+  pointer-events: none;
+  border-left: 1px solid var(--ef-gray);
+}
+
+/* ── Scan Lines Overlay ────────────────────────────────────── */
+.ef-scanlines {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 9998;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+}
+
+/* Moving scan bar */
+.ef-scan-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--ef-yellow), transparent);
+  opacity: 0.3;
+  z-index: 9999;
+  pointer-events: none;
+  animation: ef-scan-move var(--ef-scan-speed) linear infinite;
+}
+
+@keyframes ef-scan-move {
+  0% { top: -2px; }
+  100% { top: 100vh; }
+}
+
+/* ── Circuit Trace Borders ─────────────────────────────────── */
+.ef-circuit-h {
+  height: 1px;
+  background: var(--ef-gray);
+  position: relative;
+  margin: 2rem 0;
+  overflow: visible;
+}
+.ef-circuit-h::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 0;
+  width: 40px;
+  height: 3px;
+  background: var(--ef-yellow);
+  animation: ef-trace-h 4s linear infinite;
+}
+@keyframes ef-trace-h {
+  0% { left: -40px; }
+  100% { left: 100%; }
+}
+
+/* ── Hero Section (Homepage) ───────────────────────────────── */
+.ef-hero {
+  position: relative;
+  width: 100%;
+  height: 70vh;
+  min-height: 400px;
+  max-height: 700px;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: 3rem;
+  margin-bottom: 2rem;
+}
+
+.ef-hero-bg {
+  position: absolute;
+  inset: 0;
+  background: url('/img/endfield/env-concept-3.png') center/cover no-repeat;
+  z-index: 0;
+}
+
+/* Dark overlay — hard edge blocks, not gradient */
+.ef-hero-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to right, rgba(13,13,13,0.95) 0%, rgba(13,13,13,0.95) 30%, transparent 30%) 0 0 / 100% 100% no-repeat,
+    linear-gradient(to top, rgba(13,13,13,0.9) 0%, rgba(13,13,13,0.9) 25%, transparent 25%) 0 0 / 100% 100% no-repeat,
+    linear-gradient(to bottom, rgba(13,13,13,0.7) 0%, rgba(13,13,13,0.7) 10%, transparent 10%) 0 0 / 100% 100% no-repeat;
+  z-index: 1;
+}
+
+/* Grid overlay on hero */
+.ef-hero-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(90deg, transparent, transparent 99px, rgba(255,209,0,0.04) 99px, rgba(255,209,0,0.04) 100px),
+    repeating-linear-gradient(0deg, transparent, transparent 99px, rgba(255,209,0,0.04) 99px, rgba(255,209,0,0.04) 100px);
+  z-index: 2;
+}
+
+.ef-hero-content {
+  position: relative;
+  z-index: 3;
+  max-width: 600px;
+}
+
+.ef-hero-content h1 {
+  font-family: var(--ef-mono);
+  font-size: clamp(1.8rem, 4vw, 3rem);
+  font-weight: 700;
+  color: var(--ef-white);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  line-height: 1.2;
+  margin-bottom: 1rem;
+  border-left: 4px solid var(--ef-yellow);
+  padding-left: 1rem;
+}
+
+.ef-hero-content p {
+  font-family: var(--ef-mono);
+  font-size: 0.8rem;
+  color: var(--ef-gray-light);
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+}
+
+.ef-hero-label {
+  font-family: var(--ef-mono);
+  font-size: 0.65rem;
+  color: var(--ef-yellow);
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+  display: block;
+}
+
+/* ── Section Dividers with Endfield Art ────────────────────── */
+.ef-divider {
+  position: relative;
+  width: 100%;
+  height: 200px;
+  overflow: hidden;
+  margin: 3rem 0;
+}
+
+.ef-divider img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: saturate(0.3) brightness(0.4);
+}
+
+.ef-divider::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to right, var(--ef-black) 0%, var(--ef-black) 10%, transparent 10%, transparent 90%, var(--ef-black) 90%);
+  z-index: 1;
+}
+
+.ef-divider::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 10%;
+  right: 10%;
+  height: 2px;
+  background: var(--ef-gray);
+  z-index: 2;
+}
+
+/* ── Header / Navigation ───────────────────────────────────── */
+header, #header, nav.nav, .header {
+  background: var(--ef-dark-1) !important;
+  border-bottom: 1px solid var(--ef-gray) !important;
+  backdrop-filter: none !important;
+}
+
+header nav a,
+.header a,
+nav a {
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em;
+  font-size: 0.8rem;
+  transition: color 0.15s;
+}
+
+header nav a:hover,
+.header a:hover {
+  color: var(--ef-yellow) !important;
+}
+
+/* ── Article Cards ─────────────────────────────────────────── */
+article.card,
+.article-card,
+.card,
+a[class*="card"] {
+  background: var(--ef-dark-2) !important;
+  border: 1px solid var(--ef-gray) !important;
+  clip-path: polygon(0 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 0 100%);
+  transition: border-color 0.2s, transform 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+
+article.card:hover,
+.article-card:hover,
+.card:hover,
+a[class*="card"]:hover {
+  border-color: var(--ef-yellow) !important;
+  transform: translateY(-2px);
+}
+
+/* Yellow sweep on hover */
+article.card::after,
+.card::after,
+a[class*="card"]::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 3px;
+  background: var(--ef-yellow);
+  transition: left 0.4s;
+  z-index: 5;
+}
+
+article.card:hover::after,
+.card:hover::after,
+a[class*="card"]:hover::after {
+  left: 0;
+}
+
+/* Card corner notch indicator */
+article.card::before,
+.card::before,
+a[class*="card"]::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 20px 20px 0;
+  border-color: transparent var(--ef-gray) transparent transparent;
+  z-index: 5;
+  transition: border-color 0.2s;
+}
+
+article.card:hover::before,
+.card:hover::before,
+a[class*="card"]:hover::before {
+  border-color: transparent var(--ef-yellow) transparent transparent;
+}
+
+/* ── Tags / Taxonomy ───────────────────────────────────────── */
+.tag,
+a[href*="/tags/"],
+.taxonomy-term,
+[class*="tag"] {
+  background: var(--ef-dark-3) !important;
+  color: var(--ef-gray-light) !important;
+  border: 1px solid var(--ef-gray) !important;
+  font-family: var(--ef-mono);
+  font-size: 0.7rem !important;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 0.2em 0.6em !important;
+  transition: all 0.15s;
+}
+
+.tag:hover,
+a[href*="/tags/"]:hover,
+[class*="tag"]:hover {
+  border-color: var(--ef-yellow) !important;
+  color: var(--ef-yellow) !important;
+  background: var(--ef-dark-2) !important;
+}
+
+/* ── Code Blocks ───────────────────────────────────────────── */
+pre, code {
+  font-family: var(--ef-mono) !important;
+}
+
+pre {
+  background: var(--ef-dark-1) !important;
+  border: 1px solid var(--ef-gray) !important;
+  border-left: 3px solid var(--ef-yellow) !important;
+  position: relative;
+  overflow-x: auto;
+}
+
+pre::before {
+  content: '[ CODE ]';
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-family: var(--ef-mono);
+  font-size: 0.55rem;
+  color: var(--ef-gray);
+  padding: 0.3em 0.6em;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  background: var(--ef-dark-2);
+  border-bottom: 1px solid var(--ef-gray);
+  border-left: 1px solid var(--ef-gray);
+}
+
+:not(pre) > code {
+  background: var(--ef-dark-3) !important;
+  color: var(--ef-yellow) !important;
+  padding: 0.15em 0.4em !important;
+  border: 1px solid var(--ef-gray);
+  font-size: 0.85em;
+}
+
+/* ── Headings ──────────────────────────────────────────────── */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+article h1 {
+  border-left: 4px solid var(--ef-yellow);
+  padding-left: 1rem;
+}
+
+article h2 {
+  border-left: 3px solid var(--ef-gray);
+  padding-left: 0.8rem;
+  position: relative;
+}
+
+article h2::after {
+  content: '//';
+  font-family: var(--ef-mono);
+  font-size: 0.6em;
+  color: var(--ef-gray);
+  margin-left: 0.8em;
+  font-weight: 400;
+}
+
+/* ── Blockquotes ───────────────────────────────────────────── */
+blockquote {
+  border-left: 3px solid var(--ef-yellow) !important;
+  background: var(--ef-dark-2) !important;
+  padding: 1rem 1.5rem !important;
+  position: relative;
+  font-style: normal !important;
+}
+
+blockquote::before {
+  content: '>';
+  position: absolute;
+  top: 0.8rem;
+  left: -1.5rem;
+  font-family: var(--ef-mono);
+  font-size: 0.8rem;
+  color: var(--ef-yellow);
+  opacity: 0.5;
+}
+
+/* ── Tables ────────────────────────────────────────────────── */
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th {
+  background: var(--ef-dark-3) !important;
+  text-transform: uppercase;
+  font-family: var(--ef-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  color: var(--ef-yellow) !important;
+  border-bottom: 2px solid var(--ef-yellow) !important;
+}
+
+td {
+  border-bottom: 1px solid var(--ef-gray) !important;
+}
+
+tr:hover td {
+  background: var(--ef-dark-2) !important;
+}
+
+/* ── Links ─────────────────────────────────────────────────── */
+article a:not(.tag):not([class*="card"]) {
+  color: var(--ef-yellow);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s;
+}
+
+article a:not(.tag):not([class*="card"]):hover {
+  border-bottom-color: var(--ef-yellow);
+}
+
+/* ── Footer ────────────────────────────────────────────────── */
+footer, #footer {
+  background: var(--ef-dark-1) !important;
+  border-top: 1px solid var(--ef-gray) !important;
+  position: relative;
+}
+
+footer::before {
+  content: '[ ENDFIELD PROTOCOL // ALL RIGHTS RESERVED ]';
+  display: block;
+  font-family: var(--ef-mono);
+  font-size: 0.55rem;
+  color: var(--ef-gray);
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+  text-align: center;
+  padding: 0.5rem 0 0;
+}
+
+/* ── Corner Brackets (JS-injected) ─────────────────────────── */
+.ef-corner {
+  position: fixed;
+  width: 20px;
+  height: 20px;
+  z-index: 9990;
+  pointer-events: none;
+}
+
+.ef-corner--tl {
+  top: 8px; left: 8px;
+  border-top: 2px solid var(--ef-gray);
+  border-left: 2px solid var(--ef-gray);
+}
+.ef-corner--tr {
+  top: 8px; right: 8px;
+  border-top: 2px solid var(--ef-gray);
+  border-right: 2px solid var(--ef-gray);
+}
+.ef-corner--bl {
+  bottom: 8px; left: 8px;
+  border-bottom: 2px solid var(--ef-gray);
+  border-left: 2px solid var(--ef-gray);
+}
+.ef-corner--br {
+  bottom: 8px; right: 8px;
+  border-bottom: 2px solid var(--ef-gray);
+  border-right: 2px solid var(--ef-gray);
+}
+
+/* ── Status Indicator (JS-injected) ────────────────────────── */
+.ef-status {
+  position: fixed;
+  bottom: 12px;
+  left: 12px;
+  font-family: var(--ef-mono);
+  font-size: 0.55rem;
+  color: var(--ef-gray);
+  text-transform: uppercase;
+  letter-spacing: 0.25em;
+  z-index: 9990;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ef-status-dot {
+  width: 5px;
+  height: 5px;
+  background: var(--ef-yellow);
+  animation: ef-blink 2s step-end infinite;
+}
+
+@keyframes ef-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* ── Loading Bar (JS-injected) ─────────────────────────────── */
+.ef-loading-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 2px;
+  background: var(--ef-yellow);
+  z-index: 10000;
+  transition: width 0.3s;
+  pointer-events: none;
+}
+
+/* ── Canvas Layer ──────────────────────────────────────────── */
+#ef-flow-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* ── Cursor Glow (JS) ──────────────────────────────────────── */
+.ef-cursor-glow {
+  position: fixed;
+  width: 200px;
+  height: 200px;
+  pointer-events: none;
+  z-index: -1;
+  background: radial-gradient(circle, rgba(255,209,0,0.04) 0%, transparent 70%);
+  transform: translate(-50%, -50%);
+  transition: opacity 0.3s;
+}
+
+/* ── Scroll Reveal ─────────────────────────────────────────── */
+.ef-reveal {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.5s, transform 0.5s;
+}
+
+.ef-reveal.ef-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── Responsive ────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .ef-hero {
+    height: 50vh;
+    min-height: 300px;
+    padding: 1.5rem;
+  }
+
+  .ef-hero-content h1 {
+    font-size: 1.4rem;
+  }
+
+  main::after {
+    display: none;
+  }
+
+  .ef-status {
+    display: none;
+  }
+
+  .ef-corner {
+    width: 14px;
+    height: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .ef-hero {
+    height: 40vh;
+  }
+
+  .ef-corner {
+    display: none;
+  }
+}
+
+/* ── Print ─────────────────────────────────────────────────── */
+@media print {
+  .ef-scanlines,
+  .ef-scan-bar,
+  .ef-corner,
+  .ef-status,
+  .ef-loading-bar,
+  .ef-cursor-glow,
+  #ef-flow-canvas {
+    display: none !important;
+  }
+
+  body::before, body::after,
+  main::before, main::after {
+    display: none !important;
+  }
+}
