@@ -487,6 +487,28 @@
     });
   }
 
+  // ── Tag Colorization ───────────────────────────────────────
+  function setupTagColors() {
+    const TAG_COLORS = 10;
+    // Simple hash to get consistent color per tag text
+    function hashStr(s) {
+      let h = 0;
+      for (let i = 0; i < s.length; i++) {
+        h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+      }
+      return Math.abs(h);
+    }
+
+    const tags = qsa('a[href*="/tags/"], [class*="tag"], .taxonomy-term');
+    tags.forEach(tag => {
+      if (tag.classList.contains('ef-tag-colored')) return;
+      const text = tag.textContent.trim().toLowerCase();
+      if (!text) return;
+      const idx = hashStr(text) % TAG_COLORS;
+      tag.classList.add(`ef-tag-${idx}`, 'ef-tag-colored');
+    });
+  }
+
   // ── Init ──────────────────────────────────────────────────
   function init() {
     setupHero();
@@ -497,6 +519,7 @@
     setupTocHighlight();
     setupReadingProgress();
     setupHoverFeedback();
+    setupTagColors();
     addCircuitDividers();
     advanceLoad(90);
 
