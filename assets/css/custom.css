@@ -641,11 +641,19 @@ body > [class*="flex"] > footer::before {
   padding: 0.5rem 0 0;
 }
 
-/* Prevent article footer from getting the protocol text */
+/* Prevent article footer from getting any footer styles */
 article footer::before,
 main article > footer::before {
   content: none !important;
   display: none !important;
+}
+
+/* Remove article footer background/border that creates empty block */
+article > footer.pt-8,
+main.grow > article > footer {
+  background: none !important;
+  border: none !important;
+  padding-top: 0 !important;
 }
 
 /* Footer content: center copyright and theme attribution */
