@@ -17,10 +17,3 @@
   name = "标签"
   pageRef = "tags"
   weight = 40
-
-[[main]]
-  identifier = "search"
-  name = "搜索"
-  weight = 50
-  [main.params]
-    action = "search"
