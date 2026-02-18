@@ -1169,14 +1169,16 @@ nav[aria-label="breadcrumb"] a,
 .ef-home-hero__bg {
   position: absolute;
   inset: 0;
-  background: url('/img/endfield/hero-bg.jpg') center/cover no-repeat;
+  background: linear-gradient(160deg, #0a0a0a 0%, #111318 40%, #0d1117 70%, #0a0a0a 100%);
   z-index: 0;
 }
 .ef-home-hero__bg::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, rgba(13,13,13,0.92) 0%, rgba(13,13,13,0.7) 50%, rgba(13,13,13,0.92) 100%);
+  background:
+    repeating-linear-gradient(90deg, transparent, transparent 99px, rgba(255,209,0,0.03) 99px, rgba(255,209,0,0.03) 100px),
+    repeating-linear-gradient(0deg, transparent, transparent 99px, rgba(255,209,0,0.03) 99px, rgba(255,209,0,0.03) 100px);
 }
 .ef-home-hero__grid {
   position: absolute;
