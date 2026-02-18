@@ -1,7 +1,7 @@
 colorScheme = "blowfish"
 defaultAppearance = "dark"
 autoSwitchAppearance = false
-enableSearch = true
+enableSearch = false
 enableCodeCopy = true
 mainSections = ["blog"]
 disableImageOptimization = false
