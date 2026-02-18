@@ -127,6 +127,8 @@ main > article {
   max-width: var(--ef-wide-width);
   margin-left: auto !important;
   margin-right: auto !important;
+  padding-left: 2rem;
+  padding-right: 2rem;
 }
 
 main > article > header,
@@ -148,6 +150,8 @@ main > section {
   max-width: var(--ef-wide-width);
   margin-left: auto !important;
   margin-right: auto !important;
+  padding-left: 2rem;
+  padding-right: 2rem;
 }
 
 /* Homepage profile centering */
@@ -155,6 +159,8 @@ main > section {
   max-width: var(--ef-wide-width);
   margin-left: auto;
   margin-right: auto;
+  padding-left: 2rem;
+  padding-right: 2rem;
 }
 
 /* ── Scan Lines Overlay ────────────────────────────────────── */
@@ -720,30 +726,29 @@ footer::before {
 .ef-glitch::before {
   color: var(--ef-yellow);
   z-index: -1;
-  animation: ef-glitch-1 3s infinite linear alternate-reverse;
+  opacity: 0.4;
+  animation: ef-glitch-1 4s infinite linear alternate-reverse;
 }
 
 .ef-glitch::after {
   color: var(--ef-red);
   z-index: -2;
-  animation: ef-glitch-2 2s infinite linear alternate-reverse;
+  opacity: 0.3;
+  animation: ef-glitch-2 3s infinite linear alternate-reverse;
 }
 
 @keyframes ef-glitch-1 {
-  0%, 95% { clip-path: inset(0 0 0 0); transform: translate(0); }
-  96% { clip-path: inset(20% 0 60% 0); transform: translate(-2px, 1px); }
-  97% { clip-path: inset(50% 0 30% 0); transform: translate(2px, -1px); }
-  98% { clip-path: inset(70% 0 10% 0); transform: translate(-1px, 2px); }
-  99% { clip-path: inset(10% 0 80% 0); transform: translate(1px, -2px); }
+  0%, 96% { clip-path: inset(0 0 0 0); transform: translate(0); }
+  97% { clip-path: inset(20% 0 60% 0); transform: translate(-1px, 0); }
+  98% { clip-path: inset(50% 0 30% 0); transform: translate(1px, 0); }
+  99% { clip-path: inset(70% 0 10% 0); transform: translate(-0.5px, 0.5px); }
   100% { clip-path: inset(0 0 0 0); transform: translate(0); }
 }
 
 @keyframes ef-glitch-2 {
-  0%, 93% { clip-path: inset(0 0 0 0); transform: translate(0); }
-  94% { clip-path: inset(40% 0 40% 0); transform: translate(2px, 1px); }
-  95% { clip-path: inset(60% 0 20% 0); transform: translate(-2px, -1px); }
-  96% { clip-path: inset(10% 0 70% 0); transform: translate(1px, 2px); }
-  97% { clip-path: inset(80% 0 5% 0); transform: translate(-1px, -2px); }
+  0%, 97% { clip-path: inset(0 0 0 0); transform: translate(0); }
+  98% { clip-path: inset(40% 0 40% 0); transform: translate(1px, 0); }
+  99% { clip-path: inset(60% 0 20% 0); transform: translate(-0.5px, 0.5px); }
   100% { clip-path: inset(0 0 0 0); transform: translate(0); }
 }
 
