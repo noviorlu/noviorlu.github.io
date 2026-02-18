@@ -997,6 +997,54 @@ article section > div > .flex {
   justify-content: center !important;
 }
 
+/* ── Content Readability Panels ─────────────────────────────── */
+/* Blog list: semi-transparent backdrop for text sections */
+main.grow > section.prose,
+main.grow > section[class*="grid"] {
+  background: rgba(13, 13, 13, 0.75) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--ef-gray);
+  padding: 1.5rem 2rem !important;
+  margin-bottom: 1rem;
+}
+
+/* Blog list: year headings */
+main.grow > h2 {
+  background: rgba(13, 13, 13, 0.6);
+  padding: 0.5rem 1.5rem !important;
+  display: inline-block;
+  border-left: 3px solid var(--ef-yellow);
+}
+
+/* Blog list page header ("博客") */
+main.grow > header {
+  background: rgba(13, 13, 13, 0.85) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--ef-gray);
+  padding: 1rem 2rem !important;
+  margin-bottom: 1rem;
+}
+
+/* Projects & About pages: full content panel */
+main.grow > article > section.prose:not(:empty),
+main.grow > section.prose:not(:empty) {
+  background: rgba(13, 13, 13, 0.8) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--ef-gray);
+  border-top: 3px solid var(--ef-yellow);
+  padding: 2rem !important;
+}
+
+/* Card items on blog list get their own dark treatment */
+main.grow > section[class*="grid"] a[class*="card"] {
+  background: rgba(17, 17, 17, 0.9) !important;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
 /* ── Breadcrumbs Enhancement ───────────────────────────────── */
 nav[aria-label="breadcrumb"] a,
 .breadcrumb a {
