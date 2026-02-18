@@ -1331,6 +1331,7 @@ nav[aria-label="breadcrumb"] a,
 .ef-skills__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  align-items: start;
   gap: 1rem;
 }
 .ef-skills__card {
