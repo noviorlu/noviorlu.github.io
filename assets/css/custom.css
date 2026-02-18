@@ -1592,6 +1592,115 @@ nav[aria-label="breadcrumb"] a,
   border: 1px solid var(--ef-gray);
 }
 
+/* ── 6. GAMING SECTION ─────────────────────────────────────── */
+.ef-gaming {
+  max-width: var(--ef-wide-width);
+  margin: 0 auto 3rem;
+  padding: 0 2.5rem;
+}
+.ef-gaming__showcase {
+  background: var(--ef-dark-2);
+  border: 1px solid var(--ef-gray);
+  padding: 2rem;
+  position: relative;
+  overflow: hidden;
+}
+.ef-gaming__header {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  margin-bottom: 1.5rem;
+}
+.ef-gaming__game-info h3 {
+  font-family: var(--ef-mono);
+  font-size: 1.4rem;
+  color: var(--ef-yellow);
+  margin: 0 0 0.5rem;
+  letter-spacing: 0.05em;
+}
+.ef-gaming__stats-row {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+.ef-gaming__stat {
+  font-family: var(--ef-mono);
+  font-size: 0.8rem;
+  color: var(--ef-gray-light);
+  letter-spacing: 0.05em;
+}
+.ef-gaming__stat strong {
+  color: var(--ef-yellow);
+  font-size: 1rem;
+}
+.ef-gaming__fleet-title {
+  font-family: var(--ef-mono);
+  font-size: 0.85rem;
+  color: var(--ef-white);
+  margin: 0 0 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--ef-gray);
+  letter-spacing: 0.1em;
+}
+.ef-gaming__ship-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.4rem 1rem;
+  margin-bottom: 1.5rem;
+}
+.ef-gaming__ship {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--ef-mono);
+  font-size: 0.75rem;
+  color: var(--ef-gray-light);
+  padding: 0.25rem 0.5rem;
+  border-left: 2px solid transparent;
+  transition: border-color 0.2s, color 0.2s;
+}
+.ef-gaming__ship:hover {
+  border-left-color: var(--ef-yellow);
+  color: var(--ef-white);
+}
+.ef-gaming__ship-icon { font-size: 0.6rem; }
+.ef-gaming__wr {
+  margin-left: auto;
+  color: var(--ef-gray);
+  font-size: 0.7rem;
+}
+.ef-gaming__wr.good {
+  color: #69F0AE;
+}
+
+/* Azur Lane character strip */
+.ef-gaming__gallery {
+  margin-top: 1.5rem;
+  border-top: 1px solid var(--ef-gray);
+  padding-top: 1rem;
+  overflow: hidden;
+}
+.ef-gaming__al-strip {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ef-gray) transparent;
+}
+.ef-gaming__al-strip img {
+  height: 280px;
+  width: auto;
+  object-fit: contain;
+  flex-shrink: 0;
+  filter: brightness(0.85);
+  transition: filter 0.3s, transform 0.3s;
+}
+.ef-gaming__al-strip img:hover {
+  filter: brightness(1);
+  transform: scale(1.03);
+}
+
 /* ── RESPONSIVE (homepage sections) ────────────────────────── */
 @media (max-width: 768px) {
   .ef-home-hero__content {
@@ -1627,8 +1736,17 @@ nav[aria-label="breadcrumb"] a,
   .ef-timeline__card {
     max-width: 100%;
   }
-  .ef-skills, .ef-timeline, .ef-portfolio, .ef-recent-section {
+  .ef-skills, .ef-timeline, .ef-portfolio, .ef-gaming, .ef-recent-section {
     padding: 0 1rem;
+  }
+  .ef-gaming__showcase {
+    padding: 1rem;
+  }
+  .ef-gaming__ship-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .ef-gaming__al-strip img {
+    height: 180px;
   }
 }
 
