@@ -144,13 +144,20 @@ main.grow > [class*="absolute"] {
 
 /* Unified dark background for article content area */
 main.grow > article > header,
-main.grow > article > section.prose,
-main.grow > article > footer {
+main.grow > article > section.prose {
   max-width: var(--ef-content-width) !important;
   margin-left: auto !important;
   margin-right: auto !important;
   padding-left: 0;
   padding-right: 0;
+}
+
+main.grow > article > footer {
+  max-width: var(--ef-content-width) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  padding-left: 1rem;
+  padding-right: 1rem;
 }
 
 /* Consistent background panel for header + content */
@@ -166,6 +173,11 @@ main.grow > article > section.prose {
   padding: 0 2rem 2rem 2rem !important;
   border: 1px solid var(--ef-gray);
   border-top: none;
+}
+
+/* Make article-content fill the section width instead of max-w-prose */
+main.grow > article .article-content {
+  max-width: 100% !important;
 }
 
 /* Hero background divs inside article — let them be full width */
@@ -599,13 +611,25 @@ article a:not(.tag):not([class*="card"]):hover {
 }
 
 /* ── Footer ────────────────────────────────────────────────── */
-footer, #footer {
+footer, #footer,
+body > div > footer,
+body > [class*="flex"] > footer {
   background: var(--ef-dark-1) !important;
   border-top: 1px solid var(--ef-gray) !important;
   position: relative;
+  /* Break out of container to be full width */
+  width: 100vw !important;
+  max-width: 100vw !important;
+  margin-left: calc(-50vw + 50%) !important;
+  margin-right: calc(-50vw + 50%) !important;
+  padding-left: 2rem;
+  padding-right: 2rem;
+  box-sizing: border-box;
 }
 
-footer::before {
+/* Only apply protocol text to the page footer, not article footer */
+body > div > footer::before,
+body > [class*="flex"] > footer::before {
   content: '[ ENDFIELD PROTOCOL // ALL RIGHTS RESERVED ]';
   display: block;
   font-family: var(--ef-mono);
@@ -615,6 +639,13 @@ footer::before {
   letter-spacing: 0.3em;
   text-align: center;
   padding: 0.5rem 0 0;
+}
+
+/* Prevent article footer from getting the protocol text */
+article footer::before,
+main article > footer::before {
+  content: none !important;
+  display: none !important;
 }
 
 /* Footer content: center copyright and theme attribution */
@@ -914,6 +945,48 @@ h2.text-2xl::before {
   content: '//';
   color: var(--ef-gray);
   margin-right: 0.5rem;
+}
+
+/* ── Pagination (prev/next) ─────────────────────────────────── */
+article footer .flex.justify-between,
+main article > footer .flex.justify-between,
+.pt-8 > .flex.justify-between {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 1rem;
+  align-items: start;
+}
+
+article footer .flex.justify-between > span,
+main article > footer .flex.justify-between > span,
+.pt-8 > .flex.justify-between > span {
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+
+article footer .flex.justify-between span.leading-6,
+main article > footer .flex.justify-between span.leading-6,
+.pt-8 .flex.justify-between span.leading-6 {
+  display: block !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-size: 0.85rem !important;
+}
+
+article footer .flex.justify-between a,
+main article > footer .flex.justify-between a,
+.pt-8 .flex.justify-between a {
+  overflow: hidden !important;
+  min-width: 0 !important;
+}
+
+/* ── Sharing Links Centering ───────────────────────────────── */
+.sharing-links,
+article .flex.justify-center,
+article section .flex.gap-2,
+article section > div > .flex {
+  justify-content: center !important;
 }
 
 /* ── Breadcrumbs Enhancement ───────────────────────────────── */

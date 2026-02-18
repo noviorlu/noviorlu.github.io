@@ -1,0 +1,45 @@
+{{ if .Params.showPagination | default (.Site.Params.article.showPagination | default true) }}
+  {{ if or .NextInSection .PrevInSection }}
+    {{ $next := .NextInSection }}
+    {{ $prev := .PrevInSection }}
+    {{ if .Params.invertPagination | default (.Site.Params.article.invertPagination | default false) }}
+      {{ $next = .PrevInSection }}
+      {{ $prev = .NextInSection }}
+    {{ end }}
+    <div class="pt-8">
+      <hr class="border-dotted border-neutral-300 dark:border-neutral-600">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; padding-top:0.75rem; align-items:start;">
+        <div style="min-width:0; overflow:hidden;">
+          {{ if $prev }}
+            <a
+              class="text-neutral-700 hover:text-primary-600 dark:text-neutral dark:hover:text-primary-400"
+              href="{{ $prev.RelPermalink }}"
+              style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.85rem;">
+              <span class="inline-block rtl:rotate-180">&larr;</span>&ensp;{{ $prev.Title | emojify }}
+            </a>
+            {{ if .Params.showDate | default (.Site.Params.article.showDate | default true) }}
+              <span class="mt-1 text-xs text-neutral-500 dark:text-neutral-400" style="display:block; padding-left:1.5rem;">
+                {{ partial "meta/date.html" $prev.Date }}
+              </span>
+            {{ end }}
+          {{ end }}
+        </div>
+        <div style="min-width:0; overflow:hidden; text-align:right;">
+          {{ if $next }}
+            <a
+              class="text-neutral-700 hover:text-primary-600 dark:text-neutral dark:hover:text-primary-400"
+              href="{{ $next.RelPermalink }}"
+              style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.85rem; text-align:right;">
+              {{ $next.Title | emojify }}&ensp;<span class="inline-block rtl:rotate-180">&rarr;</span>
+            </a>
+            {{ if .Params.showDate | default (.Site.Params.article.showDate | default true) }}
+              <span class="mt-1 text-xs text-neutral-500 dark:text-neutral-400" style="display:block; padding-right:1.5rem;">
+                {{ partial "meta/date.html" $next.Date }}
+              </span>
+            {{ end }}
+          {{ end }}
+        </div>
+      </div>
+    </div>
+  {{ end }}
+{{ end }}

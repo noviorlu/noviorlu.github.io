@@ -48,7 +48,7 @@ disableImageOptimization = false
   showAuthorsBadges = false
   showWordCount = true
   showSummary = true
-  sharingLinks = ["x-twitter", "linkedin", "reddit", "facebook", "email"]
+  sharingLinks = ["x-twitter", "linkedin", "email"]
 
 [list]
   showHero = true
