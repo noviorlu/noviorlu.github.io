@@ -441,29 +441,8 @@
   }
 
   // ── Hero Section Injection (Homepage) ─────────────────────
-  function setupHero() {
-    const isHome = window.location.pathname === '/' ||
-                   window.location.pathname === '/index.html' ||
-                   document.body.classList.contains('home');
-
-    if (!isHome) return;
-    if (qs('.ef-hero')) return;
-
-    const main = qs('main') || qs('#main') || qs('.main');
-    if (!main) return;
-
-    const hero = ce('div', 'ef-hero');
-    hero.innerHTML = `
-      <div class="ef-hero-bg"></div>
-      <div class="ef-hero-content">
-        <span class="ef-hero-label">[ Noviorlu喵 // Personal Log ]</span>
-        <h1>RENDERING IS DEAD,<br>LONG LIVE AI</h1>
-        <p>// 计算机图形学 & AI 技术笔记</p>
-      </div>
-    `;
-
-    main.insertBefore(hero, main.firstChild);
-  }
+  // Disabled: now using custom layouts/index.html with built-in hero
+  function setupHero() {}
 
   // ── Circuit Dividers ──────────────────────────────────────
   function addCircuitDividers() {
@@ -540,10 +519,72 @@
     });
   }
 
+  // ── Stats Counter Animation ────────────────────────────────
+  function setupStatsCounter() {
+    const nums = qsa('.ef-stats__num[data-target]');
+    if (!nums.length) return;
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const el = entry.target;
+          const target = parseInt(el.dataset.target, 10);
+          let current = 0;
+          const duration = 1500;
+          const start = performance.now();
+          const step = (now) => {
+            const elapsed = now - start;
+            const progress = Math.min(elapsed / duration, 1);
+            const eased = 1 - Math.pow(1 - progress, 3);
+            current = Math.round(eased * target);
+            el.textContent = current;
+            if (progress < 1) requestAnimationFrame(step);
+          };
+          requestAnimationFrame(step);
+          observer.unobserve(el);
+        }
+      });
+    }, { threshold: 0.5 });
+
+    nums.forEach(el => observer.observe(el));
+  }
+
+  // ── Skills Expandable Panels ──────────────────────────────
+  function setupSkillPanels() {
+    qsa('.ef-skills__header').forEach(header => {
+      header.addEventListener('click', () => {
+        const card = header.parentElement;
+        card.classList.toggle('active');
+      });
+    });
+  }
+
+  // ── Portfolio Filter ──────────────────────────────────────
+  function setupPortfolioFilter() {
+    const filters = qsa('.ef-portfolio__filter');
+    const cards = qsa('.ef-portfolio__card');
+    if (!filters.length) return;
+
+    filters.forEach(btn => {
+      btn.addEventListener('click', () => {
+        filters.forEach(f => f.classList.remove('active'));
+        btn.classList.add('active');
+        const cat = btn.dataset.filter;
+        cards.forEach(card => {
+          if (cat === 'all' || (card.dataset.cat && card.dataset.cat.includes(cat))) {
+            card.classList.remove('ef-hidden');
+          } else {
+            card.classList.add('ef-hidden');
+          }
+        });
+      });
+    });
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', () => { init(); setupStatsCounter(); setupSkillPanels(); setupPortfolioFilter(); });
   } else {
-    init();
+    init(); setupStatsCounter(); setupSkillPanels(); setupPortfolioFilter();
   }
 
 })();

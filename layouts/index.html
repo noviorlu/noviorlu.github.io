@@ -1,0 +1,343 @@
+{{ define "main" }}
+<!-- ══════════════════════════════════════════════════════════
+     ENDFIELD HOMEPAGE — Custom Sections
+     Hero + Stats + Skills + Timeline + Portfolio + Recent
+     ══════════════════════════════════════════════════════════ -->
+
+<!-- ── 1. HERO SECTION ─────────────────────────────────────── -->
+<section class="ef-home-hero" id="ef-home-hero">
+  <div class="ef-home-hero__bg"></div>
+  <div class="ef-home-hero__grid"></div>
+  <div class="ef-home-hero__content">
+    <div class="ef-home-hero__avatar-wrap">
+      {{ with .Site.Params.Author.image }}
+        {{ $img := resources.Get . }}
+        {{ if $img }}
+          {{ $thumb := $img.Fill "288x288 q96" }}
+          <img src="{{ $thumb.RelPermalink }}" alt="Chen Yang" class="ef-home-hero__avatar" />
+        {{ end }}
+      {{ else }}
+        <div class="ef-home-hero__avatar ef-home-hero__avatar--placeholder">CY</div>
+      {{ end }}
+    </div>
+    <div class="ef-home-hero__text">
+      <span class="ef-home-hero__label">[ OPERATOR // CHEN YANG ]</span>
+      <h1 class="ef-glitch" data-text="陈洋 Chen Yang">陈洋 Chen Yang</h1>
+      <p class="ef-home-hero__subtitle">Software Engineer / Graphics Researcher</p>
+      <p class="ef-home-hero__bio">热衷于在数字世界中模拟真实 —— 从物理到感知，用计算重建现实。</p>
+      <div class="ef-home-hero__links">
+        <a href="https://github.com/noviorlu" target="_blank" rel="noopener" title="GitHub">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12z"/></svg>
+        </a>
+        <a href="https://www.linkedin.com/in/chen-yang-noviorlu/" target="_blank" rel="noopener" title="LinkedIn">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+        </a>
+        <a href="https://www.zhihu.com/people/jack-chen-23-46" target="_blank" rel="noopener" title="知乎">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M5.721 0C2.251 0 0 2.25 0 5.719V18.28C0 21.751 2.252 24 5.721 24h12.56C21.751 24 24 21.75 24 18.281V5.72C24 2.249 21.75 0 18.281 0zm1.964 4.078h5.36c.243 0 .262.137.262.262l-.005.07-.063.29c-.037.155-.105.186-.21.208l-.049.008h-1.586c-.28 2.1-.462 3.156-.462 3.156h2.163c.2 0 .356.027.356.194 0 .074-.035.18-.092.293l-.058.107-.138.241c-.14.227-.238.283-.466.283h-2.273s-.345 1.852-.607 2.873c1.665-1.287 3.158-.18 3.744.781.344.563.39 1.39.019 2.012-.433.726-1.228.97-1.968.726-.615-.201-1.055-.817-1.074-1.512.002-.025-.023-.048-.048-.048-.025 0-.046.013-.056.033l-.007.015c-.365.637-1.037 1.233-1.783 1.233-1.2 0-1.67-.931-1.27-2.096.296-.86.855-1.93 1.632-2.926l-.011-.037c-.177.503-.38.937-.55 1.31l-.126.275-.06.125c-.07.14-.123.22-.135.241-.27.47-.72.84-1.205.84-.5 0-.83-.34-.83-.84l.006-.09.02-.097.009-.034c.15-.737.46-1.88.766-2.803H6.266c-.21 0-.29-.194-.29-.29s.034-.205.104-.371l.053-.126.036-.08c.102-.213.2-.262.322-.262h2.444c.216-.91.393-1.632.393-1.632H7.085c-.215 0-.299-.21-.299-.299 0-.09.058-.242.146-.412l.062-.115.03-.052c.1-.166.19-.26.376-.26h2.594s.2-1.075.324-1.883c.057-.376.37-.338.37-.338zm6.15 1.048c.12 0 .214.099.214.215l-.002.043-.048.338c-.017.14-.084.177-.171.196l-.047.008H12.37c.051-.4.116-.8.116-.8z"/></svg>
+        </a>
+        <a href="mailto:yangchen.jack@outlook.com" title="Email">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M1.5 8.67v8.58a3 3 0 003 3h15a3 3 0 003-3V8.67l-8.928 5.493a3 3 0 01-3.144 0L1.5 8.67z"/><path d="M22.5 6.908V6.75a3 3 0 00-3-3h-15a3 3 0 00-3 3v.158l9.714 5.978a1.5 1.5 0 001.572 0L22.5 6.908z"/></svg>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 2. STATS BAR ────────────────────────────────────────── -->
+<section class="ef-stats" id="ef-stats">
+  <div class="ef-stats__inner">
+    <div class="ef-stats__item ef-reveal">
+      <span class="ef-stats__num" data-target="3">0</span><span class="ef-stats__plus">+</span>
+      <span class="ef-stats__label">年经验</span>
+    </div>
+    <div class="ef-stats__item ef-reveal ef-reveal-delay-1">
+      <span class="ef-stats__num" data-target="10">0</span><span class="ef-stats__plus">+</span>
+      <span class="ef-stats__label">项目完成</span>
+    </div>
+    <div class="ef-stats__item ef-reveal ef-reveal-delay-2">
+      <span class="ef-stats__num" data-target="5">0</span><span class="ef-stats__plus">+</span>
+      <span class="ef-stats__label">编程语言</span>
+    </div>
+    <div class="ef-stats__item ef-reveal ef-reveal-delay-3">
+      <span class="ef-stats__num" data-target="2">0</span>
+      <span class="ef-stats__label">研究论文</span>
+    </div>
+  </div>
+</section>
+
+<!-- ── 3. SKILLS PANEL ─────────────────────────────────────── -->
+<section class="ef-skills" id="ef-skills">
+  <h2 class="ef-section-title"><span class="ef-section-title__marker">[ 03 ]</span> 技术能力</h2>
+  <div class="ef-skills__grid">
+
+    <div class="ef-skills__card" data-skill="gfx">
+      <div class="ef-skills__header">
+        <span class="ef-skills__icon">◆</span>
+        <span class="ef-skills__name">图形学 & 渲染</span>
+        <span class="ef-skills__toggle">+</span>
+      </div>
+      <div class="ef-skills__body">
+        <ul>
+          <li>Vulkan / OpenGL 实时渲染管线</li>
+          <li>路径追踪、MIS、Disney BSDF</li>
+          <li>体积渲染、次表面散射 (BSSRDF)</li>
+          <li>3D Gaussian Splatting (3DGS)</li>
+          <li>可微渲染、NeRF</li>
+          <li>Nanite 风格 Mesh LOD</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="ef-skills__card" data-skill="sys">
+      <div class="ef-skills__header">
+        <span class="ef-skills__icon">◆</span>
+        <span class="ef-skills__name">系统编程</span>
+        <span class="ef-skills__toggle">+</span>
+      </div>
+      <div class="ef-skills__body">
+        <ul>
+          <li>C/C++ 高性能开发</li>
+          <li>操作系统：锁、调度、虚拟内存</li>
+          <li>编译器、计算机体系结构</li>
+          <li>CPU 流水线模拟 (Tomasulo)</li>
+          <li>缓存一致性 (MSI)</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="ef-skills__card" data-skill="ai">
+      <div class="ef-skills__header">
+        <span class="ef-skills__icon">◆</span>
+        <span class="ef-skills__name">AI & 机器学习</span>
+        <span class="ef-skills__toggle">+</span>
+      </div>
+      <div class="ef-skills__body">
+        <ul>
+          <li>神经网络嵌入 Shader 实时推理</li>
+          <li>强化学习 (PPO, GRPO)</li>
+          <li>Transformer、生成模型</li>
+          <li>AIGC 工具探索</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="ef-skills__card" data-skill="game">
+      <div class="ef-skills__header">
+        <span class="ef-skills__icon">◆</span>
+        <span class="ef-skills__name">游戏开发</span>
+        <span class="ef-skills__toggle">+</span>
+      </div>
+      <div class="ef-skills__body">
+        <ul>
+          <li>Unity (C#) / WebGL</li>
+          <li>体素编辑器 (MVC)</li>
+          <li>光学仿真教学平台</li>
+          <li>FPGA 嵌入式街机游戏</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="ef-skills__card" data-skill="devops">
+      <div class="ef-skills__header">
+        <span class="ef-skills__icon">◆</span>
+        <span class="ef-skills__name">DevOps & 工具</span>
+        <span class="ef-skills__toggle">+</span>
+      </div>
+      <div class="ef-skills__body">
+        <ul>
+          <li>Jenkins CI/CD 管线</li>
+          <li>Git、静态分析、单元测试</li>
+          <li>Java 分布式系统</li>
+          <li>一致性哈希、复制、容错</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ── 4. TIMELINE ─────────────────────────────────────────── -->
+<section class="ef-timeline" id="ef-timeline">
+  <h2 class="ef-section-title"><span class="ef-section-title__marker">[ 04 ]</span> 经历时间线</h2>
+  <div class="ef-timeline__line">
+
+    <div class="ef-timeline__item ef-timeline__item--left ef-reveal">
+      <div class="ef-timeline__node"></div>
+      <div class="ef-timeline__card">
+        <span class="ef-timeline__date">2019.09</span>
+        <h3>多伦多大学 · 计算机工程</h3>
+        <p>开始 BASc Computer Engineering 本科学习</p>
+      </div>
+    </div>
+
+    <div class="ef-timeline__item ef-timeline__item--right ef-reveal">
+      <div class="ef-timeline__node"></div>
+      <div class="ef-timeline__card">
+        <span class="ef-timeline__date">2022.06 — 2023.08</span>
+        <h3>高通 · 汽车多媒体软件工程师实习</h3>
+        <p>自动化验证管线、Jenkins CI、音频多通道模块单元测试，荣获 Influence Award</p>
+      </div>
+    </div>
+
+    <div class="ef-timeline__item ef-timeline__item--left ef-reveal">
+      <div class="ef-timeline__node"></div>
+      <div class="ef-timeline__card">
+        <span class="ef-timeline__date">2024.05</span>
+        <h3>本科毕业 · GPA 3.6/4.0</h3>
+        <p>Dean's Honor List，多伦多大学计算机工程学士</p>
+      </div>
+    </div>
+
+    <div class="ef-timeline__item ef-timeline__item--right ef-reveal">
+      <div class="ef-timeline__node"></div>
+      <div class="ef-timeline__card">
+        <span class="ef-timeline__date">2024.09</span>
+        <h3>滑铁卢大学 · 计算机工程硕士</h3>
+        <p>开始 MEng Computer 硕士研究</p>
+      </div>
+    </div>
+
+    <div class="ef-timeline__item ef-timeline__item--left ef-reveal">
+      <div class="ef-timeline__node"></div>
+      <div class="ef-timeline__card">
+        <span class="ef-timeline__date">2025.01 — 2025.09</span>
+        <h3>华为 · 研究渲染工程师</h3>
+        <p>移动端 Vulkan 实时 3DGS 渲染管线，实现 10× 加速无 PSNR 损失，推进 SIGGRAPH 2025 论文</p>
+      </div>
+    </div>
+
+    <div class="ef-timeline__item ef-timeline__item--right ef-reveal">
+      <div class="ef-timeline__node"></div>
+      <div class="ef-timeline__card">
+        <span class="ef-timeline__date">2025.09</span>
+        <h3>硕士毕业</h3>
+        <p>滑铁卢大学计算机工程硕士</p>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ── 5. PORTFOLIO ─────────────────────────────────────────── -->
+<section class="ef-portfolio" id="ef-portfolio">
+  <h2 class="ef-section-title"><span class="ef-section-title__marker">[ 05 ]</span> 项目作品</h2>
+  
+  <div class="ef-portfolio__filters">
+    <button class="ef-portfolio__filter active" data-filter="all">全部</button>
+    <button class="ef-portfolio__filter" data-filter="graphics">图形学</button>
+    <button class="ef-portfolio__filter" data-filter="systems">系统</button>
+    <button class="ef-portfolio__filter" data-filter="ai">AI</button>
+    <button class="ef-portfolio__filter" data-filter="gamedev">游戏</button>
+  </div>
+
+  <div class="ef-portfolio__grid">
+
+    <div class="ef-portfolio__card ef-reveal" data-cat="ai graphics">
+      <div class="ef-portfolio__card-inner">
+        <span class="ef-portfolio__date">2024.03 — 2025.05</span>
+        <h3>Neural Lens Simulation System</h3>
+        <p>领导 5 人研究团队，将神经网络嵌入 Shader 实现实时透镜仿真，投稿 SIGGRAPH Asia 2025</p>
+        <div class="ef-portfolio__tags">
+          <span>Neural Rendering</span><span>GLSL</span><span>Research</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="ef-portfolio__card ef-reveal" data-cat="graphics">
+      <div class="ef-portfolio__card-inner">
+        <span class="ef-portfolio__date">2024.10 — 2025.01</span>
+        <h3>"Nanite" 动态 Mesh LOD 系统</h3>
+        <p>QEM 简化、半边网格、METIS 分区，百万三角形模型平滑 LOD 切换</p>
+        <div class="ef-portfolio__tags">
+          <span>C++</span><span>Mesh Processing</span><span>LOD</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="ef-portfolio__card ef-reveal" data-cat="graphics">
+      <div class="ef-portfolio__card-inner">
+        <span class="ef-portfolio__date">2024.08 — 2024.11</span>
+        <h3>Iajolla 离线渲染器</h3>
+        <p>MIS 路径追踪、Disney BSDF、异质体积渲染，功能完备的教学渲染器</p>
+        <div class="ef-portfolio__tags">
+          <span>C++</span><span>Path Tracing</span><span>PBR</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="ef-portfolio__card ef-reveal" data-cat="graphics">
+      <div class="ef-portfolio__card-inner">
+        <span class="ef-portfolio__date">2024.04 — 2024.07</span>
+        <h3>OpenGL 实时渲染器</h3>
+        <p>图形渲染管线、Fragment Shader 光线追踪、SSGI、体素渲染</p>
+        <div class="ef-portfolio__tags">
+          <span>OpenGL</span><span>GLSL</span><span>Real-time</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="ef-portfolio__card ef-reveal" data-cat="gamedev">
+      <div class="ef-portfolio__card-inner">
+        <span class="ef-portfolio__date">2023.09 — 2024.04</span>
+        <h3>Optic · 波动光学教学平台</h3>
+        <p>Unity WebGL、MVC 架构、光学仿真</p>
+        <div class="ef-portfolio__tags">
+          <span>Unity</span><span>C#</span><span>WebGL</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="ef-portfolio__card ef-reveal" data-cat="systems">
+      <div class="ef-portfolio__card-inner">
+        <span class="ef-portfolio__date">2024.01 — 2024.04</span>
+        <h3>分布式键值数据库</h3>
+        <p>Java Socket、一致性哈希、复制、容错</p>
+        <div class="ef-portfolio__tags">
+          <span>Java</span><span>Distributed</span><span>Fault Tolerance</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="ef-portfolio__card ef-reveal" data-cat="systems">
+      <div class="ef-portfolio__card-inner">
+        <span class="ef-portfolio__date">2023</span>
+        <h3>CPU 体系结构模拟</h3>
+        <p>O-GEometric 分支预测器、Tomasulo 流水线、MSI 缓存一致性</p>
+        <div class="ef-portfolio__tags">
+          <span>Architecture</span><span>Simulation</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="ef-portfolio__card ef-reveal" data-cat="systems">
+      <div class="ef-portfolio__card-inner">
+        <span class="ef-portfolio__date">2022</span>
+        <h3>操作系统功能实现</h3>
+        <p>锁 & 条件变量、fork/exec、coremap、按需分页</p>
+        <div class="ef-portfolio__tags">
+          <span>OS</span><span>C</span><span>Kernel</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="ef-portfolio__card ef-reveal" data-cat="gamedev">
+      <div class="ef-portfolio__card-inner">
+        <span class="ef-portfolio__date">2025.01 — 2025.04</span>
+        <h3>体素编辑器</h3>
+        <p>MVC 模式、交互式体素操作</p>
+        <div class="ef-portfolio__tags">
+          <span>Voxel</span><span>MVC</span><span>Interactive</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ── RECENT ARTICLES (from Blowfish) ─────────────────────── -->
+<section class="ef-recent-section">
+  <h2 class="ef-section-title"><span class="ef-section-title__marker">[ 06 ]</span> 最新文章</h2>
+  {{ partial "recent-articles/main.html" . }}
+</section>
+
+{{ end }}
