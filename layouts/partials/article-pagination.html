@@ -8,35 +8,47 @@
     {{ end }}
     <div class="pt-8">
       <hr class="border-dotted border-neutral-300 dark:border-neutral-600">
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; padding-top:0.75rem; align-items:start;">
-        <div style="min-width:0; overflow:hidden;">
+      <div style="display:grid; grid-template-columns:auto 1fr 1fr auto; gap:0; padding-top:0.75rem; align-items:center;">
+        {{/* Left arrow */}}
+        <div style="padding-right:0.75rem; font-size:1.2rem;">
           {{ if $prev }}
-            <a
-              class="text-neutral-700 hover:text-primary-600 dark:text-neutral dark:hover:text-primary-400"
+            <a class="text-neutral-700 hover:text-primary-600 dark:text-neutral dark:hover:text-primary-400" href="{{ $prev.RelPermalink }}">&larr;</a>
+          {{ end }}
+        </div>
+        {{/* Left content - centered */}}
+        <div style="min-width:0; overflow:hidden; text-align:center;">
+          {{ if $prev }}
+            <a class="text-neutral-700 hover:text-primary-600 dark:text-neutral dark:hover:text-primary-400"
               href="{{ $prev.RelPermalink }}"
               style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.85rem;">
-              <span class="inline-block rtl:rotate-180">&larr;</span>&ensp;{{ $prev.Title | emojify }}
+              {{ $prev.Title | emojify }}
             </a>
             {{ if .Params.showDate | default (.Site.Params.article.showDate | default true) }}
-              <span class="mt-1 text-xs text-neutral-500 dark:text-neutral-400" style="display:block; padding-left:1.5rem;">
+              <span class="mt-1 text-xs text-neutral-500 dark:text-neutral-400" style="display:block;">
                 {{ partial "meta/date.html" $prev.Date }}
               </span>
             {{ end }}
           {{ end }}
         </div>
-        <div style="min-width:0; overflow:hidden; text-align:right;">
+        {{/* Right content - centered */}}
+        <div style="min-width:0; overflow:hidden; text-align:center;">
           {{ if $next }}
-            <a
-              class="text-neutral-700 hover:text-primary-600 dark:text-neutral dark:hover:text-primary-400"
+            <a class="text-neutral-700 hover:text-primary-600 dark:text-neutral dark:hover:text-primary-400"
               href="{{ $next.RelPermalink }}"
-              style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.85rem; text-align:right;">
-              {{ $next.Title | emojify }}&ensp;<span class="inline-block rtl:rotate-180">&rarr;</span>
+              style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.85rem;">
+              {{ $next.Title | emojify }}
             </a>
             {{ if .Params.showDate | default (.Site.Params.article.showDate | default true) }}
-              <span class="mt-1 text-xs text-neutral-500 dark:text-neutral-400" style="display:block; padding-right:1.5rem;">
+              <span class="mt-1 text-xs text-neutral-500 dark:text-neutral-400" style="display:block;">
                 {{ partial "meta/date.html" $next.Date }}
               </span>
             {{ end }}
+          {{ end }}
+        </div>
+        {{/* Right arrow */}}
+        <div style="padding-left:0.75rem; font-size:1.2rem;">
+          {{ if $next }}
+            <a class="text-neutral-700 hover:text-primary-600 dark:text-neutral dark:hover:text-primary-400" href="{{ $next.RelPermalink }}">&rarr;</a>
           {{ end }}
         </div>
       </div>
