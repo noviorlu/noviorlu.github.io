@@ -499,15 +499,25 @@
       return Math.abs(h);
     }
 
+    // Color all tag elements — both <a> links and inner <span>s
     const tagLinks = qsa('a[href*="/tags/"]');
     tagLinks.forEach(link => {
-      // Find the inner span (Blowfish puts tag text in span.rounded-md)
-      const span = link.querySelector('span.rounded-md') || link.querySelector('span span') || link;
-      if (span.classList.contains('ef-tag-colored')) return;
-      const text = span.textContent.trim().toLowerCase();
+      // Skip nav/header links to /tags/ index
+      if (link.getAttribute('href') === '/tags/' || link.getAttribute('href') === '/tags') return;
+      const text = link.textContent.trim().toLowerCase();
       if (!text) return;
       const idx = hashStr(text) % TAG_COLORS;
-      span.classList.add(`ef-tag-${idx}`, 'ef-tag-colored');
+      const cls = `ef-tag-${idx}`;
+      // Apply to the link itself
+      if (!link.classList.contains('ef-tag-colored')) {
+        link.classList.add(cls, 'ef-tag-colored');
+      }
+      // Apply to all inner spans (Blowfish nests: a > span.flex > span.rounded-md)
+      link.querySelectorAll('span').forEach(span => {
+        if (!span.classList.contains('ef-tag-colored')) {
+          span.classList.add(cls, 'ef-tag-colored');
+        }
+      });
     });
   }
 

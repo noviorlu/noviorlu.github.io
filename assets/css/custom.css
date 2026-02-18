@@ -486,28 +486,29 @@ a[href*="/tags/"]:hover span.rounded-md {
   filter: brightness(1.3) !important;
 }
 
-/* Endfield tag color classes — applied to the inner span by JS */
-.ef-tag-0 { color: var(--ef-tag-yellow) !important; border-color: rgba(255,209,0,0.5) !important; background: rgba(255,209,0,0.08) !important; }
-.ef-tag-1 { color: var(--ef-tag-blue) !important; border-color: rgba(79,195,247,0.5) !important; background: rgba(79,195,247,0.08) !important; }
-.ef-tag-2 { color: var(--ef-tag-amber) !important; border-color: rgba(255,179,0,0.5) !important; background: rgba(255,179,0,0.08) !important; }
-.ef-tag-3 { color: var(--ef-tag-teal) !important; border-color: rgba(0,191,165,0.5) !important; background: rgba(0,191,165,0.08) !important; }
-.ef-tag-4 { color: var(--ef-tag-violet) !important; border-color: rgba(179,136,255,0.5) !important; background: rgba(179,136,255,0.08) !important; }
-.ef-tag-5 { color: var(--ef-tag-green) !important; border-color: rgba(105,240,174,0.5) !important; background: rgba(105,240,174,0.08) !important; }
-.ef-tag-6 { color: var(--ef-tag-cyan) !important; border-color: rgba(24,255,255,0.5) !important; background: rgba(24,255,255,0.08) !important; }
-.ef-tag-7 { color: var(--ef-tag-pink) !important; border-color: rgba(255,128,171,0.5) !important; background: rgba(255,128,171,0.08) !important; }
-.ef-tag-8 { color: var(--ef-tag-red) !important; border-color: rgba(255,82,82,0.5) !important; background: rgba(255,82,82,0.08) !important; }
-.ef-tag-9 { color: var(--ef-tag-orange) !important; border-color: rgba(255,110,64,0.5) !important; background: rgba(255,110,64,0.08) !important; }
+/* Endfield tag color classes — applied to both <a> and inner <span> by JS */
+/* Use high-specificity selectors to beat Tailwind dark: classes */
+span.ef-tag-0, a.ef-tag-0, .ef-tag-0 { color: var(--ef-tag-yellow) !important; border-color: rgba(255,209,0,0.5) !important; background: rgba(255,209,0,0.08) !important; }
+span.ef-tag-1, a.ef-tag-1, .ef-tag-1 { color: var(--ef-tag-blue) !important; border-color: rgba(79,195,247,0.5) !important; background: rgba(79,195,247,0.08) !important; }
+span.ef-tag-2, a.ef-tag-2, .ef-tag-2 { color: var(--ef-tag-amber) !important; border-color: rgba(255,179,0,0.5) !important; background: rgba(255,179,0,0.08) !important; }
+span.ef-tag-3, a.ef-tag-3, .ef-tag-3 { color: var(--ef-tag-teal) !important; border-color: rgba(0,191,165,0.5) !important; background: rgba(0,191,165,0.08) !important; }
+span.ef-tag-4, a.ef-tag-4, .ef-tag-4 { color: var(--ef-tag-violet) !important; border-color: rgba(179,136,255,0.5) !important; background: rgba(179,136,255,0.08) !important; }
+span.ef-tag-5, a.ef-tag-5, .ef-tag-5 { color: var(--ef-tag-green) !important; border-color: rgba(105,240,174,0.5) !important; background: rgba(105,240,174,0.08) !important; }
+span.ef-tag-6, a.ef-tag-6, .ef-tag-6 { color: var(--ef-tag-cyan) !important; border-color: rgba(24,255,255,0.5) !important; background: rgba(24,255,255,0.08) !important; }
+span.ef-tag-7, a.ef-tag-7, .ef-tag-7 { color: var(--ef-tag-pink) !important; border-color: rgba(255,128,171,0.5) !important; background: rgba(255,128,171,0.08) !important; }
+span.ef-tag-8, a.ef-tag-8, .ef-tag-8 { color: var(--ef-tag-red) !important; border-color: rgba(255,82,82,0.5) !important; background: rgba(255,82,82,0.08) !important; }
+span.ef-tag-9, a.ef-tag-9, .ef-tag-9 { color: var(--ef-tag-orange) !important; border-color: rgba(255,110,64,0.5) !important; background: rgba(255,110,64,0.08) !important; }
 
-.ef-tag-0:hover { box-shadow: 0 0 12px rgba(255,209,0,0.4) !important; background: rgba(255,209,0,0.15) !important; }
-.ef-tag-1:hover { box-shadow: 0 0 12px rgba(79,195,247,0.4) !important; background: rgba(79,195,247,0.15) !important; }
-.ef-tag-2:hover { box-shadow: 0 0 12px rgba(255,179,0,0.4) !important; background: rgba(255,179,0,0.15) !important; }
-.ef-tag-3:hover { box-shadow: 0 0 12px rgba(0,191,165,0.4) !important; background: rgba(0,191,165,0.15) !important; }
-.ef-tag-4:hover { box-shadow: 0 0 12px rgba(179,136,255,0.4) !important; background: rgba(179,136,255,0.15) !important; }
-.ef-tag-5:hover { box-shadow: 0 0 12px rgba(105,240,174,0.4) !important; background: rgba(105,240,174,0.15) !important; }
-.ef-tag-6:hover { box-shadow: 0 0 12px rgba(24,255,255,0.4) !important; background: rgba(24,255,255,0.15) !important; }
-.ef-tag-7:hover { box-shadow: 0 0 12px rgba(255,128,171,0.4) !important; background: rgba(255,128,171,0.15) !important; }
-.ef-tag-8:hover { box-shadow: 0 0 12px rgba(255,82,82,0.4) !important; background: rgba(255,82,82,0.15) !important; }
-.ef-tag-9:hover { box-shadow: 0 0 12px rgba(255,110,64,0.4) !important; background: rgba(255,110,64,0.15) !important; }
+a.ef-tag-0:hover span, .ef-tag-0:hover { box-shadow: 0 0 12px rgba(255,209,0,0.4) !important; background: rgba(255,209,0,0.15) !important; }
+a.ef-tag-1:hover span, .ef-tag-1:hover { box-shadow: 0 0 12px rgba(79,195,247,0.4) !important; background: rgba(79,195,247,0.15) !important; }
+a.ef-tag-2:hover span, .ef-tag-2:hover { box-shadow: 0 0 12px rgba(255,179,0,0.4) !important; background: rgba(255,179,0,0.15) !important; }
+a.ef-tag-3:hover span, .ef-tag-3:hover { box-shadow: 0 0 12px rgba(0,191,165,0.4) !important; background: rgba(0,191,165,0.15) !important; }
+a.ef-tag-4:hover span, .ef-tag-4:hover { box-shadow: 0 0 12px rgba(179,136,255,0.4) !important; background: rgba(179,136,255,0.15) !important; }
+a.ef-tag-5:hover span, .ef-tag-5:hover { box-shadow: 0 0 12px rgba(105,240,174,0.4) !important; background: rgba(105,240,174,0.15) !important; }
+a.ef-tag-6:hover span, .ef-tag-6:hover { box-shadow: 0 0 12px rgba(24,255,255,0.4) !important; background: rgba(24,255,255,0.15) !important; }
+a.ef-tag-7:hover span, .ef-tag-7:hover { box-shadow: 0 0 12px rgba(255,128,171,0.4) !important; background: rgba(255,128,171,0.15) !important; }
+a.ef-tag-8:hover span, .ef-tag-8:hover { box-shadow: 0 0 12px rgba(255,82,82,0.4) !important; background: rgba(255,82,82,0.15) !important; }
+a.ef-tag-9:hover span, .ef-tag-9:hover { box-shadow: 0 0 12px rgba(255,110,64,0.4) !important; background: rgba(255,110,64,0.15) !important; }
 
 /* ── Code Blocks ───────────────────────────────────────────── */
 pre, code {
