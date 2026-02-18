@@ -397,6 +397,7 @@ header nav a:hover,
 /* ── Article Cards ─────────────────────────────────────────── */
 article.card,
 .article-card,
+article.article-link--card,
 a[class*="card"] {
   background: var(--ef-dark-2) !important;
   border: 1px solid var(--ef-gray) !important;
@@ -408,6 +409,7 @@ a[class*="card"] {
 
 article.card:hover,
 .article-card:hover,
+article.article-link--card:hover,
 a[class*="card"]:hover {
   border-color: var(--ef-yellow) !important;
   transform: translateY(-3px);
@@ -416,6 +418,7 @@ a[class*="card"]:hover {
 
 /* Yellow sweep on hover */
 article.card::after,
+article.article-link--card::after,
 a[class*="card"]::after {
   content: '';
   position: absolute;
@@ -429,12 +432,14 @@ a[class*="card"]::after {
 }
 
 article.card:hover::after,
+article.article-link--card:hover::after,
 a[class*="card"]:hover::after {
   left: 0;
 }
 
 /* Card corner notch indicator */
 article.card::before,
+article.article-link--card::before,
 a[class*="card"]::before {
   content: '';
   position: absolute;
@@ -450,6 +455,7 @@ a[class*="card"]::before {
 }
 
 article.card:hover::before,
+article.article-link--card:hover::before,
 a[class*="card"]:hover::before {
   border-color: transparent var(--ef-yellow) transparent transparent;
 }
@@ -1578,7 +1584,10 @@ nav[aria-label="breadcrumb"] a,
 .ef-recent-section {
   max-width: var(--ef-wide-width);
   margin: 0 auto 3rem;
-  padding: 0 2.5rem;
+  padding: 2rem 2.5rem;
+  background: rgba(13, 13, 13, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--ef-gray);
 }
 
 /* ── RESPONSIVE (homepage sections) ────────────────────────── */
