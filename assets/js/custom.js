@@ -499,13 +499,15 @@
       return Math.abs(h);
     }
 
-    const tags = qsa('a[href*="/tags/"], [class*="tag"], .taxonomy-term');
-    tags.forEach(tag => {
-      if (tag.classList.contains('ef-tag-colored')) return;
-      const text = tag.textContent.trim().toLowerCase();
+    const tagLinks = qsa('a[href*="/tags/"]');
+    tagLinks.forEach(link => {
+      // Find the inner span (Blowfish puts tag text in span.rounded-md)
+      const span = link.querySelector('span.rounded-md') || link.querySelector('span span') || link;
+      if (span.classList.contains('ef-tag-colored')) return;
+      const text = span.textContent.trim().toLowerCase();
       if (!text) return;
       const idx = hashStr(text) % TAG_COLORS;
-      tag.classList.add(`ef-tag-${idx}`, 'ef-tag-colored');
+      span.classList.add(`ef-tag-${idx}`, 'ef-tag-colored');
     });
   }
 
