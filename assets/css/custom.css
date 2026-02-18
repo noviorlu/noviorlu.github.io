@@ -1,5 +1,5 @@
 /* ============================================================
-   ARKNIGHTS: ENDFIELD — Dark Industrial Theme
+   ARKNIGHTS: ENDFIELD — Dark Industrial Theme v2
    Hugo + Blowfish Custom CSS
    ============================================================ */
 
@@ -19,6 +19,8 @@
   --ef-red: #ff3b3b;
   --ef-scan-speed: 8s;
   --ef-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  --ef-content-width: 800px;
+  --ef-wide-width: 1000px;
 }
 
 /* ── Global Reset & Base ───────────────────────────────────── */
@@ -119,6 +121,42 @@ main::after {
   border-left: 1px solid var(--ef-gray);
 }
 
+/* ── CONTENT CENTERING FIX ─────────────────────────────────── */
+/* Article page: center all article children */
+main > article {
+  max-width: var(--ef-wide-width);
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+main > article > header,
+main > article > footer {
+  max-width: var(--ef-content-width) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+main > article > section.prose {
+  max-width: var(--ef-content-width) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+/* Blog list page centering */
+main > .max-w-prose,
+main > section {
+  max-width: var(--ef-wide-width);
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+/* Homepage profile centering */
+.profile {
+  max-width: var(--ef-wide-width);
+  margin-left: auto;
+  margin-right: auto;
+}
+
 /* ── Scan Lines Overlay ────────────────────────────────────── */
 .ef-scanlines {
   position: fixed;
@@ -201,7 +239,6 @@ main::after {
   z-index: 0;
 }
 
-/* Dark overlay — hard edge blocks, not gradient */
 .ef-hero-bg::before {
   content: '';
   position: absolute;
@@ -213,7 +250,6 @@ main::after {
   z-index: 1;
 }
 
-/* Grid overlay on hero */
 .ef-hero-bg::after {
   content: '';
   position: absolute;
@@ -321,27 +357,25 @@ header nav a:hover,
 /* ── Article Cards ─────────────────────────────────────────── */
 article.card,
 .article-card,
-.card,
 a[class*="card"] {
   background: var(--ef-dark-2) !important;
   border: 1px solid var(--ef-gray) !important;
   clip-path: polygon(0 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 0 100%);
-  transition: border-color 0.2s, transform 0.2s;
+  transition: border-color 0.3s, transform 0.3s, box-shadow 0.3s;
   position: relative;
   overflow: hidden;
 }
 
 article.card:hover,
 .article-card:hover,
-.card:hover,
 a[class*="card"]:hover {
   border-color: var(--ef-yellow) !important;
-  transform: translateY(-2px);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 30px rgba(255, 209, 0, 0.08), 0 0 1px var(--ef-yellow);
 }
 
 /* Yellow sweep on hover */
 article.card::after,
-.card::after,
 a[class*="card"]::after {
   content: '';
   position: absolute;
@@ -355,14 +389,12 @@ a[class*="card"]::after {
 }
 
 article.card:hover::after,
-.card:hover::after,
 a[class*="card"]:hover::after {
   left: 0;
 }
 
 /* Card corner notch indicator */
 article.card::before,
-.card::before,
 a[class*="card"]::before {
   content: '';
   position: absolute;
@@ -378,7 +410,6 @@ a[class*="card"]::before {
 }
 
 article.card:hover::before,
-.card:hover::before,
 a[class*="card"]:hover::before {
   border-color: transparent var(--ef-yellow) transparent transparent;
 }
@@ -396,7 +427,7 @@ a[href*="/tags/"],
   text-transform: uppercase;
   letter-spacing: 0.1em;
   padding: 0.2em 0.6em !important;
-  transition: all 0.15s;
+  transition: all 0.2s;
 }
 
 .tag:hover,
@@ -405,6 +436,7 @@ a[href*="/tags/"]:hover,
   border-color: var(--ef-yellow) !important;
   color: var(--ef-yellow) !important;
   background: var(--ef-dark-2) !important;
+  box-shadow: 0 0 8px rgba(255, 209, 0, 0.15);
 }
 
 /* ── Code Blocks ───────────────────────────────────────────── */
@@ -469,6 +501,17 @@ article h2::after {
   color: var(--ef-gray);
   margin-left: 0.8em;
   font-weight: 400;
+}
+
+/* ── Section Number Markers (injected by JS) ───────────────── */
+.ef-section-num {
+  font-family: var(--ef-mono);
+  font-size: 0.55rem;
+  color: var(--ef-yellow-dim);
+  letter-spacing: 0.2em;
+  display: block;
+  margin-bottom: 0.3rem;
+  opacity: 0.6;
 }
 
 /* ── Blockquotes ───────────────────────────────────────────── */
@@ -644,12 +687,180 @@ footer::before {
 .ef-reveal {
   opacity: 0;
   transform: translateY(20px);
-  transition: opacity 0.5s, transform 0.5s;
+  transition: opacity 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94), transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 .ef-reveal.ef-visible {
   opacity: 1;
   transform: translateY(0);
+}
+
+/* Staggered reveal for cards */
+.ef-reveal-delay-1 { transition-delay: 0.1s; }
+.ef-reveal-delay-2 { transition-delay: 0.2s; }
+.ef-reveal-delay-3 { transition-delay: 0.3s; }
+
+/* ── Glitch Text Effect ───────────────────────────────────── */
+.ef-glitch {
+  position: relative;
+  display: inline-block;
+}
+
+.ef-glitch::before,
+.ef-glitch::after {
+  content: attr(data-text);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.ef-glitch::before {
+  color: var(--ef-yellow);
+  z-index: -1;
+  animation: ef-glitch-1 3s infinite linear alternate-reverse;
+}
+
+.ef-glitch::after {
+  color: var(--ef-red);
+  z-index: -2;
+  animation: ef-glitch-2 2s infinite linear alternate-reverse;
+}
+
+@keyframes ef-glitch-1 {
+  0%, 95% { clip-path: inset(0 0 0 0); transform: translate(0); }
+  96% { clip-path: inset(20% 0 60% 0); transform: translate(-2px, 1px); }
+  97% { clip-path: inset(50% 0 30% 0); transform: translate(2px, -1px); }
+  98% { clip-path: inset(70% 0 10% 0); transform: translate(-1px, 2px); }
+  99% { clip-path: inset(10% 0 80% 0); transform: translate(1px, -2px); }
+  100% { clip-path: inset(0 0 0 0); transform: translate(0); }
+}
+
+@keyframes ef-glitch-2 {
+  0%, 93% { clip-path: inset(0 0 0 0); transform: translate(0); }
+  94% { clip-path: inset(40% 0 40% 0); transform: translate(2px, 1px); }
+  95% { clip-path: inset(60% 0 20% 0); transform: translate(-2px, -1px); }
+  96% { clip-path: inset(10% 0 70% 0); transform: translate(1px, 2px); }
+  97% { clip-path: inset(80% 0 5% 0); transform: translate(-1px, -2px); }
+  100% { clip-path: inset(0 0 0 0); transform: translate(0); }
+}
+
+/* ── Progress Reading Bar ──────────────────────────────────── */
+.ef-reading-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--ef-yellow), var(--ef-yellow-dim));
+  z-index: 10001;
+  pointer-events: none;
+  transition: width 0.1s linear;
+  box-shadow: 0 0 8px rgba(255, 209, 0, 0.4);
+}
+
+/* ── TOC Enhancement ───────────────────────────────────────── */
+#TableOfContents {
+  border-left: 2px solid var(--ef-gray);
+  padding-left: 1rem;
+  margin: 1.5rem 0;
+}
+
+#TableOfContents a {
+  font-family: var(--ef-mono);
+  font-size: 0.8rem;
+  color: var(--ef-gray-light) !important;
+  transition: color 0.2s, padding-left 0.2s;
+  display: block;
+  padding: 0.2em 0;
+}
+
+#TableOfContents a:hover,
+#TableOfContents a.ef-toc-active {
+  color: var(--ef-yellow) !important;
+  padding-left: 0.5rem;
+}
+
+#TableOfContents li.ef-toc-active-li > a {
+  color: var(--ef-yellow) !important;
+  border-left: 2px solid var(--ef-yellow);
+  margin-left: -1rem;
+  padding-left: calc(1rem - 2px);
+}
+
+/* ── Animated Border Box for Article ───────────────────────── */
+.ef-article-frame {
+  position: relative;
+  padding: 2rem 0;
+}
+
+.ef-article-frame::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -1rem;
+  width: 1px;
+  height: 0;
+  background: linear-gradient(to bottom, var(--ef-yellow), var(--ef-gray), transparent);
+  transition: height 1s ease-out;
+}
+
+.ef-article-frame.ef-visible::before {
+  height: 100%;
+}
+
+/* ── Data Coordinates Overlay ──────────────────────────────── */
+.ef-coords {
+  position: fixed;
+  top: 12px;
+  right: 40px;
+  font-family: var(--ef-mono);
+  font-size: 0.5rem;
+  color: var(--ef-gray);
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  z-index: 9990;
+  pointer-events: none;
+  text-align: right;
+  line-height: 1.6;
+}
+
+/* ── Image Hover Effects ───────────────────────────────────── */
+article img:not(.nozoom) {
+  transition: filter 0.3s, transform 0.3s;
+  border: 1px solid var(--ef-gray);
+}
+
+article img:not(.nozoom):hover {
+  filter: brightness(1.1) contrast(1.05);
+  transform: scale(1.01);
+  border-color: var(--ef-yellow);
+}
+
+/* ── Year Group Headers in Blog List ───────────────────────── */
+.group-year-heading,
+h2.text-2xl {
+  font-family: var(--ef-mono) !important;
+  color: var(--ef-yellow) !important;
+  position: relative;
+  padding-left: 1rem;
+}
+
+.group-year-heading::before,
+h2.text-2xl::before {
+  content: '//';
+  color: var(--ef-gray);
+  margin-right: 0.5rem;
+}
+
+/* ── Breadcrumbs Enhancement ───────────────────────────────── */
+nav[aria-label="breadcrumb"] a,
+.breadcrumb a {
+  font-family: var(--ef-mono);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
 }
 
 /* ── Responsive ────────────────────────────────────────────── */
@@ -676,6 +887,18 @@ footer::before {
     width: 14px;
     height: 14px;
   }
+
+  .ef-coords {
+    display: none;
+  }
+
+  main > article,
+  main > article > header,
+  main > article > footer,
+  main > article > section.prose {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
 }
 
 @media (max-width: 480px) {
@@ -696,6 +919,8 @@ footer::before {
   .ef-status,
   .ef-loading-bar,
   .ef-cursor-glow,
+  .ef-coords,
+  .ef-reading-progress,
   #ef-flow-canvas {
     display: none !important;
   }

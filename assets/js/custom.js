@@ -1,12 +1,11 @@
 /* ============================================================
-   ARKNIGHTS: ENDFIELD — Dark Industrial Theme
+   ARKNIGHTS: ENDFIELD — Dark Industrial Theme v2
    Hugo + Blowfish Custom JavaScript
    ============================================================ */
 
 (function () {
   'use strict';
 
-  // ── Utilities ─────────────────────────────────────────────
   const qs = (s, p) => (p || document).querySelector(s);
   const qsa = (s, p) => [...(p || document).querySelectorAll(s)];
   const ce = (tag, cls) => {
@@ -15,7 +14,6 @@
     return el;
   };
 
-  // Throttle helper
   function throttle(fn, ms) {
     let last = 0;
     return function (...args) {
@@ -24,7 +22,6 @@
     };
   }
 
-  // Detect reduced motion preference
   const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // ── Loading Bar ───────────────────────────────────────────
@@ -71,36 +68,74 @@
   status.innerHTML = '<div class="ef-status-dot"></div>[ SYS ] ONLINE';
   document.body.appendChild(status);
 
-  // Rotate status messages
   const statusMsgs = [
     '[ SYS ] ONLINE',
     '[ REC ] ACTIVE',
     '[ NET ] CONNECTED',
     '[ SCN ] MONITORING',
     '[ DAT ] STREAMING',
+    '[ MEM ] 0x4F6B',
+    '[ CPU ] NOMINAL',
   ];
   let statusIdx = 0;
   setInterval(() => {
     statusIdx = (statusIdx + 1) % statusMsgs.length;
     status.innerHTML = '<div class="ef-status-dot"></div>' + statusMsgs[statusIdx];
-  }, 5000);
+  }, 4000);
+
+  // ── Data Coordinates Overlay ──────────────────────────────
+  const coords = ce('div', 'ef-coords');
+  document.body.appendChild(coords);
+
+  function updateCoords() {
+    const scrollY = window.scrollY | 0;
+    const scrollPct = document.body.scrollHeight > window.innerHeight
+      ? ((scrollY / (document.body.scrollHeight - window.innerHeight)) * 100).toFixed(1)
+      : '0.0';
+    const now = new Date();
+    const ts = now.toTimeString().substring(0, 8);
+    coords.innerHTML = `
+      POS: ${scrollY}<br>
+      SCR: ${scrollPct}%<br>
+      UTC: ${ts}
+    `;
+  }
+  updateCoords();
+  window.addEventListener('scroll', throttle(updateCoords, 100));
+  setInterval(updateCoords, 1000);
 
   // ── Cursor Glow ───────────────────────────────────────────
   const glow = ce('div', 'ef-cursor-glow');
   document.body.appendChild(glow);
 
-  let mouseX = -300, mouseY = -300;
   document.addEventListener('mousemove', throttle(e => {
-    mouseX = e.clientX;
-    mouseY = e.clientY;
-    glow.style.left = mouseX + 'px';
-    glow.style.top = mouseY + 'px';
+    glow.style.left = e.clientX + 'px';
+    glow.style.top = e.clientY + 'px';
     glow.style.opacity = '1';
   }, 16));
 
   document.addEventListener('mouseleave', () => {
     glow.style.opacity = '0';
   });
+
+  // ── Reading Progress Bar (article pages) ──────────────────
+  function setupReadingProgress() {
+    const article = qs('main > article');
+    if (!article) return;
+
+    const bar = ce('div', 'ef-reading-progress');
+    bar.style.width = '0%';
+    document.body.appendChild(bar);
+
+    window.addEventListener('scroll', throttle(() => {
+      const rect = article.getBoundingClientRect();
+      const articleTop = rect.top + window.scrollY;
+      const articleHeight = rect.height;
+      const scrolled = window.scrollY - articleTop;
+      const pct = Math.max(0, Math.min(100, (scrolled / (articleHeight - window.innerHeight)) * 100));
+      bar.style.width = pct + '%';
+    }, 30));
+  }
 
   // ── Flow Lines Canvas ─────────────────────────────────────
   const canvas = ce('canvas');
@@ -116,13 +151,11 @@
   resizeCanvas();
   window.addEventListener('resize', throttle(resizeCanvas, 200));
 
-  // Flow line class — traces circuit-like paths
   class FlowLine {
     constructor() { this.reset(); }
 
     reset() {
       this.segments = [];
-      // Start from an edge
       const side = Math.random() * 4 | 0;
       let x, y;
       switch (side) {
@@ -136,7 +169,6 @@
       this.y = y;
       this.segments.push({ x, y });
 
-      // Generate path with right-angle turns (circuit traces)
       const numSegs = 3 + (Math.random() * 5 | 0);
       let horizontal = Math.random() > 0.5;
 
@@ -213,7 +245,6 @@
       ctx.lineWidth = this.width;
       ctx.stroke();
 
-      // Draw head dot
       const head = this.getPoint(end);
       ctx.beginPath();
       ctx.arc(head.x, head.y, this.isYellow ? 2 : 1.5, 0, Math.PI * 2);
@@ -222,7 +253,6 @@
     }
   }
 
-  // Geometric blocks that pulse
   class GeoBlock {
     constructor() { this.reset(); }
     reset() {
@@ -260,13 +290,11 @@
     animTime++;
     ctx.clearRect(0, 0, W, H);
 
-    // Draw geo blocks
     for (const b of geoBlocks) {
       b.update(animTime);
       b.draw(ctx);
     }
 
-    // Draw flow lines
     for (const line of flowLines) {
       line.update();
       line.draw(ctx);
@@ -281,13 +309,16 @@
 
   // ── Scroll-Triggered Reveal ───────────────────────────────
   function setupReveal() {
-    // Add ef-reveal to article content children
     const targets = qsa('article > *, .article-content > *, main section > *');
-    targets.forEach(el => {
+    targets.forEach((el, i) => {
       if (!el.classList.contains('ef-reveal') &&
           !el.closest('.ef-hero') &&
           el.offsetHeight > 0) {
         el.classList.add('ef-reveal');
+        // Stagger cards
+        if (el.matches('a[class*="card"], article.card')) {
+          el.classList.add(`ef-reveal-delay-${(i % 3) + 1}`);
+        }
       }
     });
 
@@ -319,11 +350,9 @@
         hero.textContent += text[i++];
         setTimeout(type, 30 + Math.random() * 60);
       } else {
-        // Blink cursor then remove
         setTimeout(() => { hero.style.borderRight = 'none'; }, 2000);
       }
     };
-    // Delay start
     setTimeout(type, 800);
   }
 
@@ -332,46 +361,92 @@
     if (prefersReduced) return;
 
     document.addEventListener('click', e => {
-      const count = 6;
+      const count = 8;
       for (let i = 0; i < count; i++) {
         const p = ce('div');
+        const isYellow = Math.random() < 0.4;
+        const size = isYellow ? '4px' : '3px';
         Object.assign(p.style, {
           position: 'fixed',
           left: e.clientX + 'px',
           top: e.clientY + 'px',
-          width: '3px',
-          height: '3px',
-          background: Math.random() < 0.4 ? '#FFD100' : '#888',
+          width: size,
+          height: size,
+          background: isYellow ? '#FFD100' : '#888',
           pointerEvents: 'none',
           zIndex: '9999',
-          transition: 'all 0.6s ease-out',
+          transition: 'all 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
           opacity: '1',
         });
         document.body.appendChild(p);
 
-        const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.5;
-        const dist = 20 + Math.random() * 40;
+        const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.8;
+        const dist = 25 + Math.random() * 50;
 
         requestAnimationFrame(() => {
-          p.style.transform = `translate(${Math.cos(angle) * dist}px, ${Math.sin(angle) * dist}px)`;
+          p.style.transform = `translate(${Math.cos(angle) * dist}px, ${Math.sin(angle) * dist}px) scale(0)`;
           p.style.opacity = '0';
         });
 
-        setTimeout(() => p.remove(), 700);
+        setTimeout(() => p.remove(), 800);
       }
     });
   }
 
+  // ── Section Numbers for Article H2s ───────────────────────
+  function setupSectionNumbers() {
+    const h2s = qsa('article .prose h2, article section h2');
+    h2s.forEach((h2, i) => {
+      if (h2.querySelector('.ef-section-num')) return;
+      const num = ce('span', 'ef-section-num');
+      num.textContent = `[ SEC.${String(i + 1).padStart(2, '0')} ]`;
+      h2.insertBefore(num, h2.firstChild);
+    });
+  }
+
+  // ── Glitch Effect on Article Title ────────────────────────
+  function setupGlitch() {
+    const title = qs('article header h1');
+    if (!title || title.classList.contains('ef-glitch')) return;
+    title.classList.add('ef-glitch');
+    title.setAttribute('data-text', title.textContent);
+  }
+
+  // ── Active TOC Highlighting ───────────────────────────────
+  function setupTocHighlight() {
+    const toc = qs('#TableOfContents');
+    if (!toc) return;
+
+    const headings = qsa('article h2[id], article h3[id]');
+    if (!headings.length) return;
+
+    const tocLinks = qsa('a', toc);
+    
+    window.addEventListener('scroll', throttle(() => {
+      let current = '';
+      for (const h of headings) {
+        if (h.getBoundingClientRect().top <= 100) {
+          current = h.id;
+        }
+      }
+      tocLinks.forEach(a => {
+        const li = a.parentElement;
+        if (a.getAttribute('href') === '#' + current) {
+          li.classList.add('ef-toc-active-li');
+        } else {
+          li.classList.remove('ef-toc-active-li');
+        }
+      });
+    }, 100));
+  }
+
   // ── Hero Section Injection (Homepage) ─────────────────────
   function setupHero() {
-    // Only on homepage
     const isHome = window.location.pathname === '/' ||
                    window.location.pathname === '/index.html' ||
                    document.body.classList.contains('home');
 
     if (!isHome) return;
-
-    // Check if hero already exists
     if (qs('.ef-hero')) return;
 
     const main = qs('main') || qs('#main') || qs('.main');
@@ -392,9 +467,23 @@
 
   // ── Circuit Dividers ──────────────────────────────────────
   function addCircuitDividers() {
-    // Add circuit trace dividers between major sections
     qsa('article hr, main hr').forEach(hr => {
       hr.classList.add('ef-circuit-h');
+    });
+  }
+
+  // ── Hover Sound Effect (subtle) ───────────────────────────
+  function setupHoverFeedback() {
+    if (prefersReduced) return;
+    
+    // Add a subtle border-glow effect on card hover
+    qsa('a[class*="card"]').forEach(card => {
+      card.addEventListener('mouseenter', () => {
+        card.style.boxShadow = '0 0 20px rgba(255, 209, 0, 0.1), inset 0 0 20px rgba(255, 209, 0, 0.03)';
+      });
+      card.addEventListener('mouseleave', () => {
+        card.style.boxShadow = '';
+      });
     });
   }
 
@@ -403,10 +492,14 @@
     setupHero();
     setupTyping();
     setupParticles();
+    setupGlitch();
+    setupSectionNumbers();
+    setupTocHighlight();
+    setupReadingProgress();
+    setupHoverFeedback();
     addCircuitDividers();
     advanceLoad(90);
 
-    // Delay reveal setup slightly so DOM is settled
     requestAnimationFrame(() => {
       setupReveal();
     });
