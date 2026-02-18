@@ -1464,7 +1464,7 @@ nav[aria-label="breadcrumb"] a,
   background: var(--ef-dark-2);
   border: 1px solid var(--ef-gray);
   padding: 1.2rem 1.5rem;
-  max-width: 380px;
+  max-width: 440px;
   transition: border-color 0.3s, box-shadow 0.3s;
 }
 .ef-timeline__card:hover {
@@ -1485,11 +1485,13 @@ nav[aria-label="breadcrumb"] a,
   text-transform: none;
   letter-spacing: 0;
 }
-.ef-timeline__card p {
-  font-size: 0.8rem;
+.ef-timeline__card p,
+.ef-timeline__desc {
+  font-size: 0.78rem;
   color: var(--ef-gray-light);
-  margin: 0;
-  line-height: 1.5;
+  margin: 0.4rem 0 0;
+  line-height: 1.6;
+  font-family: inherit;
 }
 
 /* ── 5. PORTFOLIO ──────────────────────────────────────────── */
