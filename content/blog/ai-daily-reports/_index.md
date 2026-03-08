@@ -24,7 +24,7 @@ draft: false
 
 ## 📖 历史日报
 
-{{< list-children >}}
+历史日报文章会自动显示在这里。
 
 ---
 
