@@ -1,7 +1,12 @@
-[[main]]
+﻿[[main]]
   name = "博客"
   pageRef = "blog"
   weight = 10
+
+[[main]]
+  name = "日报"
+  pageRef = "blog/ai-daily-reports"
+  weight = 15
 
 [[main]]
   name = "项目"
@@ -17,3 +22,4 @@
   name = "标签"
   pageRef = "tags"
   weight = 40
+
