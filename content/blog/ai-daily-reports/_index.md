@@ -19,7 +19,7 @@ draft: false
 
 ## 📋 订阅
 
-- 📧 **邮件订阅** - 自动发送到 noviorlu@gmail.com
+- 📧 **邮件订阅** - [立即订阅](/blog/ai-daily-reports/subscribe/)
 - 🌐 **RSS 订阅** - [AI Daily Reports RSS](/blog/ai-daily-reports/index.xml)
 
 ## 📖 历史日报

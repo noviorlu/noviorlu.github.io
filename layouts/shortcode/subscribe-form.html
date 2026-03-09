@@ -1,0 +1,280 @@
+﻿{{/* 
+  Subscribe Form Shortcode for Hugo
+  使用方式：{{< subscribe-form >}}
+*/}}
+
+{{ $apiUrl := "https://api.openclaw.ai/subscribe" }}
+{{/* 本地测试用：http://localhost:8765/subscribe */}}
+
+<div class="subscribe-form-container" style="
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 30px;
+  border-radius: 16px;
+  margin: 30px 0;
+  color: white;
+  box-shadow: 0 4px 24px rgba(102, 126, 234, 0.3);
+">
+  <h3 style="margin: 0 0 15px; font-size: 20px;">📬 订阅 AI Daily Reports</h3>
+  <p style="margin: 0 0 20px; opacity: 0.9; font-size: 14px; line-height: 1.6;">
+    每天早上 8 点收到最新的 AI 论文、新闻和工具推荐
+  </p>
+  
+  <form id="luna-subscribe-form" style="display: flex; flex-direction: column; gap: 12px;">
+    <input 
+      type="email" 
+      id="subscribe-email" 
+      placeholder="your-email@example.com" 
+      required
+      style="
+        padding: 12px 16px;
+        border: 2px solid transparent;
+        border-radius: 8px;
+        font-size: 15px;
+        outline: none;
+        transition: all 0.3s;
+      "
+      onfocus="this.style.borderColor='#fff'; this.style.background='#fff'"
+      onblur="this.style.borderColor='transparent'; this.style.background='#fff'"
+    />
+    
+    <button 
+      type="submit" 
+      id="subscribe-btn"
+      style="
+        padding: 12px 24px;
+        background: white;
+        color: #667eea;
+        border: none;
+        border-radius: 8px;
+        font-size: 15px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: all 0.3s;
+      "
+      onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.2)'"
+      onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'"
+    >
+      ✨ 立即订阅
+    </button>
+  </form>
+  
+  <div id="subscribe-message" style="
+    margin-top: 15px;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    display: none;
+  "></div>
+  
+  <div id="unsubscribe-section" style="
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 1px solid rgba(255,255,255,0.3);
+    font-size: 13px;
+  ">
+    <p style="margin: 0 0 10px; opacity: 0.9;">已有订阅？<a href="#" onclick="showUnsubscribe(); return false;" style="color: white; text-decoration: underline;">取消订阅</a></p>
+  </div>
+</div>
+
+<div id="unsubscribe-form-container" style="
+  background: #f5f5f7;
+  padding: 30px;
+  border-radius: 16px;
+  margin: 30px 0;
+  display: none;
+">
+  <h3 style="margin: 0 0 15px; font-size: 20px; color: #333;">❌ 取消订阅</h3>
+  <p style="margin: 0 0 20px; color: #666; font-size: 14px; line-height: 1.6;">
+    输入你的邮箱地址，立即取消订阅
+  </p>
+  
+  <form id="luna-unsubscribe-form" style="display: flex; flex-direction: column; gap: 12px;">
+    <input 
+      type="email" 
+      id="unsubscribe-email" 
+      placeholder="your-email@example.com" 
+      required
+      style="
+        padding: 12px 16px;
+        border: 2px solid #ddd;
+        border-radius: 8px;
+        font-size: 15px;
+        outline: none;
+        transition: border-color 0.3s;
+      "
+      onfocus="this.style.borderColor='#667eea'"
+    />
+    
+    <button 
+      type="submit" 
+      id="unsubscribe-btn"
+      style="
+        padding: 12px 24px;
+        background: #ff6b6b;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 15px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: all 0.3s;
+      "
+      onmouseover="this.style.background='#ff5252'"
+      onmouseout="this.style.background='#ff6b6b'"
+    >
+      确认取消
+    </button>
+    
+    <button 
+      type="button"
+      onclick="hideUnsubscribe()"
+      style="
+        padding: 12px 24px;
+        background: transparent;
+        color: #666;
+        border: 2px solid #ddd;
+        border-radius: 8px;
+        font-size: 15px;
+        cursor: pointer;
+        transition: all 0.3s;
+      "
+      onmouseover="this.style.borderColor='#667eea'; this.style.color='#667eea'"
+      onmouseout="this.style.borderColor='#ddd'; this.style.color='#666'"
+    >
+      返回
+    </button>
+  </form>
+  
+  <div id="unsubscribe-message" style="
+    margin-top: 15px;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    display: none;
+  "></div>
+</div>
+
+<script>
+// API 配置
+const SUBSCRIBE_API = 'https://api.openclaw.ai';
+// 本地测试用：const SUBSCRIBE_API = 'http://localhost:8765';
+
+// 订阅表单处理
+document.getElementById('luna-subscribe-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  
+  const email = document.getElementById('subscribe-email').value.trim();
+  const btn = document.getElementById('subscribe-btn');
+  const msg = document.getElementById('subscribe-message');
+  
+  if (!email) {
+    showMessage(msg, '请输入邮箱地址', 'error');
+    return;
+  }
+  
+  // 显示加载状态
+  btn.disabled = true;
+  btn.innerHTML = '⏳ 处理中...';
+  btn.style.opacity = '0.7';
+  
+  try {
+    const response = await fetch(`${SUBSCRIBE_API}/subscribe`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email: email })
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      showMessage(msg, `✅ ${result.message}`, 'success');
+      document.getElementById('subscribe-email').value = '';
+    } else {
+      showMessage(msg, `❌ ${result.message}`, 'error');
+    }
+  } catch (error) {
+    showMessage(msg, `❌ 网络错误：${error.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '✨ 立即订阅';
+    btn.style.opacity = '1';
+  }
+});
+
+// 取消订阅表单处理
+document.getElementById('luna-unsubscribe-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  
+  const email = document.getElementById('unsubscribe-email').value.trim();
+  const btn = document.getElementById('unsubscribe-btn');
+  const msg = document.getElementById('unsubscribe-message');
+  
+  if (!email) {
+    showMessage(msg, '请输入邮箱地址', 'error');
+    return;
+  }
+  
+  // 显示加载状态
+  btn.disabled = true;
+  btn.innerHTML = '⏳ 处理中...';
+  btn.style.opacity = '0.7';
+  
+  try {
+    const response = await fetch(`${SUBSCRIBE_API}/unsubscribe`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email: email })
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      showMessage(msg, `✅ ${result.message}`, 'success');
+      document.getElementById('unsubscribe-email').value = '';
+    } else {
+      showMessage(msg, `❌ ${result.message}`, 'error');
+    }
+  } catch (error) {
+    showMessage(msg, `❌ 网络错误：${error.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '确认取消';
+    btn.style.opacity = '1';
+  }
+});
+
+// 显示/隐藏取消订阅表单
+function showUnsubscribe() {
+  document.querySelector('.subscribe-form-container').style.display = 'none';
+  document.getElementById('unsubscribe-form-container').style.display = 'block';
+}
+
+function hideUnsubscribe() {
+  document.querySelector('.subscribe-form-container').style.display = 'block';
+  document.getElementById('unsubscribe-form-container').style.display = 'none';
+  document.getElementById('unsubscribe-message').style.display = 'none';
+}
+
+// 显示消息
+function showMessage(element, text, type) {
+  element.style.display = 'block';
+  element.innerHTML = text;
+  
+  if (type === 'success') {
+    element.style.background = 'rgba(255,255,255,0.95)';
+    element.style.color = '#059669';
+  } else {
+    element.style.background = 'rgba(255,255,255,0.95)';
+    element.style.color = '#dc2626';
+  }
+  
+  // 3 秒后自动隐藏
+  setTimeout(() => {
+    element.style.display = 'none';
+  }, 5000);
+}
+</script>
