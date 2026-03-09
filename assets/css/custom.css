@@ -1770,3 +1770,24 @@ nav[aria-label="breadcrumb"] a,
   }
 }
 
+
+/* ══════════════════════════════════════════════════════════
+   ARTICLE CONTENT MOBILE OPTIMIZATIONS
+   ══════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .article-content, .prose { font-size: 15px !important; line-height: 1.7 !important; }
+  .article-content table, .prose table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: nowrap; max-width: 100%; }
+  .article-content pre, .prose pre { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; font-size: 12px !important; padding: 12px !important; }
+  .article-content img, .prose img { max-width: 100%; height: auto; }
+  .article-content h1, .prose h1 { font-size: 1.6rem !important; }
+  .article-content h2, .prose h2 { font-size: 1.4rem !important; }
+  .article-content h3, .prose h3 { font-size: 1.2rem !important; }
+  .article-content ul, .article-content ol, .prose ul, .prose ol { padding-left: 1.2rem !important; }
+  .article-content blockquote, .prose blockquote { padding: 0.8rem 1rem !important; margin: 1rem 0 !important; }
+}
+@media (max-width: 480px) {
+  .article-content, .prose { font-size: 14px !important; }
+  .article-content h1, .prose h1 { font-size: 1.4rem !important; }
+  .article-content h2, .prose h2 { font-size: 1.25rem !important; }
+  .article-content pre, .prose pre { font-size: 11px !important; padding: 10px !important; }
+}
