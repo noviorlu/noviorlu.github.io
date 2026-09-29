@@ -6,6 +6,7 @@ title = "Noviorlu"
 [params]
   isoCode = "zh-CN"
   dateFormat = "2006年1月2日"
+  description = "Noviorlu 的个人站：图形学、渲染与 AI 系统的笔记、项目和工具。"
 
 [params.author]
   name = "Noviorlu喵"
@@ -15,4 +16,5 @@ title = "Noviorlu"
   links = [
     { github = "https://github.com/noviorlu" },
     { zhihu = "https://www.zhihu.com/people/jack-chen-23-46" },
+    { linkedin = "https://www.linkedin.com/in/chen-yang-noviorlu/" },
   ]

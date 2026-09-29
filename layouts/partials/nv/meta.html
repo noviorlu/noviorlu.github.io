@@ -1,0 +1,20 @@
+{{- /* Date · words · reading time. Context: dict "page" P "scope" "single"|"list". */ -}}
+{{- $p := .page -}}
+{{- $single := eq .scope "single" -}}
+{{- $items := slice -}}
+{{- if $p.Params.showDate | default (site.Params.article.showDate | default true) -}}
+  {{- $items = $items | append (printf `<time datetime="%s">%s</time>` ($p.Date.Format "2006-01-02") (partial "functions/date.html" $p.Date)) -}}
+{{- end -}}
+{{- if and $single (site.Params.article.showDateUpdated | default false) (ne ($p.Date.Format "2006-01-02") ($p.Lastmod.Format "2006-01-02")) (gt ($p.Lastmod.Format "2006") "1") -}}
+  {{- $items = $items | append (printf `<span>更新于 %s</span>` (partial "functions/date.html" $p.Lastmod)) -}}
+{{- end -}}
+{{- if and $single ($p.Params.showWordCount | default (site.Params.article.showWordCount | default false)) (ne $p.WordCount 0) -}}
+  {{- $items = $items | append (printf `<span>%s</span>` (i18n "article.word_count" $p.WordCount)) -}}
+{{- end -}}
+{{- if and ($p.Params.showReadingTime | default (site.Params.article.showReadingTime | default true)) (ne $p.ReadingTime 0) -}}
+  {{- $items = $items | append (printf `<span>%s</span>` (i18n "article.reading_time" $p.ReadingTime)) -}}
+{{- end -}}
+{{- if and $single $p.Draft site.Params.article.showDraftLabel -}}
+  {{- $items = $items | append `<span class="nv-badge">草稿</span>` -}}
+{{- end -}}
+<span class="nv-meta">{{ delimit $items `<span class="nv-meta__sep" aria-hidden="true">·</span>` | safeHTML }}</span>

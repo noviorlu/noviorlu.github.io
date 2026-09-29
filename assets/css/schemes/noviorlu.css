@@ -1,0 +1,39 @@
+/* Noviorlu scheme — ink neutrals + indigo accent + sky secondary.
+   Blowfish consumes these as "R, G, B" triplets (rgba(var(--color-x), a)).
+   Light body = --color-neutral, dark body = --color-neutral-800. */
+:root {
+  --color-neutral: 252, 252, 253;
+  /* Ink (slightly blue grays) */
+  --color-neutral-50: 247, 248, 250;
+  --color-neutral-100: 240, 242, 245;
+  --color-neutral-200: 226, 229, 235;
+  --color-neutral-300: 204, 209, 219;
+  --color-neutral-400: 150, 158, 173;
+  --color-neutral-500: 99, 107, 124;
+  --color-neutral-600: 67, 74, 89;
+  --color-neutral-700: 36, 41, 52;
+  --color-neutral-800: 15, 18, 25;
+  --color-neutral-900: 9, 11, 16;
+  /* Indigo */
+  --color-primary-50: 238, 242, 255;
+  --color-primary-100: 224, 231, 255;
+  --color-primary-200: 199, 210, 254;
+  --color-primary-300: 165, 180, 252;
+  --color-primary-400: 129, 140, 248;
+  --color-primary-500: 99, 102, 241;
+  --color-primary-600: 79, 70, 229;
+  --color-primary-700: 67, 56, 202;
+  --color-primary-800: 55, 48, 163;
+  --color-primary-900: 49, 46, 129;
+  /* Sky */
+  --color-secondary-50: 240, 249, 255;
+  --color-secondary-100: 224, 242, 254;
+  --color-secondary-200: 186, 230, 253;
+  --color-secondary-300: 125, 211, 252;
+  --color-secondary-400: 56, 189, 248;
+  --color-secondary-500: 14, 165, 233;
+  --color-secondary-600: 2, 132, 199;
+  --color-secondary-700: 3, 105, 161;
+  --color-secondary-800: 7, 89, 133;
+  --color-secondary-900: 12, 74, 110;
+}

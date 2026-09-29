@@ -3,6 +3,7 @@ baseURL = "https://noviorlu.github.io/"
 defaultContentLanguage = "zh-cn"
 
 enableRobotsTXT = true
+hasCJKLanguage = true   # correct word counts / reading time / summaries for Chinese
 [pagination]
   pagerSize = 10
 summaryLength = 0

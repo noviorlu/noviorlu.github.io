@@ -1,0 +1,19 @@
+{{- /* Compact author card shown at the end of an article. */ -}}
+{{- with site.Params.Author }}
+<section class="nv-author" aria-label="作者">
+  <div class="nv-author__avatar" aria-hidden="true">喵</div>
+  <div class="nv-author__body">
+    <p class="nv-author__name">{{ .name }}</p>
+    {{ with .bio }}<p class="nv-author__bio">{{ . | markdownify }}</p>{{ end }}
+    <div class="nv-author__links">
+      {{ range .links }}
+        {{ range $name, $url := . }}
+          <a class="nv-iconbtn" href="{{ $url }}" target="_blank" rel="me noopener noreferrer"
+            aria-label="{{ $name | title }}" title="{{ $name | title }}">{{ partial "icon.html" $name }}</a>
+        {{ end }}
+      {{ end }}
+      <a class="nv-author__more" href="{{ "about/" | relLangURL }}">关于我 →</a>
+    </div>
+  </div>
+</section>
+{{- end }}

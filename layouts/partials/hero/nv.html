@@ -1,0 +1,21 @@
+{{- /* Article hero (article.heroStyle = "nv"): the page's featured image as a contained, rounded
+       banner under the title, with responsive WebP sizes. */ -}}
+{{- $img := partial "nv/featured.html" . -}}
+{{- with $img }}
+  {{- $alt := $.Params.alt | default $.Title -}}
+  {{- if eq .MediaType.SubType "svg" }}
+    <figure class="nv-hero"><img src="{{ .RelPermalink }}" alt="{{ $alt }}" class="nozoom"></figure>
+  {{- else }}
+    {{- $lg := .Fill "1600x700 Center webp q78" -}}
+    {{- $md := .Fill "1000x438 Center webp q78" -}}
+    {{- $sm := .Fill "640x280 Center webp q78" -}}
+    <figure class="nv-hero">
+      <img src="{{ $md.RelPermalink }}"
+        srcset="{{ $sm.RelPermalink }} 640w, {{ $md.RelPermalink }} 1000w, {{ $lg.RelPermalink }} 1600w"
+        sizes="(min-width: 1120px) 1072px, calc(100vw - 36px)"
+        width="{{ $lg.Width }}" height="{{ $lg.Height }}" alt="{{ $alt }}"
+        loading="eager" decoding="async" fetchpriority="high" class="nozoom">
+      {{ with $.Params.featureimagecaption }}<figcaption>{{ . | markdownify }}</figcaption>{{ end }}
+    </figure>
+  {{- end }}
+{{- end }}

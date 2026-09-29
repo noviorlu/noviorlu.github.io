@@ -1,0 +1,13 @@
+{{- /* Category + tag chips for a page. */ -}}
+{{- $cats := .GetTerms "categories" -}}
+{{- $tags := .GetTerms "tags" -}}
+{{- if or $cats $tags }}
+  <ul class="nv-chips" aria-label="分类与标签">
+    {{- range $cats }}
+      <li><a class="nv-chip nv-chip--cat" href="{{ .RelPermalink }}">{{ .LinkTitle }}</a></li>
+    {{- end }}
+    {{- range $tags }}
+      <li><a class="nv-chip" href="{{ .RelPermalink }}">#{{ .LinkTitle }}</a></li>
+    {{- end }}
+  </ul>
+{{- end }}

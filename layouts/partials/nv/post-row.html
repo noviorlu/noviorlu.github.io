@@ -1,0 +1,49 @@
+{{- /* One post in a list. Context: a page, or dict "page" P "thumb" bool "compact" bool. */ -}}
+{{- $p := . -}}
+{{- $thumb := true -}}
+{{- $compact := false -}}
+{{- if reflect.IsMap . -}}
+  {{- $p = .page -}}
+  {{- $thumb = .thumb | default false -}}
+  {{- $compact = .compact | default false -}}
+{{- end -}}
+{{- $isDaily := hasPrefix $p.RelPermalink "/blog/ai-daily-reports/" -}}
+{{- $summary := "" -}}
+{{- with $p.Params.description -}}
+  {{- $summary = . | markdownify | plainify | htmlUnescape -}}
+{{- else -}}
+  {{- $summary = $p.Summary | plainify | htmlUnescape -}}
+{{- end -}}
+{{- $summary = replaceRE `\s+` " " $summary | strings.TrimSpace | truncate 120 -}}
+{{- $eyebrow := "" -}}
+{{- with $p.Params.series }}{{ $eyebrow = index . 0 }}{{ else }}{{ with $p.Params.categories }}{{ $eyebrow = index . 0 }}{{ end }}{{ end -}}
+{{- $img := "" -}}
+{{- if $thumb }}{{ $img = partial "nv/featured.html" $p }}{{ end -}}
+<article class="nv-post{{ if $compact }} nv-post--compact{{ end }}{{ if $img }} has-thumb{{ end }}">
+  <div class="nv-post__body">
+    {{- if and $eyebrow (not $compact) }}
+      <p class="nv-post__eyebrow">{{ $eyebrow }}</p>
+    {{- end }}
+    <h3 class="nv-post__title">
+      <a href="{{ with $p.Params.externalUrl }}{{ . }}{{ else }}{{ $p.RelPermalink }}{{ end }}"
+        {{ with $p.Params.externalUrl }}target="_blank" rel="external"{{ end }}>{{ $p.Title | emojify }}</a>
+    </h3>
+    {{- if and $summary (not $compact) (site.Params.list.showSummary | default true) }}
+      <p class="nv-post__summary">{{ $summary }}</p>
+    {{- end }}
+    <p class="nv-post__meta">
+      {{ partial "nv/meta.html" (dict "page" $p "scope" "list") }}
+      {{- if not $isDaily }}
+        {{- range first 3 ($p.GetTerms "tags") }}<span class="nv-post__tag">#{{ .LinkTitle }}</span>{{ end }}
+      {{- end }}
+    </p>
+  </div>
+  {{- with $img }}
+    {{- if ne .MediaType.SubType "svg" }}
+      {{- $t := .Fill "480x300 Center webp q75" }}
+      <div class="nv-post__thumb" aria-hidden="true">
+        <img src="{{ $t.RelPermalink }}" width="{{ $t.Width }}" height="{{ $t.Height }}" alt="" loading="lazy" decoding="async" class="nozoom">
+      </div>
+    {{- end }}
+  {{- end }}
+</article>

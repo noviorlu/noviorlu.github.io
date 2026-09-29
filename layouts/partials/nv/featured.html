@@ -1,0 +1,15 @@
+{{- /* Returns the page's featured image resource (or nil): front-matter featureimage (local),
+       else a page-bundle image named *feature* / *cover* / *thumbnail* / *background*. */ -}}
+{{- $img := "" -}}
+{{- with .Params.featureimage -}}
+  {{- if not (or (hasPrefix . "http:") (hasPrefix . "https:")) -}}
+    {{- $img = resources.Get . -}}
+  {{- end -}}
+{{- end -}}
+{{- if not $img -}}
+  {{- $images := .Resources.ByType "image" -}}
+  {{- range slice "*feature*" "*cover*" "*thumbnail*" "*background*" -}}
+    {{- if not $img }}{{ $img = $images.GetMatch . }}{{ end -}}
+  {{- end -}}
+{{- end -}}
+{{- return $img -}}

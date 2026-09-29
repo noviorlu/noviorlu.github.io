@@ -1,0 +1,145 @@
+{{- /* Section lists under content/blog/: the blog index (/blog/) and the AI daily reports
+       archive (/blog/ai-daily-reports/, filled by the daily-report automation — each report is
+       content/blog/ai-daily-reports/daily-YYYYMMDD/index.md). Any other sub-section falls back
+       to the generic layout at the bottom. */ -}}
+{{ define "main" }}
+  {{ .Scratch.Set "scope" "list" }}
+  {{ $daily := site.GetPage "/blog/ai-daily-reports" }}
+  {{ if eq .RelPermalink "/blog/" }}
+    {{/* ───────────── Blog index ───────────── */}}
+    {{ $posts := .RegularPages }}
+    <header class="nv-pagehead">
+      <p class="nv-kicker">Writing</p>
+      <h1 class="nv-pagehead__title">{{ .Title }}</h1>
+      {{ with .Description }}<p class="nv-pagehead__lead">{{ . }}</p>{{ end }}
+      {{ with .Content }}<div class="nv-pagehead__content prose dark:prose-invert">{{ . }}</div>{{ end }}
+    </header>
+
+    <div class="nv-split">
+      <section class="nv-split__main" aria-label="文章">
+        {{ $pager := .Paginate ($posts.GroupByDate "2006") }}
+        {{ range $pager.PageGroups }}
+          <h2 class="nv-year"><span>{{ .Key }}</span></h2>
+          <div class="nv-postlist">
+            {{ range .Pages }}{{ partial "nv/post-row.html" (dict "page" . "thumb" true) }}{{ end }}
+          </div>
+        {{ else }}
+          <p class="nv-empty">{{ i18n "list.no_articles" | emojify }}</p>
+        {{ end }}
+        {{ partial "pagination.html" . }}
+      </section>
+
+      <aside class="nv-split__aside" aria-label="更多">
+        {{ with $daily }}
+          {{ $reports := where .RegularPages "Type" "!=" "page" }}
+          <div class="nv-panel">
+            <div class="nv-panel__head">
+              <h2 class="nv-panel__title">AI 日报</h2>
+              <a class="nv-panel__more" href="{{ .RelPermalink }}">全部 {{ len $reports }} 期 →</a>
+            </div>
+            <p class="nv-panel__text">Project Luna 每天自动整理的 AI 论文、新闻与工具。</p>
+            <ul class="nv-mini">
+              {{ range first 4 $reports }}
+                <li><a href="{{ .RelPermalink }}"><time datetime="{{ .Date.Format "2006-01-02" }}">{{ .Date.Format "01/02" }}</time><span>{{ .Title }}</span></a></li>
+              {{ end }}
+            </ul>
+            <p class="nv-panel__links">
+              <a href="{{ "blog/ai-daily-reports/index.xml" | relLangURL }}">RSS</a>
+              {{ with site.GetPage "/blog/ai-daily-reports/subscribe" }}<a href="{{ .RelPermalink }}">邮件订阅</a>{{ end }}
+            </p>
+          </div>
+        {{ end }}
+        {{ with site.Taxonomies.series }}
+          <div class="nv-panel">
+            <div class="nv-panel__head"><h2 class="nv-panel__title">系列</h2></div>
+            <ul class="nv-mini nv-mini--count">
+              {{ range .ByCount }}
+                {{ if ne .Page.Title "AI Daily Reports" }}
+                  <li><a href="{{ .Page.RelPermalink }}"><span>{{ .Page.Title }}</span><em>{{ .Count }}</em></a></li>
+                {{ end }}
+              {{ end }}
+            </ul>
+          </div>
+        {{ end }}
+        {{ with site.Taxonomies.tags }}
+          <div class="nv-panel">
+            <div class="nv-panel__head">
+              <h2 class="nv-panel__title">标签</h2>
+              <a class="nv-panel__more" href="{{ "tags/" | relLangURL }}">全部 →</a>
+            </div>
+            <ul class="nv-chips">
+              {{ range first 14 .ByCount }}
+                <li><a class="nv-chip" href="{{ .Page.RelPermalink }}">#{{ .Page.Title }}</a></li>
+              {{ end }}
+            </ul>
+          </div>
+        {{ end }}
+      </aside>
+    </div>
+
+  {{ else if and $daily (eq .RelPermalink $daily.RelPermalink) }}
+    {{/* ───────────── AI daily reports archive ───────────── */}}
+    {{ $reports := where .RegularPages "Type" "!=" "page" }}
+    <header class="nv-pagehead">
+      {{ if .Params.showBreadcrumbs | default (site.Params.list.showBreadcrumbs | default false) }}
+        <div class="nv-breadcrumbs">{{ partial "breadcrumbs.html" . }}</div>
+      {{ end }}
+      <p class="nv-kicker">Daily · Project Luna</p>
+      <h1 class="nv-pagehead__title">{{ .Title }}</h1>
+      {{ with .Description }}<p class="nv-pagehead__lead">{{ . }}</p>{{ end }}
+      <p class="nv-pagehead__actions">
+        {{ with site.GetPage "/blog/ai-daily-reports/subscribe" }}<a class="nv-btn nv-btn--primary" href="{{ .RelPermalink }}">邮件订阅</a>{{ end }}
+        <a class="nv-btn" href="{{ "blog/ai-daily-reports/index.xml" | relLangURL }}">RSS</a>
+      </p>
+    </header>
+
+    <div class="nv-split">
+      <section class="nv-split__main" aria-label="历史日报">
+        {{ $pager := .Paginate ($reports.GroupByDate "2006年1月") }}
+        {{ range $pager.PageGroups }}
+          <h2 class="nv-year"><span>{{ .Key }}</span></h2>
+          <ol class="nv-daily">
+            {{ range .Pages }}
+              {{ $sum := "" }}
+              {{ with .Params.description }}{{ $sum = . | markdownify | plainify | htmlUnescape }}{{ else }}{{ $sum = .Summary | plainify | htmlUnescape }}{{ end }}
+              {{ $sum = replaceRE `\s+` " " $sum | strings.TrimSpace | truncate 90 }}
+              <li class="nv-daily__item">
+                <time class="nv-daily__date" datetime="{{ .Date.Format "2006-01-02" }}">
+                  <span class="nv-daily__day">{{ .Date.Format "02" }}</span>
+                  <span class="nv-daily__wd">{{ index (slice "周日" "周一" "周二" "周三" "周四" "周五" "周六") (int (printf "%d" .Date.Weekday)) }}</span>
+                </time>
+                <div class="nv-daily__body">
+                  <h3 class="nv-daily__title"><a href="{{ .RelPermalink }}">{{ .Title }}</a></h3>
+                  {{ with $sum }}<p class="nv-daily__sum">{{ . }}</p>{{ end }}
+                </div>
+              </li>
+            {{ end }}
+          </ol>
+        {{ else }}
+          <p class="nv-empty">{{ i18n "list.no_articles" | emojify }}</p>
+        {{ end }}
+        {{ partial "pagination.html" . }}
+      </section>
+      <aside class="nv-split__aside" aria-label="关于日报">
+        <div class="nv-panel nv-daily-intro prose dark:prose-invert">{{ .Content }}</div>
+      </aside>
+    </div>
+
+  {{ else }}
+    {{/* ───────────── Any other section under blog/ ───────────── */}}
+    <header class="nv-pagehead">
+      {{ if .Params.showBreadcrumbs | default (site.Params.list.showBreadcrumbs | default false) }}
+        <div class="nv-breadcrumbs">{{ partial "breadcrumbs.html" . }}</div>
+      {{ end }}
+      <h1 class="nv-pagehead__title">{{ .Title }}</h1>
+      {{ with .Description }}<p class="nv-pagehead__lead">{{ . }}</p>{{ end }}
+      {{ with .Content }}<div class="nv-pagehead__content prose dark:prose-invert">{{ . }}</div>{{ end }}
+    </header>
+    {{ $pager := .Paginate (.Pages.GroupByDate "2006") }}
+    {{ range $pager.PageGroups }}
+      <h2 class="nv-year"><span>{{ .Key }}</span></h2>
+      <div class="nv-postlist">{{ range .Pages }}{{ partial "nv/post-row.html" (dict "page" . "thumb" true) }}{{ end }}</div>
+    {{ end }}
+    {{ partial "pagination.html" . }}
+  {{ end }}
+{{ end }}

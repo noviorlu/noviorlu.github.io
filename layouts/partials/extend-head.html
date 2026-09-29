@@ -1,7 +1,3 @@
-{{ $css := resources.Get "css/custom.css" | minify | fingerprint }}
-<link rel="stylesheet" href="{{ $css.RelPermalink }}" integrity="{{ $css.Data.Integrity }}" crossorigin="anonymous">
-<script>
-  localStorage.setItem('appearance','dark');
-  document.documentElement.classList.add('dark');
-  document.documentElement.classList.remove('light');
-</script>
+{{- /* custom.css is already bundled by Blowfish's head.html (css/custom.css). Here: preload the
+       self-hosted Latin fonts (CJK text uses the system's CJK fonts). */ -}}
+<link rel="preload" href="{{ "fonts/inter-latin-wght.woff2" | relURL }}" as="font" type="font/woff2" crossorigin>

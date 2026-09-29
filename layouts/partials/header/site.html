@@ -1,0 +1,41 @@
+{{- /* Site header (params: header.layout = "site"). Sticky bar with brand, main menu, search and
+       theme toggle. Keeps Blowfish's element ids (#search-button, #appearance-switcher, and the
+       mobile menu partial) so its search.js / appearance.js keep working. */ -}}
+{{ $cur := .RelPermalink }}
+{{ $active := "" }}
+{{ range site.Menus.main }}
+  {{ if and .URL (hasPrefix $cur .URL) (gt (len .URL) (len $active)) }}{{ $active = .URL }}{{ end }}
+{{ end }}
+<header class="nv-header" id="site-header">
+  <div class="nv-header__inner">
+    <a class="nv-brand" href="{{ "" | relLangURL }}" aria-label="{{ site.Title }} 首页">
+      {{ partial "nv/logo.html" "hdr" }}
+      <span class="nv-brand__name">{{ site.Title }}</span>
+    </a>
+
+    <nav class="nv-nav" aria-label="主导航">
+      {{ range site.Menus.main }}
+        <a href="{{ .URL }}" class="nv-nav__link{{ if eq .URL $active }} is-active{{ end }}"
+          {{ if eq .URL $active }}aria-current="page"{{ end }}>{{ .Name }}</a>
+      {{ end }}
+    </nav>
+
+    <div class="nv-header__actions">
+      {{ if site.Params.enableSearch | default false }}
+        <button id="search-button" class="nv-iconbtn nv-desktop-only" type="button" aria-label="搜索"
+          title="{{ i18n "search.open_button_title" }}">
+          {{ partial "icon.html" "search" }}
+          <kbd class="nv-kbd">/</kbd>
+        </button>
+      {{ end }}
+      <button id="appearance-switcher" class="nv-iconbtn nv-desktop-only" type="button" aria-label="切换深色 / 浅色"
+        title="切换深色 / 浅色（右键：跟随系统）">
+        <span class="nv-theme-icon nv-theme-icon--moon">{{ partial "icon.html" "moon" }}</span>
+        <span class="nv-theme-icon nv-theme-icon--sun">{{ partial "icon.html" "sun" }}</span>
+      </button>
+      <div class="nv-mobile-only nv-mobile-menu">
+        {{ partial "header/components/mobile-menu.html" . }}
+      </div>
+    </div>
+  </div>
+</header>

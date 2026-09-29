@@ -1,0 +1,53 @@
+{{- /* Site footer (overrides Blowfish's). Keeps #site-footer (appearance.js uses it) and the
+       extend-footer hook. */ -}}
+<footer id="site-footer" class="nv-footer print:hidden">
+  <div class="nv-footer__inner">
+    <div class="nv-footer__brand">
+      <a class="nv-brand" href="{{ "" | relLangURL }}">
+        {{ partial "nv/logo.html" "ftr" }}
+        <span class="nv-brand__name">{{ site.Title }}</span>
+      </a>
+      <p class="nv-footer__tagline">{{ site.Params.Author.headline }}</p>
+    </div>
+    <nav class="nv-footer__nav" aria-label="页脚导航">
+      {{ range site.Menus.main }}
+        <a href="{{ .URL }}">{{ .Name }}</a>
+      {{ end }}
+      <a href="{{ "index.xml" | relLangURL }}">RSS</a>
+    </nav>
+    <div class="nv-footer__social">
+      {{ range site.Params.Author.links }}
+        {{ range $name, $url := . }}
+          <a class="nv-iconbtn" href="{{ $url }}" target="_blank" rel="me noopener noreferrer"
+            aria-label="{{ $name | title }}" title="{{ $name | title }}">{{ partial "icon.html" $name }}</a>
+        {{ end }}
+      {{ end }}
+    </div>
+  </div>
+  <div class="nv-footer__bottom">
+    <p>
+      {{- with replace (site.Params.copyright | default "") "{ year }" now.Year }}{{ . | markdownify }}{{ else -}}
+        &copy; {{ now.Format "2006" }} {{ site.Params.Author.name | markdownify }}
+      {{- end }}
+    </p>
+    {{ if site.Params.footer.showThemeAttribution | default true }}
+      <p>
+        {{ $hugo := `<a href="https://gohugo.io/" target="_blank" rel="noopener noreferrer">Hugo</a>` }}
+        {{ $blowfish := `<a href="https://blowfish.page/" target="_blank" rel="noopener noreferrer">Blowfish</a>` }}
+        {{ i18n "footer.powered_by" (dict "Hugo" $hugo "Theme" $blowfish) | safeHTML }}
+      </p>
+    {{ end }}
+  </div>
+  {{ if not site.Params.disableImageZoom | default true }}
+    <script>
+      mediumZoom(document.querySelectorAll("img:not(.nozoom)"), {
+        margin: 24,
+        background: "rgba(0,0,0,0.5)",
+        scrollOffset: 0,
+      });
+    </script>
+  {{ end }}
+  {{ if templates.Exists "partials/extend-footer.html" }}
+    {{ partialCached "extend-footer.html" . }}
+  {{ end }}
+</footer>

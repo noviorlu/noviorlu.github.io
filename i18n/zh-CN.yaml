@@ -1,3 +1,6 @@
 article:
   part: "第"
   this_article: "本文"
+
+nav:
+  skip_to_main: "跳到正文"

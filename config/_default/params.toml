@@ -1,31 +1,29 @@
-colorScheme = "blowfish"
-defaultAppearance = "dark"
-autoSwitchAppearance = false
+colorScheme = "noviorlu"          # assets/css/schemes/noviorlu.css
+defaultAppearance = "light"
+autoSwitchAppearance = true       # follow the OS setting; the header toggle overrides it per visitor
 enableSearch = true
 enableCodeCopy = true
 mainSections = ["blog"]
 disableImageOptimization = false
+smartTOC = true
+smartTOCHideUnfocusedChildren = false
 
 [header]
-  layout = "basic"
+  layout = "site"                 # layouts/partials/header/site.html
 
 [footer]
   showMenu = true
   showCopyright = true
   showThemeAttribution = true
-  showAppearanceSwitcher = false
+  showAppearanceSwitcher = true   # also enables the switcher inside Blowfish's mobile menu
   showScrollToTop = true
 
 [homepage]
-  layout = "profile"
-  # homepageImage = "img/author.jpg"
+  # The home page is layouts/index.html (hero + featured projects + latest writing).
   showRecent = true
-  showRecentItems = 6
+  showRecentItems = 5
   showMoreLink = true
-  showMoreLinkDest = "/blog"
-  cardView = true
-  cardViewScreenWidth = false
-  layoutBackgroundBlur = true
+  showMoreLinkDest = "/blog/"
 
 [article]
   showDate = true
@@ -33,12 +31,13 @@ disableImageOptimization = false
   showLikes = false
   showDateUpdated = true
   showAuthor = true
+  showAuthorBottom = true
   showHero = true
-  heroStyle = "background"
+  heroStyle = "nv"                # layouts/partials/hero/nv.html: contained banner under the title
   showBreadcrumbs = true
   showDraftLabel = true
   showEdit = false
-  showHeadingAnchors = false
+  showHeadingAnchors = true
   showPagination = true
   invertPagination = false
   showReadingTime = true
@@ -51,16 +50,15 @@ disableImageOptimization = false
   sharingLinks = ["x-twitter", "linkedin", "email"]
 
 [list]
-  showHero = true
-  heroStyle = "background"
+  showHero = false
   showBreadcrumbs = true
   showSummary = true
   showViews = false
   showLikes = false
   showTableOfContents = false
-  showCards = true
+  showCards = false
   groupByYear = true
-  cardView = true
+  cardView = false                # rows come from layouts/partials/article-link/simple.html
   cardViewScreenWidth = false
 
 [taxonomy]
@@ -78,6 +76,6 @@ disableImageOptimization = false
   showViews = false
   showLikes = false
   showTableOfContents = false
-  groupByYear = false
-  cardView = true
+  groupByYear = true
+  cardView = false
   cardViewScreenWidth = false
