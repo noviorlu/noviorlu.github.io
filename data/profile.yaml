@@ -1,0 +1,51 @@
+# 关于页（layouts/about/list.html）里正文之后的几块：技能、编年史、工作之外。
+# 正文本身在 content/about/_index.md。
+
+skills:
+  - name: 图形学 & 渲染
+    items: [Vulkan / OpenGL, 路径追踪 & PBR, 3DGS / NeRF, Mesh LOD]
+  - name: AI & ML
+    items: [Neural Rendering, RL / Transformer, AIGC 玩家]
+  - name: 系统编程
+    items: [C/C++, OS 内核, 体系结构]
+  - name: 游戏 & 交互
+    items: [Unity / WebGL, 体素 & 仿真]
+  - name: 工具 & 基建
+    items: [CI/CD, 分布式系统, Java / Git]
+
+timeline:
+  - year: "2019"
+    title: 入坑图形学
+    text: 第一次写光线追踪，看到像素一个个亮起来的时候，决定了方向。从 OpenGL 三角形开始，一路折腾到 PBR。
+  - year: "2021"
+    title: 渲染狂热期
+    text: 写了离线渲染器、实时渲染器、体素引擎……能用光栅化解决的问题绝不用别的。坚信手写 Shader 才是正道。
+  - year: "2022"
+    title: 工业级渲染
+    text: 第一次接触生产级渲染管线。才发现学校写的 toy renderer 和真正要跑在几亿设备上的东西，完全不是一回事。
+  - year: "2023"
+    title: NeRF 冲击
+    text: 3DGS 论文出来的那天，意识到神经网络正在吃掉传统渲染的地盘。开始认真学 ML，从怀疑到「这东西真的能用」。
+  - year: "2024"
+    title: Neural Rendering
+    text: 读研方向选了可微渲染。两个世界开始融合——用梯度下降做渲染，用渲染知识设计网络。这才是我想做的事。
+  - year: "2025"
+    title: Rendering is Dead?
+    text: AI 生成的画面已经能骗过大多数人的眼睛。传统渲染不会消失，但规则变了。与其对抗，不如站在交叉点上。
+
+offwork:
+  title: 战场日志
+  game: World of Warships
+  stats: ["2000+ 小时", "30+ 艘十级船", "全系全线"]
+  fleet:
+    - { type: 战列, ships: ["大和 54%", "蒙大拿 100%", "征服者 50%", "兴登堡", "俄亥俄", "佛蒙特", "无比", "丰后 81%"] }
+    - { type: 巡洋, ships: ["藏王 45%", "塞勒姆", "米诺陶 53%", "不来梅 59%", "彼得罗巴甫洛夫斯克 62%", "吉野 58%"] }
+    - { type: 驱逐, ships: ["岛风 68%", "玛索", "那不勒斯 47%", "刻耳柏洛斯 62%", "淀 50%"] }
+    - { type: 航母, ships: ["埃塞克斯 50%", "仁川 100%"] }
+  gallery:
+    - { src: /img/azurlane/shimakaze.png, alt: 岛风 }
+    - { src: /img/azurlane/hindenburg.png, alt: 兴登堡 }
+    - { src: /img/azurlane/bismarck.png, alt: 俾斯麦 }
+    - { src: /img/azurlane/essex.png, alt: 埃塞克斯 }
+    - { src: /img/azurlane/atago.png, alt: 爱宕 }
+    - { src: /img/azurlane/takao.png, alt: 高雄 }

@@ -1,0 +1,26 @@
+{{- /* Cover: a stylised Cornell box (lajolla's first test scene is scenes/cbox). */ -}}
+<svg class="nv-cover-svg" viewBox="0 0 400 250" preserveAspectRatio="xMidYMid slice" role="presentation" focusable="false">
+  <defs>
+    <linearGradient id="cb-l" x1="0" x2="1"><stop offset="0" stop-color="#8f1f1a"/><stop offset="1" stop-color="#c2362c"/></linearGradient>
+    <linearGradient id="cb-r" x1="1" x2="0"><stop offset="0" stop-color="#1f5e2a"/><stop offset="1" stop-color="#3f8d45"/></linearGradient>
+    <linearGradient id="cb-f" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#bdb8ae"/><stop offset="1" stop-color="#e2ded6"/></linearGradient>
+    <linearGradient id="cb-c" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c9c5bd"/><stop offset="1" stop-color="#e6e3dc"/></linearGradient>
+    <radialGradient id="cb-glow" cx="200" cy="22" r="210" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fff8e1" stop-opacity=".55"/><stop offset=".45" stop-color="#fff8e1" stop-opacity=".12"/><stop offset="1" stop-color="#000" stop-opacity=".22"/></radialGradient>
+    <radialGradient id="cb-sh" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#000" stop-opacity=".38"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+  </defs>
+  <polygon points="0,0 400,0 280,40 120,40" fill="url(#cb-c)"/>
+  <polygon points="0,250 400,250 280,190 120,190" fill="url(#cb-f)"/>
+  <polygon points="0,0 120,40 120,190 0,250" fill="url(#cb-l)"/>
+  <polygon points="400,0 280,40 280,190 400,250" fill="url(#cb-r)"/>
+  <rect x="120" y="40" width="160" height="150" fill="#ebe8e1"/>
+  <polygon points="168,17 232,17 240,28 160,28" fill="#fffdf3"/>
+  <ellipse cx="176" cy="206" rx="40" ry="8" fill="url(#cb-sh)"/>
+  <ellipse cx="250" cy="222" rx="42" ry="8" fill="url(#cb-sh)"/>
+  <polygon points="138,98 160,90 200,96 178,104" fill="#f3f0ea"/>
+  <polygon points="138,98 178,104 178,206 138,198" fill="#d9d4cb"/>
+  <polygon points="178,104 200,96 200,194 178,206" fill="#b9c6b6"/>
+  <polygon points="214,158 256,150 274,160 232,168" fill="#f4f1eb"/>
+  <polygon points="232,168 274,160 274,212 232,220" fill="#dad5cc"/>
+  <polygon points="214,158 232,168 232,220 214,208" fill="#d4b9b2"/>
+  <rect width="400" height="250" fill="url(#cb-glow)"/>
+</svg>

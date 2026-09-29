@@ -1,0 +1,46 @@
+{{- /* A project card. Context: dict "p" <item from data/projects.yaml> "cover" bool. */ -}}
+{{- $p := .p -}}
+{{- $withCover := .cover | default false -}}
+{{- $ext := and $p.url (or (hasPrefix $p.url "http:") (hasPrefix $p.url "https:")) -}}
+<article class="nv-pcard{{ if $withCover }} nv-pcard--cover{{ end }}{{ if $p.url }} is-link{{ end }}">
+  {{- if $withCover }}
+    <div class="nv-pcard__cover" aria-hidden="true">
+      {{- $img := "" -}}
+      {{- with $p.cover }}{{ if not (hasPrefix . "svg:") }}{{ $img = resources.Get . }}{{ end }}{{ end -}}
+      {{- with $img }}
+        {{- $sm := .Fill "640x400 Top webp q80" -}}
+        {{- $lg := .Fill "1200x750 Top webp q80" -}}
+        <img src="{{ $sm.RelPermalink }}" srcset="{{ $sm.RelPermalink }} 640w, {{ $lg.RelPermalink }} 1200w"
+          sizes="(min-width: 1100px) 360px, (min-width: 700px) 50vw, 100vw"
+          width="{{ $sm.Width }}" height="{{ $sm.Height }}" alt="" loading="lazy" decoding="async" class="nozoom">
+      {{- else }}
+        {{- $name := strings.TrimPrefix "svg:" ($p.cover | default "svg:graph") -}}
+        {{- $tpl := printf "nv/covers/%s.html" $name -}}
+        {{- if templates.Exists (printf "partials/%s" $tpl) }}{{ partial $tpl . }}{{ else }}{{ partial "nv/covers/graph.html" . }}{{ end -}}
+      {{- end }}
+    </div>
+  {{- end }}
+  <div class="nv-pcard__body">
+    <p class="nv-pcard__kind">{{ $p.kind }}</p>
+    <h3 class="nv-pcard__title">
+      {{- if $p.url -}}
+        <a class="nv-stretch" href="{{ $p.url }}"{{ if $ext }} target="_blank" rel="noopener"{{ end }}>{{ $p.title }}</a>
+      {{- else -}}
+        {{ $p.title }}
+      {{- end -}}
+    </h3>
+    <p class="nv-pcard__summary">{{ $p.summary }}</p>
+    {{- with $p.tags }}
+      <ul class="nv-pcard__tags">{{ range . }}<li>{{ . }}</li>{{ end }}</ul>
+    {{- end }}
+    {{- if or $p.links $p.url }}
+      <p class="nv-pcard__links">
+        {{- if $p.url }}<span class="nv-pcard__go" aria-hidden="true">{{ if $ext }}打开 ↗{{ else }}查看 →{{ end }}</span>{{ end -}}
+        {{- range $p.links }}
+          {{- $x := or (hasPrefix .url "http:") (hasPrefix .url "https:") }}
+          <a href="{{ .url }}"{{ if $x }} target="_blank" rel="noopener"{{ end }}>{{ .label }}{{ if $x }} ↗{{ end }}</a>
+        {{- end }}
+      </p>
+    {{- end }}
+  </div>
+</article>

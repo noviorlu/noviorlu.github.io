@@ -1,0 +1,86 @@
+{{- /* /about/ — the markdown in content/about/_index.md, then skills, chronicle and the
+       off-work section from data/profile.yaml. */ -}}
+{{ define "main" }}
+  {{ $pf := site.Data.profile }}
+  <header class="nv-pagehead">
+    <p class="nv-kicker">About</p>
+    <h1 class="nv-pagehead__title">{{ .Title }}</h1>
+  </header>
+
+  <div class="nv-about">
+    <aside class="nv-about__card">
+      <div class="nv-about__avatar" aria-hidden="true">喵</div>
+      <p class="nv-about__name">{{ site.Params.Author.name }}</p>
+      <p class="nv-about__headline">{{ site.Params.Author.headline }}</p>
+      <div class="nv-about__links">
+        {{ range site.Params.Author.links }}
+          {{ range $name, $url := . }}
+            <a class="nv-iconbtn" href="{{ $url }}" target="_blank" rel="me noopener noreferrer"
+              aria-label="{{ $name | title }}" title="{{ $name | title }}">{{ partial "icon.html" $name }}</a>
+          {{ end }}
+        {{ end }}
+      </div>
+    </aside>
+    <div class="nv-about__body prose dark:prose-invert">
+      {{ .Content }}
+    </div>
+  </div>
+
+  {{ with $pf.skills }}
+    <section class="nv-section nv-section--tight" aria-labelledby="ab-skills">
+      <h2 class="nv-group__title" id="ab-skills">技能树</h2>
+      <div class="nv-skills">
+        {{ range . }}
+          <div class="nv-skill">
+            <p class="nv-skill__name">{{ .name }}</p>
+            <ul class="nv-pcard__tags">{{ range .items }}<li>{{ . }}</li>{{ end }}</ul>
+          </div>
+        {{ end }}
+      </div>
+    </section>
+  {{ end }}
+
+  {{ with $pf.timeline }}
+    <section class="nv-section nv-section--tight" aria-labelledby="ab-timeline">
+      <h2 class="nv-group__title" id="ab-timeline">编年史</h2>
+      <ol class="nv-timeline">
+        {{ range . }}
+          <li class="nv-timeline__item">
+            <span class="nv-timeline__year">{{ .year }}</span>
+            <div class="nv-timeline__body">
+              <h3 class="nv-timeline__title">{{ .title }}</h3>
+              <p>{{ .text }}</p>
+            </div>
+          </li>
+        {{ end }}
+      </ol>
+    </section>
+  {{ end }}
+
+  {{ with $pf.offwork }}
+    <section class="nv-section nv-section--tight" aria-labelledby="ab-off">
+      <h2 class="nv-group__title" id="ab-off">工作之外 · {{ .title }}</h2>
+      <div class="nv-panel nv-off">
+        <div class="nv-off__head">
+          <p class="nv-off__game">{{ .game }}</p>
+          <ul class="nv-off__stats">{{ range .stats }}<li>{{ . }}</li>{{ end }}</ul>
+        </div>
+        <div class="nv-off__fleet">
+          {{ range .fleet }}
+            <div class="nv-off__row"><span class="nv-off__type">{{ .type }}</span>
+              <ul class="nv-pcard__tags">{{ range .ships }}<li>{{ . }}</li>{{ end }}</ul>
+            </div>
+          {{ end }}
+        </div>
+        {{ with .gallery }}
+          <details class="nv-off__gallery">
+            <summary>碧蓝航线舰娘图鉴（{{ len . }} 张，点开加载）</summary>
+            <div class="nv-off__strip">
+              {{ range . }}<img src="{{ .src | relURL }}" alt="{{ .alt }}" loading="lazy" decoding="async">{{ end }}
+            </div>
+          </details>
+        {{ end }}
+      </div>
+    </section>
+  {{ end }}
+{{ end }}

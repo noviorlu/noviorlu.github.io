@@ -1,0 +1,159 @@
+# /projects/ 页（layouts/projects/list.html）和首页「精选项目」的数据。
+#
+# 每个项目一条：
+#   id        唯一名字
+#   title     标题
+#   kind      小标签（工具 / 交互页面 / 渲染器 …）
+#   group     属于哪一组（见下面 groups 的 id）
+#   featured  出现在首页和 /projects/ 顶部的顺序（不写 = 不精选）
+#   summary   一句话
+#   tags      技术栈
+#   url       站内详情页或在线演示（卡片整体点进去的地方）；没有就不写
+#   links     其他链接：[{label, url}]
+#   cover     精选卡片的封面：assets/ 下的图片路径，或 "svg:<名字>"（layouts/partials/nv/cover.html 里画的）
+
+groups:
+  - id: tools
+    title: 工具与交互页面
+    blurb: 自己要用、顺手做成网页的东西。
+  - id: rendering
+    title: 渲染与图形
+    blurb: 从 Whitted 光线追踪到可微渲染的一路练习。
+  - id: systems
+    title: 系统、游戏与课程项目
+    blurb: 本科与研究生阶段的课程项目和小作品。
+
+items:
+  - id: codestrata
+    title: codestrata
+    kind: 工具
+    group: tools
+    featured: 1
+    summary: 把一个大仓库扫成可点击的架构图，再把一次真实运行里发生的调用叠到同一张图上——不用通读全部源码，也能看清一个 case 走了哪条路。
+    tags: [Python, 静态分析, Runtime Trace, 可视化]
+    url: /projects/codestrata/
+    links:
+      - { label: "在线查看：vllm-omni", url: /projects/codestrata/vllm-omni/ }
+    cover: img/projects/codestrata-vllm-omni.jpg
+
+  - id: flops
+    title: Transformer 算力与显存计算器
+    kind: 交互页面
+    group: tools
+    featured: 2
+    summary: 把一个 Transformer LM 的参数量、前向 FLOPs、训练一步的显存和时间从头数一遍——每一项先写符号公式再代入配置，附可缩放的架构图。CS336 笔记 §5.4 的配套页面。
+    tags: [Transformer, FLOPs, 显存, CS336]
+    url: /projects/flops/
+    cover: img/projects/flops.jpg
+
+  - id: lajolla
+    title: Lajolla Renderer
+    kind: 渲染器
+    group: rendering
+    featured: 3
+    summary: 跟随 UCSD CSE272 构建的基于物理的渲染器：体积渲染、Disney BSDF、路径追踪 + MIS、可微渲染。
+    tags: [C++, 路径追踪, 体积渲染, PBR]
+    links:
+      - { label: 源码, url: "https://github.com/noviorlu/lajolla_renderer" }
+      - { label: 体积渲染笔记, url: /blog/volumetric-rendering-theory/ }
+    cover: svg:cornell
+
+  - id: nori
+    title: Nori Raytracer
+    kind: 光线追踪
+    group: rendering
+    summary: PBRT 预备光线追踪器，实现 Whitted-style RT、微表面 BSDF、路径追踪 + MIS。
+    tags: [C++, Whitted RT, Microfacet]
+    links:
+      - { label: 源码, url: "https://github.com/noviorlu/nori_hw" }
+      - { label: Whitted 笔记, url: /blog/whitted-style-rendering/ }
+
+  - id: macromesh
+    title: Nanite 风格 Mesh LOD
+    kind: 实时渲染
+    group: rendering
+    summary: 仿 UE5 Nanite 的基于 cluster 的动态 LOD 生成与选择，百万三角形的层级细节。
+    tags: [C++, OpenGL, METIS, Mesh]
+    links:
+      - { label: 源码, url: "https://github.com/noviorlu/MacroMesh_Demo" }
+      - { label: 知乎文章, url: "https://zhuanlan.zhihu.com/p/11915728889" }
+
+  - id: opengl
+    title: OpenGL 实时渲染器
+    kind: 实时渲染
+    group: rendering
+    summary: 实时渲染演示与实验：实例化批渲染、相机 / 材质 / 光照结构、SSGI、体素渲染、Fragment Shader RT。
+    tags: [C++, OpenGL, GLSL]
+    links:
+      - { label: 源码, url: "https://github.com/noviorlu/OpenGL_Demo" }
+
+  - id: neural-lens
+    title: Neural Lens Simulation
+    kind: 神经渲染
+    group: rendering
+    summary: 神经网络 × Shader 的实时透镜仿真。
+    tags: [Neural Rendering, GLSL]
+
+  - id: cs488
+    title: CS488 图形学项目
+    kind: 课程项目
+    group: rendering
+    summary: 多伦多大学计算机图形学课程项目。
+    tags: [C, OpenGL]
+    links:
+      - { label: 源码, url: "https://github.com/noviorlu/cs488" }
+
+  - id: kvdb
+    title: 分布式 KV 数据库
+    kind: 分布式系统
+    group: systems
+    summary: 一致性哈希 + 复制 + 容错。
+    tags: [Java, Distributed]
+
+  - id: tomasulo
+    title: CPU 体系结构模拟
+    kind: 体系结构
+    group: systems
+    summary: Tomasulo 乱序流水线 + 分支预测。
+    tags: [Architecture]
+
+  - id: optic
+    title: Optic 光学仿真平台
+    kind: 教学
+    group: systems
+    summary: Unity WebGL 波动光学教学平台。
+    tags: [Unity, WebGL]
+
+  - id: voxel
+    title: 体素编辑器
+    kind: 工具
+    group: systems
+    summary: 交互式体素建模工具。
+    tags: [Voxel, MVC]
+
+  - id: tank
+    title: Tank Battalion (ECE243)
+    kind: 嵌入式游戏
+    group: systems
+    summary: 在 DE1-SoC FPGA 板上实现的经典街机游戏。
+    tags: [C, ARM Assembly, FPGA]
+    links:
+      - { label: 源码, url: "https://github.com/noviorlu/ECE243_Tank_Battalion" }
+
+  - id: g2048
+    title: 2048 游戏
+    kind: 游戏
+    group: systems
+    summary: Unity 2048 小游戏，核心算法与 UI。
+    tags: [Unity, C#]
+    links:
+      - { label: 源码, url: "https://github.com/noviorlu/2048Game" }
+
+  - id: asciitree
+    title: ECE297 ASCII Tree
+    kind: 数据结构
+    group: systems
+    summary: 搜索栏自动补全用的 ASCII 树。
+    tags: [C++]
+    links:
+      - { label: 源码, url: "https://github.com/noviorlu/ECE297_ASCIITree" }

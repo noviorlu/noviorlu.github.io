@@ -1,0 +1,44 @@
+{{- /* Home hero illustration: a small architecture graph in codestrata's visual language —
+       gray = static references, orange = calls seen in a real run, dashed orange = runtime-only,
+       blue halo = selection. Colours come from CSS (.nv-g-*), so it follows light / dark. */ -}}
+<figure class="nv-graph" aria-hidden="true">
+  <svg viewBox="0 0 510 372" role="presentation" focusable="false">
+    <g class="nv-g-edges">
+      <path class="nv-g-e nv-g-e--hot" d="M260 60 C260 89 150 89 150 118"/>
+      <path class="nv-g-e" d="M260 60 C260 89 370 89 370 118"/>
+      <path class="nv-g-e nv-g-e--hot" d="M150 150 C150 185 72 185 72 220"/>
+      <path class="nv-g-e" d="M150 150 C150 185 204 185 204 220"/>
+      <path class="nv-g-e nv-g-e--hot" d="M127 236 L153 236"/>
+      <path class="nv-g-e nv-g-e--hot" d="M72 252 C72 286 138 286 138 320"/>
+      <path class="nv-g-e" d="M204 252 C204 286 138 286 138 320"/>
+      <path class="nv-g-e" d="M370 150 C370 185 324 185 324 220"/>
+      <path class="nv-g-e" d="M370 150 C370 185 446 185 446 220"/>
+      <path class="nv-g-e nv-g-e--dash" d="M370 150 C370 235 386 235 386 320"/>
+      <path class="nv-g-e" d="M324 252 C324 286 386 286 386 320"/>
+      <path class="nv-g-e" d="M446 252 C446 286 386 286 386 320"/>
+      <path class="nv-g-e nv-g-e--rt" d="M150 150 C150 235 386 235 386 320"/>
+    </g>
+    <g class="nv-g-flow">
+      <path d="M260 60 C260 89 150 89 150 118"/>
+      <path d="M150 150 C150 185 72 185 72 220"/>
+      <path d="M72 252 C72 286 138 286 138 320"/>
+      <path d="M127 236 L153 236"/>
+    </g>
+    <g class="nv-g-nodes">
+      <g class="nv-g-n nv-g-n--entry is-hot" transform="translate(208 28)"><rect width="104" height="32" rx="9"/><text x="52" y="20">main.py</text></g>
+      <g class="nv-g-n is-hot" transform="translate(94 118)"><rect width="112" height="32" rx="9"/><text x="56" y="20">scheduler</text></g>
+      <g class="nv-g-n" transform="translate(311 118)"><rect width="118" height="32" rx="9"/><text x="59" y="20">integrator</text></g>
+      <g class="nv-g-n nv-g-n--sel is-hot" transform="translate(17 220)"><rect class="nv-g-halo" x="-5" y="-5" width="120" height="42" rx="13"/><rect width="110" height="32" rx="9"/><text x="55" y="20">attention</text></g>
+      <g class="nv-g-n is-hot" transform="translate(153 220)"><rect width="102" height="32" rx="9"/><text x="51" y="20">kv_cache</text></g>
+      <g class="nv-g-n" transform="translate(284 220)"><rect width="80" height="32" rx="9"/><text x="40" y="20">bsdf</text></g>
+      <g class="nv-g-n" transform="translate(399 220)"><rect width="94" height="32" rx="9"/><text x="47" y="20">volume</text></g>
+      <g class="nv-g-n is-hot" transform="translate(91 320)"><rect width="94" height="32" rx="9"/><text x="47" y="20">tensor</text></g>
+      <g class="nv-g-n is-hot" transform="translate(336 320)"><rect width="100" height="32" rx="9"/><text x="50" y="20">sampler</text></g>
+    </g>
+  </svg>
+  <figcaption class="nv-graph__legend">
+    <span><i class="nv-lg nv-lg--static"></i>静态引用</span>
+    <span><i class="nv-lg nv-lg--hot"></i>运行时调用</span>
+    <span><i class="nv-lg nv-lg--rt"></i>只在运行时出现</span>
+  </figcaption>
+</figure>

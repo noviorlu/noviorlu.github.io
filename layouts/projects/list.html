@@ -1,0 +1,36 @@
+{{- /* /projects/ — project index, driven by data/projects.yaml. */ -}}
+{{ define "main" }}
+  {{ $items := site.Data.projects.items }}
+  {{ $featured := sort (where $items "featured" "!=" nil) "featured" }}
+  <header class="nv-pagehead">
+    <p class="nv-kicker">Projects</p>
+    <h1 class="nv-pagehead__title">{{ .Title }}</h1>
+    {{ with .Description }}<p class="nv-pagehead__lead">{{ . }}</p>{{ end }}
+    {{ with .Content }}<div class="nv-pagehead__content prose dark:prose-invert">{{ . }}</div>{{ end }}
+  </header>
+
+  {{ with $featured }}
+    <section class="nv-section nv-section--tight" aria-labelledby="pj-featured">
+      <h2 class="nv-group__title" id="pj-featured">精选</h2>
+      <div class="nv-cards nv-cards--3">
+        {{ range . }}{{ partial "nv/project-card.html" (dict "p" . "cover" true) }}{{ end }}
+      </div>
+    </section>
+  {{ end }}
+
+  {{ range site.Data.projects.groups }}
+    {{ $g := . }}
+    {{ $rest := where (where $items "group" $g.id) "featured" "==" nil }}
+    {{ with $rest }}
+      <section class="nv-section nv-section--tight" aria-labelledby="pj-{{ $g.id }}">
+        <div class="nv-group__head">
+          <h2 class="nv-group__title" id="pj-{{ $g.id }}">{{ $g.title }}</h2>
+          {{ with $g.blurb }}<p class="nv-group__blurb">{{ . }}</p>{{ end }}
+        </div>
+        <div class="nv-cards nv-cards--3">
+          {{ range . }}{{ partial "nv/project-card.html" (dict "p" . "cover" false) }}{{ end }}
+        </div>
+      </section>
+    {{ end }}
+  {{ end }}
+{{ end }}
