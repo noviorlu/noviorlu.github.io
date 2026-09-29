@@ -34,6 +34,7 @@ items:
     url: /projects/codestrata/
     links:
       - { label: "在线查看：vllm-omni", url: /projects/codestrata/vllm-omni/ }
+      - { label: 源码, url: "https://github.com/noviorlu/codestrata" }
     cover: img/projects/codestrata-vllm-omni.jpg
 
   - id: flops

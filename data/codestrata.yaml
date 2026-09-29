@@ -10,7 +10,7 @@
 #      链到 /projects/codestrata/<slug>/。
 
 # codestrata 自己的源码仓库地址。仓库公开后填上，页面上会出现「源码」按钮；空着就不显示。
-source: ""
+source: "https://github.com/noviorlu/codestrata"
 
 repos:
   - slug: vllm-omni                        # = static/projects/codestrata/vllm-omni/
@@ -38,3 +38,9 @@ repos:
         mode: 在线服务
         what: vllm-omni serve 起 MiniCPM-o 4.5，再用 realtime_duplex_demo.py 发一段实时全双工语音对话；只看服务就绪之后的 serving 段。
     hardware: 单卡 RTX 5090
+    # 重新导出这个仓库（现在这份就是这条命令导出的：两个 run、run_single_prompt 的三种看法 + duplex 的两种）：
+    #   cd ~/projects/duplex-agents/vllm-omni/src/vllm-omni
+    #   ~/projects/codestrata/.venv/bin/codestrata graph . --link github --public \
+    #     --hot 20260928-101750-run_single_prompt@serving --hot 20260928-101750-run_single_prompt@start \
+    #     --hot 20260928-101750-run_single_prompt --hot minicpmo-duplex@serving --hot minicpmo-duplex \
+    #     --out ~/projects/noviorlu.github.io/static/projects/codestrata/vllm-omni
