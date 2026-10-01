@@ -24,19 +24,6 @@ groups:
     blurb: 本科与研究生阶段的课程项目和小作品。
 
 items:
-  - id: codestrata
-    title: codestrata
-    kind: 工具
-    group: tools
-    featured: 1
-    summary: 把一个大仓库扫成可点击的架构图，再把一次真实运行里发生的调用叠到同一张图上——不用通读全部源码，也能看清一个 case 走了哪条路。
-    tags: [Python, 静态分析, Runtime Trace, 可视化]
-    url: /projects/codestrata/
-    links:
-      - { label: "在线查看：vllm-omni", url: /projects/codestrata/vllm-omni/ }
-      - { label: 源码, url: "https://github.com/noviorlu/codestrata" }
-    cover: img/projects/codestrata-vllm-omni.jpg
-
   - id: flops
     title: Transformer 算力与显存计算器
     kind: 交互页面
