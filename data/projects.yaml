@@ -29,7 +29,7 @@ items:
     kind: 交互页面
     group: tools
     featured: 2
-    summary: 把一个 Transformer LM 的参数量、前向 FLOPs、训练一步的显存和时间从头数一遍——每一项先写符号公式再代入配置，附可缩放的架构图。CS336 笔记 §5.4 的配套页面。
+    summary: 训练一个 Transformer LM 的四个关键数——参数量、训练算力、显存、训练时间——每个一条公式、一张图，选个模型、拖拖滑块就能看它们怎么变。CS336 笔记 §5.4 的配套页面，另有保留全部参数的完整版。
     tags: [Transformer, FLOPs, 显存, CS336]
     url: /projects/flops/
     cover: img/projects/flops.jpg

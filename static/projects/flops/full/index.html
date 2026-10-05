@@ -1,0 +1,1579 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transformer 算力与显存计算器</title>
+<style>
+  :root{
+    --bg:#fbfbfa; --panel:#fff; --ink:#1a1a1a; --muted:#6b6b6b; --line:#e4e4e1;
+    --accent:#2f6f4e; --accent-soft:#e8f2ec; --warn:#a4522c; --warn-soft:#fbeee6;
+    --code:#f4f4f2; --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --k1:#3d7f5e; --k2:#5f9ea0; --k3:#c08552; --k4:#8a7aa8; --k5:#b0563f;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#16171a; --panel:#1e2024; --ink:#e6e6e4; --muted:#9a9a97; --line:#2e3138;
+      --accent:#7cc3a0; --accent-soft:#1e2c26; --warn:#d99a72; --warn-soft:#2c231d;
+      --code:#25272c;
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC",sans-serif;
+  }
+  .wrap{max-width:1560px; margin:0 auto; padding:32px 20px 80px}
+  header h1{font-size:26px; margin:0 0 6px; letter-spacing:-.2px}
+  header p{color:var(--muted); margin:0 0 4px; max-width:70ch}
+  header .src{font-size:13px; color:var(--muted)}
+  .layout{display:grid; grid-template-columns:290px 1fr; gap:26px; margin-top:26px; align-items:start}
+  /* grid item 默认 min-width:auto，会被内部宽内容（架构图、nowrap 表格）顶宽，
+     让 .archwrap/.scroll 的 overflow-x 失效、整页横向溢出。必须显式归零。 */
+  .layout > *{min-width:0}
+  @media (max-width:900px){ .layout{grid-template-columns:1fr} }
+
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px}
+  .sticky{position:sticky; top:20px; max-height:calc(100vh - 40px); overflow-y:auto}
+  @media (max-width:900px){ .sticky{position:static; max-height:none} }
+  h2{font-size:15px; margin:0 0 14px; letter-spacing:.04em; text-transform:uppercase; color:var(--muted)}
+
+  /* ── 折叠卡片 ── */
+  .toolbar{display:flex; gap:8px; align-items:center; margin-bottom:12px}
+  .toolbar button{
+    font:12px/1 var(--mono); padding:7px 11px; cursor:pointer; color:var(--muted);
+    background:var(--panel); border:1px solid var(--line); border-radius:6px;
+  }
+  .toolbar button:hover{border-color:var(--accent); color:var(--accent)}
+  .toolbar .hint{font-size:12px; color:var(--muted); margin-left:auto}
+
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:10px; margin-bottom:10px}
+  .card summary{
+    display:flex; align-items:center; gap:11px; padding:13px 16px;
+    cursor:pointer; list-style:none; border-radius:9px;
+  }
+  .card summary::-webkit-details-marker{display:none}
+  .card summary:hover{background:var(--code)}
+  .card summary:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+  .card[open]{border-color:var(--accent)}
+  .card[open] > summary{border-bottom:1px solid var(--line); border-radius:9px 9px 0 0}
+  .card .arw{flex:none; width:13px; color:var(--muted); font-size:11px; transition:transform .15s ease}
+  .card[open] > summary .arw{transform:rotate(90deg)}
+  .card .num{
+    flex:none; width:21px; height:21px; border-radius:50%; background:var(--accent-soft);
+    color:var(--accent); font:11px/21px var(--mono); font-weight:700; text-align:center;
+  }
+  .card .ttl{font-size:15px; font-weight:600}
+  .card .hd{margin-left:auto; text-align:right; font:12.5px/1.4 var(--mono); color:var(--accent); white-space:nowrap}
+  .card .hd.warn{color:var(--warn)}
+  .card .body{padding:16px}
+  @media (max-width:640px){
+    .card summary{flex-wrap:wrap; row-gap:6px}
+    .card .hd{margin-left:45px; flex-basis:100%; text-align:left; white-space:normal}
+  }
+  /* 卡片里再套一层的明细 */
+  .sub{border:1px solid var(--line); border-radius:8px; margin-top:14px}
+  .sub > summary{
+    padding:9px 13px; cursor:pointer; list-style:none; font:12px var(--mono); color:var(--muted);
+  }
+  .sub > summary::-webkit-details-marker{display:none}
+  .sub > summary:hover{color:var(--accent)}
+  .sub[open] > summary{border-bottom:1px solid var(--line)}
+  .sub .body{padding:13px}
+
+  .presets{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px}
+  .presets button{
+    font:12px/1 var(--mono); padding:7px 10px; cursor:pointer; color:var(--ink);
+    background:var(--code); border:1px solid var(--line); border-radius:6px;
+  }
+  .presets button:hover{border-color:var(--accent); color:var(--accent)}
+
+  .field{display:grid; grid-template-columns:1fr 92px; gap:8px; align-items:center; margin-bottom:9px}
+  .field.wide{grid-template-columns:1fr}
+  .field label{font-size:13px}
+  .field label small{display:block; color:var(--muted); font:11px/1.3 var(--mono)}
+  .field input,.field select{
+    width:100%; padding:6px 8px; font:13px var(--mono); text-align:right;
+    background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:5px;
+  }
+  .field select{text-align:left}
+  .field input:focus,.field select:focus{outline:2px solid var(--accent); outline-offset:-1px}
+  .field.off{opacity:.4; pointer-events:none}
+  .chk{display:flex; gap:7px; align-items:center; font-size:13px; margin:2px 0 12px; color:var(--muted)}
+  .derived{font:11px/1.55 var(--mono); color:var(--muted); background:var(--code);
+    border-radius:5px; padding:5px 8px; margin:-2px 0 10px}
+
+  table{width:100%; border-collapse:collapse; font-size:13.5px}
+  .scroll{overflow-x:auto; -webkit-overflow-scrolling:touch}
+  th,td{padding:7px 10px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  th{font-weight:600; color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.03em}
+  tr.ghead th{font-size:11px; padding:4px 10px 3px; text-align:center; border-bottom:0;
+    letter-spacing:.04em; text-transform:none; font-weight:700}
+  .gP{background:rgba(96,170,132,.09)}
+  .gA{background:rgba(214,146,100,.09)}
+  .gM{background:rgba(132,120,180,.09)}
+  .gF{background:rgba(96,150,190,.09)}
+  tr.ghead th.gP{color:#4a9c74} tr.ghead th.gA{color:#c07a44}
+  tr.ghead th.gM{color:#8478b4} tr.ghead th.gF{color:#5a92be}
+  tr.total td{font-weight:700; border-top:2px solid var(--line); border-bottom:none}
+  td.f,th.f{font-family:var(--mono); font-size:12.5px; color:var(--muted); text-align:left}
+  tbody tr:hover{background:var(--code)}
+
+  .eq{
+    font:13px/1.9 var(--mono); background:var(--code); border:1px solid var(--line);
+    border-left:3px solid var(--accent); border-radius:6px; padding:11px 14px; margin:10px 0;
+    overflow-x:auto; white-space:pre;
+  }
+  .eq b{color:var(--accent); font-weight:600}
+  .note{font-size:13.5px; color:var(--muted); margin:10px 0}
+  .note b{color:var(--ink)}
+  .tslide{position:relative; margin:10px 0 30px}
+  .tslide input[type=range]{width:100%; accent-color:var(--accent); cursor:ew-resize}
+  .tstar{position:absolute; top:26px; transform:translateX(-50%); font:10.5px var(--mono);
+    color:var(--warn); white-space:nowrap; font-weight:600}
+  .tstar::before{content:""; position:absolute; left:50%; top:-18px; width:2px; height:15px; background:var(--warn)}
+  .tends{display:flex; justify-content:space-between; font:10.5px var(--mono); color:var(--muted); margin-top:-4px}
+  /* 表格里凡是百分比，都在格子里垫一条浅色的量条 */
+  .pcell{position:relative; display:block; width:100%; min-width:62px; height:19px;
+    background:var(--code); border-radius:3px; overflow:hidden}
+  /* 用半透明填充而不是硬边框：边框会正好切在数字上 */
+  .pcell i{position:absolute; left:0; top:0; bottom:0; background:var(--accent); opacity:.24}
+  .pcell b{position:relative; display:block; text-align:right; padding-right:6px;
+    font:11.5px/19px var(--mono); font-weight:500; color:var(--ink)}
+  tr.total .pcell i{opacity:.42}
+  /* 每个小节：左边放可视化和数据，右边放这一块的说明 */
+  .row2{display:grid; grid-template-columns:minmax(0,1fr) 264px; gap:20px; align-items:start; margin-bottom:20px}
+  @media (max-width:1180px){ .row2{grid-template-columns:minmax(0,1fr)} }
+  .c-side{border-left:2px solid var(--line); padding-left:13px; min-width:0}
+  .c-side .note{margin:0 0 10px; font-size:12.5px; line-height:1.7}
+  .c-side .note:last-child{margin-bottom:0}
+  .c-side .sidelab{font:10.5px var(--mono); color:var(--muted); text-transform:uppercase;
+    letter-spacing:.06em; margin:0 0 7px}
+  .sub-h{font-size:14px; margin:26px 0 8px; padding-top:14px; border-top:1px solid var(--line)}
+
+  .kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:14px 0}
+  .kpi{background:var(--code); border:1px solid var(--line); border-radius:8px; padding:11px 13px}
+  .kpi .k{font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em}
+  .kpi .v{font:18px/1.35 var(--mono); font-weight:600; margin-top:3px}
+  .kpi .s{font:11px var(--mono); color:var(--muted)}
+
+  .bar{display:flex; height:26px; border-radius:5px; overflow:hidden; margin:12px 0 6px; border:1px solid var(--line)}
+  .bar span{display:flex; align-items:center; justify-content:center; font:11px var(--mono); color:#fff; overflow:hidden}
+  .legend{display:flex; flex-wrap:wrap; gap:14px; font-size:12px; color:var(--muted)}
+  .legend i{display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px}
+
+  /* ── 架构图（几何） ── */
+  .archbar{display:flex; gap:6px; align-items:center; margin-bottom:8px; flex-wrap:wrap}
+  .archbar button{font:12px/1 var(--mono); padding:6px 10px; cursor:pointer; color:var(--muted);
+    background:var(--panel); border:1px solid var(--line); border-radius:6px}
+  .archbar button:hover{border-color:var(--accent); color:var(--accent)}
+  .archbar .hint{font-size:11.5px; color:var(--muted); margin-left:auto}
+  .archcanvas{
+    position:relative; height:600px; min-height:240px; resize:vertical; overflow:hidden;
+    border:1px solid var(--line); border-radius:8px; background:var(--bg);
+    touch-action:none; cursor:grab; user-select:none;
+  }
+  .archcanvas.grabbing{cursor:grabbing}
+  .archcanvas svg{display:block; width:100%; height:100%}
+  .archzoom{position:absolute; right:8px; bottom:8px; font:11px var(--mono); color:var(--muted);
+    background:var(--panel); border:1px solid var(--line); border-radius:5px; padding:2px 7px;
+    pointer-events:none; opacity:.9}
+  svg .lbl{font:11px var(--mono); fill:var(--ink)}
+  svg .wlbl{font:11px var(--mono); fill:var(--muted); font-style:italic}
+  svg .hcnt{font:10px var(--mono); fill:var(--accent); font-weight:700}
+  svg .sym{font:9.5px var(--mono); fill:var(--muted)}
+  svg .num{font:9.5px var(--mono); fill:var(--accent)}
+  svg .dim{font:10px var(--mono); fill:var(--muted)}
+  svg .op{font:9.5px var(--mono); fill:var(--muted)}
+  svg .grp{font:11px var(--mono); fill:var(--accent); font-weight:700}
+  svg .flow{stroke:var(--muted); stroke-width:1.2; fill:none; opacity:.75}
+  svg .grid{stroke:var(--panel); stroke-width:.6; opacity:.55}
+  svg .grpbox{fill:none; stroke:var(--accent); stroke-width:1; stroke-dasharray:4 3; opacity:.65}
+  svg .layerbox{fill:none; stroke:var(--warn); stroke-width:1.6; stroke-dasharray:9 5; opacity:.75}
+  svg .layer{font:12px var(--mono); fill:var(--warn); font-weight:700}
+  svg .layerlbl{font:10.5px var(--mono); fill:var(--warn); font-weight:600}
+  svg .looparr{stroke:var(--warn); stroke-width:2; fill:none; stroke-linejoin:round; stroke-dasharray:7 4}
+  svg .band{fill:var(--accent-soft); stroke:var(--accent); stroke-width:1}
+  svg .resline{stroke:var(--accent); stroke-width:2.2; fill:none; stroke-linejoin:round}
+  svg .reslbl{font:10.5px var(--mono); fill:var(--accent); font-weight:600}
+  svg g.t:hover .fc{filter:brightness(1.15)}
+
+  /* ── 逐算子明细表 ── */
+  .arow,.ahead{display:grid; grid-template-columns:1fr 150px 92px 84px; gap:10px; align-items:center}
+  .arow{padding:3px 8px; border-radius:5px; font:12.5px/1.5 var(--mono)}
+  .arow:hover{background:var(--code)}
+  .arow .nm{white-space:pre; color:var(--ink)}
+  .arow .sh{text-align:right; color:var(--accent); white-space:nowrap}
+  .arow .fl{text-align:right; color:var(--muted); white-space:nowrap}
+  .arow .pb{position:relative; height:17px; background:var(--code); border-radius:3px; overflow:hidden}
+  .arow .pb i{position:absolute; left:0; top:0; bottom:0; background:var(--accent-soft); border-left:2px solid var(--accent)}
+  .arow .pb b{position:relative; display:block; text-align:center; font:10.5px/17px var(--mono); font-weight:500; color:var(--muted)}
+  .arow.free .nm,.arow.free .sh{color:var(--muted)}
+  .arow.hot .nm{color:var(--warn); font-weight:600}
+  .arow.hot .sh{color:var(--warn)}
+  .arow.hot .pb i{background:var(--warn-soft); border-left-color:var(--warn)}
+  .arow.res{background:var(--accent-soft)}
+  .arow.res .nm{color:var(--accent); font-weight:600}
+  .ahead{padding:0 8px 6px; font:11px var(--mono); color:var(--muted); letter-spacing:.03em}
+  .ahead span:nth-child(2),.ahead span:nth-child(3){text-align:right}
+  .ahead span:nth-child(4){text-align:center}
+  .arch{min-width:520px}
+
+  .tag{display:inline-block; padding:1px 7px; border-radius:4px; font:11px var(--mono); font-weight:600}
+  .tag.ok{background:var(--accent-soft); color:var(--accent)}
+  .tag.bad{background:var(--warn-soft); color:var(--warn)}
+  footer{margin-top:44px; padding-top:18px; border-top:1px solid var(--line); font-size:13px; color:var(--muted)}
+  code{font:12.5px var(--mono); background:var(--code); padding:1px 5px; border-radius:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Transformer 算力与显存计算器</h1>
+  <p>把一个 Transformer LM 的参数量、前向 FLOPs、训练一步的显存和时间从头数一遍。每一项都写出符号公式，再代入当前配置。</p>
+  <p class="src" id="archLine"></p>
+  <p class="src"><a href="../" style="color:var(--accent)">← 回到简化版</a>（这里是保留全部参数的完整版）</p>
+</header>
+
+<div class="layout">
+
+  <!-- ── 输入 ── -->
+  <aside class="panel sticky">
+    <h2>配置</h2>
+    <div class="presets" id="presets"></div>
+
+    <div class="field"><label>vocab_size <small>V</small></label><input id="V" type="number" value="50257"></div>
+    <div class="field"><label>context_length <small>T</small></label><input id="T" type="number" value="1024"></div>
+    <div class="field"><label>num_layers <small>L</small></label><input id="L" type="number" value="48"></div>
+    <div class="field"><label>d_model <small>d</small></label><input id="d" type="number" value="1600"></div>
+    <div class="field"><label>num_heads <small>h</small></label><input id="h" type="number" value="25"></div>
+
+    <h2 style="margin-top:22px">注意力</h2>
+    <div class="field wide"><select id="attn">
+      <option value="mha">MHA — 每个头有自己的 K/V</option>
+      <option value="gqa">GQA — 若干头共享一组 K/V</option>
+      <option value="mqa">MQA — 所有头共享一组 K/V</option>
+    </select></div>
+    <div class="field"><label>n_kv_heads <small>K/V 的头数，1…h</small></label><input id="nkv" type="number" value="25" min="1"></div>
+    <div class="field"><label>d_k <small>每个头多宽</small></label><input id="dk" type="number" value="64" min="1"></div>
+    <label class="chk"><input type="checkbox" id="autodk" checked> d_k 自动取 d/h</label>
+    <div class="derived" id="attnDer"></div>
+
+    <h2 style="margin-top:22px">前馈网络</h2>
+    <div class="field wide"><select id="ffn">
+      <option value="swiglu">SwiGLU — 门控，3 个矩阵</option>
+      <option value="geglu">GeGLU — 门控，3 个矩阵</option>
+      <option value="reglu">ReGLU — 门控，3 个矩阵</option>
+      <option value="mlp">MLP — 不门控，2 个矩阵（GPT-2 式）</option>
+    </select></div>
+    <div class="field"><label>d_ff</label><input id="dff" type="number" value="4288"></div>
+    <label class="chk"><input type="checkbox" id="autoff"> d_ff 自动取（门控 8/3·d，不门控 4·d，对齐 64）</label>
+    <div class="derived" id="ffnDer"></div>
+
+    <h2 style="margin-top:22px">硬件</h2>
+    <div class="presets" id="gpus"></div>
+    <div class="derived" id="gpuDer"></div>
+    <div class="field"><label>每个数几字节 <small>bytes</small></label>
+      <select id="bpe"><option value="4">fp32 · 4</option><option value="2">bf16/fp16 · 2</option></select></div>
+    <div class="field"><label>显存 <small>GB</small></label><input id="vram" type="number" value="80"></div>
+    <div class="field"><label>峰值算力 <small>TFLOP/s</small></label><input id="peak" type="number" value="495"></div>
+    <div class="field"><label>显存带宽 <small>TB/s</small></label><input id="bw" type="number" value="3.35" step="0.01"></div>
+    <div class="field"><label>MFU <small>0–1，和下面联动</small></label><input id="mfu" type="number" value="0.5" step="0.01"></div>
+    <div class="field"><label>实测 token/s <small>日志里那个数</small></label><input id="tps" type="number" value="0" step="1"></div>
+    <div class="derived" id="mfuDer"></div>
+    <div class="field"><label>训练 batch <small>只用于第 3 段（训练时间）</small></label><input id="tB" type="number" value="1024"></div>
+    <div class="field"><label>目标 token 数 <small>单位：十亿（B）</small></label><input id="Dtok" type="number" value="419.43" step="0.01"></div>
+    <div class="presets" id="ratios" style="margin:-4px 0 10px"></div>
+    <div class="field"><label>训练天数 <small>和 token 数联动</small></label><input id="days" type="number" value="202" step="0.1"></div>
+    <div class="field"><label>卡数 <small>GPU 张数</small></label><input id="ngpu" type="number" value="8" min="1"></div>
+    <div class="field"><label>梯度累积步数 <small>每步累几次</small></label><input id="accum" type="number" value="64" min="1"></div>
+    <div class="derived" id="batchDer"></div>
+    <div class="derived" id="tokDer"></div>
+  </aside>
+
+  <!-- ── 输出 ── -->
+  <main>
+
+    <div class="toolbar">
+      <button id="openAll">全部展开</button>
+      <button id="closeAll">全部收起</button>
+      <span class="hint">收起时右侧仍是实时结果，改配置即刷新</span>
+    </div>
+
+    <details class="card" open>
+      <summary><span class="arw">▸</span><span class="num">图</span>
+        <span class="ttl">架构：一个 token 走完全程</span><span class="hd" id="hd0"></span></summary>
+      <div class="body">
+      <div class="row2">
+        <div>
+          <div class="archbar">
+            <button id="azOut">−</button><button id="azIn">＋</button>
+            <button id="azFit">适应</button><button id="az100">1:1</button>
+            <span class="hint">滚轮缩放 · 拖拽平移 · 双指捏合 · 双击复位</span>
+          </div>
+          <div class="archcanvas" id="archcanvas">
+            <div id="archwrap" style="position:absolute; inset:0"></div>
+            <div class="archzoom" id="azLbl">100%</div>
+          </div>
+        </div>
+        <aside class="c-side">
+          <p class="sidelab">怎么看这张图</p>
+          <p class="note"><b>盒子边长按 √元素数</b>，比例是真的但被开方压缩过。超上限的那一维画成撕裂边
+          <span style="font-family:var(--mono)">⌇</span>。停在盒子上看精确元素数和字节数。</p>
+          <p class="note"><span class="tag ok">绿</span> 残差流与捷径　<span class="tag bad">橙</span> 含 T²　
+          <b>斜纹</b> = 权重，实心 = saved tensor。</p>
+          <p class="note"><b>多头 = 往后摞起来的切片，一片一个头</b>（超过 6 个只画 6 片）。每个头有固定颜色，
+          一路带到「拼接后」的对应一段——<b>拼头就是把 h 片沿特征维接成一条</b>，接完宽度回到 <code>d_q</code>。
+          摞下面的细横杠是拼接后的宽度，GQA 下 K、V 明显短一截。</p>
+          <p class="note"><b>捷径取的是进 RMSNorm 之前的原始 x</b>，归一化只作用在子层内部那一支——这就是 pre-norm。
+          橙色外框加回边 = 这两个子层重复 L 次。</p>
+          <p class="note" id="archNote"></p>
+        </aside>
+      </div>
+      </div>
+    </details>
+
+    <details class="card">
+      <summary><span class="arw">▸</span><span class="num">1</span>
+        <span class="ttl">算力：一次前向、一步训练要多少 FLOPs</span><span class="hd" id="hd1"></span></summary>
+      <div class="body">
+
+      <h4 class="sub-h" style="border:0; padding-top:0; margin-top:0">一次 forward 的 FLOPs</h4>
+      <div class="row2">
+        <div>
+          <div class="eq">A(m×n) @ B(n×p)  =  <b>2·m·n·p</b> FLOPs
+x[T,d_in] @ W[d_in,d_out]  =  <b>2 · token数 · 参数量</b></div>
+          <div class="scroll"><table id="tFlops"></table></div>
+          <div class="eq" id="eqFlops"></div>
+        </div>
+        <aside class="c-side">
+          <p class="sidelab">读这张表</p>
+          <p class="note">矩阵乘每个输出元素是一次长度 n 的点积 = n 乘 + n 加，所以是 <b>2mnp</b>。
+          推论：<b>数完参数量就等于数完 FLOPs</b>——但只对带权重的行成立。</p>
+          <p class="note"><b>零 FLOPs 的行同样值得看</b>：归一化、RoPE、softmax、残差加、拼头全是逐元素或换布局。
+          只有 <code>Q@Kᵀ</code> 和 <code>scores@V</code> 让 T 出现两次——<b>T² 的唯一来源</b>。</p>
+        </aside>
+      </div>
+
+      <h4 class="sub-h">从一次前向推到一步训练</h4>
+      <div class="row2">
+        <div>
+          <div class="eq"><b>一步训练 ≈ 3 × 一次前向</b>
+AdamW 一步 ≈ <b>14·P</b></div>
+          <div class="kpis" id="kStep"></div>
+        </div>
+        <aside class="c-side">
+          <p class="sidelab">为什么是 3×</p>
+          <p class="note">反向 ≈ 2 × 前向：每个权重矩阵反向要算两次——<b>对输入的梯度</b>和<b>对权重的梯度</b>。
+          AdamW 是逐元素的约 14 次运算，<b>算力可以忽略，代价全在显存</b>（第 2 段）。</p>
+        </aside>
+      </div>
+
+      <h4 class="sub-h">上下文拉长，FLOPs 的结构会翻转</h4>
+      <div class="row2">
+        <div>
+          <div class="tslide">
+            <input type="range" id="Tslide" min="0" max="1000" step="1" value="500" aria-label="context_length">
+            <div class="tstar" id="tstarMark"></div>
+          </div>
+          <div class="tends"><span>64</span><span>1,048,576</span></div>
+          <div class="bar" id="barT"></div>
+          <div class="legend" id="legT"></div>
+          <div class="kpis" id="kT"></div>
+          <div class="eq" id="eqTstar"></div>
+          <div class="scroll"><table id="tScale"></table></div>
+        </div>
+        <aside class="c-side">
+          <p class="sidelab">拖这根条</p>
+          <p class="note">它改的就是左边那个 <code>context_length</code>，整页都会跟着变。
+          <b>橙色刻度是交叉点 T*</b>：拖过它，平方项就压过模型的其余部分。</p>
+          <p class="note" id="scaleNote"></p>
+        </aside>
+      </div>
+      </div>
+    </details>
+
+    <details class="card">
+      <summary><span class="arw">▸</span><span class="num">2</span>
+        <span class="ttl">显存：4P 是地板，saved tensors 是天花板</span><span class="hd" id="hd2"></span></summary>
+      <div class="body">
+
+      <div class="row2">
+        <div>
+          <div class="eq" id="eqParams"></div>
+          <div class="eq" id="eqMem"></div>
+          <div class="kpis" id="kMem"></div>
+        </div>
+        <aside class="c-side">
+          <p class="sidelab">三笔账</p>
+          <p class="note"><b>常驻 4P</b>　参数 + 梯度 + AdamW 的 m、v，各一份。和 batch、T 无关，全程占着。<br>
+          <b>saved tensors S</b>　前向留下、反向要用的张量。随 <code>B·T</code> 涨，打分矩阵随 <code>T²</code>。<br>
+          <b>KV cache</b>　只有推理有。</p>
+          <p class="sidelab" style="margin-top:14px">S 为什么留、又为什么能扔</p>
+          <p class="note">对 <code>Y = XW</code>，<code>∂L/∂W = Xᵀ·∂L/∂Y</code>——算权重梯度得有当初的 X。
+          反向要等前向<b>全部</b>跑完，所以这些张量会同时堆着，这才是它成为天花板的原因。<br>
+          但它<b>能重算</b>：梯度重计算多花约 30% 算力换掉大半，FlashAttention 干脆不物化 <code>[B,h,T,T]</code>。
+          4P 没这个余地。</p>
+          <p class="note" style="font-size:11.5px">名字取自 PyTorch 的 <code>ctx.save_for_backward</code>。
+          不叫「激活值」——和激活函数没关系，矩阵乘、softmax、归一化的输出全算；
+          也不叫 checkpoint——那个词在这里指的是相反的操作。</p>
+          <p class="sidelab" style="margin-top:14px">batch 怎么进来</p>
+          <p class="note"><code>tB = B × 累积 × 卡数</code>。<b>决定显存的是 B</b>，累积和数据并行都不增加同时驻留的量。
+          但改 tB / 卡数 / 累积中任一个，B 都会变。</p>
+          <p class="note" id="fitNote"></p>
+          <p class="note" id="kvNote"></p>
+          <p class="note" id="paramCheck"></p>
+        </aside>
+      </div>
+
+      <h4 class="sub-h">同一份清单，参数和 saved tensors 各占多少</h4>
+      <div class="row2">
+        <div>
+          <p class="note" style="margin:0 0 4px"><b>参数 P 的分布</b></p>
+          <div class="bar" id="barParamMem"></div>
+          <p class="note" style="margin:16px 0 4px"><b>saved tensors S 的分布</b></p>
+          <div class="bar" id="barAct"></div>
+          <div class="legend" id="legRows" style="margin-top:12px"></div>
+          <p class="note" style="font-size:12px">两条用的是<b>同一套颜色</b>：一个颜色 = 一个环节，
+          可以横着追同一行在两个口径下的分量。某条里缺了某个颜色，说明那一行在那个口径下是 0——
+          <code>打分</code> 在参数那条里没有，<code>token_embeddings</code> 在 saved 那条里没有。
+          精确数字看下面的表，第三个口径（占训练显存）只在表里给。</p>
+          <div class="scroll" style="margin-top:16px"><table id="tMem"></table></div>
+        </div>
+        <aside class="c-side">
+          <p class="sidelab">一行 = 一个环节</p>
+          <p class="note">左半是它的<b>权重</b>，右半是它前向留下的<b>张量</b>，最后两列是这行真正吃掉的显存
+          （<code>bytes·(4×参数 + saved)</code>——权重按 4 份算，saved 按 1 份）。三个百分比各自合到 100%。</p>
+          <p class="note">权重不随 B、T 变；saved 随 <code>B·T</code> 变，比值就是 <code>B·T / d</code>。</p>
+          <p class="note" id="ratioNote"></p>
+          <p class="note" id="actNote"></p>
+        </aside>
+      </div>
+      </div>
+    </details>
+
+    <details class="card">
+      <summary><span class="arw">▸</span><span class="num">3</span>
+        <span class="ttl">训练时间：token 预算 ↔ 天数，两头都能定</span><span class="hd" id="hd3"></span></summary>
+      <div class="body">
+      <div class="row2">
+        <div>
+          <div class="eq">每 token 成本 = <b>3·F / T</b>　　总算力 = 每 token 成本 × <b>D</b>
+有效算力 = <b>峰值 × MFU × 卡数</b>
+
+<b>天数 = 总算力 / 有效算力</b>　　<b>D = 天数 × 有效算力 × T / (3·F)</b></div>
+          <div class="kpis" id="kTime"></div>
+        </div>
+        <aside class="c-side">
+          <p class="sidelab">两头都能定</p>
+          <p class="note" id="twoWay"></p>
+          <p class="note" id="timeNote"></p>
+          <p class="sidelab" style="margin-top:14px">MFU 怎么来的</p>
+          <p class="note"><b>MFU = 实际用掉的算力 ÷ 峰值</b>。填 token/s 反推 MFU，填 MFU 反推 token/s。
+          换算的桥是每 token 多少 FLOPs：业界常用 <code>6·P</code>，<b>本页用精确的 <code>3·F/T</code></b>——
+          6P 忽略了注意力的 T²、又把 0 FLOPs 的 embedding 算了进去。两个数都列在左边。</p>
+        </aside>
+      </div>
+
+      <h4 class="sub-h">为什么 MFU 打不满：arithmetic intensity</h4>
+      <div class="row2">
+        <div>
+          <div class="eq">AI = FLOPs / 搬运字节数        机器平衡点 = 峰值算力 / 显存带宽
+AI &gt; 平衡点 → compute-bound        AI &lt; 平衡点 → memory-bound</div>
+          <div class="scroll"><table id="tAI"></table></div>
+        </div>
+        <aside class="c-side">
+          <p class="sidelab">算力打不满的原因</p>
+          <p class="note" id="aiDtype"></p>
+          <p class="note" id="aiNote"></p>
+        </aside>
+      </div>
+      </div>
+    </details>
+
+  </main>
+</div>
+
+<footer>
+  公式与数字对应 CS336 Assignment 1 的 <code>transformer_accounting</code> 与 <code>adamw_accounting</code>，
+  变体（GQA / MQA、GLU 家族）按各自论文的形状推广。
+  显存与 FLOPs 均按十进制单位（1 GB = 10⁹ B，1 TFLOP = 10¹² FLOP）。
+</footer>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const IN = ["V","T","L","d","h","nkv","dk","dff","bpe","vram","peak","bw","mfu","tps","tB","Dtok","days","ngpu","accum"];
+const SEL = ["attn","ffn"];
+
+// 预设：形状 + 变体。参数量已对着公开数字核过，见第 1 段末尾那行自检。
+const PRESETS = {
+  "GPT-2 small":  {V:50257,T:1024,L:12,d:768, h:12, dff:2048, attn:"mha",ffn:"swiglu",nkv:12, dk:64},
+  "GPT-2 medium": {V:50257,T:1024,L:24,d:1024,h:16, dff:2752, attn:"mha",ffn:"swiglu",nkv:16, dk:64},
+  "GPT-2 large":  {V:50257,T:1024,L:36,d:1280,h:20, dff:3392, attn:"mha",ffn:"swiglu",nkv:20, dk:64},
+  "GPT-2 XL":     {V:50257,T:1024,L:48,d:1600,h:25, dff:4288, attn:"mha",ffn:"swiglu",nkv:25, dk:64},
+  "GPT-2 XL·原版MLP":{V:50257,T:1024,L:48,d:1600,h:25,dff:6400,attn:"mha",ffn:"mlp",nkv:25, dk:64},
+  "作业默认":      {V:10000,T:256, L:4, d:512, h:16, dff:1344, attn:"mha",ffn:"swiglu",nkv:16, dk:32},
+  "Llama-3-8B":   {V:128256,T:8192,L:32,d:4096,h:32, dff:14336,attn:"gqa",ffn:"swiglu",nkv:8, dk:128},
+  "Llama-3-70B":  {V:128256,T:8192,L:80,d:8192,h:64, dff:28672,attn:"gqa",ffn:"swiglu",nkv:8, dk:128},
+  "Gemma-2-9B":   {V:256000,T:8192,L:42,d:3584,h:16, dff:14336,attn:"gqa",ffn:"geglu", nkv:8, dk:256},
+};
+// 公开参数量，用来自检公式（都是 no-weight-tying 口径；GPT-2 那栏是 tying 后的官方数）
+// tied = 官方数字里 embedding 和 lm_head 共享一份权重，本页按不共享算，比对时要减掉一份 V·d
+const KNOWN = {
+  "Llama-3-8B":  {P:8.030e9},
+  "Llama-3-70B": {P:70.554e9},
+  "Gemma-2-9B":  {P:9.24e9, tied:1},
+};
+
+const FFN = {
+  swiglu:{n:3, act:"SiLU",  gated:true,  label:"SwiGLU"},
+  geglu: {n:3, act:"GELU",  gated:true,  label:"GeGLU"},
+  reglu: {n:3, act:"ReLU",  gated:true,  label:"ReGLU"},
+  mlp:   {n:2, act:"GELU",  gated:false, label:"MLP"},
+};
+const ATTN = {mha:"MHA", gqa:"GQA", mqa:"MQA"};
+// 峰值一律是「稠密」峰值（不含 2:1 sparsity 的翻倍）。tf32 用作默认，因为笔记
+// §5.4.12 那个 202 天就是按 H100 的 495 TFLOP/s 算的。
+// 消费卡要注意：FP32 累加的张量核吞吐只有 FP16 累加的一半，训练用的是前者。
+const GPUS = {
+  "RTX 5090": {vram:32,  bw:1.79, tf32:105,  bf16:210,  fp8:419,  mem:"32 GB GDDR7"},
+  "H100 SXM": {vram:80,  bw:3.35, tf32:495,  bf16:990,  fp8:1979, mem:"80 GB HBM3"},
+  "B200":     {vram:192, bw:8.0,  tf32:1100, bf16:2250, fp8:4500, mem:"192 GB HBM3e"},
+};
+const COLORS = ["#3d7f5e","#5f9ea0","#c08552","#8a7aa8","#b0563f","#6b8fb5"];
+// 显存那张表的 11 个环节，一行一个固定色。三条 bar 共用，所以同一个颜色
+// 在哪条里都指同一行，可以横着追。
+const ROWC = ["#4a7c59","#5f9ea0","#c8792f","#8a6fae","#b0563f","#5b83b8",
+              "#7f9e3d","#a8548a","#3f7f8c","#96733f","#6f6fbf"];
+
+let timeDriver = "D";   // token 预算 ↔ 天数，谁最后被改谁说了算
+let mfuDriver  = "mfu"; // MFU ↔ 实测 token/s，同理      // "D"=按 token 预算算天数；"days"=按天数反推 token 预算
+const fmt = (n,p=2) => n.toLocaleString("en-US",{minimumFractionDigits:p,maximumFractionDigits:p});
+const int = n => Math.round(n).toLocaleString("en-US");
+const N   = x => String(Math.round(x));
+const pct = x => (x*100).toFixed(2)+"%";
+function bytes(b){
+  if(b>=1e12) return fmt(b/1e12)+" TB";
+  if(b>=1e9) return fmt(b/1e9)+" GB";
+  if(b>=1e6) return fmt(b/1e6)+" MB";
+  if(b>=1e3) return fmt(b/1e3)+" KB";
+  return int(b)+" B";
+}
+function flops(f){
+  if(f>=1e21) return fmt(f/1e21)+" ZFLOPs";
+  if(f>=1e15) return fmt(f/1e15)+" PFLOPs";
+  if(f>=1e12) return fmt(f/1e12)+" TFLOPs";
+  if(f>=1e9)  return fmt(f/1e9)+" GFLOPs";
+  return int(f)+" FLOPs";
+}
+function cnt(n){
+  if(n>=1e9) return fmt(n/1e9)+" B";
+  if(n>=1e6) return fmt(n/1e6)+" M";
+  if(n>=1e3) return fmt(n/1e3)+" K";
+  return int(n);
+}
+function durShort(s){
+  if(s<3600) return fmt(s/60,1)+" 分钟";
+  const h=s/3600;
+  return h<48 ? fmt(h,1)+" 小时" : fmt(h/24,1)+" 天";
+}
+function dur(s){ return s/3600<48 ? durShort(s) : durShort(s)+"（"+int(s/3600)+" 小时）"; }
+function hd(i, html, warn){
+  const el = $("hd"+i); el.innerHTML = html; el.classList.toggle("warn", !!warn);
+}
+// 单元格里如果只是一个百分比，就换成"浅色量条 + 数字"，一眼能比长短
+function cell(c){
+  const m = /^(\d+(?:\.\d+)?)%$/.exec(String(c));
+  if(!m) return c;
+  return `<span class="pcell"><i style="width:${Math.min(100, +m[1]).toFixed(2)}%"></i><b>${c}</b></span>`;
+}
+// groups: [[标题, 跨几列, 类名], ...]。有分组时，组的类名会带到该组的每一列，
+// 这样一眼能看出哪几列属于 P、哪几列属于 A。
+function tbl(el, head, rows, totalRow, groups){
+  const cls = [];
+  if(groups) groups.forEach(g=>{ for(let i=0;i<g[1];i++) cls.push(g[2]||""); });
+  const cn = i => [i===1?"f":"", cls[i]||""].filter(Boolean).join(" ");
+  const tds = r => r.map((c,i)=>`<td class="${cn(i)}">${cell(c)}</td>`).join("");
+  let H = "<thead>";
+  if(groups) H += "<tr class='ghead'>" + groups.map(g=>
+      `<th colspan="${g[1]}" class="${g[2]||''}">${g[0]}</th>`).join("") + "</tr>";
+  H += "<tr>" + head.map((c,i)=>`<th class="${cn(i)}">${c}</th>`).join("") + "</tr></thead><tbody>";
+  H += rows.map(r=>"<tr>"+tds(r)+"</tr>").join("");
+  if(totalRow) H += "<tr class='total'>"+tds(totalRow)+"</tr>";
+  el.innerHTML = H + "</tbody>";
+}
+// items 里可以带 c 指定颜色。多条 bar 分解的是同一批东西时必须这么用——
+// 否则按位置取色会让同一个颜色在不同的 bar 里指向不同的行。
+function stack(barEl, legEl, items){
+  const tot = items.reduce((a,b)=>a+b.v,0) || 1;
+  const col = (it,i) => it.c || COLORS[i%COLORS.length];
+  barEl.innerHTML = items.map((it,i)=>{
+    const w = it.v/tot*100;
+    return `<span style="width:${w}%;background:${col(it,i)}">${w>9?w.toFixed(1)+"%":""}</span>`;
+  }).join("");
+  if(legEl) legEl.innerHTML = items.map((it,i)=>
+    `<span><i style="background:${col(it,i)}"></i>${it.k} ${(it.v/tot*100).toFixed(1)}%</span>`).join("");
+}
+
+// ═══════════════════════════════════════════════════════════
+//  核心：所有公式都在这里。变体只改这一个函数。
+// ═══════════════════════════════════════════════════════════
+function compute(p){
+  const {V,T,L,d,h,B,bpe,dff} = p;
+  const ff = FFN[p.ffn];
+  const nkv = Math.max(1, Math.min(h, Math.round(p.nkv)));   // K/V 的头数，自由参数
+  const dk  = Math.max(1, p.dk);   // 每个头多宽。真实模型里它不一定等于 d/h
+  const dq  = h*dk;                // Q 投影的输出宽度 = 所有查询头拼起来
+  const dkv = nkv*dk;              // K/V 投影的输出宽度；MHA 下 = d_q
+
+  // ── 参数量 ──
+  const emb = V*d, lmh = d*V;
+  const p_q = d*dq, p_k = d*dkv, p_v = d*dkv, p_o = dq*d;
+  const attn  = p_q + p_k + p_v + p_o;        // MHA 且 d_q=d 时就是 4d²
+  const ffnP  = ff.n * d * dff;               // 门控 3，不门控 2
+  const norms = 2*d;
+  const P = emb + L*(attn + ffnP + norms) + d + lmh;
+
+  // ── 一次 forward 的 FLOPs（不含 B）──
+  const f_q  = 2*T*d*dq;         // x @ Wq
+  const f_kv = 2*T*d*dkv;        // x @ Wk 或 x @ Wv
+  const f_o  = 2*T*dq*d;         // @ Wo
+  const f_score = 2*T*T*dq;      // Q@K^T：K 复制回 h 份，所以是 h·d_k = d_q
+  const f_ctx   = 2*T*T*dq;      // scores@V，同上
+  const f_ff1   = 2*T*d*dff;     // 每个 FFN 矩阵
+  const perLayer = f_q + 2*f_kv + f_o + f_score + f_ctx + ff.n*f_ff1;
+  const f_lm = 2*T*d*V;
+  const F = L*perLayer + f_lm;
+
+  // 六块。pv = 参数量，v = 前向 FLOPs。两列各自加起来正好是 P 和 F。
+  // 顺序别动：外面有地方按下标 2 取"注意力打分"这一块。
+  const blocks = [
+    {k:"token_embeddings", sym:"V·d",                      pv:emb,           v:0},
+    {k:"Attention 投影",    sym:"2·d·d_q + 2·d·d_kv（×L）", pv:L*attn,        v:L*(f_q+2*f_kv+f_o)},
+    {k:"Attention 打分",    sym:"4·L·T²·d_q",               pv:0,             v:L*(f_score+f_ctx)},
+    {k:"FFN",              sym:`${ff.n}·d·d_ff（×L）`,      pv:L*ffnP,        v:L*ff.n*f_ff1},
+    {k:"RMSNorm",          sym:"2·d×L + d",                pv:L*norms + d,   v:0},
+    {k:"lm_head",          sym:"d·V",                      pv:lmh,           v:f_lm},
+  ];
+
+  // ── saved tensors S ──
+  // PyTorch 里 ctx.save_for_backward 存的那批张量：前向算出来、反向求梯度时还要用，
+  // 所以必须留在显存里。不含权重、不含梯度、不含优化器状态。
+  // 按来自哪一块拆开，别混在一行里。
+  const s_res   = 4*B*T*d;                    // 残差流上的：两个 norm 的输出 + 块入口 + Wo 输出
+  const s_qkv   = 2*B*T*dq + 2*B*T*dkv;       // 注意力的 Q、ctx（各 d_q）与 K、V（各 d_kv）
+  const s_score = 2*B*h*T*T;                  // 注意力的打分矩阵 + softmax，和 n_kv 无关
+  const s_ff    = (ff.gated?4:2)*B*T*dff;     // 前馈的中间张量
+  const s_out   = B*T*d + 2*B*T*V;            // 出口：ln_f 输出、logits、cross-entropy
+  const s_stream = s_res + s_qkv;             // MHA 且 d_q=d_kv=d 时这两项合起来正好 8·B·T·d
+  const S = L*(s_res + s_qkv + s_score + s_ff) + s_out;
+  const memFixed = bpe*4*P, memSaved = bpe*S;
+  const kvCache  = bpe*2*L*B*T*dkv;           // 推理时的 KV cache
+
+  // ── arithmetic intensity：AI = FLOPs / 搬运字节，随 dtype 变 ──
+  const mk = (k, sym, f, elems) => ({k, sym, f, b:bpe*elems, v:f/(bpe*elems)});
+  const ai = [
+    mk("投影 x@Wq",  "2·T·d·d_q / (T·d+d·d_q+T·d_q)",    f_q,     T*d + d*dq + T*dq),
+    mk("FFN x@W1",   "2·T·d·d_ff / (T·d+d·d_ff+T·d_ff)", f_ff1,   T*d + d*dff + T*dff),
+    mk("打分 Q@Kᵀ",  "2·T·d_q / (d_q+d_kv+h·T)",         f_score, T*dq + T*dkv + h*T*T),
+  ];
+
+  // ── 上下文交叉点：平方项 = 线性项 ──
+  const Tstar = d + d*dkv/dq + ff.n*d*dff/(2*dq) + V*d/(2*L*dq);
+
+  return {P, emb, lmh, attn, ffnP, norms, p_q, p_k, p_v, p_o,
+          F, perLayer, f_lm, f_q, f_kv, f_o, f_score, f_ctx, f_ff1,
+          blocks, S, s_res, s_qkv, s_score, s_ff, s_out, s_stream, memFixed, memSaved, kvCache,
+          ai, Tstar, nkv, dk, dq, dkv, ff};
+}
+
+// ═══════════════════════════════════════════════════════════
+//  几何架构图
+// ═══════════════════════════════════════════════════════════
+const GEO = {
+  k: 1.45, min: 10, max: 150,     // px = k·√元素数，两端夹住
+  dmin: 5, dmax: 26,
+  M: 116,         // 左留白（要放得下行标 + 层回边的竖直通道）
+  MR: 40,         // 右留白
+  CHX: 50,        // 层回边走的竖直通道（在外层框内、子层框外）
+  A: 46,          // 列与列之间的间距（放箭头和算子名）
+  padTop: 58,     // 组标题 + 残差捷径线 占的高度
+  resY: 36,       // 捷径线相对分组框顶的 y
+  wPlus: 40,      // ⊕ 节点占的宽
+  labUp: 46, labDn: 36,           // 盒子上方三行标签 / 下方维度行与拼接条
+  hsx: 9, hsy: 6.5, hmax: 6,      // 每个头往右后方错开多少；最多画几片
+  fName: 11, fDim: 9.5,
+};
+const px  = n => Math.max(GEO.min, Math.min(GEO.max, GEO.k*Math.sqrt(Math.max(n,1))));
+const cut = n => GEO.k*Math.sqrt(Math.max(n,1)) > GEO.max;
+const dep = n => Math.max(GEO.dmin, Math.min(GEO.dmax, 2.2*Math.sqrt(Math.max(n,1))));
+const nSlab = n => Math.max(1, Math.min(GEO.hmax, Math.round(n)));
+// 每个头一个固定色相：Q/K/V 的第 i 片、scores 的第 i 片、ctx 的第 i 片、
+// 以及拼接后第 i 段，都用同一个颜色 —— 拼头这一步就不用画交叉连线了
+const headFill = i => `hsl(${(196 + i*31) % 360} 48% 52% / .34)`;
+const runX  = t => t.heads > 1 ? (nSlab(t.heads)-1)*GEO.hsx : 0;
+const riseY = t => t.heads > 1 ? (nSlab(t.heads)-1)*GEO.hsy : 0;
+const boxW  = t => px(t.cols) + runX(t) + dep(t.deep||1)*0.62;
+const boxH  = t => px(t.rows) + riseY(t);
+// 等宽字体里 ASCII 约 0.6em、CJK 约 1em，用来估标签有多宽
+const txtW = (s, fs) => [...(s||"")].reduce((a,c)=> a + (c.charCodeAt(0) > 0x2E80 ? fs : fs*0.6), 0);
+const labW = t => Math.max(txtW(t.name, GEO.fName), txtW(t.symL, GEO.fDim),
+                           txtW(t.numL, GEO.fDim), txtW(t.catL ? "拼接 "+t.catL : "", GEO.fDim)) + 8;
+const slotW = t => Math.max(boxW(t), labW(t));    // 一列至少要放得下它的标签
+
+// 一个张量/权重盒。anchor = front 面的左下角。
+function box(x, yBase, t){
+  const w = px(t.cols), hh = px(t.rows), D = dep(t.deep||1);
+  const ox = D*0.62, oy = D*0.44, y = yBase - hh;
+  const fill = t.weight ? "url(#hatch)"
+             : t.cls === "res" ? "var(--accent-soft)"
+             : t.cls === "hot" ? "var(--warn-soft)" : "var(--code)";
+  const flat = t.cls === "res" ? "var(--accent-soft)" : t.cls === "hot" ? "var(--warn-soft)" : "var(--code)";
+  const line = t.weight ? "var(--muted)"
+             : t.cls === "res" ? "var(--accent)" : t.cls === "hot" ? "var(--warn)" : "var(--muted)";
+  const dash = t.weight ? ` stroke-dasharray="3.5 2.5"` : "";
+  const P = (...pts) => pts.map(q=>q.join(",")).join(" ");
+
+  let s = `<g class="t"><title>${t.title}</title>`;
+  // 多头：一个头一片，往右后方错开摞起来，越后面越淡
+  if(t.heads > 1){
+    const k = nSlab(t.heads);
+    for(let i=k-1;i>=1;i--){
+      const gx = x + i*GEO.hsx, gy = y - i*GEO.hsy;
+      s += `<rect x="${gx}" y="${gy}" width="${w}" height="${hh}" fill="${headFill(i)}" `
+         + `stroke="${line}" stroke-width="1" opacity="${(0.92 - i*0.07).toFixed(2)}"/>`
+         + `<line x1="${gx}" y1="${gy+hh}" x2="${x+(i-1)*GEO.hsx}" y2="${y-(i-1)*GEO.hsy+hh}" `
+         + `stroke="${line}" stroke-width=".7" opacity=".45"/>`;
+    }
+  }
+  if(D > GEO.dmin*1.01 || !t.weight){
+    s += `<polygon points="${P([x,y],[x+w,y],[x+w+ox,y-oy],[x+ox,y-oy])}" fill="${flat}" stroke="${line}" stroke-width="1" opacity=".5"${dash}/>`
+       + `<polygon points="${P([x+w,y],[x+w+ox,y-oy],[x+w+ox,y+hh-oy],[x+w,y+hh])}" fill="${flat}" stroke="${line}" stroke-width="1" opacity=".72"${dash}/>`;
+  }
+  s += `<rect class="fc" x="${x}" y="${y}" width="${w}" height="${hh}" fill="${fill}" stroke="${line}" stroke-width="1.3"${dash}/>`;
+  if(t.heads > 1)                       // 最前面那片是第 0 个头，也要上色
+    s += `<rect x="${x}" y="${y}" width="${w}" height="${hh}" fill="${headFill(0)}" pointer-events="none"/>`;
+  if(t.segs > 1){                       // 拼接后：一段一个头，颜色和上面的切片对应
+    const sw = w/t.segs;
+    for(let i=0;i<t.segs;i++)
+      s += `<rect x="${x+i*sw}" y="${y}" width="${sw}" height="${hh}" fill="${headFill(i)}" `
+         + `stroke="${line}" stroke-width=".8" pointer-events="none"/>`;
+  }
+  if(!t.weight){
+    const nv = Math.max(2, Math.min(6, Math.round(w/9))), nh = Math.max(2, Math.min(6, Math.round(hh/9)));
+    for(let i=1;i<nv;i++) s += `<line class="grid" x1="${x+w*i/nv}" y1="${y}" x2="${x+w*i/nv}" y2="${y+hh}"/>`;
+    for(let i=1;i<nh;i++) s += `<line class="grid" x1="${x}" y1="${y+hh*i/nh}" x2="${x+w}" y2="${y+hh*i/nh}"/>`;
+  }
+  if(cut(t.cols)){                        // 这一维被上限夹住了，画撕裂边
+    let zz = `M ${x+w} ${y}`;
+    for(let i=0;i<Math.ceil(hh/7);i++) zz += ` l ${i%2?4:-4} 7`;
+    s += `<path d="${zz}" fill="none" stroke="${line}" stroke-width="1.6" stroke-linejoin="round"/>`;
+  }
+  const RY = riseY(t), RX = runX(t), cxm = x + (w+RX)/2 + ox/2, top = y - oy - RY;
+  s += `<text class="${t.weight?"wlbl":"lbl"}" x="${cxm}" y="${top-27}" text-anchor="middle">${t.name}</text>`
+     + `<text class="sym" x="${cxm}" y="${top-15}" text-anchor="middle">${t.symL}</text>`
+     + `<text class="num" x="${cxm}" y="${top-4}"  text-anchor="middle">${t.numL}</text>`;
+  if(t.heads > 1) s += `<text class="hcnt" x="${x+w+RX+ox+5}" y="${top+11}">×${N(t.heads)} 头</text>`;
+  if(t.catW){                             // 这些头拼起来有多宽
+    s += `<rect x="${x}" y="${yBase+19}" width="${px(t.catW)}" height="5" rx="2" fill="${line}" opacity=".55"/>`
+       + `<text class="dim" x="${x}" y="${yBase+34}">拼接 ${t.catL}</text>`;
+  }
+  if(t.cols_l) s += `<text class="dim" x="${x+w/2}" y="${yBase+13}" text-anchor="middle">${t.cols_l}</text>`;
+  if(t.rows_l) s += `<text class="dim" x="${x-6}" y="${y+hh/2+3}" text-anchor="end">${t.rows_l}</text>`;
+  s += `</g>`;
+  return s;
+}
+
+function drawArch(p, r){
+  const {V,T,L,d,h,B,dff} = p, {nkv, dk, dq, dkv, ff} = r;
+  const GAP = GEO.A, M = GEO.M;   // 列间距。别叫 GAP —— 那是显存那边的符号
+  const sym = a => "[" + a.map(q=>q[0]).join(", ") + "]";
+  const num = a => "[" + a.map(q=>N(q[1])).join(", ") + "]";
+  const els = a => a.reduce((x,q)=>x*q[1], 1);
+
+  // 张量：dims 是 [维度名, 数值] 的列表，上面两行标签由它生成
+  const Tn = (name, dims, o={}) => ({name, symL:sym(dims), numL:num(dims),
+      rows:o.rows ?? T, cols:o.cols, deep:o.deep ?? B, heads:o.heads, segs:o.segs, cls:o.cls,
+      cols_l:o.cols_l, rows_l:o.rows_l, catW:o.catW, catL:o.catL,
+      title:`saved tensor ${name} ${sym(dims)} = ${num(dims)}\n${int(els(dims))} 个元素 · ${bytes(p.bpe*els(dims))}`});
+  // 权重：每层各一份
+  const Wn = (name, std, dims, o={}) => ({name: std ? `${name} · ${std}` : name,
+      symL:sym(dims), numL:num(dims), weight:1, deep:1,
+      rows: dims.length > 1 ? dims[0][1] : 1,        // 一维的权重是一条，不是方阵
+      cols: dims[dims.length-1][1], cols_l:o.cols_l,
+      title:`权重 ${name}${std?`（${std}）`:""} ${sym(dims)} = ${num(dims)}\n${int(els(dims))} 个参数 · ${bytes(p.bpe*els(dims))}（每层一份）`});
+
+  const Dst = [["batch",B],["T",T],["d_model",d]];
+  const Tx    = c => Tn("x", Dst, {cols:d, cls:"res", cols_l:`d=${N(d)}`, rows_l:c?`T=${N(T)}`:""});
+  const Tstm  = nm => Tn(nm, Dst, {cols:d, cols_l:`d=${N(d)}`});
+  const Thd   = (nm, n, kv) => Tn(nm, [["batch",B],[kv?"n_kv":"h",n],["T",T],["d_k",dk]],
+                    {cols:dk, heads:n, cols_l:`d_k=${N(dk)}`, catW:n*dk, catL:N(n*dk)});
+  const Tsc   = Tn("scores", [["batch",B],["h",h],["T",T],["T",T]], {cols:T, heads:h, cls:"hot", cols_l:`T=${N(T)}`});
+  const Tctx  = Tn("ctx", [["batch",B],["h",h],["T",T],["d_k",dk]],
+                    {cols:dk, heads:h, cls:"hot", cols_l:`d_k=${N(dk)}`, catW:dq, catL:N(dq)});
+  // 拼头之后：h 片沿特征维接成一条，宽度正好回到 d。段的颜色和 ctx 的切片一一对应。
+  const Tcat  = Tn("拼接后", [["batch",B],["T",T],["d_q",dq]],
+                    {cols:dq, cls:"hot", segs:nSlab(h), cols_l:`${N(h)}×${N(dk)}=${N(dq)}`});
+  const Tff   = nm => Tn(nm, [["batch",B],["T",T],["d_ff",dff]], {cols:dff, cols_l:`d_ff=${N(dff)}`});
+  const Tlog  = Tn("logits", [["batch",B],["T",T],["V",V]], {cols:V, cols_l:`V=${N(V)}${cut(V)?" ⌇":""}`});
+  const Tids  = Tn("token ids", [["batch",B],["T",T]], {cols:1, rows_l:`T=${N(T)}`});
+  // RMSNorm 的权重是一条长度 d 的向量，逐元素乘上去（对 batch 和 T 广播）。
+  // 写成 1×d，和画出来的窄带对得上。
+  const Wg    = (nm, std) => Wn(nm, std, [["1",1],["d_model",d]], {cols_l:`d=${N(d)}`});
+
+  // ── 每段的列表：一列里可以有多个盒子，分别落在不同的排 ──
+  const attnCols = [
+    [[1, Tx(1)]],
+    [[1, Wg("γ₁", "ln1.weight")]],
+    [[1, Tstm("ln1")]],
+    [[0, Wn("W_q","q_proj",[["d_model",d],["d_q",dq]])],
+     [1, Wn("W_k","k_proj",[["d_model",d],["d_kv",dkv]])],
+     [2, Wn("W_v","v_proj",[["d_model",d],["d_kv",dkv]])]],
+    [[0, Thd("Q",h,0)], [1, Thd("K",nkv,1)], [2, Thd("V",nkv,1)]],
+    [[1, Tsc]],
+    [[1, Tctx]],
+    [[1, Tcat]],
+    [[1, Wn("W_o","o_proj",[["d_q",dq],["d_model",d]])]],
+    [[1, Tstm("attn 输出")]],
+  ];
+  const gated = ff.gated;
+  const ffnCols = gated ? [
+    [[.5, Tx(1)]], [[.5, Wg("γ₂", "ln2.weight")]], [[.5, Tstm("ln2")]],
+    [[0, Wn("W_1","gate_proj",[["d_model",d],["d_ff",dff]])],
+     [1, Wn("W_3","up_proj",  [["d_model",d],["d_ff",dff]])]],
+    [[0, Tff("g 门")], [1, Tff("v 值")]],
+    [[0, Tff(`${ff.act}(g)`)]],
+    [[.5, Tff("g ⊙ v")]],
+    [[.5, Wn("W_2","down_proj",[["d_ff",dff],["d_model",d]])]],
+    [[.5, Tstm("ffn 输出")]],
+  ] : [
+    [[0, Tx(1)]], [[0, Wg("γ₂", "ln2.weight")]], [[0, Tstm("ln2")]],
+    [[0, Wn("W_in","up_proj",[["d_model",d],["d_ff",dff]])]],
+    [[0, Tff("h")]], [[0, Tff(`${ff.act}(h)`)]],
+    [[0, Wn("W_out","down_proj",[["d_ff",dff],["d_model",d]])]],
+    [[0, Tstm("ffn 输出")]],
+  ];
+  const topCols = [[[0, Tids]], [[0, Wn("W_emb","embed_tokens",[["V",V],["d_model",d]])]], [[0, Tx(0)]]];
+  const outCols = [[[0, Tn("ln_f 输出", Dst, {cols:d, cls:"res", cols_l:`d=${N(d)}`, rows_l:`T=${N(T)}`})]],
+                   [[0, Wn("lm_head","lm_head",[["d_model",d],["V",V]])]], [[0, Tlog]]];
+
+  // 排布：每列宽 = 该列所有盒子里「盒宽」和「标签宽」的最大值，盒子在列里居中
+  function layout(cols, x0){
+    let x = x0; const out = [];
+    for(const col of cols){
+      const w = Math.max(...col.map(([,t])=>slotW(t)));
+      out.push({x, w, items: col.map(([rw,t])=>({rw, t, bx: x + (w-boxW(t))/2}))});
+      x += w + GAP;
+    }
+    return {cols: out, right: x - GAP};
+  }
+  // 每一排的高度取该排最高的盒子
+  function rowGeom(cols, top){
+    const rows = {};
+    for(const c of cols) for(const it of c.items){
+      const k = Math.floor(it.rw), k2 = Math.ceil(it.rw);
+      for(const kk of new Set([k,k2])) rows[kk] = Math.max(rows[kk]||0, boxH(it.t));
+    }
+    const keys = Object.keys(rows).map(Number).sort((a,b)=>a-b);
+    const mid = {}; let y = top;
+    for(const k of keys){ mid[k] = y + GEO.labUp + rows[k]/2; y += GEO.labUp + rows[k] + GEO.labDn; }
+    const at = f => Number.isInteger(f) ? mid[f] : (mid[Math.floor(f)] + mid[Math.ceil(f)])/2;
+    return {at, bottom: y, keys};
+  }
+  const yb = (t, m) => m + px(t.rows)/2;                 // 盒子在这一排竖直居中
+
+  const LA = layout(attnCols, M), LF = layout(ffnCols, M),
+        LT = layout(topCols, M), LO = layout(outCols, M);
+  const W = Math.max(620,
+    LT.right + GEO.MR, LO.right + GEO.MR,
+    LA.right + GEO.wPlus + GEO.MR, LF.right + GEO.wPlus + GEO.MR);
+  const GX = M - 46, GW = W - GX - 20;        // 子层分组框
+  const OX = M - 86, OW = W - OX - 8;         // 外层「× L 层」框
+
+  let svg = `<defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">`
+          + `<rect width="6" height="6" fill="var(--code)"/>`
+          + `<line x1="0" y1="0" x2="0" y2="6" stroke="var(--muted)" stroke-width="1.4" opacity=".45"/></pattern></defs>`;
+  let y = 8, link = null;
+  const elbow = (x1,y1,x2,y2,label,xm) => {
+    const mx = xm !== undefined ? xm : (x1+x2)/2;
+    let s = `<path class="flow" d="M ${x1} ${y1} H ${mx} V ${y2} H ${x2-7}"/>`
+          + `<path d="M ${x2} ${y2} l -7 -4 l 0 8 z" fill="var(--muted)" opacity=".75"/>`;
+    const lx = Math.abs(y1-y2) < 0.5 ? (x1+x2)/2 : (mx+x2)/2;
+    if(label) s += `<text class="op" x="${lx}" y="${y2-7}" text-anchor="middle">${label}</text>`;
+    return s;
+  };
+  const dot = (x,y,ch,acc) => `<circle cx="${x}" cy="${y}" r="11" fill="${acc?"var(--accent-soft)":"var(--code)"}" `
+    + `stroke="${acc?"var(--accent)":"var(--muted)"}" stroke-width="${acc?1.6:1}"/>`
+    + `<text class="lbl" x="${x}" y="${y+4}" text-anchor="middle" ${acc?'fill="var(--accent)" font-weight="700"':''}>${ch}</text>`;
+  const skip = (xF, yTop, yLine, xP, yP, label) =>
+      `<path class="resline" d="M ${xF} ${yTop} V ${yLine} H ${xP} V ${yP-13}"/>`
+    + `<path d="M ${xP} ${yP-11} l -4.5 -8 l 9 0 z" fill="var(--accent)"/>`
+    + (label ? `<text class="reslbl" x="${xP-14}" y="${yLine-6}" text-anchor="end">${label}</text>` : "");
+  const loop = (toX, toTop, ym, label) => !link ? "" :
+      `<path class="resline" d="M ${link.x} ${link.y} V ${ym} H ${toX} V ${toTop-8}"/>`
+    + `<path d="M ${toX} ${toTop} l -5 -9 l 10 0 z" fill="var(--accent)"/>`
+    + (label ? `<text class="reslbl" x="${(link.x+toX)/2}" y="${ym-6}" text-anchor="middle">${label}</text>` : "");
+  const gizmo = (gx, gy) => {
+    const Ln = 26, sx = GEO.hsx*2.2, sy = GEO.hsy*2.2;
+    return `<g opacity=".85">`
+      + `<path class="flow" d="M ${gx} ${gy} h ${Ln}"/><path d="M ${gx+Ln} ${gy} l -6 -3.5 l 0 7 z" fill="var(--muted)"/>`
+      + `<text class="dim" x="${gx+Ln+5}" y="${gy+3}">特征维（d_model / d_k / d_ff / V）</text>`
+      + `<path class="flow" d="M ${gx} ${gy} v ${Ln}"/><path d="M ${gx} ${gy+Ln} l -3.5 -6 l 7 0 z" fill="var(--muted)"/>`
+      + `<text class="dim" x="${gx-4}" y="${gy+Ln+12}" text-anchor="middle">T</text>`
+      + `<path class="flow" d="M ${gx} ${gy} l ${sx} ${-sy}"/><path d="M ${gx+sx} ${gy-sy} l -6.5 0 l 2 5 z" fill="var(--muted)"/>`
+      + `<text class="dim" x="${gx+sx+5}" y="${gy-sy-1}">头维 h（往后每片一个头）</text></g>`;
+  };
+  const B_ = (Lx, ci, ri=0) => Lx.cols[ci].items[ri];        // 取某列某个盒子
+
+  // ── 顶部 ──
+  let G = rowGeom(LT.cols, y), m0 = G.at(0);
+  for(const c of LT.cols) for(const it of c.items) svg += box(it.bx, yb(it.t, m0), it.t);
+  for(let i=0;i<2;i++){
+    const a = B_(LT,i), b = B_(LT,i+1);
+    svg += elbow(a.bx+boxW(a.t), m0, b.bx, m0, i===0?"查表":"");
+  }
+  svg += gizmo(LT.right + 70, m0 - 30);
+  const xEnd = B_(LT,2);
+  link = {x: xEnd.bx + px(d)/2, y: yb(xEnd.t, m0)};
+  y = G.bottom + 46;
+
+  // ── 自注意力 ──
+  let gTop = y; const layerTop = y; y += GEO.padTop;
+  G = rowGeom(LA.cols, y);
+  const mA = G.at(1);
+  for(const c of LA.cols) for(const it of c.items) svg += box(it.bx, yb(it.t, G.at(it.rw)), it.t);
+  const xB = B_(LA,0), gB = B_(LA,1), lnB = B_(LA,2);
+  svg += loop(xB.bx + px(d)/2, yb(xB.t, mA) - px(T), gTop - 24, `残差流 x ${sym(Dst)} = ${num(Dst)}`);
+  svg += elbow(xB.bx+boxW(xB.t), mA, gB.bx, mA, "");
+  svg += elbow(gB.bx+boxW(gB.t), mA, lnB.bx, mA, "RMSNorm ×γ₁");
+  const lnR = lnB.bx + boxW(lnB.t), wc = LA.cols[3], qc = LA.cols[4];
+  for(let i=0;i<3;i++){
+    const wI = wc.items[i], qI = qc.items[i], mi = G.at(i);
+    svg += elbow(lnR, mA, wI.bx, mi, "", lnR + GAP*0.45);
+    svg += elbow(wI.bx+boxW(wI.t), mi, qI.bx, mi, "@");
+  }
+  const qR = qc.x + qc.w, scI = B_(LA,5), ctI = B_(LA,6), caI = B_(LA,7), woI = B_(LA,8), atI = B_(LA,9);
+  svg += elbow(qc.items[0].bx+boxW(qc.items[0].t), G.at(0), scI.bx, mA, "", qR + GAP*0.3);
+  svg += elbow(qc.items[1].bx+boxW(qc.items[1].t), G.at(1), scI.bx, mA, "QKᵀ");
+  svg += elbow(scI.bx+boxW(scI.t), mA, ctI.bx, mA, "softmax ·V");
+  svg += elbow(qc.items[2].bx+boxW(qc.items[2].t), G.at(2), ctI.bx, mA, "",
+               scI.bx + boxW(scI.t) + GAP*0.5);
+  svg += elbow(ctI.bx+boxW(ctI.t), mA, caI.bx, mA, "拼头 rearrange");
+  svg += elbow(caI.bx+boxW(caI.t), mA, woI.bx, mA, "");
+  svg += elbow(woI.bx+boxW(woI.t), mA, atI.bx, mA, "@");
+  const aP = LA.right + GEO.wPlus/2;
+  svg += elbow(atI.bx+boxW(atI.t), mA, aP-11, mA, "");
+  svg += skip(xB.bx + px(d)/2, yb(xB.t, mA) - px(T), gTop + GEO.resY, aP, mA, "残差捷径：原始 x，不经过 norm");
+  svg += dot(aP, mA, "⊕", 1);
+  link = {x: aP, y: mA + 11};
+  y = G.bottom + 10;
+  svg += `<rect class="grpbox" x="${GX}" y="${gTop}" width="${GW}" height="${y-gTop}" rx="8"/>`
+       + `<text class="grp" x="${GX+12}" y="${gTop+20}">自注意力 · ${ATTN[p.attn]}`
+       + `　h=${N(h)}，n_kv=${N(nkv)}，d_k=${N(dk)}　→ d_q=${N(dq)}，d_kv=${N(dkv)}　斜纹 = 权重</text>`;
+  y += 46;
+
+  // ── 前馈 ──
+  gTop = y; y += GEO.padTop;
+  G = rowGeom(LF.cols, y);
+  const cR = gated ? .5 : 0, mF = G.at(cR);
+  for(const c of LF.cols) for(const it of c.items) svg += box(it.bx, yb(it.t, G.at(it.rw)), it.t);
+  const fx = B_(LF,0), fg = B_(LF,1), fln = B_(LF,2);
+  svg += loop(fx.bx + px(d)/2, yb(fx.t, mF) - px(T), gTop - 24,
+              `残差流 x ← ⊕ 的输出（加的是原始 x，不是归一化后的——pre-norm）`);
+  svg += elbow(fx.bx+boxW(fx.t), mF, fg.bx, mF, "");
+  svg += elbow(fg.bx+boxW(fg.t), mF, fln.bx, mF, "RMSNorm ×γ₂");
+  const flnR = fln.bx + boxW(fln.t), fw = LF.cols[3], fv = LF.cols[4];
+  fw.items.forEach((wI,i)=>{
+    const mi = G.at(wI.rw), vI = fv.items[i];
+    svg += elbow(flnR, mF, wI.bx, mi, "", flnR + GAP*0.45);
+    svg += elbow(wI.bx+boxW(wI.t), mi, vI.bx, mi, "@");
+  });
+  const actI = B_(LF,5), g0 = fv.items[0];
+  svg += elbow(g0.bx+boxW(g0.t), G.at(g0.rw), actI.bx, G.at(actI.rw), ff.act);
+  let lastI;
+  if(gated){
+    const prI = B_(LF,6), v1 = fv.items[1];
+    const cx0 = actI.bx + boxW(actI.t) + (prI.bx - actI.bx - boxW(actI.t))/2;
+    svg += elbow(actI.bx+boxW(actI.t), G.at(0), prI.bx, mF, "", cx0);
+    svg += elbow(v1.bx+boxW(v1.t),     G.at(1), prI.bx, mF, "", cx0);
+    svg += dot(cx0, mF, "⊙");
+    lastI = prI;
+  } else lastI = actI;
+  const w2I = B_(LF, gated?7:6), foI = B_(LF, gated?8:7);
+  svg += elbow(lastI.bx+boxW(lastI.t), mF, w2I.bx, mF, "");
+  svg += elbow(w2I.bx+boxW(w2I.t), mF, foI.bx, mF, "@");
+  const fP = LF.right + GEO.wPlus/2;
+  svg += elbow(foI.bx+boxW(foI.t), mF, fP-11, mF, "");
+  svg += skip(fx.bx + px(d)/2, yb(fx.t, mF) - px(T), gTop + GEO.resY, fP, mF, "残差捷径：原始 x，不经过 norm");
+  svg += dot(fP, mF, "⊕", 1);
+  link = {x: fP, y: mF + 11};
+  y = G.bottom + 10;
+  svg += `<rect class="grpbox" x="${GX}" y="${gTop}" width="${GW}" height="${y-gTop}" rx="8"/>`
+       + `<text class="grp" x="${GX+12}" y="${gTop+20}">前馈 · ${ff.label}`
+       + `　${ff.n} 个 d×d_ff 矩阵，激活 ${ff.act}${gated?"，门控":"，不门控"}</text>`;
+  // ── 一层 = 上面两个子层。套一个外框，再画一条回到自己入口的回边 ──
+  const loopY = y + 30;                       // 回边在下方走的那一横
+  const layerBot = loopY + 32;
+  svg += `<rect class="layerbox" x="${OX}" y="${layerTop-24}" width="${OW}" height="${layerBot-layerTop+24}" rx="10"/>`
+       + `<text class="layer" x="${OX+14}" y="${layerTop-9}">`
+       + `Transformer Block —— 上面这两个子层就是一层，整个模型把它叠 L = ${N(L)} 次</text>`;
+  // 回边：从前馈的 ⊕ 往下、往左走到通道、再往上、从左侧进注意力那个 x
+  const xIn = LA.cols[0].items[0], xInL = xIn.bx, xInMid = mA;
+  svg += `<path class="looparr" d="M ${fP} ${mF+11} V ${loopY} H ${GEO.CHX} V ${xInMid} H ${xInL-9}"/>`
+       + `<path d="M ${xInL} ${xInMid} l -9 -5 l 0 10 z" fill="var(--accent)"/>`
+       + `<text class="layerlbl" x="${(GEO.CHX+fP)/2}" y="${loopY-8}" text-anchor="middle">`
+       + `↻ 这一层的输出 = 下一层的输入，走 ${N(L)} 遍</text>`;
+  y = layerBot + 52;
+
+  // ── 出口 ──
+  G = rowGeom(LO.cols, y);
+  const mO = G.at(0);
+  const lf = B_(LO,0);
+  svg += loop(lf.bx + px(d)/2, yb(lf.t, mO) - px(T), y - 26, `第 ${N(L)} 层的输出`);
+  for(const c of LO.cols) for(const it of c.items) svg += box(it.bx, yb(it.t, mO), it.t);
+  for(let i=0;i<2;i++){
+    const a = B_(LO,i), b = B_(LO,i+1);
+    svg += elbow(a.bx+boxW(a.t), mO, b.bx, mO, i===1?"@":"");
+  }
+  y = G.bottom + 12;
+
+  return `<svg data-w="${W}" data-h="${y}" viewBox="0 0 ${W} ${y}" `
+       + `preserveAspectRatio="xMidYMid meet">${svg}</svg>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  架构图画布：滚轮缩放 / 拖拽平移 / 双指捏合 / 双击复位
+//  做法是直接改 svg 的 viewBox。把 viewBox 的宽高比对齐容器的宽高比之后，
+//  preserveAspectRatio 就不会再产生留白，屏幕像素 ↔ 用户坐标是一个干净的比例。
+// ═══════════════════════════════════════════════════════════
+const AV = {x:0, y:0, w:0, h:0, W:0, H:0, pending:false};
+const avEl = () => $("archwrap").querySelector("svg");
+// 量的必须是 svg 实际占的那个盒（#archwrap 是 inset:0 的内容盒），不是外层容器——
+// 容器有 1px 边框，差这 2px 会让缩放锚点按比例漂。
+const avRect = () => $("archwrap").getBoundingClientRect();
+
+function avApply(){
+  const sv = avEl(), r = avRect();
+  if(!sv || r.width < 10 || AV.w <= 0){ AV.pending = true; return; }
+  AV.pending = false;
+  // 每次都把 viewBox 的宽高比对齐容器（已经对齐时是空操作）。这样 meet 永远不产生
+  // 留白，屏幕像素 ↔ 用户坐标就是精确比例，缩放锚点才钉得住。
+  const cy = AV.y + AV.h/2;
+  AV.h = AV.w / (r.width / r.height);
+  AV.y = cy - AV.h/2;
+  sv.setAttribute("viewBox", `${AV.x.toFixed(3)} ${AV.y.toFixed(3)} ${AV.w.toFixed(3)} ${AV.h.toFixed(3)}`);
+  $("azLbl").textContent = Math.round(r.width/AV.w*100) + "%";
+}
+function avFit(){
+  const r = avRect();
+  if(!AV.W || r.width < 10){ AV.pending = true; return; }
+  const pad = 16;
+  AV.x = -pad; AV.y = -pad; AV.w = AV.W + 2*pad; AV.h = AV.H + 2*pad;
+  const ar = r.width / r.height;                       // 把 viewBox 撑成容器的宽高比
+  if(AV.w/AV.h < ar){ const nw = AV.h*ar; AV.x -= (nw-AV.w)/2; AV.w = nw; }
+  else               { const nh = AV.w/ar; AV.y -= (nh-AV.h)/2; AV.h = nh; }
+  avApply();                                           // apply 里会再校一次宽高比
+}
+function avZoom(k, cx, cy){
+  const r = avRect();
+  if(r.width < 10 || AV.w <= 0) return;
+  const ux = AV.x + (cx - r.left)/r.width  * AV.w;     // 光标落在图上的哪一点
+  const uy = AV.y + (cy - r.top )/r.height * AV.h;
+  const nw = Math.max(AV.W/16, Math.min(AV.W*6, AV.w*k)), kk = nw/AV.w;
+  AV.x = ux - (ux-AV.x)*kk; AV.y = uy - (uy-AV.y)*kk;  // 光标底下那一点保持不动
+  AV.w *= kk; AV.h *= kk;
+  avApply();
+}
+function avPan(dx, dy){
+  const r = avRect();
+  if(r.width < 10) return;
+  AV.x -= dx/r.width*AV.w; AV.y -= dy/r.height*AV.h; avApply();
+}
+function avOne(){                                       // 1:1（一个用户单位 = 一个 css 像素）
+  const r = avRect();
+  if(r.width < 10) return;
+  const cx = AV.x + AV.w/2, cy = AV.y + AV.h/2;
+  AV.w = r.width; AV.h = r.height;
+  AV.x = cx - AV.w/2; AV.y = cy - AV.h/2; avApply();
+}
+function setupCanvas(){
+  const cv = $("archcanvas");
+  cv.addEventListener("wheel", e=>{
+    e.preventDefault();
+    avZoom(Math.exp(e.deltaY * 0.0016), e.clientX, e.clientY);
+  }, {passive:false});
+
+  const pts = new Map();
+  let last = null, lastD = 0;
+  const two = () => [...pts.values()];
+  const dist = () => { const [a,b] = two(); return Math.hypot(a.x-b.x, a.y-b.y); };
+  const mid  = () => { const [a,b] = two(); return {x:(a.x+b.x)/2, y:(a.y+b.y)/2}; };
+
+  cv.addEventListener("pointerdown", e=>{
+    pts.set(e.pointerId, {x:e.clientX, y:e.clientY});
+    cv.setPointerCapture(e.pointerId);
+    cv.classList.add("grabbing");
+    if(pts.size === 1) last = {x:e.clientX, y:e.clientY};
+    if(pts.size === 2) lastD = dist();
+  });
+  cv.addEventListener("pointermove", e=>{
+    if(!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, {x:e.clientX, y:e.clientY});
+    if(pts.size === 1 && last){
+      avPan(e.clientX-last.x, e.clientY-last.y);
+      last = {x:e.clientX, y:e.clientY};
+    }else if(pts.size === 2){
+      const d = dist(), c = mid();
+      if(lastD > 0 && d > 0) avZoom(lastD/d, c.x, c.y);
+      lastD = d;
+    }
+  });
+  ["pointerup","pointercancel"].forEach(t => cv.addEventListener(t, e=>{
+    pts.delete(e.pointerId); lastD = 0;
+    if(pts.size === 0){ last = null; cv.classList.remove("grabbing"); }
+    else last = two()[0];
+  }));
+  cv.addEventListener("dblclick", e=>{ e.preventDefault(); avFit(); });
+
+  $("azIn").addEventListener("click", ()=>{ const r=avRect(); avZoom(1/1.25, r.left+r.width/2, r.top+r.height/2); });
+  $("azOut").addEventListener("click",()=>{ const r=avRect(); avZoom(1.25,   r.left+r.width/2, r.top+r.height/2); });
+  $("azFit").addEventListener("click", avFit);
+  $("az100").addEventListener("click", avOne);
+
+  // 容器可以竖向拉伸；宽高比变了要把 viewBox 跟着改，否则图会被拉扁
+  // 容器可以竖向拉伸；宽高比变了由 avApply 统一校正，这里只要触发一次
+  new ResizeObserver(()=>{
+    if(!AV.W) return;
+    if(AV.pending) avFit(); else avApply();
+  }).observe(cv);
+
+  // 卡片收起时容器尺寸是 0，展开时补一次
+  cv.closest("details").addEventListener("toggle", ()=>{ if(AV.pending) avFit(); });
+}
+
+// ═══════════════════════════════════════════════════════════
+function render(){
+  const p = {};
+  IN.forEach(k => p[k] = parseFloat($(k).value) || 0);
+  SEL.forEach(k => p[k] = $(k).value);
+  const ffm = FFN[p.ffn];
+  if($("autoff").checked){ p.dff = Math.round((ffm.gated?8/3:4)*p.d/64)*64; $("dff").value = p.dff; }
+  if($("autodk").checked){ p.dk = Math.max(1, Math.round(p.d/Math.max(1,p.h))); $("dk").value = p.dk; }
+  // 全局 batch = 单卡 micro-batch × 梯度累积步数 × 卡数。
+  // B 是被推出来的那一个，所以改 tB / 卡数 / 累积步数都会传导到显存。
+  const nGPU  = Math.max(1, Math.round(p.ngpu));
+  const accum = Math.max(1, Math.round(p.accum));
+  const Braw  = p.tB / (accum * nGPU);
+  p.B = Math.max(1, Math.round(Braw));
+  const {V,T,L,d,h,dff,B,bpe} = p;
+  const r = compute(p);
+  const {nkv, dk, dq, dkv, ff} = r;
+  // 变体不是下拉框说了算，而是 n_kv 自己决定的：等于 h 就是 MHA，等于 1 就是 MQA
+  p.attn = nkv === h ? "mha" : nkv === 1 ? "mqa" : "gqa";
+  if($("attn").value !== p.attn) $("attn").value = p.attn;
+  if(+$("nkv").value !== nkv) $("nkv").value = N(nkv);
+
+  const S = (...a)=>"["+a.join(", ")+"]";
+  const xd = S(N(B), N(T), N(d));
+
+  $("archLine").textContent = `当前架构：pre-norm、RMSNorm、RoPE、无 weight tying、无 bias`
+    + ` ｜ 注意力 ${ATTN[p.attn]}（h=${N(h)}, n_kv=${N(nkv)}, d_k=${N(dk)}）`
+    + ` ｜ 前馈 ${ff.label}（${ff.n} 矩阵, ${ff.act}）`;
+  $("attnDer").innerHTML =
+      `d_q ${N(dq)}　d_kv ${N(dkv)}　KV 省 ${fmt(dq/dkv,2)}×`
+    + (h % nkv ? `　<span class="tag bad">h 除不尽 n_kv</span>` : ``);
+  $("ffnDer").innerHTML = `${ff.n} × d×d_ff = ${cnt(r.ffnP)} / 层`;
+
+  // ── 几何架构图 ──
+  $("archwrap").innerHTML = drawArch(p, r);
+  const sv = avEl(), nW = +sv.dataset.w, nH = +sv.dataset.h;
+  if(nW !== AV.W || nH !== AV.H){ AV.W = nW; AV.H = nH; avFit(); }  // 换了模型 → 重新适应
+  else avApply();                                                   // 只是改了个数 → 视角不动
+  $("archNote").innerHTML =
+      `图上这几个数会随配置变：残差流 <b>${xd}</b>，${N(L)} 层叠下来一次没变；`
+    + `橙色的 <code>scores</code> ${S(N(B),N(h),N(T),N(T))} 有 ${int(B*h*T*T)} 个元素，`
+    + `是残差流的 <b>${fmt(h*T/d,1)} 倍</b>（比值 = h·T/d）；`
+    + `出口 <code>logits</code> ${S(N(B),N(T),N(V))} 比残差流宽 <b>V/d = ${fmt(V/d,1)} 倍</b>，是全程最宽的张量。`
+    + (p.attn !== "mha"
+        ? `<br><b>${ATTN[p.attn]} 在图上看得见</b>：K、V 的进深只有 ${N(nkv)}，Q 是 ${N(h)}，`
+          + `底下「拼接」横杠也短了 ${fmt(dq/dkv,2)}×——而 <code>scores</code> 那个盒子一点没变。`
+        : ``);
+
+
+  // ── 逐算子明细 ──
+  const dkS = N(dk);
+  const ffRows = ff.gated ? [
+      {n:"│  x @ W1   （门）", s:S(N(B),N(T),N(dff)), f:r.f_ff1},
+      {n:"│  x @ W3   （值）", s:S(N(B),N(T),N(dff)), f:r.f_ff1},
+      {n:`│  ${ff.act}(门) ⊙ 值`, s:S(N(B),N(T),N(dff)), f:0, cls:"free"},
+      {n:"└  @ W2",          s:xd,                   f:r.f_ff1},
+    ] : [
+      {n:"│  x @ W_in",      s:S(N(B),N(T),N(dff)), f:r.f_ff1},
+      {n:`│  ${ff.act}(·)`,   s:S(N(B),N(T),N(dff)), f:0, cls:"free"},
+      {n:"└  @ W_out",       s:xd,                   f:r.f_ff1},
+    ];
+  // ── 一、参数量 ──
+  $("eqParams").innerHTML =
+`P = <b>2·V·d</b> + L·(<b>2·d·d_q + 2·d·d_kv</b> + <b>${ff.n}·d·d_ff</b> + <b>2·d</b>) + <b>d</b>
+      d_q = h·d_k = ${N(dq)}     所有查询头拼起来的宽度（Wq 的出口、Wo 的入口）
+      d_kv = n_kv·d_k = ${N(dkv)}     所有 K/V 头拼起来的宽度（Wk、Wv 的出口）
+      ${dq===dkv&&dq===d ? "此处 d_q = d_kv = d，注意力那几项合起来就是 4d²"
+        : `此处 d_kv 只有 d_q 的 ${fmt(dkv/dq,3)}${dq!==d?`，而 d_q 也不等于 d`:""}`}
+      前馈：  ${ff.label} ${ff.n} 个 d×d_ff 矩阵`;
+  // ── 二、FLOPs ──
+  const SH = {st:S(N(B),N(T),N(d)), q:S(N(B),N(h),N(T),N(dk)), kv:S(N(B),N(nkv),N(T),N(dk)),
+              sc:S(N(B),N(h),N(T),N(T)), ff:S(N(B),N(T),N(dff)), lg:S(N(B),N(T),N(V))};
+  // 每层的算子。第 4 列是单次 FLOPs，占比统一按 ×L 算。零 FLOPs 的也列出来，
+  // 因为"哪些步骤不花算力"和"哪些花"一样重要。
+  const layerOps = [
+    ["ln1 ×γ₁",         "逐元素",   SH.st, 0],
+    ["x @ Wq",           "2·T·d·d_q",     SH.q,  r.f_q],
+    ["x @ Wk",           "2·T·d·d_kv",    SH.kv, r.f_kv],
+    ["x @ Wv",           "2·T·d·d_kv",    SH.kv, r.f_kv],
+    ["RoPE(Q), RoPE(K)","逐元素",   "—",   0],
+    ["Q @ Kᵀ / √d_k",    "2·T²·d_q",      SH.sc, r.f_score],
+    ["softmax",         "逐元素",   SH.sc, 0],
+    ["scores @ V",       "2·T²·d_q",      SH.q,  r.f_ctx],
+    ["拼头",             "换布局",   SH.st, 0],
+    ["@ Wo",             "2·T·d_q·d",     SH.st, r.f_o],
+    ["+ attn",          "逐元素",   SH.st, 0],
+    ["ln2 ×γ₂",         "逐元素",   SH.st, 0],
+  ].concat(ff.gated
+    ? [["x @ W1（门）","2·T·d·d_ff",SH.ff,r.f_ff1], ["x @ W3（值）","2·T·d·d_ff",SH.ff,r.f_ff1],
+       [`${ff.act}(门)⊙值`,"逐元素",SH.ff,0],     ["@ W2","2·T·d·d_ff",SH.st,r.f_ff1]]
+    : [["x @ W_in","2·T·d·d_ff",SH.ff,r.f_ff1], [`${ff.act}(·)`,"逐元素",SH.ff,0],
+       ["@ W_out","2·T·d·d_ff",SH.st,r.f_ff1]]
+  ).concat([["+ ffn", "逐元素", SH.st, 0]]);
+  const fRows = layerOps.map(x=>[x[0],x[1],x[2], x[3]?flops(x[3]):"0", x[3]?pct(x[3]*L/r.F):"—"]);
+  fRows.push(["每层小计", `2T(2·d·d_q+2·d·d_kv) + 4T²·d_q + ${ff.n}·2T·d·d_ff`, SH.st,
+              flops(r.perLayer), pct(L*r.perLayer/r.F)]);
+  fRows.push(["embed 查表", "gather", SH.st, "0", "—"]);
+  fRows.push(["ln_f ×γ", "逐元素", SH.st, "0", "—"]);
+  fRows.push(["x @ lm_head", "2·T·d·V", SH.lg, flops(r.f_lm), pct(r.f_lm/r.F)]);
+  fRows.push(["softmax / CE", "逐元素", SH.lg, "0", "—"]);
+  tbl($("tFlops"), ["算子","符号","输出形状","单次","占前向"], fRows,
+      ["一次 forward 总计","L·每层 + 2·T·d·V", "", flops(r.F), "100%"]);
+  $("eqFlops").innerHTML =
+`每层 = <b>4·T·d·d_q</b> + <b>4·T·d·d_kv</b> + <b>4·T²·d_q</b> + <b>${ff.n*2}·T·d·d_ff</b>
+${dq===dkv ? "  d_q = d_kv，前两项可以合并" : `  d_kv 只有 d_q 的 ${fmt(dkv/dq,3)}，第二项按比例缩小`}
+总计 = L·每层 + <b>2·T·d·V</b>（lm_head）`;
+
+  // 第 3 段（六大块对比）已删除，但下面的说明还要用这两个量：
+  // blocks[2] = 注意力打分（0 参数、有 FLOPs），blocks[0] = token_embeddings（有参数、0 FLOPs）
+  const big = r.blocks.reduce((a,b)=>b.v>a.v?b:a);
+
+  // ── 四、训练一步 ──
+  const stepF = 3*r.F, optF = 14*r.P;
+  $("kStep").innerHTML = [
+    ["一次 forward","F", flops(r.F)],
+    ["一步训练","3·F", flops(stepF)],
+    ["AdamW 一步","14·P", flops(optF)],
+    ["优化器占比","14P / 3F", pct(optF/stepF)],
+  ].map(k=>`<div class="kpi"><div class="k">${k[0]}</div><div class="v">${k[2]}</div><div class="s">${k[1]}</div></div>`).join("");
+
+  // ── 五、显存 ──
+  $("eqMem").innerHTML =
+`常驻 4P = <b>4·P</b>          参数 P + 梯度 P + AdamW 的 m、v 各 P。和 batch、T 都无关。
+
+saved tensors S —— 前向算出来、反向还要用的张量，按来自哪一块拆开：
+  残差流上的        <b>4·B·T·d</b>            两个 norm 的输出 + 块入口 + Wo 输出
+  注意力 Q/K/V/ctx  <b>2·B·T·d_q + 2·B·T·d_kv</b>${dq===dkv&&dq===d?"      （此处 = 4·B·T·d，与上一项合起来就是 8·B·T·d）":""}
+  注意力 打分矩阵    <b>2·B·h·T²</b>           QKᵀ 和 softmax 各一份
+  前馈 中间张量      <b>${ff.gated?4:2}·B·T·d_ff</b>          ${ff.label} 的中间张量
+  出口              <b>B·T·d + 2·B·T·V</b>    ln_f 输出、logits、cross-entropy
+
+  S = L·(前四项) + 出口
+<b>训练显存 = bytes · (4P + S)</b>
+KV cache = bytes · <b>2·L·B·T·d_kv</b>     只有推理有，训练不需要`;
+  const total = r.memFixed + r.memSaved;
+  const vramB = p.vram*1e9;
+  const maxB = Math.floor((vramB - r.memFixed) / (r.memSaved/Math.max(B,1)));
+  $("kMem").innerHTML = [
+    ["常驻 4P","参数+梯度+m+v，与 batch 无关", bytes(r.memFixed)],
+    [`saved tensors S · 全部 ${N(L)} 层合计`,`B=${int(B)}，bytes·A`, bytes(r.memSaved)],
+    ["训练显存 合计","bytes·(4P+S)", bytes(total)],
+    [`这张卡最多放的 B`, maxB>0?"⌊(显存−4P)/每样本⌋":"装不下", maxB>0?int(maxB):"0"],
+    ["当前 B","tB/(累积×卡数)", int(B)],
+    ["放得下最少要累积", "⌈tB/(maxB×卡数)⌉", maxB>0?int(Math.ceil(p.tB/(maxB*nGPU))):"—"],
+    ["KV cache（只有推理）","2·L·B·T·d_kv", bytes(r.kvCache)],
+    ["S / P","saved 元素数 ÷ 参数量", fmt(r.S/r.P,0)+" ×"],
+    ["B·T / d","每个权重对应多少倍 saved", fmt(B*T/d,1)+" ×"],
+  ].map(k=>`<div class="kpi"><div class="k">${k[0]}</div><div class="v">${k[2]}</div><div class="s">${k[1]}</div></div>`).join("");
+
+  $("fitNote").innerHTML = maxB > 0
+    ? (B <= maxB
+        ? `当前 <b>B = ${int(B)}</b>，这张 ${int(p.vram)} GB 的卡最多放 <b>${int(maxB)}</b>——<b>放得下</b>。`
+        : `当前 <b>B = ${int(B)}</b> 超过这张卡的上限 <b>${int(maxB)}</b>，<span class="tag bad">装不下</span>`
+          + ` 把累积步数提到 <b>${int(Math.ceil(p.tB/(maxB*nGPU)))}</b> 以上，或者加卡。`)
+    : `<span class="tag bad">装不下</span> 光是常驻的 4P 就超了这张卡，连 B=1 都放不下，必须切分模型（张量并行 / ZeRO）。`;
+  $("ratioNote").innerHTML =
+      `当前 <code>B·T/d = ${int(B)}×${int(T)}/${int(d)} = ${fmt(B*T/d,1)}</code>，`
+    + `所以逐行的 saved 元素数大约是对应参数的 ${fmt(B*T/d,1)} 倍。整体 <b>S / P = ${fmt(r.S/r.P,0)}×</b>——`
+    + (r.S/r.P > 30 ? `saved tensors 远远压过参数，省显存要从<b>它</b>下手（重计算、FlashAttention），改模型形状没用。`
+                    : `两者还在同一量级；把 B 或 T 调大，S 会迅速拉开。`);
+  $("actNote").innerHTML =
+      `<code>打分矩阵</code> <b>在参数那半边根本不存在</b>——它是 Q@Kᵀ，激活×激活，没有权重；`
+    + `却占了 S 的 <b>${pct(L*r.s_score/r.S)}</b>，而在 FLOPs 上只占 ${pct(r.blocks[2].v/r.F)}。`
+    + `<b>算力上是配角，显存上是主角</b>——这正是 FlashAttention 不物化 [h,T,T] 的理由。`
+    + `<br>反过来 <code>token_embeddings</code> 占 ${pct(r.blocks[0].pv/r.P)} 的参数，但<b>产出 0 saved tensor</b>——`
+    + `它的输出就是残差流本身，已经算在「残差加（块入口）」那一行里了。`;
+
+  // 一行 = 一个环节：左半是它的权重，右半是它前向留下的中间结果。两列各自合到 100%。
+  const nff = ff.gated ? 4 : 2;
+  const memRows = [
+    ["token_embeddings", "V·d",              r.emb,            "—",                0],
+    ["q_proj",           "d·d_q ×L",         L*r.p_q,          "B·T·d_q ×L",       L*B*T*dq],
+    ["k_proj + v_proj",  "2·d·d_kv ×L",      L*(r.p_k+r.p_v),  "2·B·T·d_kv ×L",    L*2*B*T*dkv],
+    ["打分 QKᵀ+softmax",  "—",                0,                "2·B·h·T² ×L",      L*r.s_score],
+    ["scores@V → ctx",   "—",                0,                "B·T·d_q ×L",       L*B*T*dq],
+    ["output_proj",      "d_q·d ×L",         L*r.p_o,          "B·T·d ×L",         L*B*T*d],
+    [`${ff.label} ×${ff.n}`, `${ff.n}·d·d_ff ×L`, L*r.ffnP,    `${nff}·B·T·d_ff ×L`, L*r.s_ff],
+    ["ln1/ln2 的 γ",      "2·d ×L",           L*r.norms,        "2·B·T·d ×L",       L*2*B*T*d],
+    ["残差加（块入口）",   "—",                0,                "B·T·d ×L",         L*B*T*d],
+    ["ln_final 的 γ",     "d",                d,                "B·T·d",            B*T*d],
+    ["lm_head",          "d·V",              r.lmh,            "2·B·T·V",          2*B*T*V],
+  ];
+  // 这一行真正吃掉多少显存：参数按 4 份算（自己 + 梯度 + m + v），saved tensors 按 1 份。
+  // 分母是 4P + A，所以这一列也正好合到 100%，而且是三个口径里唯一能直接横向比的。
+  const memOf = x => 4*x[2] + x[4], memTot = 4*r.P + r.S;
+  const paint = (col, filt) => memRows.map((x,i)=>({k:x[0], v:filt(x), c:ROWC[i%ROWC.length]}))
+                                      .filter(o=>o.v > 0);
+  stack($("barParamMem"), null, paint(2, x=>x[2]));
+  stack($("barAct"),      null, paint(4, x=>x[4]));
+  // 图例单独画：它要列全部 11 行。跟着某一条 bar 画的话，那条里为 0 的行会从图例里消失。
+  // 也不带百分比——两条 bar 的百分比不一样，精确数字在表里。
+  $("legRows").innerHTML = memRows.map((x,i)=>
+    `<span><i style="background:${ROWC[i%ROWC.length]}"></i>${x[0]}</span>`).join("");
+  tbl($("tMem"),
+    ["环节","参数 符号","参数量","占 P","S 符号","S 元素数","占 S","这行的显存","占训练显存"],
+    memRows.map(x=>[x[0], x[1], x[2]?int(x[2]):"0", x[2]?pct(x[2]/r.P):"—",
+                          x[3], x[4]?int(x[4]):"0", x[4]?pct(x[4]/r.S):"—",
+                          bytes(bpe*memOf(x)), pct(memOf(x)/memTot)]),
+    ["合计","", int(r.P), "100%", "", int(r.S), "100%", bytes(bpe*memTot), "100%"],
+    [["", 1], ["参数 P —— 模型本身", 3, "gP"], ["saved tensors S —— 前向留下、反向要用", 3, "gA"],
+     ["显存 = bytes·(4P + S)", 2, "gM"]]);
+
+  const kvMHA = bpe*2*L*B*T*dq;
+  $("kvNote").innerHTML =
+      `当前 ${ATTN[p.attn]} 的 KV cache <b>${bytes(r.kvCache)}</b>`
+    + (p.attn === "mha"
+        ? `。换成 GQA / MQA 会按 n_kv/h 缩小，而 saved tensors 和 FLOPs 几乎不动——<b>这就是 GQA 的全部动机</b>。`
+        : `，同尺寸 MHA 是 ${bytes(kvMHA)}，省 ${fmt(dq/dkv,2)}×。注意打分矩阵那行<b>没跟着小</b>。`);
+
+
+  // ── 六、AI ──
+  const balance = p.peak/p.bw;              // TFLOP/s ÷ TB/s = FLOP/byte
+  const gpu = Object.entries(GPUS).find(([,g]) =>
+      g.vram === p.vram && Math.abs(g.bw - p.bw) < 0.02);
+  $("gpuDer").innerHTML = (gpu ? `<b>${gpu[0]}</b>　tf32 ${N(gpu[1].tf32)}　bf16 ${N(gpu[1].bf16)}　fp8 ${N(gpu[1].fp8)}<br>` : ``)
+    + `平衡点 ${fmt(balance,0)} FLOP/byte`;
+  tbl($("tAI"), ["操作","FLOPs/元素","FLOPs","HBM 字节","AI","判定"],
+    r.ai.map(a=>[a.k, a.sym, flops(a.f), bytes(a.b), fmt(a.v,1),
+      a.v>balance?'<span class="tag ok">compute-bound</span>':'<span class="tag bad">memory-bound</span>']));
+  $("aiDtype").innerHTML = `AI 随 dtype 变——同样的 FLOPs，搬的字节数不同。当前按 <b>${bpe} 字节/元素</b>算；`
+    + `切到 ${bpe===4?"bf16（2 字节）搬运量减半、AI 翻倍":"fp32（4 字节）搬运量翻倍、AI 减半"}。`;
+  const bad = r.ai.filter(a=>a.v<=balance).map(a=>a.k);
+  const decAI = 2*d/((2+d)*bpe);
+  $("aiNote").innerHTML = `机器平衡点 = ${fmt(p.peak,0)} TFLOP/s ÷ ${fmt(p.bw,2)} TB/s = <b>${fmt(balance,0)} FLOP/byte</b>。`+
+    (bad.length? ` 掉到平衡点以下的是 <b>${bad.join("、")}</b>——它在等数据而不是在算，占用的墙钟时间远超它的 FLOPs 占比。`
+               : " 当前配置下三项都是 compute-bound。")+
+    ` 解码时 T=1，投影的 AI 降到 <code>2d/((2+d)·bytes) ≈ ${fmt(decAI,2)}</code>，极度 memory-bound——这是自回归生成慢的根本原因。`;
+
+  // ── 七、时间 ──
+  const perTok  = 3*r.F/T;              // 训一个 token 要多少 FLOPs —— 精确值，含注意力的 T²
+  const perTok6 = 6*r.P;                // 业界常用的 6P 近似：忽略 T²，又把 0 FLOPs 的 embedding 算了进去
+  const peakAll = p.peak*1e12*nGPU;     // 所有卡的峰值算力
+  // MFU 和实测 token/s 是同一件事的两种写法，改哪个哪个说了算
+  let mfu, tps;
+  if(mfuDriver === "tps"){
+    tps = Math.max(0, p.tps);
+    mfu = peakAll > 0 ? tps*perTok/peakAll : 0;
+    $("mfu").value = +mfu.toFixed(4);
+  }else{
+    mfu = Math.max(0, p.mfu);
+    tps = perTok > 0 ? mfu*peakAll/perTok : 0;
+    $("tps").value = Math.round(tps);
+  }
+  const mfu6 = peakAll > 0 ? tps*perTok6/peakAll : 0;   // 若按 6P 口径算出来的 MFU
+  const eff  = peakAll * mfu;                            // 有效算力，FLOP/s
+  let D, sec;
+  if(timeDriver === "days"){                         // 给定天数 → 反推能训多少 token
+    sec = Math.max(0, p.days)*86400;
+    D   = eff > 0 ? sec*eff/perTok : 0;
+    $("Dtok").value = +(D/1e9).toFixed(2);
+  }else{                                             // 给定 token 预算 → 算要多少天
+    D   = Math.max(0, p.Dtok)*1e9;
+    sec = eff > 0 ? D*perTok/eff : 0;
+    $("days").value = +(sec/86400).toFixed(2);
+  }
+  const steps = (p.tB*T) > 0 ? D/(p.tB*T) : 0;       // 步数是推出来的，不是填的
+  const totalF = D*perTok;
+  const approx6ND = 6*r.P*D;                          // 教科书的 6ND：忽略了注意力的 T² 项
+  $("mfuDer").innerHTML = `MFU ${pct(mfu)} ↔ ${int(tps)} token/s　（按 6P 算 ${pct(mfu6)}）`;
+  $("twoWay").innerHTML = timeDriver === "days"
+    ? `当前是<b>按天数反推</b>：${fmt(p.days,1)} 天 × ${nGPU} 张卡 × ${fmt(p.peak*mfu,0)} TFLOP/s`
+      + ` ⇒ 能训 <b>${cnt(D)}</b> tokens。改左边的「目标 token 数」就切回另一头。`
+    : `当前是<b>按 token 预算算</b>：${cnt(D)} tokens ⇒ ${nGPU} 张卡要 <b>${durShort(sec)}</b>。`
+      + ` 改左边的「训练天数」就切成反推 token 数。`;
+  $("kTime").innerHTML = [
+    ["总算力","3·F·D/T", flops(totalF)],
+    ["训练步数","D / (batch·T)", int(steps)],
+    ["6·N·D 近似","忽略注意力的 T²", flops(approx6ND)+`（低估 ${pct(1-approx6ND/totalF)}）`],
+    ["实测 token/s","填的或由 MFU 推出", int(tps)],
+    ["每 token 成本","3·F/T（精确，含 T²）", flops(perTok)],
+    ["6·P 近似","忽略 T²、多算 embedding", flops(perTok6)
+      + `（${perTok6<perTok?"低":"高"} ${pct(Math.abs(1-perTok6/perTok))}）`],
+    ["MFU（精确口径）","token/s × 3F/T ÷ 峰值", pct(mfu)],
+    ["MFU（按 6P 算）","业界常用，会偏"+(perTok6<perTok?"低":"高"), pct(mfu6)],
+    ["有效算力",`${fmt(p.peak,0)}×${fmt(mfu,3)}×${nGPU} 卡`, fmt(p.peak*mfu*nGPU,0)+" TFLOP/s"],
+    ["耗时",`${nGPU} 张卡`, dur(sec)],
+    ["每个 token","3·F/T", flops(perTok)],
+  ].map(k=>`<div class="kpi"><div class="k">${k[0]}</div><div class="v">${k[2]}</div><div class="s">${k[1]}</div></div>`).join("");
+  $("timeNote").innerHTML =
+      `全局 batch <b>${int(p.tB)}</b> = 单卡 <b>${int(B)}</b> × 累积 <b>${int(accum)}</b> × 卡数 <b>${int(nGPU)}</b>。`
+    + `<b>算总量只看 tB</b>——怎么拆不影响总 FLOPs，只影响单卡显存（第 2 段）和墙钟时间。`
+    + (maxB > 0 && B > maxB
+        ? `<br><span class="tag bad">注意</span> 当前拆法下单卡放不下，第 2 段那个数是算出来的、不是跑得动的。`
+        : ``);
+
+  // ── token 预算：和参数量的比值 ──
+  const Dtot = D, ratio = Dtot/r.P;
+  const verdict = ratio < 15  ? ["bad","欠训"]
+                : ratio < 40  ? ["ok","≈Chinchilla"]
+                : ratio < 300 ? ["ok","过训（主流）"]
+                :               ["ok","严重过训"];
+  $("batchDer").innerHTML =
+      `B = ${int(p.tB)} / (${int(accum)} × ${int(nGPU)}) = <b>${int(B)}</b>`
+    + (Math.abs(Braw - B) > 1e-9 ? `　<span class="tag bad">除不尽，按 ${int(B)} 算</span>` : ``);
+  $("tokDer").innerHTML =
+      `D = ${cnt(Dtot)} = <b>${fmt(ratio,0)}×P</b>　<span class="tag ${verdict[0]}">${verdict[1]}</span>`;
+
+  // ── 上下文这根拖拽条：对数刻度，直接驱动全局 T ──
+  const SLO = 6, SHI = 20;                                  // 2^6 = 64 到 2^20 ≈ 1M
+  const sPos = t => Math.max(0, Math.min(1000,
+      Math.round((Math.log2(Math.max(64,t)) - SLO)/(SHI-SLO)*1000)));
+  if(+$("Tslide").value !== sPos(T)) $("Tslide").value = sPos(T);
+  const quad = L*4*T*T*dq, lin = r.F - quad;
+  stack($("barT"), $("legT"), [
+    {k:`线性项（投影 + ${ff.label} + lm_head）`, v:lin},
+    {k:"平方项（注意力打分 ∝ T²）",             v:quad},
+  ]);
+  const starPos = sPos(r.Tstar);
+  $("tstarMark").style.left = starPos/10 + "%";
+  $("tstarMark").textContent = `T* = ${int(r.Tstar)}`;
+  $("kT").innerHTML = [
+    ["当前 T","拖动条", int(T)],
+    ["平方项占比","4·L·T²·d_q / F", pct(quad/r.F)],
+    ["交叉点 T*","线性 = 平方", int(r.Tstar)],
+    ["一次 forward","", flops(r.F)],
+  ].map(k=>`<div class="kpi"><div class="k">${k[0]}</div><div class="v">${k[2]}</div><div class="s">${k[1]}</div></div>`).join("");
+
+  // ── 八、上下文缩放 ──
+  $("eqTstar").innerHTML =
+`交叉点（线性项 = 平方项）：<b>T* = d + d·d_kv/d_q + ${ff.n}/2·d·d_ff/d_q + V·d/(2L·d_q)</b>
+${p.attn==="mha"&&dq===d&&ff.gated&&Math.abs(dff-8/3*d)<64 ? "  MHA + d_q=d + 门控 8/3·d 时化简为 T* ≈ 6·d + V/(2L)" : ""}`;
+  const scaleRows = [0.5,1,2,4,8,16].map(m=>{
+    const t = Math.round(T*m);
+    const lin = L*(2*2*t*d*dq + 2*2*t*d*dkv + ff.n*2*t*d*dff) + 2*t*d*V, quad = L*4*t*t*dq;
+    return [ (m===1?`${int(t)} ←当前`:int(t)), `×${m}`,
+             flops(lin+quad), pct(quad/(lin+quad)),
+             fmt((lin+quad)/r.F,2)+"×" ];
+  });
+  tbl($("tScale"), ["T","相对","一次 forward","打分占比","倍数"], scaleRows);
+  $("scaleNote").innerHTML = `当前 d=${int(d)}，交叉点 <code>T* = ${int(r.Tstar)}</code>。`+
+    ` 上下文超过它，注意力的平方项就压过整个模型的其余部分。`+
+    ` 当前 T=${int(T)} ${T<r.Tstar?"<b>还在线性区</b>":"<b>已经进入平方区</b>"}。`;
+
+  // ── 参数量自检 ──
+  const hit = Object.entries(KNOWN).find(([k])=>{
+    const q = PRESETS[k];
+    return q.V===V && q.L===L && q.d===d && q.h===h && q.dff===dff && q.nkv===nkv && q.dk===dk && q.ffn===p.ffn;
+  });
+  if(hit){
+    const mine = hit[1].tied ? r.P - V*d : r.P;      // 官方数字共享 embedding 时要减掉一份
+    $("paramCheck").innerHTML = `<span class="tag ok">自检</span> 当前形状是 <b>${hit[0]}</b>，`
+      + `公式算出 <b>${cnt(mine)}</b>${hit[1].tied?`（本页按不共享 embedding 算是 ${cnt(r.P)}，这里减掉一份 V·d 才和官方口径一致）`:""}，`
+      + `公开参数量 <b>${cnt(hit[1].P)}</b>，差 ${pct(Math.abs(mine-hit[1].P)/hit[1].P)}。`;
+  } else {
+    $("paramCheck").innerHTML = `<span class="tag ok">提示</span> 切到 <b>Llama-3-8B</b>、<b>Llama-3-70B</b> `
+      + `或 <b>Gemma-2-9B</b> 预设，这里会拿公式的结果和公开参数量对一下。`
+      + `Gemma-2 的 d_q = h·d_k = 4096 并<b>不等于</b> d = 3584，正好用来验证 d_k 独立之后的公式。`;
+  }
+
+  // ── 卡片收起时的一行结论 ──
+  hd(0, `${N(L)}×${ATTN[p.attn]}+${ff.label} · 残差流 ${xd}`);
+  hd(1, `${flops(r.F)} / 次前向 · ${flops(stepF)} / 步`);
+  hd(2, `P=${cnt(r.P)} · ${bytes(total)} / ${int(p.vram)} GB`, total > vramB);
+  hd(3, `${durShort(sec)} · ${nGPU} 卡 · ${fmt(ratio,0)}×P tokens`);
+}
+
+// 初始化
+$("presets").innerHTML = Object.keys(PRESETS).map(k=>`<button data-p="${k}">${k}</button>`).join("");
+$("gpus").innerHTML = Object.keys(GPUS).map(k=>`<button data-g="${k}">${k}</button>`).join("");
+$("ratios").innerHTML = [20,100,1000].map(k=>`<button data-r="${k}">${k}×P</button>`).join("")
+  + `<button data-r="0">还原笔记口径（1 卡 · B=1）</button>`;
+$("ratios").addEventListener("click", e=>{
+  const k = +e.target.dataset.r; if(!e.target.dataset.r) return;
+  // 需要先知道当前的 P，所以借一次 compute
+  const q = {}; IN.forEach(f => q[f] = parseFloat($(f).value) || 0);
+  SEL.forEach(f => q[f] = $(f).value);
+  const P = compute(q).P;
+  timeDriver = "D";
+  if(k){
+    $("Dtok").value = +(k*P/1e9).toFixed(2);
+  }else{                                   // 还原笔记口径：单卡、B=1、40 万步
+    $("ngpu").value = 1;
+    $("accum").value = q.tB;               // 累积 = 全局 batch ⇒ B = 1
+    $("Dtok").value = +(400000*q.tB*q.T/1e9).toFixed(2);
+  }
+  render();
+});
+$("gpus").addEventListener("click", e=>{
+  const k = e.target.dataset.g; if(!k) return;
+  const g = GPUS[k];
+  $("vram").value = g.vram; $("bw").value = g.bw; $("peak").value = g.tf32;
+  render();
+});
+$("presets").addEventListener("click", e=>{
+  const k = e.target.dataset.p; if(!k) return;
+  const P = PRESETS[k];
+  Object.keys(P).forEach(f=>$(f).value = P[f]);
+  $("autoff").checked = false; $("autodk").checked = false;
+  render();
+});
+$("Dtok").addEventListener("input", ()=>timeDriver = "D");
+$("days").addEventListener("input", ()=>timeDriver = "days");
+$("mfu").addEventListener("input", ()=>mfuDriver = "mfu");
+$("tps").addEventListener("input", ()=>mfuDriver = "tps");
+IN.forEach(k=>$(k).addEventListener("input", render));
+$("ffn").addEventListener("change", render);
+// 注意力的下拉框只是改 n_kv 的快捷方式：真正决定变体的是 n_kv 本身
+$("attn").addEventListener("change", e=>{
+  const h = Math.max(1, +$("h").value || 1);
+  $("nkv").value = e.target.value === "mha" ? h
+                 : e.target.value === "mqa" ? 1
+                 : Math.max(1, Math.round(h/4));
+  render();
+});
+$("autoff").addEventListener("change", render);
+$("autodk").addEventListener("change", render);
+// 拖拽条改的就是全局 context_length，不另设一个参数
+$("Tslide").addEventListener("input", e=>{
+  const t = Math.max(64, Math.round(Math.pow(2, 6 + (+e.target.value)/1000*14)/64)*64);
+  $("T").value = t;
+  render();
+});
+
+setupCanvas();
+const CARDS = [...document.querySelectorAll("details.card")];
+$("openAll").addEventListener("click",  ()=>CARDS.forEach(c=>c.open = true));
+$("closeAll").addEventListener("click", ()=>CARDS.forEach(c=>c.open = false));
+
+render();
+</script>
+</body>
+</html>
