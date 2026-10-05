@@ -48,6 +48,9 @@
     </script>
   {{ end }}
   {{ if templates.Exists "partials/extend-footer.html" }}
-    {{ partialCached "extend-footer.html" . }}
+    {{/* Not partialCached: its output can vary per page (e.g. the `math` front-matter
+         toggle), and partialCached keyed only on the Page object doesn't reliably
+         differentiate between pages. */}}
+    {{ partial "extend-footer.html" . }}
   {{ end }}
 </footer>

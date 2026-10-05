@@ -1,0 +1,6 @@
+{{- /* Loads KaTeX CSS for pages that opt in with `math: true` in front matter.
+       Kept separate from extend-head.html (which is partialCached on .Site and
+       has no access to page params). */ -}}
+{{- if .Params.math -}}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous">
+{{- end -}}
