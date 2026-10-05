@@ -1,0 +1,26 @@
+{{- /* Renders math for pages that opt in with `math: true` in front matter.
+       Delimiters mirror config/_default/markup.toml's goldmark passthrough config. */ -}}
+{{- if .Params.math -}}
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    function renderWhenReady() {
+      if (typeof renderMathInElement === "undefined") {
+        setTimeout(renderWhenReady, 50);
+        return;
+      }
+      renderMathInElement(document.body, {
+        delimiters: [
+          { left: "$$", right: "$$", display: true },
+          { left: "\\[", right: "\\]", display: true },
+          { left: "$", right: "$", display: false },
+          { left: "\\(", right: "\\)", display: false }
+        ],
+        throwOnError: false
+      });
+    }
+    renderWhenReady();
+  });
+</script>
+{{- end -}}
