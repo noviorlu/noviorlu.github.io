@@ -131,6 +131,52 @@
   .mfu input{flex:1; max-width:320px; accent-color:var(--acc)}
   .mfu output{font:600 15px var(--mono); color:var(--ink)}
 
+
+  /* ── 架构图（从完整版原样搬来）：旧变量名映射到本页的配色 ── */
+  :root{--accent:var(--acc); --accent-soft:var(--acc-soft); --code:var(--soft); --warn:#c2410c; --warn-soft:rgba(234,88,12,.12)}
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){--warn:#fb923c; --warn-soft:rgba(251,146,60,.16)} }
+  :root[data-theme="dark"]{--warn:#fb923c; --warn-soft:rgba(251,146,60,.16)}
+  /* ── 架构图（几何） ── */
+  .archbar{display:flex; gap:6px; align-items:center; margin-bottom:8px; flex-wrap:wrap}
+  .archbar button{font:12px/1 var(--mono); padding:6px 10px; cursor:pointer; color:var(--muted);
+    background:var(--panel); border:1px solid var(--line); border-radius:6px}
+  .archbar button:hover{border-color:var(--accent); color:var(--accent)}
+  .archbar .hint{font-size:11.5px; color:var(--muted); margin-left:auto}
+  .archcanvas{
+    position:relative; height:600px; min-height:240px; resize:vertical; overflow:hidden;
+    border:1px solid var(--line); border-radius:8px; background:var(--bg);
+    touch-action:none; cursor:grab; user-select:none;
+  }
+  .archcanvas.grabbing{cursor:grabbing}
+  .archcanvas svg{display:block; width:100%; height:100%}
+  .archzoom{position:absolute; right:8px; bottom:8px; font:11px var(--mono); color:var(--muted);
+    background:var(--panel); border:1px solid var(--line); border-radius:5px; padding:2px 7px;
+    pointer-events:none; opacity:.9}
+  #archwrap svg .lbl{font:11px var(--mono); fill:var(--ink)}
+  #archwrap svg .wlbl{font:11px var(--mono); fill:var(--muted); font-style:italic}
+  #archwrap svg .hcnt{font:10px var(--mono); fill:var(--accent); font-weight:700}
+  #archwrap svg .sym{font:9.5px var(--mono); fill:var(--muted)}
+  #archwrap svg .num{font:9.5px var(--mono); fill:var(--accent)}
+  #archwrap svg .dim{font:10px var(--mono); fill:var(--muted)}
+  #archwrap svg .op{font:9.5px var(--mono); fill:var(--muted)}
+  #archwrap svg .grp{font:11px var(--mono); fill:var(--accent); font-weight:700}
+  #archwrap svg .flow{stroke:var(--muted); stroke-width:1.2; fill:none; opacity:.75}
+  #archwrap svg .grid{stroke:var(--panel); stroke-width:.6; opacity:.55}
+  #archwrap svg .grpbox{fill:none; stroke:var(--accent); stroke-width:1; stroke-dasharray:4 3; opacity:.65}
+  #archwrap svg .layerbox{fill:none; stroke:var(--warn); stroke-width:1.6; stroke-dasharray:9 5; opacity:.75}
+  #archwrap svg .layer{font:12px var(--mono); fill:var(--warn); font-weight:700}
+  #archwrap svg .layerlbl{font:10.5px var(--mono); fill:var(--warn); font-weight:600}
+  #archwrap svg .looparr{stroke:var(--warn); stroke-width:2; fill:none; stroke-linejoin:round; stroke-dasharray:7 4}
+  #archwrap svg .band{fill:var(--accent-soft); stroke:var(--accent); stroke-width:1}
+  #archwrap svg .resline{stroke:var(--accent); stroke-width:2.2; fill:none; stroke-linejoin:round}
+  #archwrap svg .reslbl{font:10.5px var(--mono); fill:var(--accent); font-weight:600}
+  #archwrap svg g.t:hover .fc{filter:brightness(1.15)}
+  .archbar .hint{font-size:11.5px; color:var(--muted); margin-left:auto}
+  .archhow{font-size:13px; color:var(--ink2); margin:12px 0 0; padding-left:18px; line-height:1.75}
+  .archhow b{color:var(--ink)}
+  .tag{display:inline-block; padding:1px 7px; border-radius:4px; font:11px var(--mono); font-weight:600}
+  .tag.ok{background:var(--accent-soft); color:var(--accent)} .tag.bad{background:var(--warn-soft); color:var(--warn)}
+
   footer{margin-top:30px; font-size:13px; color:var(--muted); line-height:1.8}
 </style>
 </head>
@@ -151,8 +197,7 @@
   <p class="arch" id="arch"></p>
   <div class="row"><span class="lab">GPU</span><div class="row" id="gpus" style="margin:0"></div>
     <span class="unit">×</span><input id="ngpu" type="number" min="1" step="1" value="8" aria-label="GPU 张数"><span class="unit">张</span></div>
-  <div class="row"><span class="lab">训练数据</span><div class="row" id="budgets" style="margin:0"></div>
-    <input id="D" type="number" min="0" step="any" aria-label="训练 token 数（十亿）"><span class="unit">B tokens</span></div>
+  <div class="row"><span class="lab">训练数据</span><span id="Dtxt"></span></div>
 </section>
 
 <section class="answers" aria-label="结果">
@@ -160,6 +205,27 @@
   <a class="ans" href="#q2"><div class="k">② 训练总算力</div><div class="v" id="aF"></div><div class="s" id="aFs"></div></a>
   <a class="ans" href="#q3"><div class="k">③ 每张卡的显存</div><div class="v" id="aM"></div><div class="s" id="aMs"></div></a>
   <a class="ans" href="#q4"><div class="k">④ 训练时间</div><div class="v" id="aT"></div><div class="s" id="aTs"></div></a>
+</section>
+
+<section class="card" id="archfig">
+  <h2><span class="n">图</span>架构：一个 token 走完全程</h2>
+  <p class="rule">每个张量和权重画成一个盒子，形状跟着上面的模型、滑块和第 3 节的 batch 一起变。</p>
+  <div class="archbar">
+    <button id="azOut">−</button><button id="azIn">＋</button>
+    <button id="azFit">适应</button><button id="az100">1:1</button>
+    <span class="hint">滚轮缩放 · 拖拽平移 · 双指捏合 · 双击复位</span>
+  </div>
+  <div class="archcanvas" id="archcanvas">
+    <div id="archwrap" style="position:absolute; inset:0"></div>
+    <div class="archzoom" id="azLbl">100%</div>
+  </div>
+  <ul class="archhow">
+    <li><b>盒子边长按 √元素数</b>，比例是真的但被开方压缩过；超上限的那一维画成撕裂边 <span style="font-family:var(--mono)">⌇</span>。停在盒子上看精确元素数和字节数。</li>
+    <li><span class="tag ok">紫</span> 残差流与捷径　<span class="tag bad">橙</span> 含 T²　<b>斜纹</b> = 权重，实心 = 前向留给反向用的张量。</li>
+    <li><b>多头 = 往后摞起来的切片，一片一个头</b>（超过 6 个只画 6 片）；拼头就是把 h 片沿特征维接成一条。GQA 下 K、V 明显短一截。</li>
+    <li><b>捷径取的是进 RMSNorm 之前的原始 x</b>（pre-norm）；橙色外框加回边 = 这两个子层重复 L 次。</li>
+  </ul>
+  <p class="note" id="archNote"></p>
 </section>
 
 <section class="card" id="q1">
@@ -205,7 +271,7 @@
 
 <footer>
   口径与 CS336 Assignment 1 的 <code>transformer_accounting</code> / <code>adamw_accounting</code> 一致：pre-norm、SwiGLU、不共享 embedding、fp32 + AdamW，峰值按 TF32 稠密算力；混合精度（bf16）训练时每个参数仍是 16 字节，激活减半、峰值翻倍。十进制单位（1 GB = 10⁹ B）。<br>
-  需要逐算子的 FLOPs 表、显存逐行分解、GQA / FFN 变体或可缩放的架构图？看<a href="full/">完整版</a>。
+  需要逐算子的 FLOPs 表、显存逐行分解、GQA / FFN 变体、自定义训练数据量或 MFU 反推？看<a href="full/">完整版</a>。
 </footer>
 </div>
 
@@ -224,13 +290,8 @@ const MODELS = {
 };
 // 峰值：TF32 稠密（fp32 训练），与 CS336 笔记一致
 const GPUS = {"RTX 5090":{vram:32, peak:105}, "H100":{vram:80, peak:495}, "B200":{vram:192, peak:1100}};
-const BUDGETS = [
-  {k:"20×P · Chinchilla", f:(P)=>20*P},
-  {k:"100×P", f:(P)=>100*P},
-  {k:"CS336 作业：400K 步", f:(P,T)=>400000*1024*T},
-];
 
-const st = Object.assign({}, MODELS["GPT-2 XL"], {name:"GPT-2 XL", gpu:"H100", ngpu:8, D:400000*1024*1024, B:2, mfu:0.5, budget:2});
+const st = Object.assign({}, MODELS["GPT-2 XL"], {name:"GPT-2 XL", gpu:"H100", ngpu:8, D:0, B:2, mfu:0.5});
 
 // ── 数字格式 ──
 const nf = (x, p=0) => x.toLocaleString("en-US", {minimumFractionDigits:p, maximumFractionDigits:p});
@@ -298,7 +359,6 @@ function chips(el, keys, onPick){
 const MK = Object.keys(MODELS), GK = Object.keys(GPUS);
 chips($("models"), MK, i => { Object.assign(st, MODELS[MK[i]], {name:MK[i]}); render(); });
 chips($("gpus"), GK, i => { st.gpu = GK[i]; render(); });
-chips($("budgets"), BUDGETS.map(b => b.k), i => { st.budget = i; render(); });
 ["L","d","T"].forEach(k => $(k).addEventListener("input", () => {
   const v = +$(k).value;
   st[k] = k === "L" ? v : k === "d" ? dFromPos(v) : tFromPos(v);
@@ -306,23 +366,496 @@ chips($("budgets"), BUDGETS.map(b => b.k), i => { st.budget = i; render(); });
   render();
 }));
 $("ngpu").addEventListener("input", () => { st.ngpu = Math.max(1, Math.round(+$("ngpu").value || 1)); render(true); });
-$("D").addEventListener("input", () => { st.D = Math.max(0, +$("D").value || 0)*1e9; st.budget = -1; render(true); });
 $("bm").addEventListener("click", () => { st.B = Math.max(1, st.B - 1); render(); });
 $("bp").addEventListener("click", () => { st.B += 1; render(); });
 $("mfu").addEventListener("input", () => { st.mfu = +$("mfu").value/100; render(); });
 
 function press(el, i){ [...el.children].forEach((b,j) => b.setAttribute("aria-pressed", String(j === i))); }
 
+
+// ── 架构图要用的几个小工具（和完整版同名）──
+const N = x => String(Math.round(x));
+const int = n => Math.round(n).toLocaleString("en-US");
+function bytes(b){ if(b >= 1e9) return gb(b); if(b >= 1e6) return nf(b/1e6, 2) + " MB"; if(b >= 1e3) return nf(b/1e3, 2) + " KB"; return nf(b) + " B"; }
+const ATTN = {mha:"MHA", gqa:"GQA", mqa:"MQA"};
+const FF = {n:3, act:"SiLU", gated:true, label:"SwiGLU"};
+
+// ═══════════════════════════════════════════════════════════
+//  几何架构图
+// ═══════════════════════════════════════════════════════════
+const GEO = {
+  k: 1.45, min: 10, max: 150,     // px = k·√元素数，两端夹住
+  dmin: 5, dmax: 26,
+  M: 116,         // 左留白（要放得下行标 + 层回边的竖直通道）
+  MR: 40,         // 右留白
+  CHX: 50,        // 层回边走的竖直通道（在外层框内、子层框外）
+  A: 46,          // 列与列之间的间距（放箭头和算子名）
+  padTop: 58,     // 组标题 + 残差捷径线 占的高度
+  resY: 36,       // 捷径线相对分组框顶的 y
+  wPlus: 40,      // ⊕ 节点占的宽
+  labUp: 46, labDn: 36,           // 盒子上方三行标签 / 下方维度行与拼接条
+  hsx: 9, hsy: 6.5, hmax: 6,      // 每个头往右后方错开多少；最多画几片
+  fName: 11, fDim: 9.5,
+};
+const px  = n => Math.max(GEO.min, Math.min(GEO.max, GEO.k*Math.sqrt(Math.max(n,1))));
+const cut = n => GEO.k*Math.sqrt(Math.max(n,1)) > GEO.max;
+const dep = n => Math.max(GEO.dmin, Math.min(GEO.dmax, 2.2*Math.sqrt(Math.max(n,1))));
+const nSlab = n => Math.max(1, Math.min(GEO.hmax, Math.round(n)));
+// 每个头一个固定色相：Q/K/V 的第 i 片、scores 的第 i 片、ctx 的第 i 片、
+// 以及拼接后第 i 段，都用同一个颜色 —— 拼头这一步就不用画交叉连线了
+const headFill = i => `hsl(${(196 + i*31) % 360} 48% 52% / .34)`;
+const runX  = t => t.heads > 1 ? (nSlab(t.heads)-1)*GEO.hsx : 0;
+const riseY = t => t.heads > 1 ? (nSlab(t.heads)-1)*GEO.hsy : 0;
+const boxW  = t => px(t.cols) + runX(t) + dep(t.deep||1)*0.62;
+const boxH  = t => px(t.rows) + riseY(t);
+// 等宽字体里 ASCII 约 0.6em、CJK 约 1em，用来估标签有多宽
+const txtW = (s, fs) => [...(s||"")].reduce((a,c)=> a + (c.charCodeAt(0) > 0x2E80 ? fs : fs*0.6), 0);
+const labW = t => Math.max(txtW(t.name, GEO.fName), txtW(t.symL, GEO.fDim),
+                           txtW(t.numL, GEO.fDim), txtW(t.catL ? "拼接 "+t.catL : "", GEO.fDim)) + 8;
+const slotW = t => Math.max(boxW(t), labW(t));    // 一列至少要放得下它的标签
+
+// 一个张量/权重盒。anchor = front 面的左下角。
+function box(x, yBase, t){
+  const w = px(t.cols), hh = px(t.rows), D = dep(t.deep||1);
+  const ox = D*0.62, oy = D*0.44, y = yBase - hh;
+  const fill = t.weight ? "url(#hatch)"
+             : t.cls === "res" ? "var(--accent-soft)"
+             : t.cls === "hot" ? "var(--warn-soft)" : "var(--code)";
+  const flat = t.cls === "res" ? "var(--accent-soft)" : t.cls === "hot" ? "var(--warn-soft)" : "var(--code)";
+  const line = t.weight ? "var(--muted)"
+             : t.cls === "res" ? "var(--accent)" : t.cls === "hot" ? "var(--warn)" : "var(--muted)";
+  const dash = t.weight ? ` stroke-dasharray="3.5 2.5"` : "";
+  const P = (...pts) => pts.map(q=>q.join(",")).join(" ");
+
+  let s = `<g class="t"><title>${t.title}</title>`;
+  // 多头：一个头一片，往右后方错开摞起来，越后面越淡
+  if(t.heads > 1){
+    const k = nSlab(t.heads);
+    for(let i=k-1;i>=1;i--){
+      const gx = x + i*GEO.hsx, gy = y - i*GEO.hsy;
+      s += `<rect x="${gx}" y="${gy}" width="${w}" height="${hh}" fill="${headFill(i)}" `
+         + `stroke="${line}" stroke-width="1" opacity="${(0.92 - i*0.07).toFixed(2)}"/>`
+         + `<line x1="${gx}" y1="${gy+hh}" x2="${x+(i-1)*GEO.hsx}" y2="${y-(i-1)*GEO.hsy+hh}" `
+         + `stroke="${line}" stroke-width=".7" opacity=".45"/>`;
+    }
+  }
+  if(D > GEO.dmin*1.01 || !t.weight){
+    s += `<polygon points="${P([x,y],[x+w,y],[x+w+ox,y-oy],[x+ox,y-oy])}" fill="${flat}" stroke="${line}" stroke-width="1" opacity=".5"${dash}/>`
+       + `<polygon points="${P([x+w,y],[x+w+ox,y-oy],[x+w+ox,y+hh-oy],[x+w,y+hh])}" fill="${flat}" stroke="${line}" stroke-width="1" opacity=".72"${dash}/>`;
+  }
+  s += `<rect class="fc" x="${x}" y="${y}" width="${w}" height="${hh}" fill="${fill}" stroke="${line}" stroke-width="1.3"${dash}/>`;
+  if(t.heads > 1)                       // 最前面那片是第 0 个头，也要上色
+    s += `<rect x="${x}" y="${y}" width="${w}" height="${hh}" fill="${headFill(0)}" pointer-events="none"/>`;
+  if(t.segs > 1){                       // 拼接后：一段一个头，颜色和上面的切片对应
+    const sw = w/t.segs;
+    for(let i=0;i<t.segs;i++)
+      s += `<rect x="${x+i*sw}" y="${y}" width="${sw}" height="${hh}" fill="${headFill(i)}" `
+         + `stroke="${line}" stroke-width=".8" pointer-events="none"/>`;
+  }
+  if(!t.weight){
+    const nv = Math.max(2, Math.min(6, Math.round(w/9))), nh = Math.max(2, Math.min(6, Math.round(hh/9)));
+    for(let i=1;i<nv;i++) s += `<line class="grid" x1="${x+w*i/nv}" y1="${y}" x2="${x+w*i/nv}" y2="${y+hh}"/>`;
+    for(let i=1;i<nh;i++) s += `<line class="grid" x1="${x}" y1="${y+hh*i/nh}" x2="${x+w}" y2="${y+hh*i/nh}"/>`;
+  }
+  if(cut(t.cols)){                        // 这一维被上限夹住了，画撕裂边
+    let zz = `M ${x+w} ${y}`;
+    for(let i=0;i<Math.ceil(hh/7);i++) zz += ` l ${i%2?4:-4} 7`;
+    s += `<path d="${zz}" fill="none" stroke="${line}" stroke-width="1.6" stroke-linejoin="round"/>`;
+  }
+  const RY = riseY(t), RX = runX(t), cxm = x + (w+RX)/2 + ox/2, top = y - oy - RY;
+  s += `<text class="${t.weight?"wlbl":"lbl"}" x="${cxm}" y="${top-27}" text-anchor="middle">${t.name}</text>`
+     + `<text class="sym" x="${cxm}" y="${top-15}" text-anchor="middle">${t.symL}</text>`
+     + `<text class="num" x="${cxm}" y="${top-4}"  text-anchor="middle">${t.numL}</text>`;
+  if(t.heads > 1) s += `<text class="hcnt" x="${x+w+RX+ox+5}" y="${top+11}">×${N(t.heads)} 头</text>`;
+  if(t.catW){                             // 这些头拼起来有多宽
+    s += `<rect x="${x}" y="${yBase+19}" width="${px(t.catW)}" height="5" rx="2" fill="${line}" opacity=".55"/>`
+       + `<text class="dim" x="${x}" y="${yBase+34}">拼接 ${t.catL}</text>`;
+  }
+  if(t.cols_l) s += `<text class="dim" x="${x+w/2}" y="${yBase+13}" text-anchor="middle">${t.cols_l}</text>`;
+  if(t.rows_l) s += `<text class="dim" x="${x-6}" y="${y+hh/2+3}" text-anchor="end">${t.rows_l}</text>`;
+  s += `</g>`;
+  return s;
+}
+
+function drawArch(p, r){
+  const {V,T,L,d,h,B,dff} = p, {nkv, dk, dq, dkv, ff} = r;
+  const GAP = GEO.A, M = GEO.M;   // 列间距。别叫 GAP —— 那是显存那边的符号
+  const sym = a => "[" + a.map(q=>q[0]).join(", ") + "]";
+  const num = a => "[" + a.map(q=>N(q[1])).join(", ") + "]";
+  const els = a => a.reduce((x,q)=>x*q[1], 1);
+
+  // 张量：dims 是 [维度名, 数值] 的列表，上面两行标签由它生成
+  const Tn = (name, dims, o={}) => ({name, symL:sym(dims), numL:num(dims),
+      rows:o.rows ?? T, cols:o.cols, deep:o.deep ?? B, heads:o.heads, segs:o.segs, cls:o.cls,
+      cols_l:o.cols_l, rows_l:o.rows_l, catW:o.catW, catL:o.catL,
+      title:`saved tensor ${name} ${sym(dims)} = ${num(dims)}\n${int(els(dims))} 个元素 · ${bytes(p.bpe*els(dims))}`});
+  // 权重：每层各一份
+  const Wn = (name, std, dims, o={}) => ({name: std ? `${name} · ${std}` : name,
+      symL:sym(dims), numL:num(dims), weight:1, deep:1,
+      rows: dims.length > 1 ? dims[0][1] : 1,        // 一维的权重是一条，不是方阵
+      cols: dims[dims.length-1][1], cols_l:o.cols_l,
+      title:`权重 ${name}${std?`（${std}）`:""} ${sym(dims)} = ${num(dims)}\n${int(els(dims))} 个参数 · ${bytes(p.bpe*els(dims))}（每层一份）`});
+
+  const Dst = [["batch",B],["T",T],["d_model",d]];
+  const Tx    = c => Tn("x", Dst, {cols:d, cls:"res", cols_l:`d=${N(d)}`, rows_l:c?`T=${N(T)}`:""});
+  const Tstm  = nm => Tn(nm, Dst, {cols:d, cols_l:`d=${N(d)}`});
+  const Thd   = (nm, n, kv) => Tn(nm, [["batch",B],[kv?"n_kv":"h",n],["T",T],["d_k",dk]],
+                    {cols:dk, heads:n, cols_l:`d_k=${N(dk)}`, catW:n*dk, catL:N(n*dk)});
+  const Tsc   = Tn("scores", [["batch",B],["h",h],["T",T],["T",T]], {cols:T, heads:h, cls:"hot", cols_l:`T=${N(T)}`});
+  const Tctx  = Tn("ctx", [["batch",B],["h",h],["T",T],["d_k",dk]],
+                    {cols:dk, heads:h, cls:"hot", cols_l:`d_k=${N(dk)}`, catW:dq, catL:N(dq)});
+  // 拼头之后：h 片沿特征维接成一条，宽度正好回到 d。段的颜色和 ctx 的切片一一对应。
+  const Tcat  = Tn("拼接后", [["batch",B],["T",T],["d_q",dq]],
+                    {cols:dq, cls:"hot", segs:nSlab(h), cols_l:`${N(h)}×${N(dk)}=${N(dq)}`});
+  const Tff   = nm => Tn(nm, [["batch",B],["T",T],["d_ff",dff]], {cols:dff, cols_l:`d_ff=${N(dff)}`});
+  const Tlog  = Tn("logits", [["batch",B],["T",T],["V",V]], {cols:V, cols_l:`V=${N(V)}${cut(V)?" ⌇":""}`});
+  const Tids  = Tn("token ids", [["batch",B],["T",T]], {cols:1, rows_l:`T=${N(T)}`});
+  // RMSNorm 的权重是一条长度 d 的向量，逐元素乘上去（对 batch 和 T 广播）。
+  // 写成 1×d，和画出来的窄带对得上。
+  const Wg    = (nm, std) => Wn(nm, std, [["1",1],["d_model",d]], {cols_l:`d=${N(d)}`});
+
+  // ── 每段的列表：一列里可以有多个盒子，分别落在不同的排 ──
+  const attnCols = [
+    [[1, Tx(1)]],
+    [[1, Wg("γ₁", "ln1.weight")]],
+    [[1, Tstm("ln1")]],
+    [[0, Wn("W_q","q_proj",[["d_model",d],["d_q",dq]])],
+     [1, Wn("W_k","k_proj",[["d_model",d],["d_kv",dkv]])],
+     [2, Wn("W_v","v_proj",[["d_model",d],["d_kv",dkv]])]],
+    [[0, Thd("Q",h,0)], [1, Thd("K",nkv,1)], [2, Thd("V",nkv,1)]],
+    [[1, Tsc]],
+    [[1, Tctx]],
+    [[1, Tcat]],
+    [[1, Wn("W_o","o_proj",[["d_q",dq],["d_model",d]])]],
+    [[1, Tstm("attn 输出")]],
+  ];
+  const gated = ff.gated;
+  const ffnCols = gated ? [
+    [[.5, Tx(1)]], [[.5, Wg("γ₂", "ln2.weight")]], [[.5, Tstm("ln2")]],
+    [[0, Wn("W_1","gate_proj",[["d_model",d],["d_ff",dff]])],
+     [1, Wn("W_3","up_proj",  [["d_model",d],["d_ff",dff]])]],
+    [[0, Tff("g 门")], [1, Tff("v 值")]],
+    [[0, Tff(`${ff.act}(g)`)]],
+    [[.5, Tff("g ⊙ v")]],
+    [[.5, Wn("W_2","down_proj",[["d_ff",dff],["d_model",d]])]],
+    [[.5, Tstm("ffn 输出")]],
+  ] : [
+    [[0, Tx(1)]], [[0, Wg("γ₂", "ln2.weight")]], [[0, Tstm("ln2")]],
+    [[0, Wn("W_in","up_proj",[["d_model",d],["d_ff",dff]])]],
+    [[0, Tff("h")]], [[0, Tff(`${ff.act}(h)`)]],
+    [[0, Wn("W_out","down_proj",[["d_ff",dff],["d_model",d]])]],
+    [[0, Tstm("ffn 输出")]],
+  ];
+  const topCols = [[[0, Tids]], [[0, Wn("W_emb","embed_tokens",[["V",V],["d_model",d]])]], [[0, Tx(0)]]];
+  const outCols = [[[0, Tn("ln_f 输出", Dst, {cols:d, cls:"res", cols_l:`d=${N(d)}`, rows_l:`T=${N(T)}`})]],
+                   [[0, Wn("lm_head","lm_head",[["d_model",d],["V",V]])]], [[0, Tlog]]];
+
+  // 排布：每列宽 = 该列所有盒子里「盒宽」和「标签宽」的最大值，盒子在列里居中
+  function layout(cols, x0){
+    let x = x0; const out = [];
+    for(const col of cols){
+      const w = Math.max(...col.map(([,t])=>slotW(t)));
+      out.push({x, w, items: col.map(([rw,t])=>({rw, t, bx: x + (w-boxW(t))/2}))});
+      x += w + GAP;
+    }
+    return {cols: out, right: x - GAP};
+  }
+  // 每一排的高度取该排最高的盒子
+  function rowGeom(cols, top){
+    const rows = {};
+    for(const c of cols) for(const it of c.items){
+      const k = Math.floor(it.rw), k2 = Math.ceil(it.rw);
+      for(const kk of new Set([k,k2])) rows[kk] = Math.max(rows[kk]||0, boxH(it.t));
+    }
+    const keys = Object.keys(rows).map(Number).sort((a,b)=>a-b);
+    const mid = {}; let y = top;
+    for(const k of keys){ mid[k] = y + GEO.labUp + rows[k]/2; y += GEO.labUp + rows[k] + GEO.labDn; }
+    const at = f => Number.isInteger(f) ? mid[f] : (mid[Math.floor(f)] + mid[Math.ceil(f)])/2;
+    return {at, bottom: y, keys};
+  }
+  const yb = (t, m) => m + px(t.rows)/2;                 // 盒子在这一排竖直居中
+
+  const LA = layout(attnCols, M), LF = layout(ffnCols, M),
+        LT = layout(topCols, M), LO = layout(outCols, M);
+  const W = Math.max(620,
+    LT.right + GEO.MR, LO.right + GEO.MR,
+    LA.right + GEO.wPlus + GEO.MR, LF.right + GEO.wPlus + GEO.MR);
+  const GX = M - 46, GW = W - GX - 20;        // 子层分组框
+  const OX = M - 86, OW = W - OX - 8;         // 外层「× L 层」框
+
+  let svg = `<defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">`
+          + `<rect width="6" height="6" fill="var(--code)"/>`
+          + `<line x1="0" y1="0" x2="0" y2="6" stroke="var(--muted)" stroke-width="1.4" opacity=".45"/></pattern></defs>`;
+  let y = 8, link = null;
+  const elbow = (x1,y1,x2,y2,label,xm) => {
+    const mx = xm !== undefined ? xm : (x1+x2)/2;
+    let s = `<path class="flow" d="M ${x1} ${y1} H ${mx} V ${y2} H ${x2-7}"/>`
+          + `<path d="M ${x2} ${y2} l -7 -4 l 0 8 z" fill="var(--muted)" opacity=".75"/>`;
+    const lx = Math.abs(y1-y2) < 0.5 ? (x1+x2)/2 : (mx+x2)/2;
+    if(label) s += `<text class="op" x="${lx}" y="${y2-7}" text-anchor="middle">${label}</text>`;
+    return s;
+  };
+  const dot = (x,y,ch,acc) => `<circle cx="${x}" cy="${y}" r="11" fill="${acc?"var(--accent-soft)":"var(--code)"}" `
+    + `stroke="${acc?"var(--accent)":"var(--muted)"}" stroke-width="${acc?1.6:1}"/>`
+    + `<text class="lbl" x="${x}" y="${y+4}" text-anchor="middle" ${acc?'fill="var(--accent)" font-weight="700"':''}>${ch}</text>`;
+  const skip = (xF, yTop, yLine, xP, yP, label) =>
+      `<path class="resline" d="M ${xF} ${yTop} V ${yLine} H ${xP} V ${yP-13}"/>`
+    + `<path d="M ${xP} ${yP-11} l -4.5 -8 l 9 0 z" fill="var(--accent)"/>`
+    + (label ? `<text class="reslbl" x="${xP-14}" y="${yLine-6}" text-anchor="end">${label}</text>` : "");
+  const loop = (toX, toTop, ym, label) => !link ? "" :
+      `<path class="resline" d="M ${link.x} ${link.y} V ${ym} H ${toX} V ${toTop-8}"/>`
+    + `<path d="M ${toX} ${toTop} l -5 -9 l 10 0 z" fill="var(--accent)"/>`
+    + (label ? `<text class="reslbl" x="${(link.x+toX)/2}" y="${ym-6}" text-anchor="middle">${label}</text>` : "");
+  const gizmo = (gx, gy) => {
+    const Ln = 26, sx = GEO.hsx*2.2, sy = GEO.hsy*2.2;
+    return `<g opacity=".85">`
+      + `<path class="flow" d="M ${gx} ${gy} h ${Ln}"/><path d="M ${gx+Ln} ${gy} l -6 -3.5 l 0 7 z" fill="var(--muted)"/>`
+      + `<text class="dim" x="${gx+Ln+5}" y="${gy+3}">特征维（d_model / d_k / d_ff / V）</text>`
+      + `<path class="flow" d="M ${gx} ${gy} v ${Ln}"/><path d="M ${gx} ${gy+Ln} l -3.5 -6 l 7 0 z" fill="var(--muted)"/>`
+      + `<text class="dim" x="${gx-4}" y="${gy+Ln+12}" text-anchor="middle">T</text>`
+      + `<path class="flow" d="M ${gx} ${gy} l ${sx} ${-sy}"/><path d="M ${gx+sx} ${gy-sy} l -6.5 0 l 2 5 z" fill="var(--muted)"/>`
+      + `<text class="dim" x="${gx+sx+5}" y="${gy-sy-1}">头维 h（往后每片一个头）</text></g>`;
+  };
+  const B_ = (Lx, ci, ri=0) => Lx.cols[ci].items[ri];        // 取某列某个盒子
+
+  // ── 顶部 ──
+  let G = rowGeom(LT.cols, y), m0 = G.at(0);
+  for(const c of LT.cols) for(const it of c.items) svg += box(it.bx, yb(it.t, m0), it.t);
+  for(let i=0;i<2;i++){
+    const a = B_(LT,i), b = B_(LT,i+1);
+    svg += elbow(a.bx+boxW(a.t), m0, b.bx, m0, i===0?"查表":"");
+  }
+  svg += gizmo(LT.right + 70, m0 - 30);
+  const xEnd = B_(LT,2);
+  link = {x: xEnd.bx + px(d)/2, y: yb(xEnd.t, m0)};
+  y = G.bottom + 46;
+
+  // ── 自注意力 ──
+  let gTop = y; const layerTop = y; y += GEO.padTop;
+  G = rowGeom(LA.cols, y);
+  const mA = G.at(1);
+  for(const c of LA.cols) for(const it of c.items) svg += box(it.bx, yb(it.t, G.at(it.rw)), it.t);
+  const xB = B_(LA,0), gB = B_(LA,1), lnB = B_(LA,2);
+  svg += loop(xB.bx + px(d)/2, yb(xB.t, mA) - px(T), gTop - 24, `残差流 x ${sym(Dst)} = ${num(Dst)}`);
+  svg += elbow(xB.bx+boxW(xB.t), mA, gB.bx, mA, "");
+  svg += elbow(gB.bx+boxW(gB.t), mA, lnB.bx, mA, "RMSNorm ×γ₁");
+  const lnR = lnB.bx + boxW(lnB.t), wc = LA.cols[3], qc = LA.cols[4];
+  for(let i=0;i<3;i++){
+    const wI = wc.items[i], qI = qc.items[i], mi = G.at(i);
+    svg += elbow(lnR, mA, wI.bx, mi, "", lnR + GAP*0.45);
+    svg += elbow(wI.bx+boxW(wI.t), mi, qI.bx, mi, "@");
+  }
+  const qR = qc.x + qc.w, scI = B_(LA,5), ctI = B_(LA,6), caI = B_(LA,7), woI = B_(LA,8), atI = B_(LA,9);
+  svg += elbow(qc.items[0].bx+boxW(qc.items[0].t), G.at(0), scI.bx, mA, "", qR + GAP*0.3);
+  svg += elbow(qc.items[1].bx+boxW(qc.items[1].t), G.at(1), scI.bx, mA, "QKᵀ");
+  svg += elbow(scI.bx+boxW(scI.t), mA, ctI.bx, mA, "softmax ·V");
+  svg += elbow(qc.items[2].bx+boxW(qc.items[2].t), G.at(2), ctI.bx, mA, "",
+               scI.bx + boxW(scI.t) + GAP*0.5);
+  svg += elbow(ctI.bx+boxW(ctI.t), mA, caI.bx, mA, "拼头 rearrange");
+  svg += elbow(caI.bx+boxW(caI.t), mA, woI.bx, mA, "");
+  svg += elbow(woI.bx+boxW(woI.t), mA, atI.bx, mA, "@");
+  const aP = LA.right + GEO.wPlus/2;
+  svg += elbow(atI.bx+boxW(atI.t), mA, aP-11, mA, "");
+  svg += skip(xB.bx + px(d)/2, yb(xB.t, mA) - px(T), gTop + GEO.resY, aP, mA, "残差捷径：原始 x，不经过 norm");
+  svg += dot(aP, mA, "⊕", 1);
+  link = {x: aP, y: mA + 11};
+  y = G.bottom + 10;
+  svg += `<rect class="grpbox" x="${GX}" y="${gTop}" width="${GW}" height="${y-gTop}" rx="8"/>`
+       + `<text class="grp" x="${GX+12}" y="${gTop+20}">自注意力 · ${ATTN[p.attn]}`
+       + `　h=${N(h)}，n_kv=${N(nkv)}，d_k=${N(dk)}　→ d_q=${N(dq)}，d_kv=${N(dkv)}　斜纹 = 权重</text>`;
+  y += 46;
+
+  // ── 前馈 ──
+  gTop = y; y += GEO.padTop;
+  G = rowGeom(LF.cols, y);
+  const cR = gated ? .5 : 0, mF = G.at(cR);
+  for(const c of LF.cols) for(const it of c.items) svg += box(it.bx, yb(it.t, G.at(it.rw)), it.t);
+  const fx = B_(LF,0), fg = B_(LF,1), fln = B_(LF,2);
+  svg += loop(fx.bx + px(d)/2, yb(fx.t, mF) - px(T), gTop - 24,
+              `残差流 x ← ⊕ 的输出（加的是原始 x，不是归一化后的——pre-norm）`);
+  svg += elbow(fx.bx+boxW(fx.t), mF, fg.bx, mF, "");
+  svg += elbow(fg.bx+boxW(fg.t), mF, fln.bx, mF, "RMSNorm ×γ₂");
+  const flnR = fln.bx + boxW(fln.t), fw = LF.cols[3], fv = LF.cols[4];
+  fw.items.forEach((wI,i)=>{
+    const mi = G.at(wI.rw), vI = fv.items[i];
+    svg += elbow(flnR, mF, wI.bx, mi, "", flnR + GAP*0.45);
+    svg += elbow(wI.bx+boxW(wI.t), mi, vI.bx, mi, "@");
+  });
+  const actI = B_(LF,5), g0 = fv.items[0];
+  svg += elbow(g0.bx+boxW(g0.t), G.at(g0.rw), actI.bx, G.at(actI.rw), ff.act);
+  let lastI;
+  if(gated){
+    const prI = B_(LF,6), v1 = fv.items[1];
+    const cx0 = actI.bx + boxW(actI.t) + (prI.bx - actI.bx - boxW(actI.t))/2;
+    svg += elbow(actI.bx+boxW(actI.t), G.at(0), prI.bx, mF, "", cx0);
+    svg += elbow(v1.bx+boxW(v1.t),     G.at(1), prI.bx, mF, "", cx0);
+    svg += dot(cx0, mF, "⊙");
+    lastI = prI;
+  } else lastI = actI;
+  const w2I = B_(LF, gated?7:6), foI = B_(LF, gated?8:7);
+  svg += elbow(lastI.bx+boxW(lastI.t), mF, w2I.bx, mF, "");
+  svg += elbow(w2I.bx+boxW(w2I.t), mF, foI.bx, mF, "@");
+  const fP = LF.right + GEO.wPlus/2;
+  svg += elbow(foI.bx+boxW(foI.t), mF, fP-11, mF, "");
+  svg += skip(fx.bx + px(d)/2, yb(fx.t, mF) - px(T), gTop + GEO.resY, fP, mF, "残差捷径：原始 x，不经过 norm");
+  svg += dot(fP, mF, "⊕", 1);
+  link = {x: fP, y: mF + 11};
+  y = G.bottom + 10;
+  svg += `<rect class="grpbox" x="${GX}" y="${gTop}" width="${GW}" height="${y-gTop}" rx="8"/>`
+       + `<text class="grp" x="${GX+12}" y="${gTop+20}">前馈 · ${ff.label}`
+       + `　${ff.n} 个 d×d_ff 矩阵，激活 ${ff.act}${gated?"，门控":"，不门控"}</text>`;
+  // ── 一层 = 上面两个子层。套一个外框，再画一条回到自己入口的回边 ──
+  const loopY = y + 30;                       // 回边在下方走的那一横
+  const layerBot = loopY + 32;
+  svg += `<rect class="layerbox" x="${OX}" y="${layerTop-24}" width="${OW}" height="${layerBot-layerTop+24}" rx="10"/>`
+       + `<text class="layer" x="${OX+14}" y="${layerTop-9}">`
+       + `Transformer Block —— 上面这两个子层就是一层，整个模型把它叠 L = ${N(L)} 次</text>`;
+  // 回边：从前馈的 ⊕ 往下、往左走到通道、再往上、从左侧进注意力那个 x
+  const xIn = LA.cols[0].items[0], xInL = xIn.bx, xInMid = mA;
+  svg += `<path class="looparr" d="M ${fP} ${mF+11} V ${loopY} H ${GEO.CHX} V ${xInMid} H ${xInL-9}"/>`
+       + `<path d="M ${xInL} ${xInMid} l -9 -5 l 0 10 z" fill="var(--accent)"/>`
+       + `<text class="layerlbl" x="${(GEO.CHX+fP)/2}" y="${loopY-8}" text-anchor="middle">`
+       + `↻ 这一层的输出 = 下一层的输入，走 ${N(L)} 遍</text>`;
+  y = layerBot + 52;
+
+  // ── 出口 ──
+  G = rowGeom(LO.cols, y);
+  const mO = G.at(0);
+  const lf = B_(LO,0);
+  svg += loop(lf.bx + px(d)/2, yb(lf.t, mO) - px(T), y - 26, `第 ${N(L)} 层的输出`);
+  for(const c of LO.cols) for(const it of c.items) svg += box(it.bx, yb(it.t, mO), it.t);
+  for(let i=0;i<2;i++){
+    const a = B_(LO,i), b = B_(LO,i+1);
+    svg += elbow(a.bx+boxW(a.t), mO, b.bx, mO, i===1?"@":"");
+  }
+  y = G.bottom + 12;
+
+  return `<svg data-w="${W}" data-h="${y}" viewBox="0 0 ${W} ${y}" `
+       + `preserveAspectRatio="xMidYMid meet">${svg}</svg>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  架构图画布：滚轮缩放 / 拖拽平移 / 双指捏合 / 双击复位
+//  做法是直接改 svg 的 viewBox。把 viewBox 的宽高比对齐容器的宽高比之后，
+//  preserveAspectRatio 就不会再产生留白，屏幕像素 ↔ 用户坐标是一个干净的比例。
+// ═══════════════════════════════════════════════════════════
+const AV = {x:0, y:0, w:0, h:0, W:0, H:0, pending:false};
+const avEl = () => $("archwrap").querySelector("svg");
+// 量的必须是 svg 实际占的那个盒（#archwrap 是 inset:0 的内容盒），不是外层容器——
+// 容器有 1px 边框，差这 2px 会让缩放锚点按比例漂。
+const avRect = () => $("archwrap").getBoundingClientRect();
+
+function avApply(){
+  const sv = avEl(), r = avRect();
+  if(!sv || r.width < 10 || AV.w <= 0){ AV.pending = true; return; }
+  AV.pending = false;
+  // 每次都把 viewBox 的宽高比对齐容器（已经对齐时是空操作）。这样 meet 永远不产生
+  // 留白，屏幕像素 ↔ 用户坐标就是精确比例，缩放锚点才钉得住。
+  const cy = AV.y + AV.h/2;
+  AV.h = AV.w / (r.width / r.height);
+  AV.y = cy - AV.h/2;
+  sv.setAttribute("viewBox", `${AV.x.toFixed(3)} ${AV.y.toFixed(3)} ${AV.w.toFixed(3)} ${AV.h.toFixed(3)}`);
+  $("azLbl").textContent = Math.round(r.width/AV.w*100) + "%";
+}
+function avFit(){
+  const r = avRect();
+  if(!AV.W || r.width < 10){ AV.pending = true; return; }
+  const pad = 16;
+  AV.x = -pad; AV.y = -pad; AV.w = AV.W + 2*pad; AV.h = AV.H + 2*pad;
+  const ar = r.width / r.height;                       // 把 viewBox 撑成容器的宽高比
+  if(AV.w/AV.h < ar){ const nw = AV.h*ar; AV.x -= (nw-AV.w)/2; AV.w = nw; }
+  else               { const nh = AV.w/ar; AV.y -= (nh-AV.h)/2; AV.h = nh; }
+  avApply();                                           // apply 里会再校一次宽高比
+}
+function avZoom(k, cx, cy){
+  const r = avRect();
+  if(r.width < 10 || AV.w <= 0) return;
+  const ux = AV.x + (cx - r.left)/r.width  * AV.w;     // 光标落在图上的哪一点
+  const uy = AV.y + (cy - r.top )/r.height * AV.h;
+  const nw = Math.max(AV.W/16, Math.min(AV.W*6, AV.w*k)), kk = nw/AV.w;
+  AV.x = ux - (ux-AV.x)*kk; AV.y = uy - (uy-AV.y)*kk;  // 光标底下那一点保持不动
+  AV.w *= kk; AV.h *= kk;
+  avApply();
+}
+function avPan(dx, dy){
+  const r = avRect();
+  if(r.width < 10) return;
+  AV.x -= dx/r.width*AV.w; AV.y -= dy/r.height*AV.h; avApply();
+}
+function avOne(){                                       // 1:1（一个用户单位 = 一个 css 像素）
+  const r = avRect();
+  if(r.width < 10) return;
+  const cx = AV.x + AV.w/2, cy = AV.y + AV.h/2;
+  AV.w = r.width; AV.h = r.height;
+  AV.x = cx - AV.w/2; AV.y = cy - AV.h/2; avApply();
+}
+function setupCanvas(){
+  const cv = $("archcanvas");
+  cv.addEventListener("wheel", e=>{
+    e.preventDefault();
+    avZoom(Math.exp(e.deltaY * 0.0016), e.clientX, e.clientY);
+  }, {passive:false});
+
+  const pts = new Map();
+  let last = null, lastD = 0;
+  const two = () => [...pts.values()];
+  const dist = () => { const [a,b] = two(); return Math.hypot(a.x-b.x, a.y-b.y); };
+  const mid  = () => { const [a,b] = two(); return {x:(a.x+b.x)/2, y:(a.y+b.y)/2}; };
+
+  cv.addEventListener("pointerdown", e=>{
+    pts.set(e.pointerId, {x:e.clientX, y:e.clientY});
+    cv.setPointerCapture(e.pointerId);
+    cv.classList.add("grabbing");
+    if(pts.size === 1) last = {x:e.clientX, y:e.clientY};
+    if(pts.size === 2) lastD = dist();
+  });
+  cv.addEventListener("pointermove", e=>{
+    if(!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, {x:e.clientX, y:e.clientY});
+    if(pts.size === 1 && last){
+      avPan(e.clientX-last.x, e.clientY-last.y);
+      last = {x:e.clientX, y:e.clientY};
+    }else if(pts.size === 2){
+      const d = dist(), c = mid();
+      if(lastD > 0 && d > 0) avZoom(lastD/d, c.x, c.y);
+      lastD = d;
+    }
+  });
+  ["pointerup","pointercancel"].forEach(t => cv.addEventListener(t, e=>{
+    pts.delete(e.pointerId); lastD = 0;
+    if(pts.size === 0){ last = null; cv.classList.remove("grabbing"); }
+    else last = two()[0];
+  }));
+  cv.addEventListener("dblclick", e=>{ e.preventDefault(); avFit(); });
+
+  $("azIn").addEventListener("click", ()=>{ const r=avRect(); avZoom(1/1.25, r.left+r.width/2, r.top+r.height/2); });
+  $("azOut").addEventListener("click",()=>{ const r=avRect(); avZoom(1.25,   r.left+r.width/2, r.top+r.height/2); });
+  $("azFit").addEventListener("click", avFit);
+  $("az100").addEventListener("click", avOne);
+
+  // 容器可以竖向拉伸；宽高比变了要把 viewBox 跟着改，否则图会被拉扁
+  // 容器可以竖向拉伸；宽高比变了由 avApply 统一校正，这里只要触发一次
+  new ResizeObserver(()=>{
+    if(!AV.W) return;
+    if(AV.pending) avFit(); else avApply();
+  }).observe(cv);
+
+  // 卡片收起时容器尺寸是 0，展开时补一次
+  (cv.closest("details") || cv).addEventListener("toggle", ()=>{ if(AV.pending) avFit(); });
+}
+
+
 // ═══ 渲染 ═══
 function render(typing){
   const s = st, r = compute(s), g = GPUS[s.gpu];
-  if(s.budget >= 0) s.D = BUDGETS[s.budget].f(r.P, s.T);
+  s.D = 20*r.P;   // 训练数据固定取 Chinchilla 的算力最优：每个参数 20 个 token
 
   // 控件同步
-  press($("models"), MK.indexOf(s.name)); press($("gpus"), GK.indexOf(s.gpu)); press($("budgets"), s.budget);
+  press($("models"), MK.indexOf(s.name)); press($("gpus"), GK.indexOf(s.gpu));
   $("L").value = s.L; $("d").value = posFromD(s.d); $("T").value = posFromT(s.T);
   $("Lo").textContent = s.L; $("do").textContent = nf(s.d); $("To").textContent = nf(s.T);
-  if(!typing){ $("ngpu").value = s.ngpu; $("D").value = +(s.D/1e9).toFixed(1); }
+  if(!typing) $("ngpu").value = s.ngpu;
+  $("Dtxt").innerHTML = `<b>20 × 参数 = ${cnt(s.D)} tokens</b> <span class="unit">（Chinchilla 算力最优）</span>`;
   $("Bo").textContent = s.B; $("mfu").value = Math.round(s.mfu*100); $("mfuo").textContent = pct(s.mfu);
   $("arch").innerHTML = `${s.name}：V = ${nf(s.V)} · ${r.h} 个头 × ${s.dk} 维 · `
     + (s.kv < 1 ? `GQA（每 ${Math.round(1/s.kv)} 个头共享一组 K/V）` : `MHA`)
@@ -369,6 +902,21 @@ function render(typing){
   = 2 × ${nf(s.V)} × ${nf(s.d)} + ${s.L} × (${cnt(r.attn)} + ${cnt(r.ffn)})
   ≈ <b>${cnt(r.P)}</b>`;
 
+
+  // ── 架构图 ──
+  {
+    const h = r.h, dk = s.dk, nkv = Math.max(1, Math.min(h, Math.round(h*s.kv)));
+    const ap = {V:s.V, T:s.T, L:s.L, d:s.d, h, B:s.B, dff:r.dff, bpe:4, attn: nkv === h ? "mha" : nkv === 1 ? "mqa" : "gqa"};
+    const ar = {nkv, dk, dq:h*dk, dkv:nkv*dk, ff:FF};
+    $("archwrap").innerHTML = drawArch(ap, ar);
+    const sv = avEl(), nW = +sv.dataset.w, nH = +sv.dataset.h;
+    if(nW !== AV.W || nH !== AV.H){ AV.W = nW; AV.H = nH; avFit(); } else avApply();
+    const S = (...a) => "[" + a.map(N).join(", ") + "]";
+    $("archNote").innerHTML = `残差流 <b>${S(s.B, s.T, s.d)}</b> 叠 ${s.L} 层一次没变；橙色的 <code>scores</code> ${S(s.B, h, s.T, s.T)} `
+      + `是残差流的 <b>${nf(h*s.T/s.d, 1)} 倍</b>（h·T/d）；出口 <code>logits</code> 比残差流宽 <b>V/d = ${nf(s.V/s.d, 1)} 倍</b>，是全程最宽的张量。`
+      + (ap.attn !== "mha" ? ` ${ATTN[ap.attn]} 在图上看得见：K、V 只有 ${nkv} 片，Q 有 ${h} 片，而 <code>scores</code> 一点没变。` : ``);
+  }
+
   // ── 2 算力 ──
   drawT(s, r);
   const qs = r.quad(s.T)/r.F;
@@ -409,10 +957,8 @@ function render(typing){
   $("c2s").textContent = `${s.ngpu} 张 × ${g.peak} TFLOP/s × MFU ${pct(s.mfu)}`;
   $("c3").textContent = dur(sec);
   $("c3s").textContent = sec/86400 >= 2 ? `≈ ${nf(sec/3600)} 小时` : `≈ ${nf(sec/86400,2)} 天`;
-  const ratio = s.D/r.P;
-  $("tmnote").innerHTML = `训练数据是参数量的 <b>${nf(ratio)} 倍</b>。`
-    + `Chinchilla（2022）给出的算力最优大约是每个参数 20 个 token；今天的模型常训到 100 倍以上，用多花的训练换更便宜的推理。`
-    + (s.budget === 2 ? ` CS336 作业的设定是 GPT-2 XL、1 张 H100、MFU 50%、40 万步 × 1024 条序列——把卡数改成 1 就能复现笔记里的约 202 天。` : ``);
+  $("tmnote").innerHTML = `训练数据取 <b>20 × 参数</b>：Chinchilla（Hoffmann 等，2022）拟合出的算力最优比例——总算力固定时，这样分配参数和数据训练损失最低。`
+    + `它只对“训练这一次”最优；今天的模型常训到 100 倍以上（Llama 3 8B 约 1,900 倍），多花训练换一个更小、推理更便宜的模型。`;
 }
 
 // 折线：注意力 T² 项占比 vs 上下文长度（对数横轴）。
@@ -458,6 +1004,7 @@ function drawT(s, r){
 let rz = 0;
 window.addEventListener("resize", () => { cancelAnimationFrame(rz); rz = requestAnimationFrame(() => drawT(st, compute(st))); });
 
+setupCanvas();
 render();
 </script>
 </body>
