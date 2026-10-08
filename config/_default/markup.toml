@@ -1,4 +1,9 @@
 [goldmark]
+  # Block attributes let a table carry {#id caption="..." note="..."} (render-table.html).
+  [goldmark.parser]
+    [goldmark.parser.attribute]
+      block = true
+      title = true
   [goldmark.renderer]
     unsafe = true
   [goldmark.extensions]

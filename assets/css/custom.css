@@ -581,6 +581,16 @@ ul.flex.flex-row.mt-8.justify-center a.bg-primary-200 { background: var(--nv-acc
 .article-content thead th { color: var(--nv-text); font-weight: 650; background: var(--nv-surface-2); }
 .article-content th, .article-content td { padding: 9px 12px !important; border-bottom: 1px solid var(--nv-border); vertical-align: top; }
 .article-content img { border-radius: 10px; }
+/* Tables with a caption above and a note below (layouts/_default/_markup/render-table.html) */
+.article-content figure.nv-table { margin: 1.9em 0; }
+.article-content figure.nv-table > figcaption { margin: 0 0 .6em; font-size: .9em; line-height: 1.6; color: var(--nv-text-2); }
+.article-content figure.nv-table > figcaption strong { margin-right: .35em; }
+.article-content .nv-table__scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.article-content figure.nv-table table { margin: 0; }
+.article-content .nv-table__note { margin: .55em 0 0; font-size: .82em; line-height: 1.6; color: var(--nv-text-3); }
+.article-content .nv-table__note code { font-size: .92em; }
+/* Captions under inline-SVG figures match the image captions */
+.article-content figure > svg + figcaption { margin-top: .6em; }
 .article-content hr { margin: 2.4em 0; border-color: var(--nv-border); }
 .article-content ul > li::marker, .article-content ol > li::marker { color: var(--nv-text-3); }
 
