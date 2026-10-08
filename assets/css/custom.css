@@ -589,6 +589,18 @@ ul.flex.flex-row.mt-8.justify-center a.bg-primary-200 { background: var(--nv-acc
 .article-content figure.nv-table table { margin: 0; }
 .article-content .nv-table__note { margin: .55em 0 0; font-size: .82em; line-height: 1.6; color: var(--nv-text-3); }
 .article-content .nv-table__note code { font-size: .92em; }
+/* Figure palette (Nilou): roles used by the inline-SVG figures in posts.
+   Dark mode swaps the two ends of the blue ramp so the primary marks stay visible. */
+:root {
+  --fig-1: #14365F; --fig-2: #76A2B9; --fig-3: #BFD9E5; --fig-bg: #F8F2EC; --fig-hi: #D64F38; --fig-mute: #9AA3AD;
+  --fig-on-1: #ffffff; --fig-on-2: #14365F; --fig-on-3: #14365F; --fig-on-hi: #ffffff; --fig-on-mute: #14365F;
+}
+html.dark {
+  --fig-1: #BFD9E5; --fig-2: #76A2B9; --fig-3: #2F5A82; --fig-bg: #1B2230; --fig-hi: #E0634B; --fig-mute: #6B7480;
+  --fig-on-1: #14365F; --fig-on-2: #14365F; --fig-on-3: #ffffff; --fig-on-hi: #ffffff; --fig-on-mute: #ffffff;
+}
+/* Inline colour swatch for referring to a figure colour in text: <span class="sw" style="background: var(--fig-1)"></span> */
+.article-content .sw { display: inline-block; width: .72em; height: .72em; border-radius: 2px; margin: 0 .2em 0 .05em; vertical-align: -.02em; }
 /* Captions under inline-SVG figures match the image captions */
 .article-content figure > svg + figcaption { margin-top: .6em; }
 .article-content hr { margin: 2.4em 0; border-color: var(--nv-border); }
