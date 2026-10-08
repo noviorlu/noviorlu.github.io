@@ -3,58 +3,38 @@ title: "GPU 训练分析：FLOPs、Roofline 与显存峰值（RTX 5090 实测）
 date: 2026-10-04
 draft: false
 math: true
-description: "FLOPs、算术强度、roofline（fp32 / bf16 / fp8 / nvfp4 的 ridge point）、MFU 怎么算，前向和反向各算多少，哪些 op 是 memory-bound，显存峰值在哪一刻、存的是什么。全部在一张 RTX 5090 上实测，是 FlashAttention 一文的前置。"
+description: "在 RTX 5090 上实测一步 Transformer 训练的时间和显存：用 roofline、MFU 看时间，用 saved tensors 看显存，两条线都追到 attention 的 S、P 矩阵上。FlashAttention 一文的前置。"
 tags: ["GPU", "Roofline", "Transformer", "显存", "LLM", "AI"]
 categories: ["AI笔记"]
 series: ["AI笔记"]
 series_order: 2
 ---
 
-这篇在一张 RTX 5090 上把一步 Transformer 训练拆开，看时间和显存分别花在哪。GPU 上一个 op 的耗时由两部分决定：计算（FLOPs）和读写显存（bytes），所以先讲 FLOPs、算术强度、roofline、MFU 这几个概念，再逐项实测。几部分的结论最后都落在 attention 的 seq × seq 分数矩阵上，下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 讲的就是怎么处理它。
+标准 attention 在训练里同时卡住了时间和显存，原因都在 attention 里 seq × seq 的分数矩阵 S 和 P。这篇在一张 RTX 5090 上实测一步训练，先看时间花在哪（第 2 节），再看显存花在哪（第 3 节），最后看 bf16 和 checkpoint 能省多少（第 4 节），三条线最后都会落到 S、P 上。下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 讲怎么把它们消掉。
 
-> 环境：RTX 5090 32 GB，torch 2.11.0+cu130；模型是自己写的 Transformer LM（RMSNorm + RoPE + SwiGLU，pre-norm）。fp32 基准关掉 tf32（`allow_tf32=False`）；除注明外 batch 4、seq 512，预热 5 步、计时 10 步；显存一律 GiB = 2³⁰ B（`max_memory_allocated() / 1024³`）。
+模型是自己写的 Transformer LM（RMSNorm + RoPE + SwiGLU，pre-norm），分 small 0.13B、medium 0.42B、large 0.97B、xl 3.41B、10B 12.83B 五档。
 
-## 省流不看 {#tldr}
-
-1. **速度上限看 roofline：耗时 ≥ max(FLOPs / 峰值算力, bytes / 带宽)**（[§1](#basics)）：5090 带宽 1.79e12 B/s，fp32 / bf16 / fp8 / nvfp4 峰值 1.05e14 / 2.1e14 / 4.19e14 / 1.68e15 FLOPS，ridge point 58 / 117 / 234 / 935 FLOPs/B；算术强度低于 ridge 的 op 受带宽限制，快慢和 FLOPs 无关。
-2. **训练一步 ≈ 6 × 参数量 × token 数 FLOPs**（[§2](#fwd-bwd)）：前向每个参数做一次乘加（2N），反向对输入、对权重各做一次同样大的矩阵乘（4N）；实测反向 ≈ 2.0× 前向，整步只跑到 fp32 峰值的 31%。
-3. **attention 是 memory-bound 的**（[§3](#memory-bound)）：softmax 的 FLOPs 只有 PV 矩阵乘的 1/5，耗时却是它的 6×；eager 下 5 个 kernel 把 seq² 大小的分数矩阵进出显存 8 次。
-4. **显存峰值 = 🟦 权重 + max(🟩 activation, 🟥 梯度)**（[§4](#peak-memory)）：每个 op 的局部偏导里有什么，前向就得存什么；一层 activation 的一半以上是 attention 的 S、P，3.41B 的 xl 在 seq 2048 时第 2 层就 OOM。
-5. **bf16、checkpoint 都只能缓解**（[§5](#bf16-checkpoint)）：bf16 快 ~2×、省 ~20%；checkpoint 多算一遍前向（+30%），显存减半，但 S、P 重算时照样要写进显存。要让它们不进显存只能改 kernel，见 [FlashAttention 1–4](/blog/flashattention-1-to-4/)。
+> 环境：RTX 5090 32 GB，torch 2.11.0+cu130。fp32 基准关掉 tf32（`allow_tf32=False`）；除注明外 batch 4、seq 512，预热 5 步、计时 10 步；显存一律 GiB = 2³⁰ B（`max_memory_allocated() / 1024³`）。
 
 ---
 
-## 1 基础概念：FLOPs、算术强度、roofline、MFU {#basics}
+## 1 Roofline：一个 op 慢在哪 {#basics}
 
-### 1.1 FLOPs 与 FLOPS {#flops}
+要知道时间花在哪，先得知道一个 op 的耗时由什么决定。
 
-- **FLOPs**（floating-point operations）是浮点运算的**次数**，**FLOPS**（per second）是**速率**。本文都用 10 的幂写：seq 1024 的一次 PV 矩阵乘是 8.6e9 FLOPs，5090 的 fp32 峰值是 1.05e14 FLOPS。
-- **矩阵乘** `[M, K] × [K, N]`：M·N 个输出，每个做 K 次乘加，一次乘加记 2 FLOPs，共 **2·M·N·K**。
-- **逐元素 op**（加、乘、exp、mask）：每个元素一到几十次运算（exp 按 ~20 次计），总量 = 元素数 × 每元素次数，比同尺寸的矩阵乘少几个数量级。
+运算量用 FLOPs（浮点运算次数）衡量，算力用 FLOPS（每秒浮点运算次数）衡量，本文都写成 10 的幂。矩阵乘 `[M, K] × [K, N]` 的 FLOPs 是 2·M·N·K（M·N 个输出，每个 K 次乘加）；逐元素 op（加、乘、exp、mask）每个元素只有一次到几十次运算，比同样大小的矩阵乘少几个数量级。
 
-除了计算，每个 op 还要从显存读输入、把输出写回显存，这部分用字节数（bytes）衡量。
-
-### 1.2 算术强度与 roofline {#roofline}
-
-计算受峰值算力 P 限制，读写受显存带宽 B 限制，所以一个 op 的耗时有两个下限，实际耗时不低于其中较大的那个：
+除了计算，op 还要从显存读输入、把输出写回去。计算受峰值算力 P 限制，读写受显存带宽 B 限制，所以耗时有两个下限，实际耗时不低于较大的那个：
 
 <p align="center">$t \ge \max\left(\dfrac{\mathrm{FLOPs}}{P},\ \dfrac{\mathrm{bytes}}{B}\right)$</p>
 
-FLOPs 与 bytes 之比叫**算术强度**（arithmetic intensity）$I = \mathrm{FLOPs} / \mathrm{bytes}$，表示每读写 1 字节做几次运算，只由 op 本身决定。把上式换成可达的 FLOPS，就是 **roofline 模型**：
+两者之比是**算术强度** $I = \mathrm{FLOPs} / \mathrm{bytes}$，即每读写 1 字节做几次运算。上式换成可达的 FLOPS，就是 **roofline**：
 
 <p align="center">$\mathrm{FLOPS}_{\max}(I) = \min(P,\ I \cdot B)$</p>
 
-画在 log-log 坐标上是一条斜线（带宽）接一条水平线（算力），交点 $I^* = P / B$ 叫 **ridge point**：
+在 log-log 坐标上它是一条斜线接一条水平线，交点 $I^* = P / B$ 叫 **ridge point**。$I < I^*$ 的 op 是 **memory-bound**，耗时 ≈ bytes / B，只能靠少读写来提速；$I > I^*$ 的是 **compute-bound**，耗时 ≈ FLOPs / P。实测速度占上限的比例，compute-bound 的看 MFU（实际 FLOPS / 峰值 FLOPS），memory-bound 的看 MBU（实际带宽 / 峰值带宽）。
 
-- $I < I^*$：**memory-bound**。落在斜线下，耗时 ≈ bytes / B，与 FLOPs 无关，要提速只能减少读写。
-- $I > I^*$：**compute-bound**。落在水平线下，耗时 ≈ FLOPs / P，要提速只能减少计算，或换更快的计算单元。
-
-I 可以直接从张量形状估出来：
-
-- **逐元素 op**：fp32 下每个元素 1 次运算，读 4 B、写 4 B，I ≈ 0.13。
-- **矩阵乘**：fp32 下 $I = \dfrac{2MNK}{4(MK + KN + MN)}$，输出远大于输入时约为 K/2，主要看内维 K。Linear 的 K 是 d_model（1024），I ≈ 340；attention 里 QKᵀ 的 K 是 d_head（64），I 只有 ≈ 28。
-
-ridge point 由硬件决定。5090 的带宽是 1.79e12 B/s，峰值算力则随精度不同：
+5090 的带宽是 1.79e12 B/s，峰值算力和 ridge point 随精度变化：
 
 | 精度 | 计算单元 | 累加 | 峰值 (FLOPS) | ridge point (FLOPs/B) |
 |:--|:--|:--|--:|--:|
@@ -65,16 +45,144 @@ ridge point 由硬件决定。5090 的带宽是 1.79e12 B/s，峰值算力则随
 | **fp8** | Tensor core | fp32 | **4.19e14** | **234** |
 | fp8 | Tensor core | fp16 | 8.38e14 | 468 |
 | **nvfp4** | Tensor core | fp32 | **1.68e15** | **935** |
-{#tab-1-1 caption="**表 1-1** RTX 5090 各精度的峰值算力与 ridge point" note="dense 峰值，按 boost clock 2407 MHz，来自 NVIDIA RTX Blackwell 白皮书附录 A 表 3；ridge point = 峰值 / 1.792e12 B/s。"}
+{#tab-1-1 caption="**表 1-1** RTX 5090 各精度的峰值算力与 ridge point" note="dense 峰值，按 boost clock 2407 MHz，来自 NVIDIA RTX Blackwell 白皮书附录 A 表 3；nvfp4 按白皮书的 FP4 一档。本文关掉 tf32，fp32 基准按 1.05e14 算。ridge point = 峰值 / 1.792e12 B/s。"}
 
-- **fp32 用的是 CUDA core**：CUDA core 是通用的标量乘加单元；Tensor core 只做小矩阵块的乘加，只接受 16 位、tf32、fp8 等输入。tf32 是把 fp32 的尾数截到 10 位后交给 Tensor core 算，本文关掉了，所以 fp32 的峰值按 1.05e14 算。
-- **精度越低，峰值越高**：bf16、fp8、nvfp4 分别是 2.1e14、4.19e14、1.68e15，ridge point 从 117 升到 935。
-- **GeForce 上 fp32 累加是半速**：同样的 fp16 / fp8 输入，fp32 累加的峰值只有 fp16 累加的一半。训练时矩阵乘用 fp32 累加，所以本文 bf16 的峰值取 2.1e14。
-- **nvfp4**：白皮书只给「FP4 Tensor」一档；NVFP4（E2M1 元素 + 每 16 个元素一个 E4M3 scale）在 5090（sm_120a）上由 `mma.sync … kind::mxf4nvf4.block_scale` 执行，这里按 FP4 这一档计。
+$I$ 可以从张量形状估出来。逐元素 op 在 fp32 下每个元素算 1 次、读写 8 B，I ≈ 0.13，远在 ridge point 左边。矩阵乘的 I 约为内维 K 的一半：Linear 的 K 是 d_model（1024），I ≈ 340；attention 里 QKᵀ 的 K 是 d_head（64），I 只有 28。所以同样是矩阵乘，attention 里的也会是 memory-bound。
 
-[图 1-1](#fig-1-1) 把这些上限和本文实测的几个 op 画在一起（点是 [§3](#memory-bound) 里 medium、seq 1024 一层 attention 的实测，悬停可看数值；causal mask 没有 FLOPs，不在图上）。
+---
 
-<figure id="fig-1-1" class="rf-fig">
+## 2 时间：一步训练慢在哪 {#time}
+
+### 2.1 FLOPs 与实测 {#fwd-bwd}
+
+Transformer 的 FLOPs 基本都来自 Linear。一个 Linear 前向做一次矩阵乘 $X_L = X_{L-1} W_L$；反向收到误差 $\nabla X_L$ 后要算两个梯度，参数梯度 $\nabla W_L = X_{L-1}^{\top} \nabla X_L$ 和传给浅层的激活梯度 $\nabla X_{L-1} = \nabla X_L W_L^{\top}$，各是一次同样大的矩阵乘（[图 2-1](#fig-2-1)）。
+
+<figure id="fig-2-1" class="gx-fig">
+<svg viewBox="0 0 640 444" width="100%" role="img" aria-label="一个 Linear 的前向与反向：前向从输入 X_{L-1} 算出 X_L，进入深层；反向收到误差后，用留下来的 X_{L-1} 算参数梯度，用 W_L 算激活梯度，再传给浅层">
+  <style>
+    .gx-band { fill: currentColor; fill-opacity: .045; }
+    .gx-row { font-size: 12px; fill: currentColor; opacity: .8; }
+    .gx-rowsub { font-size: 10.5px; fill: currentColor; opacity: .55; }
+    .gx-op { fill: rgba(128,128,128,.12); stroke: currentColor; stroke-opacity: .5; stroke-width: 1.2; }
+    .gx-t { font-size: 12.5px; fill: currentColor; }
+    .gx-tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .gx-s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .gx-note { font-size: 11px; fill: currentColor; opacity: .7; }
+    @media (max-width: 640px) { .gx-fig { overflow-x: auto; } .gx-fig > svg { min-width: 540px; } }
+  </style>
+  <defs>
+    <marker id="fig-2-1-m0" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker>
+    <marker id="fig-2-1-m1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#43a047"/></marker>
+    <marker id="fig-2-1-m2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#1e88e5"/></marker>
+  </defs>
+  <text class="gx-tb" x="160" y="24" text-anchor="middle">Forward Pass（前向）</text>
+  <text class="gx-tb" x="482" y="24" text-anchor="middle">Backward Pass（反向）</text>
+  <line x1="320" y1="36" x2="320" y2="364" stroke="currentColor" stroke-opacity=".25" stroke-dasharray="5 4"/>
+  <rect x="91" y="51" width="150" height="50" rx="8" fill="rgba(67,160,71,0.16)" stroke="#43a047" stroke-width="1.5"/>
+  <text class="gx-s" x="166" y="67" text-anchor="middle">输入</text>
+  <text class="gx-t" x="166" y="89" text-anchor="middle"><tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L−1</tspan><tspan dy="-4"> </tspan></text>
+  <rect x="92" y="155" width="168" height="54" rx="8" fill="rgba(67,160,71,0.16)" stroke="#43a047" stroke-width="1.5"/>
+  <text class="gx-s" x="176" y="173" text-anchor="middle">计算</text>
+  <text class="gx-t" x="176" y="195" text-anchor="middle"><tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-4"> </tspan>= <tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L−1</tspan><tspan dy="-4"> </tspan>· <tspan font-style="italic">W</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-4"> </tspan></text>
+  <rect x="8" y="157" width="72" height="50" rx="8" fill="rgba(30,136,229,0.16)" stroke="#1e88e5" stroke-width="1.5"/>
+  <text class="gx-s" x="44" y="173" text-anchor="middle">权重</text>
+  <text class="gx-t" x="44" y="195" text-anchor="middle"><tspan font-style="italic">W</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-4"> </tspan></text>
+  <rect x="91" y="263" width="150" height="50" rx="8" fill="rgba(67,160,71,0.16)" stroke="#43a047" stroke-width="1.5"/>
+  <text class="gx-s" x="166" y="279" text-anchor="middle">输出</text>
+  <text class="gx-t" x="166" y="301" text-anchor="middle"><tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-4"> </tspan></text>
+  <line x1="166.0" y1="101.0" x2="166.0" y2="152.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-2-1-m0)"/>
+  <line x1="80.0" y1="182.0" x2="89.0" y2="182.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-2-1-m0)"/>
+  <line x1="166.0" y1="209.0" x2="166.0" y2="260.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-2-1-m0)"/>
+  <rect x="210" y="376" width="220" height="44" rx="8" class="gx-op"/>
+  <text class="gx-t" x="320" y="402" text-anchor="middle">进入深层 Layer L+1，等误差传回</text>
+  <path d="M166,313 L166,398 L206,398" fill="none" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" marker-end="url(#fig-2-1-m0)"/>
+  <path d="M430,398 L482,398 L482,316" fill="none" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" marker-end="url(#fig-2-1-m0)"/>
+  <rect x="407" y="263" width="150" height="50" rx="8" fill="rgba(249,168,37,0.16)" stroke="#f9a825" stroke-width="1.5"/>
+  <text class="gx-s" x="482" y="279" text-anchor="middle">接收误差</text>
+  <text class="gx-t" x="482" y="301" text-anchor="middle">∇<tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-4"> </tspan></text>
+  <rect x="328" y="155" width="152" height="54" rx="8" fill="rgba(229,57,53,0.16)" stroke="#e53935" stroke-width="1.5"/>
+  <text class="gx-s" x="404" y="173" text-anchor="middle">计算参数梯度</text>
+  <text class="gx-t" x="404" y="195" text-anchor="middle">∇<tspan font-style="italic">W</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-4"> </tspan>= <tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L−1</tspan><tspan dy="-10" font-size="10">T</tspan><tspan dy="6"> </tspan>· ∇<tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-4"> </tspan></text>
+  <rect x="486" y="155" width="152" height="54" rx="8" fill="rgba(249,168,37,0.16)" stroke="#f9a825" stroke-width="1.5"/>
+  <text class="gx-s" x="562" y="173" text-anchor="middle">计算激活梯度</text>
+  <text class="gx-t" x="562" y="195" text-anchor="middle">∇<tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L−1</tspan><tspan dy="-4"> </tspan>= ∇<tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-4"> </tspan>· <tspan font-style="italic">W</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-10" font-size="10">T</tspan><tspan dy="6"> </tspan></text>
+  <rect x="486" y="51" width="152" height="50" rx="8" fill="rgba(249,168,37,0.16)" stroke="#f9a825" stroke-width="1.5"/>
+  <text class="gx-t" x="562" y="80" text-anchor="middle">进入浅层 Layer L−1</text>
+  <line x1="468.0" y1="263.0" x2="422.0" y2="212.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-2-1-m0)"/>
+  <line x1="496.0" y1="263.0" x2="544.0" y2="212.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-2-1-m0)"/>
+  <line x1="562.0" y1="155.0" x2="562.0" y2="104.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-2-1-m0)"/>
+  <path d="M241,76 L404,76 L404,151" fill="none" stroke="#43a047" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#fig-2-1-m1)"/>
+  <text class="gx-note" x="322" y="68" text-anchor="middle"><tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L−1</tspan><tspan dy="-4"> </tspan> 留到反向（🟩 A）</text>
+  <path d="M44,207 L44,236 L610,236 L610,212" fill="none" stroke="#1e88e5" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#fig-2-1-m2)"/>
+  <text class="gx-note" x="322" y="252" text-anchor="middle"><tspan font-style="italic">W</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-4"> </tspan> 是参数，本来就在显存里</text>
+</svg>
+<figcaption><strong>图 2-1</strong> 一个 Linear 的前向与反向：前向从左边往下，误差从右边传回；虚线是反向要从前向拿的东西。颜色同<a href="#peak-memory">第 3 节</a>的 🟩 A / 🟦 W / 🟥 G / 🟨 T。</figcaption>
+</figure>
+
+所以前向每个 token 约 2N FLOPs（N 是参数量，每个参数一次乘加），反向约 4N，一步约 6N × token 数，这里 batch 4 × seq 512 = 2048 个 token。attention 的 QKᵀ、PV 不含参数，seq 512 时只占 2–4%。nsys 里 medium 一步的 GEMM kernel 也正好分成三组，每组 169 个，分别是前向的 $X_L$ 和反向的两个梯度。实测时间和这个比例一致，反向约是前向的两倍（[图 2-2](#fig-2-2)）。
+
+<figure id="fig-2-2" class="cv-fig">
+<svg class="cv" viewBox="0 0 640 172" width="100%" role="img" aria-label="三档模型一步训练的耗时构成：前向约 31%，反向约 62%，optimizer 约 7%；右侧是每步总耗时和 MFU">
+  <style>
+    .cv { --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a; --c4:#e34948; --cg:#a19f9a; }
+    html.dark .cv { --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#e66767; --cg:#6f6e6a; }
+    .cv .grid { stroke: currentColor; stroke-opacity: .1; }
+    .cv .axis { stroke: currentColor; stroke-opacity: .35; }
+    .cv .ref { stroke: currentColor; stroke-opacity: .55; stroke-dasharray: 5 4; }
+    .cv .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .cv .lab { font-size: 12px; fill: currentColor; }
+    .cv .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .cv .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .cv .val { font-size: 11px; fill: currentColor; }
+    .cv .in { font-size: 11px; fill: #111; }
+    .cv .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .cv g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .cv-fig { overflow-x: auto; } .cv-fig > svg { min-width: 540px; } }
+  </style>
+  <rect x="112" y="11" width="10" height="10" rx="2" style="fill: var(--c1)"/>
+  <text class="lab" x="127" y="20">前向</text>
+  <rect x="173" y="11" width="10" height="10" rx="2" style="fill: var(--c2)"/>
+  <text class="lab" x="188" y="20">反向</text>
+  <rect x="234" y="11" width="10" height="10" rx="2" style="fill: var(--c3)"/>
+  <text class="lab" x="249" y="20">optimizer</text>
+  <text class="lab" x="102" y="53" text-anchor="end">small</text>
+  <text class="lab2" x="102" y="67" text-anchor="end">0.13B</text>
+  <g class="m"><title>small 前向：17.2 ms（31%）</title><rect x="112.0" y="44.0" width="106.7" height="26.0" rx="3" style="fill: var(--c1)"/></g>
+  <text class="in" x="165.3" y="61" text-anchor="middle">31%</text>
+  <g class="m"><title>small 反向：34.8 ms（62%）</title><rect x="220.7" y="44.0" width="217.9" height="26.0" rx="3" style="fill: var(--c2)"/></g>
+  <text class="in" x="329.7" y="61" text-anchor="middle">62%</text>
+  <g class="m"><title>small optimizer：3.7 ms（7%）</title><rect x="440.6" y="44.0" width="21.4" height="26.0" rx="3" style="fill: var(--c3)"/></g>
+  <text class="val" x="474" y="56">55.7 ms / 步</text>
+  <text class="lab2" x="474" y="70">MFU 27%</text>
+  <text class="lab" x="102" y="95" text-anchor="end">medium</text>
+  <text class="lab2" x="102" y="109" text-anchor="end">0.42B</text>
+  <g class="m"><title>medium 前向：51.1 ms（31%）</title><rect x="112.0" y="86.0" width="105.5" height="26.0" rx="3" style="fill: var(--c1)"/></g>
+  <text class="in" x="164.8" y="103" text-anchor="middle">31%</text>
+  <g class="m"><title>medium 反向：103.3 ms（62%）</title><rect x="219.5" y="86.0" width="215.3" height="26.0" rx="3" style="fill: var(--c2)"/></g>
+  <text class="in" x="327.2" y="103" text-anchor="middle">62%</text>
+  <g class="m"><title>medium optimizer：12.9 ms（8%）</title><rect x="436.9" y="86.0" width="25.1" height="26.0" rx="3" style="fill: var(--c3)"/></g>
+  <text class="val" x="474" y="98">167.4 ms / 步</text>
+  <text class="lab2" x="474" y="112">MFU 31%</text>
+  <text class="lab" x="102" y="137" text-anchor="end">large</text>
+  <text class="lab2" x="102" y="151" text-anchor="end">0.97B</text>
+  <g class="m"><title>large 前向：118.1 ms（32%）</title><rect x="112.0" y="128.0" width="109.5" height="26.0" rx="3" style="fill: var(--c1)"/></g>
+  <text class="in" x="166.8" y="145" text-anchor="middle">32%</text>
+  <g class="m"><title>large 反向：227.8 ms（61%）</title><rect x="223.5" y="128.0" width="213.1" height="26.0" rx="3" style="fill: var(--c2)"/></g>
+  <text class="in" x="330.1" y="145" text-anchor="middle">61%</text>
+  <g class="m"><title>large optimizer：26.9 ms（7%）</title><rect x="438.6" y="128.0" width="23.4" height="26.0" rx="3" style="fill: var(--c3)"/></g>
+  <text class="val" x="474" y="140">372.8 ms / 步</text>
+  <text class="lab2" x="474" y="154">MFU 31%</text>
+</svg>
+<figcaption><strong>图 2-2</strong> 一步训练里前向、反向、optimizer 的耗时占比（fp32，batch 4，seq 512），右侧是每步耗时和 MFU。</figcaption>
+</figure>
+
+按 6N 算，medium 和 large 实际只跑到 3.2e13 FLOPS，是 fp32 峰值的 31%。单个大矩阵乘能跑到峰值的 64%，问题不在矩阵乘：它只占一步 GPU 时间的 60%，另外 40% 花在 FLOPs 很少的逐元素 kernel 上。
+
+### 2.2 剩下的 40%：memory bound {#memory-bound}
+
+把 medium、seq 1024 时一层 attention 的 op 画到 roofline 上（[图 2-3](#fig-2-3)），这 40% 的来源就清楚了。
+
+<figure id="fig-2-3" class="rf-fig">
 <svg viewBox="0 0 640 392" width="100%" role="img" aria-label="RTX 5090 的 roofline：横轴算术强度，纵轴可达算力；带宽斜线与 fp32、bf16、fp8、nvfp4 四条平线分别交于 58、117、234、935 FLOPs/B；attention 的 op 都贴着斜线，只有 Linear 在 fp32 平线下">
   <style>
     .rf-grid { stroke: currentColor; stroke-opacity: .12; stroke-width: 1; }
@@ -150,173 +258,14 @@ ridge point 由硬件决定。5090 的带宽是 1.79e12 B/s，峰值算力则随
   <g class="rf-g" tabindex="0"><title>S / √d：I = 0.125 FLOPs/B，实测 1.92e11 FLOPS，正上方 fp32 屋顶 2.24e11，MBU 86%</title><circle class="rf-hit" cx="80.7" cy="319.9" r="12"/><circle class="rf-pt" cx="80.7" cy="319.9" r="5"/></g>
   <text class="rf-lab" x="90.7" y="331.9" text-anchor="start">S / √d</text>
 </svg>
-<figcaption><strong>图 1-1</strong> RTX 5090 的 roofline：斜线是带宽，平线是各精度的峰值（<a href="#tab-1-1">表 1-1</a>），拐点旁是 ridge point；点是 fp32 下实测的 op（<a href="#memory-bound">§3</a>），悬停可看数值。</figcaption>
+<figcaption><strong>图 2-3</strong> RTX 5090 的 roofline，以及 medium、seq 1024 时一层 attention 里实测的 op。斜线是带宽，平线是各精度峰值（<a href="#tab-1-1">表 1-1</a>），拐点旁是 ridge point；悬停可看数值，causal mask 没有 FLOPs，不在图上。</figcaption>
 </figure>
 
-attention 的几个 op 都在斜线附近，属于 memory-bound；只有 Linear 落在水平线下。换成低精度后峰值变高、ridge point 右移，但同一个 op 的字节数也按比例减少，点同样右移，所以 Linear 仍在 ridge 右侧，逐元素 op 仍在左侧，两类 op 都会变快（bf16 实测快 ~2×，见 [§5.1](#bf16)）。
+除了作参照的 Linear，attention 的 op 全在斜线上，包括 QKᵀ 和 PV 两个矩阵乘。它们已经跑到带宽上限的 57–86%，kernel 本身没什么优化空间，只能减少读写。
 
-### 1.3 MFU 与 MBU {#mfu}
+读写最多的是 softmax。eager 下它是 5 个 kernel，每个都把一个和 S 一样大的张量（256 MiB）读或写一遍，一共 8 次（[图 2-4](#fig-2-4)）。
 
-实测点与它正上方那条线的比值就是利用率，按所在区域分两种：
-
-- **MFU**（model FLOPs utilization）= 实际 FLOPS / 峰值 FLOPS，衡量 compute-bound 的代码离水平线多远。整步训练的 MFU = 每步模型 FLOPs / step 时间 / P。
-- **MBU**（memory bandwidth utilization）= 实际带宽 / 峰值带宽，衡量 memory-bound 的 op 离斜线多远。
-
-memory-bound 的 op MFU 一定很低，比如[图 1-1](#fig-1-1) 里的 softmax 只有 ~1%，但它的 MBU 有 84%，已经接近带宽上限。
-
----
-
-## 2 前向与反向：FLOPs 怎么数，实际跑多快 {#fwd-bwd}
-
-实验用了五档模型，参数量 N 分别是 small 0.13B、medium 0.42B、large 0.97B、xl 3.41B、10B 12.83B。
-
-Transformer 的 FLOPs 基本都来自 Linear 层的矩阵乘。以一个 Linear 为例（[图 2-1](#fig-2-1)），前向做一次矩阵乘，反向做两次：
-
-<figure id="fig-2-1" class="gx-fig">
-<svg viewBox="0 0 640 262" width="100%" role="img" aria-label="一个 Linear 的前向与反向：前向一次矩阵乘，反向算 dx、dW 两次同样大的矩阵乘；算 dW 要用前向的输入 x，所以 x 要留到反向">
-  <style>
-    .gx-band { fill: currentColor; fill-opacity: .045; }
-    .gx-row { font-size: 12px; fill: currentColor; opacity: .8; }
-    .gx-rowsub { font-size: 10.5px; fill: currentColor; opacity: .55; }
-    .gx-op { fill: rgba(128,128,128,.12); stroke: currentColor; stroke-opacity: .5; stroke-width: 1.2; }
-    .gx-t { font-size: 12.5px; fill: currentColor; }
-    .gx-tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
-    .gx-s { font-size: 10.5px; fill: currentColor; opacity: .7; }
-    .gx-note { font-size: 11px; fill: currentColor; opacity: .7; }
-    @media (max-width: 640px) { .gx-fig { overflow-x: auto; } .gx-fig > svg { min-width: 540px; } }
-  </style>
-  <defs>
-    <marker id="fig-2-1-m0" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker>
-    <marker id="fig-2-1-m1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#43a047"/></marker>
-  </defs>
-  <rect class="gx-band" x="74" y="14" width="560" height="66" rx="8"/>
-  <text class="gx-row" x="6" y="45">前向</text>
-  <text class="gx-rowsub" x="6" y="60">1 次矩阵乘</text>
-  <rect class="gx-band" x="74" y="104" width="560" height="148" rx="8"/>
-  <text class="gx-row" x="6" y="176">反向</text>
-  <text class="gx-rowsub" x="6" y="191">2 次矩阵乘</text>
-  <rect x="104.0" y="21.0" width="112" height="24" rx="6" fill="rgba(67,160,71,0.16)" stroke="#43a047" stroke-width="1.4"/>
-  <text class="gx-t" x="160" y="33.0" text-anchor="middle" dominant-baseline="central">x  [tokens, in]</text>
-  <line x1="216.0" y1="33.0" x2="271.0" y2="43.5" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-2-1-m0)"/>
-  <rect x="104.0" y="49.0" width="112" height="24" rx="6" fill="rgba(30,136,229,0.16)" stroke="#1e88e5" stroke-width="1.4"/>
-  <text class="gx-t" x="160" y="61.0" text-anchor="middle" dominant-baseline="central">W  [out, in]</text>
-  <line x1="216.0" y1="61.0" x2="271.0" y2="50.5" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-2-1-m0)"/>
-  <rect x="274.0" y="25.0" width="196" height="44" rx="6" class="gx-op"/>
-  <text class="gx-tb" x="372" y="39.5" text-anchor="middle" dominant-baseline="central">y = x · Wᵀ</text>
-  <text class="gx-s" x="372" y="54.5" text-anchor="middle" dominant-baseline="central">2 · tokens · in · out FLOPs</text>
-  <rect x="496.0" y="33.0" width="128" height="28" rx="6" class="gx-op"/>
-  <text class="gx-t" x="560" y="47.0" text-anchor="middle" dominant-baseline="central">y → 后一层</text>
-  <line x1="470.0" y1="47.0" x2="493.0" y2="47.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-2-1-m0)"/>
-  <rect x="104.0" y="114.0" width="112" height="24" rx="6" fill="rgba(249,168,37,0.16)" stroke="#f9a825" stroke-width="1.4"/>
-  <text class="gx-t" x="160" y="126.0" text-anchor="middle" dominant-baseline="central">dy ← 后一层</text>
-  <line x1="216.0" y1="126.0" x2="271.0" y2="136.5" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-2-1-m0)"/>
-  <rect x="104.0" y="142.0" width="112" height="24" rx="6" fill="rgba(30,136,229,0.16)" stroke="#1e88e5" stroke-width="1.4"/>
-  <text class="gx-t" x="160" y="154.0" text-anchor="middle" dominant-baseline="central">W</text>
-  <line x1="216.0" y1="154.0" x2="271.0" y2="143.5" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-2-1-m0)"/>
-  <rect x="274.0" y="118.0" width="196" height="44" rx="6" class="gx-op"/>
-  <text class="gx-tb" x="372" y="132.5" text-anchor="middle" dominant-baseline="central">dx = dy · W</text>
-  <text class="gx-s" x="372" y="147.5" text-anchor="middle" dominant-baseline="central">同样多 FLOPs</text>
-  <rect x="496.0" y="126.0" width="128" height="28" rx="6" fill="rgba(249,168,37,0.16)" stroke="#f9a825" stroke-width="1.4"/>
-  <text class="gx-t" x="560" y="140.0" text-anchor="middle" dominant-baseline="central">dx → 前一层</text>
-  <line x1="470.0" y1="140.0" x2="493.0" y2="140.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-2-1-m0)"/>
-  <rect x="104.0" y="188.0" width="112" height="24" rx="6" fill="rgba(249,168,37,0.16)" stroke="#f9a825" stroke-width="1.4"/>
-  <text class="gx-t" x="160" y="200.0" text-anchor="middle" dominant-baseline="central">dy</text>
-  <line x1="216.0" y1="200.0" x2="271.0" y2="210.5" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-2-1-m0)"/>
-  <rect x="104.0" y="216.0" width="112" height="24" rx="6" fill="rgba(67,160,71,0.16)" stroke="#43a047" stroke-width="1.4" stroke-dasharray="4 3"/>
-  <text class="gx-t" x="160" y="228.0" text-anchor="middle" dominant-baseline="central">x（前向留下的）</text>
-  <line x1="216.0" y1="228.0" x2="271.0" y2="217.5" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-2-1-m0)"/>
-  <rect x="274.0" y="192.0" width="196" height="44" rx="6" class="gx-op"/>
-  <text class="gx-tb" x="372" y="206.5" text-anchor="middle" dominant-baseline="central">dW = dyᵀ · x</text>
-  <text class="gx-s" x="372" y="221.5" text-anchor="middle" dominant-baseline="central">同样多 FLOPs</text>
-  <rect x="496.0" y="200.0" width="128" height="28" rx="6" fill="rgba(229,57,53,0.16)" stroke="#e53935" stroke-width="1.4"/>
-  <text class="gx-t" x="560" y="214.0" text-anchor="middle" dominant-baseline="central">dW → optimizer</text>
-  <line x1="470.0" y1="214.0" x2="493.0" y2="214.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-2-1-m0)"/>
-  <path d="M104,33 C84,33 84,228 104,228" fill="none" stroke="#43a047" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#fig-2-1-m1)"/>
-  <text class="gx-note" x="88.0" y="132.0" text-anchor="end">x 留到反向</text>
-</svg>
-<figcaption><strong>图 2-1</strong> 一个 Linear 的前向与反向：灰框是矩阵乘（花 FLOPs），彩框是张量，颜色同 <a href="#peak-memory">§4</a> 的 🟩 A / 🟦 W / 🟥 G / 🟨 T。</figcaption>
-</figure>
-
-- **前向 ≈ 2N / token**：每个 token 经过一个权重矩阵时，矩阵里每个参数做一次乘加（embedding 是查表，不算）。attention 的 QKᵀ、PV 没有参数，另算 4·L·seq·d_model，seq 512 时只占 2–4%。
-- **反向 ≈ 4N / token**：要算 dx 和 dW 两个梯度，各是一次和前向同样大的矩阵乘。其中 dW = dyᵀ·x 要用前向的输入 x，所以 x 得一直保存到反向，这部分就是 [§4](#peak-memory) 的 🟩 A。
-- **训练一步 ≈ 6N × token 数**，这里 token 数 = batch × seq = 2048。
-
-用 nsys 看 medium 的一步，GEMM kernel 正好分成三组，每组 169 个（24 层 × 7 个 Linear + lm_head），分别对应前向的 y = x·Wᵀ、反向的 dx = dy·W 和 dW = dyᵀ·x。实测一步里各阶段的耗时占比见[图 2-2](#fig-2-2)：
-
-<figure id="fig-2-2" class="cv-fig">
-<svg class="cv" viewBox="0 0 640 172" width="100%" role="img" aria-label="三档模型一步训练的耗时构成：前向约 31%，反向约 62%，optimizer 约 7%；右侧是每步总耗时和 MFU">
-  <style>
-    .cv { --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a; --c4:#e34948; --cg:#a19f9a; }
-    html.dark .cv { --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#e66767; --cg:#6f6e6a; }
-    .cv .grid { stroke: currentColor; stroke-opacity: .1; }
-    .cv .axis { stroke: currentColor; stroke-opacity: .35; }
-    .cv .ref { stroke: currentColor; stroke-opacity: .55; stroke-dasharray: 5 4; }
-    .cv .tick { font-size: 11px; fill: currentColor; opacity: .65; }
-    .cv .lab { font-size: 12px; fill: currentColor; }
-    .cv .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
-    .cv .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
-    .cv .val { font-size: 11px; fill: currentColor; }
-    .cv .in { font-size: 11px; fill: #111; }
-    .cv .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
-    .cv g.m:hover > :not(title) { opacity: .85; }
-    @media (max-width: 640px) { .cv-fig { overflow-x: auto; } .cv-fig > svg { min-width: 540px; } }
-  </style>
-  <rect x="112" y="11" width="10" height="10" rx="2" style="fill: var(--c1)"/>
-  <text class="lab" x="127" y="20">前向</text>
-  <rect x="173" y="11" width="10" height="10" rx="2" style="fill: var(--c2)"/>
-  <text class="lab" x="188" y="20">反向</text>
-  <rect x="234" y="11" width="10" height="10" rx="2" style="fill: var(--c3)"/>
-  <text class="lab" x="249" y="20">optimizer</text>
-  <text class="lab" x="102" y="53" text-anchor="end">small</text>
-  <text class="lab2" x="102" y="67" text-anchor="end">0.13B</text>
-  <g class="m"><title>small 前向：17.2 ms（31%）</title><rect x="112.0" y="44.0" width="106.7" height="26.0" rx="3" style="fill: var(--c1)"/></g>
-  <text class="in" x="165.3" y="61" text-anchor="middle">31%</text>
-  <g class="m"><title>small 反向：34.8 ms（62%）</title><rect x="220.7" y="44.0" width="217.9" height="26.0" rx="3" style="fill: var(--c2)"/></g>
-  <text class="in" x="329.7" y="61" text-anchor="middle">62%</text>
-  <g class="m"><title>small optimizer：3.7 ms（7%）</title><rect x="440.6" y="44.0" width="21.4" height="26.0" rx="3" style="fill: var(--c3)"/></g>
-  <text class="val" x="474" y="56">55.7 ms / 步</text>
-  <text class="lab2" x="474" y="70">MFU 27%</text>
-  <text class="lab" x="102" y="95" text-anchor="end">medium</text>
-  <text class="lab2" x="102" y="109" text-anchor="end">0.42B</text>
-  <g class="m"><title>medium 前向：51.1 ms（31%）</title><rect x="112.0" y="86.0" width="105.5" height="26.0" rx="3" style="fill: var(--c1)"/></g>
-  <text class="in" x="164.8" y="103" text-anchor="middle">31%</text>
-  <g class="m"><title>medium 反向：103.3 ms（62%）</title><rect x="219.5" y="86.0" width="215.3" height="26.0" rx="3" style="fill: var(--c2)"/></g>
-  <text class="in" x="327.2" y="103" text-anchor="middle">62%</text>
-  <g class="m"><title>medium optimizer：12.9 ms（8%）</title><rect x="436.9" y="86.0" width="25.1" height="26.0" rx="3" style="fill: var(--c3)"/></g>
-  <text class="val" x="474" y="98">167.4 ms / 步</text>
-  <text class="lab2" x="474" y="112">MFU 31%</text>
-  <text class="lab" x="102" y="137" text-anchor="end">large</text>
-  <text class="lab2" x="102" y="151" text-anchor="end">0.97B</text>
-  <g class="m"><title>large 前向：118.1 ms（32%）</title><rect x="112.0" y="128.0" width="109.5" height="26.0" rx="3" style="fill: var(--c1)"/></g>
-  <text class="in" x="166.8" y="145" text-anchor="middle">32%</text>
-  <g class="m"><title>large 反向：227.8 ms（61%）</title><rect x="223.5" y="128.0" width="213.1" height="26.0" rx="3" style="fill: var(--c2)"/></g>
-  <text class="in" x="330.1" y="145" text-anchor="middle">61%</text>
-  <g class="m"><title>large optimizer：26.9 ms（7%）</title><rect x="438.6" y="128.0" width="23.4" height="26.0" rx="3" style="fill: var(--c3)"/></g>
-  <text class="val" x="474" y="140">372.8 ms / 步</text>
-  <text class="lab2" x="474" y="154">MFU 31%</text>
-</svg>
-<figcaption><strong>图 2-2</strong> 一步训练里前向、反向、optimizer 的耗时占比（fp32，batch 4，seq 512），右侧是每步总耗时和 MFU。</figcaption>
-</figure>
-
-xl 在带梯度的前向就 OOM（[§4.3](#one-layer)），10B 在建模型时就 OOM。计时前要先预热：第一步有 ~300 ms 的一次性开销（kernel 懒加载、cuBLAS 初始化、显存池第一次 cudaMalloc），不预热会让 10 步均值偏高 7–59%。
-
-- **反向为什么是前向的 2 倍？** 反向的矩阵乘个数是前向的两倍、尺寸相同，所以三档模型的反向都占一步的 ~62%，是前向（~31%）的 2 倍。optimizer（AdamW）基本没有 FLOPs，只是对每个参数读写权重、梯度和 m、v，属于 memory-bound，占一步的 7%。
-- **实际算力多少？** medium 和 large 是 3.2e13 FLOPS，fp32 峰值的 31%（small 27%）。单个大矩阵乘能到 64%（[图 1-1](#fig-1-1) 里的 Linear），但矩阵乘只占整步 GPU 时间的 60%，其余 40% 基本是 FLOPs 很少的逐元素 kernel。
-- **训一个模型要多久？** 按 Chinchilla 配比训 20N token，用实测的 step 时间（每步 2048 token）折算：small 18 h、medium 7.8 天、large 41 天，bf16（[§5.1](#bf16)）下是 12 h、4.5 天、21 天。单卡 5090 实际能训的大概到 medium（0.42B）。
-
-这 40% 的时间花在 FLOPs 很少的 kernel 上，按 [§1.2](#roofline) 的判据它们都是 memory-bound，下一节以 attention 为例逐个看。
-
----
-
-## 3 Memory bound：attention 慢在哪 {#memory-bound}
-
-[图 1-1](#fig-1-1) 里的点就是 medium、seq 1024 时一层 attention 里的 op：
-
-- **哪些 op 是 compute-bound？** 只有 Linear（I = 340，大于 fp32 的 ridge point 58）。attention 里的 op 都是 memory-bound，包括 QKᵀ 和 PV 两个矩阵乘：内维 d_head = 64，I 只有 ~30（[§1.2](#roofline)）。
-- **还能再快吗？** 这些 op 已经跑到带宽上限的 57–86%，只能减少读写的字节数。
-- **softmax 为什么最慢？** eager 实现是 5 个 kernel，每个都要完整读或写一遍和 S 一样大的张量（medium@1024 一层 256 MiB），一共 8 次、2 GiB（[图 3-1](#fig-3-1)）；`/√d` 和 mask 各 2 次。
-
-<figure id="fig-3-1" class="sp-fig">
+<figure id="fig-2-4" class="sp-fig">
 <svg viewBox="0 0 640 262" width="100%" role="img" aria-label="eager softmax 的 5 个 kernel 共读写显存里 S 大小的张量 8 次；融合成一个 kernel 后只读 S、写 P 两次">
   <style>
     .sp-band { fill: currentColor; fill-opacity: .045; }
@@ -390,12 +339,12 @@ xl 在带梯度的前向就 OOM（[§4.3](#one-layer)），10B 在建模型时�
   <line class="sp-a" x1="405" y1="236" x2="465" y2="236"/>
   <text class="sp-lab" x="419" y="228">② 写</text>
 </svg>
-<figcaption><strong>图 3-1</strong> eager softmax 的显存读写：每条编号箭头是一次完整的读或写，共 8 次；融合后只剩 2 次。</figcaption>
+<figcaption><strong>图 2-4</strong> eager softmax 的显存读写：每条编号箭头是一次完整的读或写，共 8 次；融合后只剩 2 次。</figcaption>
 </figure>
 
-把这 5 步融合成一个 kernel，读写降到 2 次；FlashAttention 更进一步，让 S、P 不写回显存。同一层里各 op 的 FLOPs 和实测时间对比见[图 3-2](#fig-3-2)：
+所以 FLOPs 和时间完全对不上：softmax 的 FLOPs 是 PV 的 1/5，时间却是 PV 的 6 倍（[图 2-5](#fig-2-5)）。
 
-<figure id="fig-3-2" class="cv-fig">
+<figure id="fig-2-5" class="cv-fig">
 <svg class="cv" viewBox="0 0 640 186" width="100%" role="img" aria-label="medium、seq 1024 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间：softmax 和 /√d、mask 的 FLOPs 很少，时间却最多">
   <style>
     .cv { --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a; --c4:#e34948; --cg:#a19f9a; }
@@ -442,14 +391,12 @@ xl 在带梯度的前向就 OOM（[§4.3](#one-layer)），10B 在建模型时�
   <line class="axis" x1="112" y1="58" x2="112" y2="174"/>
   <line class="axis" x1="392" y1="58" x2="392" y2="174"/>
 </svg>
-<figcaption><strong>图 3-2</strong> 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间（medium，seq 1024）：逐元素 op 的 FLOPs 少得几乎看不见，时间却占大头。</figcaption>
+<figcaption><strong>图 2-5</strong> 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间（medium，seq 1024）。</figcaption>
 </figure>
 
-- **FLOPs 和时间对得上吗？** 对不上。softmax 的 FLOPs 是 PV 的 1/5，时间是它的 6 倍；`/√d` 和 mask 几乎没有 FLOPs，时间却是 QKᵀ 的 2.5 倍。
+S、P 的形状是 `[b, h, seq, seq]`，读写量随 seq² 增长，Linear 只随 seq 增长。seq 从 256 到 1024，attention 在前向里的时间占比从 10% 涨到 46%，涨的几乎都是 softmax 和 scores 里的逐元素部分（[图 2-6](#fig-2-6)）。
 
-这部分开销随 seq 增长得很快（[图 3-3](#fig-3-3)）：
-
-<figure id="fig-3-3" class="cv-fig">
+<figure id="fig-2-6" class="cv-fig">
 <svg class="cv" viewBox="0 0 640 262" width="100%" role="img" aria-label="attention 三段占 forward 时间随 seq 的变化：softmax 从 4% 涨到 24%，scores 从 4% 涨到 18%，PV 只从 2% 到 4%，合计从 10% 到 46%">
   <style>
     .cv { --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a; --c4:#e34948; --cg:#a19f9a; }
@@ -512,27 +459,27 @@ xl 在带梯度的前向就 OOM（[§4.3](#one-layer)），10B 在建模型时�
   <g class="m"><title>seq 1024：PV 5.5 ms，占 4%</title><circle cx="470" cy="221.6" r="4.5" class="ring" style="fill: var(--c3)"/></g>
   <text class="val" x="482" y="225.6">PV 4%</text>
 </svg>
-<figcaption><strong>图 3-3</strong> attention 三段占 forward GPU 时间的比例随 seq 变化（medium）。</figcaption>
+<figcaption><strong>图 2-6</strong> attention 三段占 forward GPU 时间的比例随 seq 变化（medium）。</figcaption>
 </figure>
 
-- **seq 变长后？** S、P 的形状是 `[b, h, seq, seq]`，读写量 ∝ seq²，Linear 的 ∝ seq。attention 三段的占比从 10% 涨到 46%，增加的部分主要在 softmax 和 scores 上（scores 里大半是 `/√d`、mask 这类逐元素 op），PV 只从 2% 到 4%。
+时间这条线追到了 S、P。要减少它们的读写，只能把几步融合进一个 kernel，让中间结果留在片上：融合后的 softmax 只读一次 S、写一次 P，FlashAttention 则连 S、P 都不写回显存。
 
-> **结论**：GPU 时间看张量在显存里读写了几遍，而不是 FLOPs。memory-bound 的 op 只能靠融合提速：几步放进一个 kernel，中间结果留在片上，不写回显存。
-
-S、P 除了读写次数多，还是 softmax 和 PV 的输入，反向要用，所以会一直留在显存里（和[图 2-1](#fig-2-1) 里的 x 一样），这部分在下一节算。
+S、P 还有另一个问题：它们是 softmax 和 PV 的输入，和[图 2-1](#fig-2-1) 里的 $X_{L-1}$ 一样，反向时要用，所以前向算完也不能释放。这就牵扯到显存。
 
 ---
 
-## 4 显存峰值：W + max(A, G) {#peak-memory}
+## 3 显存：峰值由什么决定 {#memory}
 
-**纸面估算**：fp32 + AdamW 训练，每个参数要 16 B：权重 4、梯度 4、Adam 的 m 和 v 各 4。另外还有 activation（为反向存下的中间张量），与 batch × seq 成正比。xl（3.41B）只算这 16 B/参数就要 50.8 GiB，超过 5090 的显存；10B 在建模型时就 OOM。下文的记号：
+### 3.1 峰值 = W + max(A, G) {#peak-memory}
+
+常见的估法是每个参数 16 B（fp32 权重 4、梯度 4、Adam 的 m 和 v 各 4），再加上前向为反向存下的 activation。按这个算，xl 光参数相关的部分就要 50.8 GiB，5090 放不下，10B 建模型时就 OOM。下文用这几个记号：
 
 - 🟦 **W** 全部权重；🟥 **G** 全部梯度 `.grad`，大小等于 W；Adam 的 m、v 合计 2W，第一步之后常驻；
-- 🟩 **A** 前向为反向存下的张量（autograd 的 saved tensors）；🟨 **T** 正在算的那一层的临时量，算完即释放。
+- 🟩 **A** 前向为反向存下的张量（saved tensors）；🟨 **T** 当前层的临时量，算完即释放。
 
-[图 4-1](#fig-4-1) 把纸面估算和实测的 full step 峰值按组成画在一起：
+实测的峰值比这个估算小，少的正好是 🟥 G（[图 3-1](#fig-3-1)）。
 
-<figure id="fig-4-1" class="cv-fig">
+<figure id="fig-3-1" class="cv-fig">
 <svg class="cv" viewBox="0 0 640 304" width="100%" role="img" aria-label="三档模型 full step 的峰值显存，纸面估算与实测对比：实测少的正好是梯度 G 这一块">
   <style>
     .cv { --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a; --c4:#e34948; --cg:#a19f9a; }
@@ -623,41 +570,30 @@ S、P 除了读写次数多，还是 softmax 和 PV 的输入，反向要用，�
   <text class="lab" x="460" y="294" text-anchor="middle">large 0.97B</text>
   <line class="axis" x1="70" y1="262" x2="630" y2="262"/>
 </svg>
-<figcaption><strong>图 4-1</strong> full step 的峰值显存：纸面 16 B/参数 + A 与实测对比（batch 4，seq 512）。实测里没有 G，「其他」是 ~0.1 GiB 的临时量。</figcaption>
+<figcaption><strong>图 3-1</strong> full step 的峰值显存，纸面估算与实测（batch 4，seq 512）。A = 带梯度的前向峰值 − W；实测里没有 G，「其他」是 ~0.1 GiB 的临时量。</figcaption>
 </figure>
 
-- 实测比纸面少的正好是 🟥 G 这一块（large 27.5 vs 31.0 GiB）。
-- A 由带梯度的前向峰值减去 W 得到：small 3.5、medium 8.9、large 16.6 GiB，是权重的 4.6–7.3 倍。fwd_bwd 的峰值只比带梯度的前向多 0.1 GiB；full 再多 2W，就是 Adam 的 m、v。
-
-少的这个 W 是梯度：纸面估算假设梯度一直占着显存，实际并不是，要看显存随时间怎么变化。
-
-### 4.1 峰值落在哪一刻 {#peak-moment}
-
-反向走完 j 层（共 L 层）时，活着的显存是
+原因是 G 和 A 不会同时出现。反向走完 j 层（共 L 层）时，显存里有
 
 <p align="center">$M(j) = W + G \cdot \dfrac{j}{L} + A \cdot \dfrac{L-j}{L} + T$</p>
 
-🟦 W 常驻；🟩 A 前向逐层堆上、反向逐层放掉；🟥 G 反向逐层长出来；🟨 T 层内即造即释。
-
-> **梯度不是一直都在**：`.grad` 在反向算到对应参数时才分配，optimizer step 之后被 `zero_grad(set_to_none=True)`（PyTorch 2.0 起的默认）释放。所以前向期间没有梯度，反向期间从 0 增长到 W。
-
-M(j) 是 j 的线性函数，最大值只能在两端：A > G 时在前向结束时（W + A），G > A 时在反向结束时（W + G）。full 模式还要加上常驻的 Adam 状态 2W：
+A 在前向逐层存入、反向逐层释放；G 在反向逐层生成，前向时根本不存在：`.grad` 在反向算到对应参数时才分配，optimizer step 之后被 `zero_grad(set_to_none=True)` 释放。M(j) 是 j 的线性函数，最大值在两端，再加上常驻的 Adam 状态，full step 的峰值是
 
 <p align="center">$\mathrm{peak}_{\mathrm{full}} \approx 3W + \max(A,\ G)$</p>
 
-用 large 验证：3 × 3.61 + 16.58 = 27.4，实测 27.51。token 数正常时 A > G（[图 4-1](#fig-4-1) 三档都是）；token 很少时反过来，比如 xl 在 seq 128 时 A 5.3 < G 12.7，峰值出现在反向结束时，等于 2W（[图 4-2](#fig-4-2) 左）。
+large 按这个算是 3 × 3.61 + 16.58 = 27.4 GiB，实测 27.51。token 数正常时 A > G，峰值在前向结束时；token 很少时才反过来，比如 xl@128（[图 3-2](#fig-3-2) 左）。
 
-<div id="fig-4-2"></div>
+<div id="fig-3-2"></div>
 
-![一步 fwd_bwd 的显存按 W、G、A、T 堆叠](peak_moment.png "**图 4-2** 一步 fwd_bwd 的显存：色带按 M(j) 用实测的 W、G、A、T 堆叠，× 是逐层实测值。左 xl@128（G > A），右 small@512（A > G）；虚线是 bf16。")
+![一步 fwd_bwd 的显存按 W、G、A、T 堆叠](peak_moment.png "**图 3-2** 一步 fwd_bwd 的显存：色带按 M(j) 用实测的 W、G、A、T 堆叠，× 是逐层实测值。左 xl@128（G > A），右 small@512（A > G）；虚线是 bf16。")
 
-峰值里最大、而且随 seq 变化的一项是 🟩 A，下面看它由哪些张量组成。
+所以训练时显存峰值由 🟩 A 决定，它也是唯一随 seq 增长的一项。
 
-### 4.2 A 里存的是什么：拆开 RMSNorm {#rmsnorm}
+### 3.2 A 里存的是什么：拆开 RMSNorm {#rmsnorm}
 
-`torch.autograd.graph.saved_tensors_hooks` 可以在 pack / unpack 时打印每个张量，精确到每个 op。先用最简单的 RMSNorm（fp32，`x: [4, 512, 2560]`）看规则，再看 `torch.compile` 融合之后的变化。
+`torch.autograd.graph.saved_tensors_hooks` 可以在每个张量被存下（pack）和取出（unpack）时打印出来。先看最简单的 RMSNorm（fp32，`x: [4, 512, 2560]`），它可以拆成 5 个 op：
 
-$\mathrm{RMSNorm}(x)_i = w_i \cdot \dfrac{x_i}{\sqrt{\frac{1}{d}\sum_{j=1}^{d} x_j^2 + \epsilon}}$，拆成 5 个 op：
+$\mathrm{RMSNorm}(x)_i = w_i \cdot \dfrac{x_i}{\sqrt{\frac{1}{d}\sum_{j=1}^{d} x_j^2 + \epsilon}}$
 
 <p align="center">$\underbrace{r = \big(\underbrace{\tfrac{1}{d}\textstyle\sum_j \underbrace{x_j^2}_{\text{①}}}_{\text{②}} + \epsilon\big)^{-1/2}}_{\text{③}}$，$\underbrace{\hat{x} = x \cdot r}_{\text{④}}$，$\underbrace{y = w \odot \hat{x}}_{\text{⑤}}$</p>
 
@@ -666,8 +602,6 @@ rms = torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + eps)  # ①②③
 x_hat = x * rms                                            # ④
 y = weight * x_hat                                         # ⑤
 ```
-
-pack / unpack 打印：
 
 ```
 Saving  1  [4,512,2560]  grad_fn=None            ptr=…9040
@@ -679,7 +613,7 @@ Saving  6  [2560]        grad_fn=None            ptr=…1000
 Loading    5 → 6 → 2 → 4 → 3 → 1
 ```
 
-规则是：**一个 op 的局部偏导里用到哪个变量，前向就要把它存下来；偏导是常数就不用存。**这里的「存」只是反向节点持有一个引用，不会拷贝，所以输入 `x` 和参数 `w` 本来就在显存里，不额外占空间。
+autograd 的规则是：**一个 op 的局部偏导里用到哪个变量，前向就要存它；偏导是常数就不存。**存的是引用，不是拷贝，输入 `x` 和参数 `w` 本来就在显存里，不额外占空间。逐个 op 对照下来（[表 3-1](#tab-3-1)、[图 3-3](#fig-3-3)），6 次 Saving 只对应 4 块内存，真正新增的只有 $r$（8 KiB）和 $\hat{x}$（20 MiB）。
 
 | op | 前向 | FLOPs / 元素 | 反向要的偏导 | 存 | 额外显存 | print |
 |:--|:--|--:|:--|:--|--:|:--|
@@ -688,11 +622,9 @@ Loading    5 → 6 → 2 → 4 → 3 → 1
 | ③ | $r=(v+\epsilon)^{-1/2}$ | 每行 2 | $\partial r/\partial v = -\tfrac12 r^3$ | $r$ | **8 KiB** | 3 |
 | ④ | $\hat{x}=x\cdot r$ | 1 | $\partial\hat{x}/\partial x = r$，$\partial\hat{x}/\partial r = x$ | $r$、$x$ | 0 | 2、4 |
 | ⑤ | $y=w\odot\hat{x}$ | 1 | $\partial y/\partial w = \hat{x}$，$\partial y/\partial\hat{x} = w$ | $\hat{x}$、$w$ | **20 MiB** | 5、6 |
-{#tab-4-1 caption="**表 4-1** RMSNorm 五个 op 的 FLOPs 与为反向存的张量（eager）" note="FLOPs 是纸面计数；print 列是上面打印里的第几条 Saving。"}
+{#tab-3-1 caption="**表 3-1** RMSNorm 五个 op 的 FLOPs 与为反向存的张量（eager）" note="FLOPs 是纸面计数；print 列是上面打印里的第几条 Saving，第 1、4 条和第 2、3 条分别是同一块内存。"}
 
-额外显存为 0 的几项：$x$ 是输入，$w$ 是参数，本来就在显存里；④ 存的 $r$ 和 ③ 是同一块。6 次 Saving 实际只对应 4 块内存（ptr 显示第 1、4 条同址，第 2、3 条同址），新增的只有 $r$（`[4,512,1]`）和 $\hat{x}$（`[4,512,2560]`），约等于一份输入的大小。[图 4-3](#fig-4-3) 把计算和存储分开画：
-
-<figure id="fig-4-3" class="gx-fig">
+<figure id="fig-3-3" class="gx-fig">
 <svg viewBox="0 0 640 332" width="100%" role="img" aria-label="RMSNorm eager 的前向、为反向留下的张量和反向：前向 5 个算子每元素约 1 次运算；显存里多留 r 8 KiB 和 x̂ 20 MiB；反向各步读取这些张量">
   <style>
     .gx-band { fill: currentColor; fill-opacity: .045; }
@@ -706,11 +638,11 @@ Loading    5 → 6 → 2 → 4 → 3 → 1
     @media (max-width: 640px) { .gx-fig { overflow-x: auto; } .gx-fig > svg { min-width: 540px; } }
   </style>
   <defs>
-    <marker id="fig-4-3-m0" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker>
-    <marker id="fig-4-3-m1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#fb8c00"/></marker>
-    <marker id="fig-4-3-m2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#1e88e5"/></marker>
-    <marker id="fig-4-3-m3" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#ab47bc"/></marker>
-    <marker id="fig-4-3-m4" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#43a047"/></marker>
+    <marker id="fig-3-3-m0" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker>
+    <marker id="fig-3-3-m1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#fb8c00"/></marker>
+    <marker id="fig-3-3-m2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#1e88e5"/></marker>
+    <marker id="fig-3-3-m3" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#ab47bc"/></marker>
+    <marker id="fig-3-3-m4" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#43a047"/></marker>
   </defs>
   <rect class="gx-band" x="74" y="18" width="560" height="74" rx="8"/>
   <text class="gx-row" x="6" y="53">前向</text>
@@ -736,13 +668,13 @@ Loading    5 → 6 → 2 → 4 → 3 → 1
   <rect x="452.0" y="32.0" width="76" height="46" rx="6" class="gx-op"/>
   <text class="gx-tb" x="490" y="47.5" text-anchor="middle" dominant-baseline="central">⑤ w ⊙ x̂</text>
   <text class="gx-s" x="490" y="62.5" text-anchor="middle" dominant-baseline="central">1 FLOP/元素</text>
-  <line x1="184.0" y1="55.0" x2="191.0" y2="55.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-3-m0)"/>
-  <line x1="270.0" y1="55.0" x2="277.0" y2="55.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-3-m0)"/>
-  <line x1="356.0" y1="55.0" x2="363.0" y2="55.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-3-m0)"/>
-  <line x1="442.0" y1="55.0" x2="449.0" y2="55.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-3-m0)"/>
+  <line x1="184.0" y1="55.0" x2="191.0" y2="55.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-3-3-m0)"/>
+  <line x1="270.0" y1="55.0" x2="277.0" y2="55.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-3-3-m0)"/>
+  <line x1="356.0" y1="55.0" x2="363.0" y2="55.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-3-3-m0)"/>
+  <line x1="442.0" y1="55.0" x2="449.0" y2="55.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-3-3-m0)"/>
   <text class="gx-t" x="84.0" y="59.0" text-anchor="start">x</text>
-  <line x1="95.0" y1="55.0" x2="105.0" y2="55.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-3-m0)"/>
-  <line x1="528.0" y1="55.0" x2="580.0" y2="55.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-3-m0)"/>
+  <line x1="95.0" y1="55.0" x2="105.0" y2="55.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-3-3-m0)"/>
+  <line x1="528.0" y1="55.0" x2="580.0" y2="55.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-3-3-m0)"/>
   <text class="gx-t" x="587.0" y="59.0" text-anchor="start">y</text>
   <rect x="129.0" y="138.0" width="120" height="44" rx="6" fill="rgba(67,160,71,0.16)" stroke="#43a047" stroke-width="1.4" stroke-dasharray="4 3"/>
   <text class="gx-t" x="189" y="152.5" text-anchor="middle" dominant-baseline="central">x  …9040</text>
@@ -769,30 +701,28 @@ Loading    5 → 6 → 2 → 4 → 3 → 1
   <text class="gx-t" x="404" y="265.0" text-anchor="middle" dominant-baseline="central">④ 反向</text>
   <rect x="452.0" y="248.0" width="76" height="34" rx="6" class="gx-op"/>
   <text class="gx-t" x="490" y="265.0" text-anchor="middle" dominant-baseline="central">⑤ 反向</text>
-  <line x1="194.0" y1="265.0" x2="187.0" y2="265.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-3-m0)"/>
-  <line x1="280.0" y1="265.0" x2="273.0" y2="265.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-3-m0)"/>
-  <line x1="366.0" y1="265.0" x2="359.0" y2="265.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-3-m0)"/>
-  <line x1="452.0" y1="265.0" x2="445.0" y2="265.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-3-m0)"/>
+  <line x1="194.0" y1="265.0" x2="187.0" y2="265.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-3-3-m0)"/>
+  <line x1="280.0" y1="265.0" x2="273.0" y2="265.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-3-3-m0)"/>
+  <line x1="366.0" y1="265.0" x2="359.0" y2="265.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-3-3-m0)"/>
+  <line x1="452.0" y1="265.0" x2="445.0" y2="265.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-3-3-m0)"/>
   <text class="gx-t" x="600.0" y="269.0" text-anchor="start">dy</text>
-  <line x1="596.0" y1="265.0" x2="531.0" y2="265.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-3-m0)"/>
-  <line x1="108.0" y1="265.0" x2="102.0" y2="265.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-3-m0)"/>
+  <line x1="596.0" y1="265.0" x2="531.0" y2="265.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-3-3-m0)"/>
+  <line x1="108.0" y1="265.0" x2="102.0" y2="265.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-3-3-m0)"/>
   <text class="gx-t" x="82.0" y="269.0" text-anchor="start">dx</text>
-  <line x1="490.0" y1="182.0" x2="490.0" y2="246.0" stroke="#fb8c00" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#fig-4-3-m1)"/>
-  <line x1="568.0" y1="182.0" x2="508.0" y2="246.0" stroke="#1e88e5" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#fig-4-3-m2)"/>
-  <line x1="375.0" y1="182.0" x2="400.0" y2="246.0" stroke="#ab47bc" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#fig-4-3-m3)"/>
-  <line x1="347.0" y1="182.0" x2="322.0" y2="246.0" stroke="#ab47bc" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#fig-4-3-m3)"/>
-  <line x1="229.0" y1="182.0" x2="382.0" y2="246.0" stroke="#43a047" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#fig-4-3-m4)"/>
-  <line x1="149.0" y1="182.0" x2="146.0" y2="246.0" stroke="#43a047" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#fig-4-3-m4)"/>
+  <line x1="490.0" y1="182.0" x2="490.0" y2="246.0" stroke="#fb8c00" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#fig-3-3-m1)"/>
+  <line x1="568.0" y1="182.0" x2="508.0" y2="246.0" stroke="#1e88e5" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#fig-3-3-m2)"/>
+  <line x1="375.0" y1="182.0" x2="400.0" y2="246.0" stroke="#ab47bc" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#fig-3-3-m3)"/>
+  <line x1="347.0" y1="182.0" x2="322.0" y2="246.0" stroke="#ab47bc" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#fig-3-3-m3)"/>
+  <line x1="229.0" y1="182.0" x2="382.0" y2="246.0" stroke="#43a047" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#fig-3-3-m4)"/>
+  <line x1="149.0" y1="182.0" x2="146.0" y2="246.0" stroke="#43a047" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#fig-3-3-m4)"/>
   <text class="gx-note" x="232.0" y="295.0" text-anchor="middle">偏导是常数 1/d，什么都不读</text>
 </svg>
-<figcaption><strong>图 4-3</strong> RMSNorm（eager）：上排算子花 FLOPs，中排张量占显存（实线框新占，虚线框本来就在），下排是反向，虚线箭头是它读回的张量。</figcaption>
+<figcaption><strong>图 3-3</strong> RMSNorm（eager）：上排算子花 FLOPs，中排张量占显存（实线框新占，虚线框本来就在），下排是反向，虚线箭头是它读回的张量。</figcaption>
 </figure>
 
-反向从 ⑤ 到 ①：⑤ 读 $\hat{x}$ 和 $w$，④ 读 $r$ 和 $x$，③ 读 $r$，① 读 $x$，和打印的 Loading 顺序一致。$x$ 被 ① 和 ④ 各读一次，所以 $x$ 的梯度有两路，最后在叶子节点上累加。
+这和第 2 节是同一个问题：RMSNorm 每个元素只有 ~4 次运算，5 个 kernel 却各把 20 MiB 读写一遍，I ≈ 0.14，是 memory-bound；显存上还为反向多存了一份 $\hat{x}$。
 
-计算量上，每个元素只有 ~4 次运算，而 5 个 kernel 每个都要读写一遍 20 MiB 的张量（纸面合计 ~140 MiB），I ≈ 0.14，和 softmax 一样是 memory-bound。显存上则多存了一份输入大小的 $\hat{x}$。这两项都可以通过融合减少。
-
-**`torch.compile` 融合后存什么？** [表 4-1](#tab-4-1) 里 ⑤ 要的 $\hat{x}$ 只是 $x \cdot r$ 的一次逐元素乘，反向时有 $x$ 和 $r$ 就能重新算出来，不需要存这 20 MiB。逐算子执行时做不到，因为 ⑤ 的 MulBackward 只知道需要 $\hat{x}$，不知道它来自 $x \cdot r$。`torch.compile(RMSNorm(...))` 会把 ①–⑤ 追踪成一张图，由 AOTAutograd 生成一个前向 kernel 和一个反向 kernel，并在存和重算之间选开销小的：
+而 $\hat{x}$ 只是 $x \cdot r$，反向时用 $x$ 和 $r$ 重算一遍就行。逐个算子执行时，⑤ 的反向不知道 $\hat{x}$ 是怎么来的，只能存下来；`torch.compile` 把 ①–⑤ 编译成一个前向 kernel 和一个反向 kernel 之后，就只存 $x$、$w$、$r$：
 
 ```
 Saving  1  [4,512,2560]  grad_fn=None  ptr=…3c80   # x
@@ -801,18 +731,9 @@ Saving  3  [4,512,1]     grad_fn=None  ptr=…f9c0   # r
 Loading    1 → 2 → 3（与 Saving 同序）
 ```
 
-| | eager | 融合后 |
-|:--|:--|:--|
-| kernel 数 | 前向 5 个 | 前向 1 个 + 反向 1 个 |
-| 为反向存的张量 | $x$、$w$、$r$、$\hat{x}$（6 次 Saving，4 块内存） | $x$、$w$、$r$（3 次 Saving） |
-| 额外显存 | $r + \hat{x}$ ≈ 20 MiB | $r$ ≈ 8 KiB |
-| 前向读写显存 | ~140 MiB | ~40 MiB（只读 $x$、写 $y$） |
-| FLOPs / 元素 | 前向 ~4 | 前向 ~4，反向多 1（重算 $\hat{x} = x\cdot r$） |
-{#tab-4-2 caption="**表 4-2** RMSNorm：eager 与 `torch.compile` 融合" note="存的张量是实测，FLOPs 和读写是纸面计数。"}
+反向公式 $\partial y/\partial x = r\,w\odot(I-\tfrac1d\hat{x}\hat{x}^{\!\top})$ 里用到的 $\hat{x}$ 都现算（[图 3-4](#fig-3-4)），两种实现的对比见[表 3-2](#tab-3-2)。
 
-反向 kernel 里的公式是 $\partial y/\partial w = \hat{x}$ 和 $\partial y/\partial x = r\,w\odot(I-\tfrac1d\hat{x}\hat{x}^{\!\top})$，其中的 $\hat{x}$ 都用 $x\cdot r$ 现算（[图 4-4](#fig-4-4)）。
-
-<figure id="fig-4-4" class="gx-fig">
+<figure id="fig-3-4" class="gx-fig">
 <svg viewBox="0 0 640 300" width="100%" role="img" aria-label="torch.compile 融合后的 RMSNorm：前向一个 kernel；显存只多留 r 8 KiB，x̂ 不存；反向一个 kernel，用 x 和 r 现场重算 x̂">
   <style>
     .gx-band { fill: currentColor; fill-opacity: .045; }
@@ -826,10 +747,10 @@ Loading    1 → 2 → 3（与 Saving 同序）
     @media (max-width: 640px) { .gx-fig { overflow-x: auto; } .gx-fig > svg { min-width: 540px; } }
   </style>
   <defs>
-    <marker id="fig-4-4-m0" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker>
-    <marker id="fig-4-4-m1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#43a047"/></marker>
-    <marker id="fig-4-4-m2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#ab47bc"/></marker>
-    <marker id="fig-4-4-m3" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#1e88e5"/></marker>
+    <marker id="fig-3-4-m0" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker>
+    <marker id="fig-3-4-m1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#43a047"/></marker>
+    <marker id="fig-3-4-m2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#ab47bc"/></marker>
+    <marker id="fig-3-4-m3" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#1e88e5"/></marker>
   </defs>
   <rect class="gx-band" x="74" y="18" width="560" height="68" rx="8"/>
   <text class="gx-row" x="6" y="50">前向</text>
@@ -844,8 +765,8 @@ Loading    1 → 2 → 3（与 Saving 同序）
   <text class="gx-tb" x="330" y="44.5" text-anchor="middle" dominant-baseline="central">fused forward：①–⑤ 一个 kernel</text>
   <text class="gx-s" x="330" y="59.5" text-anchor="middle" dominant-baseline="central">~4 FLOPs/元素</text>
   <text class="gx-t" x="80.0" y="56.0" text-anchor="start">x</text>
-  <line x1="90.0" y1="52.0" x2="177.0" y2="52.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-4-m0)"/>
-  <line x1="480.0" y1="52.0" x2="585.0" y2="52.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-4-m0)"/>
+  <line x1="90.0" y1="52.0" x2="177.0" y2="52.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-3-4-m0)"/>
+  <line x1="480.0" y1="52.0" x2="585.0" y2="52.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-3-4-m0)"/>
   <text class="gx-t" x="592.0" y="56.0" text-anchor="start">y</text>
   <rect x="116.0" y="128.0" width="120" height="44" rx="6" fill="rgba(67,160,71,0.16)" stroke="#43a047" stroke-width="1.4" stroke-dasharray="4 3"/>
   <text class="gx-t" x="176" y="142.5" text-anchor="middle" dominant-baseline="central">x  …3c80</text>
@@ -864,26 +785,33 @@ Loading    1 → 2 → 3（与 Saving 同序）
   <rect x="140.0" y="228.0" width="380" height="44" rx="6" class="gx-op"/>
   <text class="gx-tb" x="330" y="242.5" text-anchor="middle" dominant-baseline="central">fused backward：∂y/∂w、∂y/∂x 一个 kernel</text>
   <text class="gx-s" x="330" y="257.5" text-anchor="middle" dominant-baseline="central">x̂ = x · r 现场重算，每元素多 1 FLOP</text>
-  <line x1="186.0" y1="172.0" x2="216.0" y2="226.0" stroke="#43a047" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#fig-4-4-m1)"/>
-  <line x1="352.0" y1="172.0" x2="352.0" y2="226.0" stroke="#ab47bc" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#fig-4-4-m2)"/>
-  <line x1="566.0" y1="172.0" x2="500.0" y2="226.0" stroke="#1e88e5" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#fig-4-4-m3)"/>
+  <line x1="186.0" y1="172.0" x2="216.0" y2="226.0" stroke="#43a047" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#fig-3-4-m1)"/>
+  <line x1="352.0" y1="172.0" x2="352.0" y2="226.0" stroke="#ab47bc" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#fig-3-4-m2)"/>
+  <line x1="566.0" y1="172.0" x2="500.0" y2="226.0" stroke="#1e88e5" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#fig-3-4-m3)"/>
   <text class="gx-t" x="600.0" y="254.0" text-anchor="start">dy</text>
-  <line x1="596.0" y1="250.0" x2="523.0" y2="250.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-4-m0)"/>
-  <line x1="140.0" y1="250.0" x2="102.0" y2="250.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-4-m0)"/>
+  <line x1="596.0" y1="250.0" x2="523.0" y2="250.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-3-4-m0)"/>
+  <line x1="140.0" y1="250.0" x2="102.0" y2="250.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-3-4-m0)"/>
   <text class="gx-t" x="82.0" y="254.0" text-anchor="start">dx</text>
 </svg>
-<figcaption><strong>图 4-4</strong> 融合后的 RMSNorm（泳道同<a href="#fig-4-3">图 4-3</a>）：只多留 $r$（8 KiB），$\hat{x}$ 在反向用 $x$、$r$ 现场重算。</figcaption>
+<figcaption><strong>图 3-4</strong> 融合后的 RMSNorm（泳道同<a href="#fig-3-3">图 3-3</a>）：只多存 $r$（8 KiB），$\hat{x}$ 在反向用 $x$、$r$ 重算。</figcaption>
 </figure>
 
-> **融合用少量重算换显存和带宽**：额外显存从 $r + \hat{x}$ ≈ 20 MiB 降到 $r$ ≈ 8 KiB，前向读写从 ~140 MiB 降到 ~40 MiB（只读 $x$、写 $y$），代价是反向每个元素多一次乘法。[§5.2](#checkpoint) 的 checkpoint 在整层的粒度上做同样的事。
+| | eager | 融合后 |
+|:--|:--|:--|
+| kernel 数 | 前向 5 个 | 前向 1 个 + 反向 1 个 |
+| 为反向存的张量 | $x$、$w$、$r$、$\hat{x}$ | $x$、$w$、$r$ |
+| 额外显存 | $r + \hat{x}$ ≈ 20 MiB | $r$ ≈ 8 KiB |
+| 前向读写显存 | ~140 MiB | ~40 MiB（只读 $x$、写 $y$） |
+| FLOPs / 元素 | 前向 ~4 | 前向 ~4，反向多 1（重算 $\hat{x} = x\cdot r$） |
+{#tab-3-2 caption="**表 3-2** RMSNorm：eager 与 `torch.compile` 融合" note="存的张量是实测，FLOPs 和读写是纸面计数。"}
 
-整层也按同样的规则存：每个矩阵乘的输入都要保存（[图 2-1](#fig-2-1) 的 x），attention 的 S、P 也在其中。
+> 融合用少量重算换掉了显存和读写：额外显存 20 MiB → 8 KiB，前向读写 ~140 MiB → ~40 MiB，代价是反向每个元素多一次乘法。这个「不存，反向时重算」的做法后面还会出现两次：checkpoint，以及 FlashAttention。
 
-### 4.3 一层与整网：S、P 占一半以上 {#one-layer}
+### 3.3 一层与整网：S、P 占一半以上 {#one-layer}
 
-用 `saved_tensors_hooks` 统计 xl 的一层，`torch.compile` 已经按 [§4.2](#rmsnorm) 的方式去掉了 RMSNorm 这类逐元素中间量（[图 4-5](#fig-4-5)）：
+同样的规则用到整层，每个矩阵乘的输入都要存，S、P 也在其中。xl 的一层（`torch.compile` 后，RMSNorm 这类中间量已经省掉）要为反向存 3655 MiB，一半以上是 S、P（[图 3-5](#fig-3-5)）。
 
-<figure id="fig-4-5" class="cv-fig">
+<figure id="fig-3-5" class="cv-fig">
 <svg class="cv" viewBox="0 0 640 246" width="100%" role="img" aria-label="xl 一层为反向存的 3655 MiB：S、P 占 56%，FFN 中间量 26%，[b, s, d] 级张量 17.5%，其他 0.2%">
   <style>
     .cv { --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a; --c4:#e34948; --cg:#a19f9a; }
@@ -924,34 +852,28 @@ Loading    1 → 2 → 3（与 Saving 同序）
   <text class="lab2" x="310" y="198">mask、RoPE、softmax 统计量</text>
   <text class="val" x="630" y="182" text-anchor="end">7 MiB · 0.2%</text>
 </svg>
-<figcaption><strong>图 4-5</strong> xl 一层为反向存的张量（batch 4，seq 2048，<code>torch.compile</code> 后用 <code>saved_tensors_hooks</code> 实测；这组用 16 头，S、P 各 1 GiB）。</figcaption>
+<figcaption><strong>图 3-5</strong> xl 一层为反向存的张量（batch 4，seq 2048，<code>torch.compile</code> 后用 <code>saved_tensors_hooks</code> 实测；这组用 16 头，S、P 各 1 GiB）。</figcaption>
 </figure>
 
-剩下的都是矩阵乘的输入，融合去不掉。xl 共 32 层，合计 114 GiB，远超 5090 的 31.3 GiB；其中一半以上是 S、P，也只有它们随 seq² 增长，其余随 seq 线性增长。
+xl 共 32 层，加起来 114 GiB，远超 5090 的 31.3 GiB。而且只有 S、P 随 seq² 增长：同一个 `[b, h, s, s]` 张量，seq 128 时是 8 MiB，seq 2048 时是 2 GiB，是残差流张量的 25 倍。[图 3-6](#fig-3-6) 是 xl 一步的显存时间线。seq 2048 的纯前向里，每层 attention 都冲出一个 ~8 GiB 的尖峰（S 和它的几个中间量同时存在），用完就释放，32 层能跑完；带反向时每层还要把 S、P 留下来，第 1 层留下 ~4.7 GiB，第 2 层的尖峰就超过了显存。
 
-seq 变大后，这一项决定了能不能跑起来。用 `torch.cuda.memory._record_memory_history` 记录 xl（batch 4，32 头）一步里的每次分配和释放（[图 4-6](#fig-4-6)）：
+<div id="fig-3-6"></div>
 
-<div id="fig-4-6"></div>
+![xl 的四张显存时间线](mem_xl_timelines.png "**图 3-6** xl 的显存时间线，每个点是一次分配或释放：上排纯前向、下排带反向；左 seq 128，右 seq 2048。")
 
-![xl 的四张显存时间线](mem_xl_timelines.png "**图 4-6** xl 的显存时间线，每个点是一次分配或释放：上排纯前向、下排带反向；左 seq 128，右 seq 2048。")
-
-- **左上**（seq 128 纯前向）是平的，因为不为反向保存任何东西。
-- **右上**（seq 2048 纯前向）有 32 个尖峰：每层 attention 的 `[b, h, s, s]` 中间量（S、`/√d`、mask、softmax 的三步）有 ~4 份 2 GiB 同时存在。
-- **左下**（seq 128 full step）：前向逐层上升，反向继续上升（每层释放 🟩 166 MiB、新增 🟥 410 MiB），到 optimizer 分配 Adam 的 m、v 时 OOM。
-- **右下**（seq 2048 带梯度的前向）：第 1 层留下 ~4.7 GiB，第 2 层的尖峰到 25.96 GiB 时 OOM。
-- **为什么 seq 2048 时前向就 OOM？** 同样的 `[b, h, s, s]` 张量在 seq 128 时只有 8 MiB，seq 2048 时是 2 GiB，是残差流 `[b, s, d]` 张量（80 MiB）的 25 倍。纯前向时每层用完就释放，32 层都能跑完；带梯度的前向每层还要为反向留下 S、P，到第 2 层就放不下尖峰了。
-
-要降低 A，可以让每个张量变小（bf16），也可以少存一些、反向时重算（checkpoint）。
+显存这条线也追到了 S、P。
 
 ---
 
-## 5 bf16 与 checkpoint：能省多少 {#bf16-checkpoint}
+## 4 能省吗：bf16 与 checkpoint {#savings}
 
-### 5.1 bf16 autocast {#bf16}
+减少 A 有两个办法：每个张量存得小一点（bf16），或者少存一些、反向时重算（checkpoint）。
 
-autocast 只在算子调用时把矩阵乘的输入 cast 成 bf16；权重、梯度、Adam 状态仍是 fp32。实测结果见[图 5-1](#fig-5-1)：
+### 4.1 bf16 autocast {#bf16}
 
-<figure id="fig-5-1" class="cv-fig">
+autocast 把矩阵乘的输入转成 bf16，权重、梯度和 Adam 状态仍是 fp32（[图 4-1](#fig-4-1)）。
+
+<figure id="fig-4-1" class="cv-fig">
 <svg class="cv" viewBox="0 0 640 252" width="100%" role="img" aria-label="bf16 autocast 相对 fp32：前向快 1.87 到 2.30 倍，反向快 1.69 到 1.87 倍；fwd_bwd 峰值显存少 18% 到 21%">
   <style>
     .cv { --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a; --c4:#e34948; --cg:#a19f9a; }
@@ -1019,20 +941,16 @@ autocast 只在算子调用时把矩阵乘的输入 cast 成 bf16；权重、梯
   <text class="val" x="600" y="104.7" text-anchor="middle">−18%</text>
   <text class="lab" x="586" y="243" text-anchor="middle">large</text>
 </svg>
-<figcaption><strong>图 5-1</strong> bf16 autocast 相对 fp32（fwd_bwd，batch 4，seq 512）：左边是加速比，右边是峰值显存。</figcaption>
+<figcaption><strong>图 4-1</strong> bf16 autocast 相对 fp32（fwd_bwd，batch 4，seq 512）：左边是加速比，右边是峰值显存。</figcaption>
 </figure>
 
-- **为什么快 ~2×？** 矩阵乘从 fp32 的 CUDA core（峰值 1.05e14）换到 bf16 的 Tensor core（2.1e14，[表 1-1](#tab-1-1)），相关张量的字节数也减半。模型越大，矩阵乘占比越高，加速越明显。
-- **为什么只省 ~20%？** 🟦🟥 不变，🟩 A 也没减半：norm、softmax、残差、loss 留在 fp32，反向还要用一份 bf16 权重副本（large：A −5.50 GiB，副本 +1.78 GiB）。
-- **为什么 norm、softmax 留 fp32？** 它们都是求和类的归约，精度由累加器决定。bf16 只有 7 位尾数：0.01 累加 1000 次，bf16 累加器停在 4.0（4.0 + 0.01 舍入回 4.0），fp32 累加器得 10.0001。
+前向快 1.9–2.3×，因为矩阵乘换到了 bf16 的 Tensor core（[表 1-1](#tab-1-1) 里峰值翻倍），相关张量的字节数也减半。显存却只省 18–21%：W、G 和 Adam 状态不变；A 也没有减半，因为 norm、softmax、残差和 loss 留在 fp32（这些求和类的归约在 bf16 下精度不够，7 位尾数把 0.01 累加 1000 次只能得到 4.0），反向还要多存一份 bf16 权重副本。需要存的张量一个没少。
 
-bf16 只是让张量变小，需要存的张量一个也没少。checkpoint 是前向不存、反向重算，和 [§4.2](#rmsnorm) 里 RMSNorm 融合的思路相同，只是粒度是整层。
+### 4.2 activation checkpoint {#checkpoint}
 
-### 5.2 activation checkpoint {#checkpoint}
+checkpoint 用的是 [3.2 节](#rmsnorm) RMSNorm 的做法，只是粒度变成整层：前向只保留每段的输入（entry，xl@2048 时 80 MiB），反向时用它把这一段重跑一遍，生成 saved tensors，用完释放。4 层 xl block 每 2 层一个 checkpoint，峰值从 4 × 3655 MiB = 14.6 GiB 降到 2 个 entry 加一段的 7.5 GiB（[图 4-2](#fig-4-2)）。
 
-`checkpoint(fn, x)` 不压缩任何东西，只是推迟：前向只保留 `fn` 的输入（entry，一个 `[b, s, d]` 张量，xl@2048 是 80 MiB），反向到这一段时用它重跑前向，生成 saved tensors，用完释放。下面以 4 层 xl block 为例（一层 saved tensors 3655 MiB，见[图 4-5](#fig-4-5)）：
-
-<figure id="fig-5-2" class="gx-fig">
+<figure id="fig-4-2" class="gx-fig">
 <svg viewBox="0 0 640 334" width="100%" role="img" aria-label="4 层 xl block：不 checkpoint 时每层留 3655 MiB 一起活到反向，峰值 14.6 GiB；每 2 层一个 checkpoint 时只留 entry x0、x2，反向时逐段重算，峰值 7.5 GiB">
   <style>
     .gx-band { fill: currentColor; fill-opacity: .045; }
@@ -1046,7 +964,7 @@ bf16 只是让张量变小，需要存的张量一个也没少。checkpoint 是�
     @media (max-width: 640px) { .gx-fig { overflow-x: auto; } .gx-fig > svg { min-width: 540px; } }
   </style>
   <defs>
-    <marker id="fig-5-2-m0" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker>
+    <marker id="fig-4-2-m0" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker>
   </defs>
   <rect class="gx-band" x="74" y="14" width="560" height="134" rx="8"/>
   <text class="gx-row" x="6" y="79">全部存下</text>
@@ -1060,27 +978,27 @@ bf16 只是让张量变小，需要存的张量一个也没少。checkpoint 是�
   <line x1="150.0" y1="63.0" x2="150.0" y2="92.0" stroke="#43a047" stroke-width="1.2" fill="none"/>
   <rect x="228.0" y="33.0" width="64" height="30" rx="6" class="gx-op"/>
   <text class="gx-tb" x="260" y="48.0" text-anchor="middle" dominant-baseline="central">L2</text>
-  <line x1="182.0" y1="48.0" x2="225.0" y2="48.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-5-2-m0)"/>
+  <line x1="182.0" y1="48.0" x2="225.0" y2="48.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-2-m0)"/>
   <rect x="212.0" y="92.0" width="96" height="40" rx="6" fill="rgba(67,160,71,0.16)" stroke="#43a047" stroke-width="1.4"/>
   <text class="gx-t" x="260" y="104.5" text-anchor="middle" dominant-baseline="central">3655 MiB</text>
   <text class="gx-s" x="260" y="119.5" text-anchor="middle" dominant-baseline="central">含 x1</text>
   <line x1="260.0" y1="63.0" x2="260.0" y2="92.0" stroke="#43a047" stroke-width="1.2" fill="none"/>
   <rect x="338.0" y="33.0" width="64" height="30" rx="6" class="gx-op"/>
   <text class="gx-tb" x="370" y="48.0" text-anchor="middle" dominant-baseline="central">L3</text>
-  <line x1="292.0" y1="48.0" x2="335.0" y2="48.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-5-2-m0)"/>
+  <line x1="292.0" y1="48.0" x2="335.0" y2="48.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-2-m0)"/>
   <rect x="322.0" y="92.0" width="96" height="40" rx="6" fill="rgba(67,160,71,0.16)" stroke="#43a047" stroke-width="1.4"/>
   <text class="gx-t" x="370" y="104.5" text-anchor="middle" dominant-baseline="central">3655 MiB</text>
   <text class="gx-s" x="370" y="119.5" text-anchor="middle" dominant-baseline="central">含 x2</text>
   <line x1="370.0" y1="63.0" x2="370.0" y2="92.0" stroke="#43a047" stroke-width="1.2" fill="none"/>
   <rect x="448.0" y="33.0" width="64" height="30" rx="6" class="gx-op"/>
   <text class="gx-tb" x="480" y="48.0" text-anchor="middle" dominant-baseline="central">L4</text>
-  <line x1="402.0" y1="48.0" x2="445.0" y2="48.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-5-2-m0)"/>
+  <line x1="402.0" y1="48.0" x2="445.0" y2="48.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-2-m0)"/>
   <rect x="432.0" y="92.0" width="96" height="40" rx="6" fill="rgba(67,160,71,0.16)" stroke="#43a047" stroke-width="1.4"/>
   <text class="gx-t" x="480" y="104.5" text-anchor="middle" dominant-baseline="central">3655 MiB</text>
   <text class="gx-s" x="480" y="119.5" text-anchor="middle" dominant-baseline="central">含 x3</text>
   <line x1="480.0" y1="63.0" x2="480.0" y2="92.0" stroke="#43a047" stroke-width="1.2" fill="none"/>
-  <line x1="96.0" y1="48.0" x2="115.0" y2="48.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-5-2-m0)"/>
-  <line x1="512.0" y1="48.0" x2="560.0" y2="48.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-5-2-m0)"/>
+  <line x1="96.0" y1="48.0" x2="115.0" y2="48.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-2-m0)"/>
+  <line x1="512.0" y1="48.0" x2="560.0" y2="48.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-2-m0)"/>
   <text class="gx-t" x="566.0" y="52.0" text-anchor="start">y</text>
   <text class="gx-note" x="626.0" y="143.0" text-anchor="end">4 份同时活到反向</text>
   <rect class="gx-band" x="74" y="168" width="560" height="156" rx="8"/>
@@ -1104,33 +1022,30 @@ bf16 只是让张量变小，需要存的张量一个也没少。checkpoint 是�
   <text class="gx-t" x="465" y="268.5" text-anchor="middle" dominant-baseline="central">2 × 3655 MiB</text>
   <text class="gx-s" x="465" y="283.5" text-anchor="middle" dominant-baseline="central">反向时用 x2 重算，用完即丢</text>
   <line x1="465.0" y1="223.0" x2="465.0" y2="256.0" stroke="#f9a825" stroke-width="1.2" fill="none"/>
-  <line x1="133.0" y1="206.0" x2="147.0" y2="206.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-5-2-m0)"/>
-  <line x1="300.0" y1="206.0" x2="313.0" y2="206.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-5-2-m0)"/>
-  <line x1="374.0" y1="206.0" x2="387.0" y2="206.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-5-2-m0)"/>
-  <line x1="540.0" y1="206.0" x2="575.0" y2="206.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-5-2-m0)"/>
+  <line x1="133.0" y1="206.0" x2="147.0" y2="206.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-2-m0)"/>
+  <line x1="300.0" y1="206.0" x2="313.0" y2="206.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-2-m0)"/>
+  <line x1="374.0" y1="206.0" x2="387.0" y2="206.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-2-m0)"/>
+  <line x1="540.0" y1="206.0" x2="575.0" y2="206.0" stroke="currentColor" stroke-opacity=".65" stroke-width="1.6" fill="none" marker-end="url(#fig-4-2-m0)"/>
   <text class="gx-t" x="581.0" y="210.0" text-anchor="start">y</text>
   <text class="gx-note" x="626.0" y="312.0" text-anchor="end">反向时一次只物化一段</text>
 </svg>
-<figcaption><strong>图 5-2</strong> 4 层 xl block 有无 checkpoint：绿框一直占到反向，黄色虚线框在反向时用 entry 重算、用完即丢。</figcaption>
+<figcaption><strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：绿框一直占到反向，黄色虚线框在反向时用 entry 重算、用完即丢。</figcaption>
 </figure>
 
-不 checkpoint 时，4 层的 saved tensors 一起留到反向，峰值 4 × 3655 MiB = 14.6 GiB。每 2 层一个 checkpoint 时，前向只留 2 个 entry（160 MiB），反向一次只重算一段（2 × 3655 MiB），峰值约 7.5 GiB。
+代价是整个网络多算一遍前向。在 large 上扫不同的段长（[图 4-3](#fig-4-3)；xl@2048 光参数加梯度就有 25.4 GiB，放不下），step 都是 302–313 ms，比不用 checkpoint 的 236 ms 多 28–33%，相当于一步从 3F 变成 4F（F 是一次前向，反向 ≈ 2F）。显存随每段层数单调增加，每层一个 checkpoint 最省，7.8 GiB，不用时是 15.0 GiB。
 
-两段不能并行：L2 的反向需要 dx2，而 dx2 是 L3 反向的输出。前半段的重算只依赖 x0，理论上可以提前做，但这样两段的黄框会同时存在，峰值又回到 14.6 GiB。
+<div id="fig-4-3"></div>
 
-每段放几层要靠实验看。xl@2048 batch 4 光参数加梯度就有 25.4 GiB，任何段长都放不下，所以改在 large（36 层）、batch 1、seq 1024 上扫描（[图 5-3](#fig-5-3)）：
+![checkpoint 段长扫描：step 时间与峰值显存](checkpoint_large_sweep.png "**图 4-3** checkpoint 段长扫描（large，batch 1 seq 1024，fwd_bwd）：左 step 时间，右峰值显存，红虚线是不 checkpoint。")
 
-<div id="fig-5-3"></div>
+每段越短越省，是因为 entry 很小。设每段 e 层、entry 大小 a、一层 saved tensors 大小 r，峰值约为 $\frac{L}{e}a + e\,r$；只要全部 entry 加起来不到一层（这里 36 × 5 MiB = 180 MiB < 220 MiB），e = 1 就最好。
 
-![checkpoint 段长扫描：step 时间与峰值显存](checkpoint_large_sweep.png "**图 5-3** checkpoint 段长扫描（large，batch 1 seq 1024，fwd_bwd）：左 step 时间，右峰值显存，红虚线是不 checkpoint。")
+但 checkpoint 解决不了 S、P。重算到某一层时，它的 S、P 仍要完整写进显存再读出来，seq 2048 时每层那个 ~8 GiB 的尖峰还在。
 
-- **时间**：无论每段几层，整网都多算一遍前向，所以都在 302–313 ms，比不 checkpoint 的 236 ms 多 28–33%。记一次前向为 F，反向约 2F（[§2](#fwd-bwd)），一步从 3F 变成 4F。
-- **显存**：随每段层数单调增加，每层一个 checkpoint 时最低（7.8 GiB，不 checkpoint 时 15.0 GiB）。整网作为一段（36 层）最不划算：多算了一遍，显存却和不 checkpoint 一样。
+---
 
-显存曲线没有中间的最小值。设每段 e 层、entry 大小 a、一层 saved tensors 大小 r，峰值约等于所有 entry 加上正在重算的那一段：
+## 5 结论：问题都在 S、P {#conclusion}
 
-<p align="center">$M(e) = \dfrac{L}{e}\,a + e\,r$</p>
+时间上，S、P 让 attention 成为 memory-bound，seq 一长就占掉前向近一半的时间；显存上，它们占一层 saved tensors 的一半以上，seq 2048 时 xl 第 2 层就 OOM。bf16 只能让张量变小，checkpoint 只能推迟存储，都去不掉 S、P 的读写。
 
-只要所有 entry 加起来比一层还小（L·a < r，这里 36 × 5 MiB = 180 MiB < 220 MiB），e = 1 就是最优。Transformer 每层的 saved tensors 都很大，这个条件基本总成立。实际使用时，先用 FlashAttention 或选择性重算（只重算 S、P 这类大但便宜的张量，前向多 5%），显存还不够再按缺口选 N 层，每层包一个 checkpoint。
-
-> **小结**：S、P 让 attention 成为 memory-bound（[§3](#memory-bound)），又占了一层 saved tensors 的一半以上（[§4.3](#one-layer)）。bf16 只能让它们变小；checkpoint 只能缩短它们留在显存里的时间，重算时仍要完整写进显存再读出来。要去掉这部分读写，需要像 [§4.2](#rmsnorm) 的 RMSNorm 那样，把 QKᵀ、softmax、PV 融合成一个 kernel，在片上分块计算、反向时重算，这就是下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 的内容。
+要去掉它们，得用 RMSNorm 融合的思路：把 QKᵀ、softmax、PV 写进一个 kernel，分块在片上算完，S、P 不写回显存，反向需要时再重算。这就是下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 的内容。
