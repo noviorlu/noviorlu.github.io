@@ -1,0 +1,45 @@
+{{- /* Markdown tables. A table may carry block attributes on the line after it:
+         {#tab-1-1 caption="**表 1-1** Title" note="Units / data source."}
+       With a caption or note, the table is wrapped in a <figure>: caption above,
+       a scroll box around the table (wide tables on phones), the note below.
+       Without them the output is a plain table, as before. */ -}}
+{{- $caption := .Attributes.caption -}}
+{{- $note := .Attributes.note -}}
+{{- $id := .Attributes.id -}}
+{{- $table := "" -}}
+{{- $attrs := "" -}}
+{{- range $k, $v := .Attributes -}}
+  {{- if and $v (not (in (slice "caption" "note" "id") $k)) -}}
+    {{- $attrs = printf "%s %s=%q" $attrs $k (string $v) -}}
+  {{- end -}}
+{{- end -}}
+{{- $rows := slice -}}
+{{- range .THead -}}
+  {{- $cells := "" -}}
+  {{- range . -}}
+    {{- $style := "" -}}{{- with .Alignment -}}{{- $style = printf " style=%q" (printf "text-align: %s" .) -}}{{- end -}}
+    {{- $cells = printf "%s\n<th%s>%s</th>" $cells $style .Text -}}
+  {{- end -}}
+  {{- $rows = $rows | append (printf "\n<tr>%s\n</tr>" $cells) -}}
+{{- end -}}
+{{- $thead := delimit $rows "" -}}
+{{- $rows = slice -}}
+{{- range .TBody -}}
+  {{- $cells := "" -}}
+  {{- range . -}}
+    {{- $style := "" -}}{{- with .Alignment -}}{{- $style = printf " style=%q" (printf "text-align: %s" .) -}}{{- end -}}
+    {{- $cells = printf "%s\n<td%s>%s</td>" $cells $style .Text -}}
+  {{- end -}}
+  {{- $rows = $rows | append (printf "\n<tr>%s\n</tr>" $cells) -}}
+{{- end -}}
+{{- $tbody := delimit $rows "" -}}
+{{- $table = printf "<table%s>\n<thead>%s\n</thead>\n<tbody>%s\n</tbody>\n</table>" $attrs $thead $tbody -}}
+{{- if or $caption $note }}
+<figure class="nv-table"{{ with $id }} id="{{ . }}"{{ end }}>
+  {{- with $caption }}<figcaption>{{ . | markdownify }}</figcaption>{{ end }}
+  <div class="nv-table__scroll">{{ $table | safeHTML }}</div>
+  {{- with $note }}<p class="nv-table__note">{{ . | markdownify }}</p>{{ end }}
+</figure>
+{{- else }}
+{{ if $id }}{{ replace $table "<table" (printf "<table id=%q" $id) 1 | safeHTML }}{{ else }}{{ $table | safeHTML }}{{ end }}
+{{- end }}
