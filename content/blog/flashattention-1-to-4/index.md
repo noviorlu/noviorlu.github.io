@@ -7,7 +7,7 @@ description: "A technical walkthrough of FlashAttention's four generations — f
 tags: ["FlashAttention", "Transformer", "Attention", "GPU", "LLM", "AI"]
 categories: ["AI笔记"]
 series: ["AI笔记"]
-series_order: 2
+series_order: 3
 ---
 
 <style>
@@ -24,6 +24,8 @@ html.dark .fa-intuit>b:first-child{color:rgb(var(--color-primary-300))}
 html.dark .fa-step span+span{color:rgb(var(--color-primary-300))}
 @media (max-width:640px){.article-content figure{overflow-x:auto}.article-content figure>svg{min-width:520px}}
 </style>
+
+> **Prerequisite:** [GPU 训练分析：FLOPs、Roofline 与显存峰值](/blog/gpu-training-analysis/) (in Chinese) covers FLOPs, arithmetic intensity, the roofline model and peak memory, and measures on an RTX 5090 why the $N\times N$ score matrix dominates both the runtime and the activation memory of standard attention — the two problems this post starts from.
 
 Self-attention is the one layer every Transformer pays for twice: once in FLOPs, and once — far more painfully — in memory traffic. FlashAttention is a family of exact-attention kernels built to fix the second problem, and each new version targets a *different bottleneck* that only becomes visible once the previous one is gone. This post walks through all four generations: what each one actually changed, why that change mattered on the hardware of its time, and what stays constant across all of them.
 
