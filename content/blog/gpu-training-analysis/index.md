@@ -797,6 +797,33 @@ $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 cau
 
 和 RMSNorm 一样，逐步看它算了多少、读写了多少显存、为反向存了什么（[图 4-1](#fig-4-1)，medium、seq 1024：b = 4，h = 16，d = 64）。一份 S 或 P 是 4 × 16 × 1024 × 1024 × 4 B = 256 MiB，而 Q、K、V、O 各只有 16 MiB。
 
+用同样的 `saved_tensors_hooks` 打印 eager attention 存下的张量（medium、seq 1024，b·h = 64 合成一维）：
+
+```
+Saving  1  [64,64,1024]        float32  # K（转置后的 view）
+Saving  2  [64,1024,64]        float32  # Q
+Saving  3  [1024,1024]         bool     # mask
+Saving  4  [4,16,1024,1]       int64    # 每行 max 的下标
+Saving  5  [4,16,1024,1024]    float32  # e = exp(S − m)
+Saving  6  [4,16,1024,1]       float32  # 行和 Σ
+Saving  7  [4,16,1024,1024]    float32  # e（和第 5 条同一块内存）
+Saving  8  [64,1024,64]        float32  # V
+Saving  9  [64,1024,1024]      float32  # P
+```
+
+按 RMSNorm 那条规则逐个 op 对一遍（[表 4-1](#tab-4-1)）：9 次 Saving 里，Q、K、V、mask 本来就在显存里，只是引用；softmax 的 5 个 kernel 里，max 只把梯度传给最大值所在的位置，存下每行最大值的下标；exp 的导数就是它自己的输出，除法要用分子和分母，所以存下 e 和 Σ；⑤ 要用 P 和 V。新占显存的是 e 和 P 两个 seq × seq 张量，各 256 MiB，加起来是 Q、K、V、O 总和的 8 倍。
+
+| op | 反向要的偏导 | 存下 | 新占显存 |
+|:--|:--|:--|--:|
+| ① $S = QK^{\top}$ | $\partial S/\partial Q = K$，$\partial S/\partial K = Q$ | $Q$、$K$ | 0 |
+| ② $\div\sqrt{d}$ | $1/\sqrt{d}$，常数 | 不存 | 0 |
+| ③ $+M$ | 被 mask 的位置梯度为 0 | mask | 0 |
+| ④ max | 只有最大值的位置有梯度 | 下标 | 0.5 MiB |
+| ④ $e = \exp(S - m)$ | $\partial e/\partial S = e$ | $e$ | **256 MiB** |
+| ④ $P = e / \Sigma$ | $\partial P/\partial e = 1/\Sigma$，$\partial P/\partial \Sigma = -e/\Sigma^2$ | $e$、$\Sigma$ | 0.25 MiB |
+| ⑤ $O = PV$ | $\partial O/\partial P = V$，$\partial O/\partial V = P$ | $P$、$V$ | **256 MiB** |
+{#tab-4-1 caption="**表 4-1** attention 各 op 为反向存的张量（eager，medium，seq 1024）" note="存下的张量是实测。④ 的减 max 和求和偏导是常数，不存；除法存的 e 和 exp 存的是同一块内存。"}
+
 <figure id="fig-4-1" class="fg-fig">
 <svg class="fg" viewBox="0 0 800 350" width="100%" style="--fg-minw: 675px" role="img" aria-label="eager attention 一层：前向 9 个 kernel 依次读写显存里 S 大小的张量，softmax 拆成 max、减 max、exp、求和、除；为反向新存了 e = exp(S−m) 和 P 两个 256 MiB 的张量，Q、K、V、mask 只是引用">
   <style>
@@ -955,9 +982,7 @@ $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 cau
 <figcaption><strong>图 4-1</strong> eager attention 一层（medium，seq 1024，画法同<a href="#fig-3-1">图 3-1</a>）。框下是每块的大小：S、S/√d、S+M、S−m、e、P 都是 [b, h, seq, seq]，m 和 Σ 每行一个数。max 同时写出每行最大值的下标（int64），反向只用它，m 用完即释放。粗实线框是为反向新存下的，细实线框是本来就在、只被引用的 Q、K、V、mask，灰色虚线框是用完即释放的临时量。</figcaption>
 </figure>
 
-### 4.1 时间：都在搬 S 和 P {#attn-time}
-
-FLOPs 集中在 ① 和 ⑤ 两个矩阵乘上，读写却集中在 ② ③ ④ 上：② 和 ③ 各把整个 256 MiB 的 S 读一遍、写一遍，④ 读写得更多。放到 roofline 上（[图 4-2](#fig-4-2)），attention 的 op 全在斜坡上，包括 QKᵀ 和 PV 这两个矩阵乘。它们的 MBU 已经有 57–86%，kernel 本身没多少优化空间，要更快只能少搬数据。
+时间上，FLOPs 集中在 ① 和 ⑤ 两个矩阵乘上，读写却集中在 ② ③ ④ 上：② 和 ③ 各把整个 256 MiB 的 S 读一遍、写一遍，④ 读写得更多。放到 roofline 上（[图 4-2](#fig-4-2)），attention 的 op 全在斜坡上，包括 QKᵀ 和 PV 这两个矩阵乘。它们的 MBU 已经有 57–86%，kernel 本身没多少优化空间，要更快只能少搬数据。
 
 <figure id="fig-4-2" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 392" width="100%" role="img" aria-label="RTX 5090 fp32 的 roofline 和一层 attention 里实测的 op：attention 的 op 都在斜线上，只有作对照的 Linear 在平线下">
@@ -1147,36 +1172,7 @@ S、P 的读写量随 seq² 增长，Linear 只随 seq 线性增长。seq 从 25
 
 要少搬，就得把几步合进一个 kernel，中间结果留在片上：融合的 softmax 只读一次 S、写一次 P；FlashAttention 更进一步，S、P 根本不写回显存。
 
-### 4.2 显存：两个 seq × seq 张量占了一半以上 {#attn-memory}
-
-用同样的 `saved_tensors_hooks` 打印 eager attention 存下的张量（medium、seq 1024，b·h = 64 合成一维）：
-
-```
-Saving  1  [64,64,1024]        float32  # K（转置后的 view）
-Saving  2  [64,1024,64]        float32  # Q
-Saving  3  [1024,1024]         bool     # mask
-Saving  4  [4,16,1024,1]       int64    # 每行 max 的下标
-Saving  5  [4,16,1024,1024]    float32  # e = exp(S − m)
-Saving  6  [4,16,1024,1]       float32  # 行和 Σ
-Saving  7  [4,16,1024,1024]    float32  # e（和第 5 条同一块内存）
-Saving  8  [64,1024,64]        float32  # V
-Saving  9  [64,1024,1024]      float32  # P
-```
-
-按 RMSNorm 那条规则逐个 op 对一遍（[表 4-1](#tab-4-1)）：9 次 Saving 里，Q、K、V、mask 本来就在显存里，只是引用；softmax 的 5 个 kernel 里，max 只把梯度传给最大值所在的位置，存下每行最大值的下标；exp 的导数就是它自己的输出，除法要用分子和分母，所以存下 e 和 Σ；⑤ 要用 P 和 V。新占显存的是 e 和 P 两个 seq × seq 张量，各 256 MiB，加起来是 Q、K、V、O 总和的 8 倍。
-
-| op | 反向要的偏导 | 存下 | 新占显存 |
-|:--|:--|:--|--:|
-| ① $S = QK^{\top}$ | $\partial S/\partial Q = K$，$\partial S/\partial K = Q$ | $Q$、$K$ | 0 |
-| ② $\div\sqrt{d}$ | $1/\sqrt{d}$，常数 | 不存 | 0 |
-| ③ $+M$ | 被 mask 的位置梯度为 0 | mask | 0 |
-| ④ max | 只有最大值的位置有梯度 | 下标 | 0.5 MiB |
-| ④ $e = \exp(S - m)$ | $\partial e/\partial S = e$ | $e$ | **256 MiB** |
-| ④ $P = e / \Sigma$ | $\partial P/\partial e = 1/\Sigma$，$\partial P/\partial \Sigma = -e/\Sigma^2$ | $e$、$\Sigma$ | 0.25 MiB |
-| ⑤ $O = PV$ | $\partial O/\partial P = V$，$\partial O/\partial V = P$ | $P$、$V$ | **256 MiB** |
-{#tab-4-1 caption="**表 4-1** attention 各 op 为反向存的张量（eager，medium，seq 1024）" note="存下的张量是实测。④ 的减 max 和求和偏导是常数，不存；除法存的 e 和 exp 存的是同一块内存。"}
-
-放到一整层上也是这样，只是 `torch.compile` 之后存下的两个 seq × seq 张量换成了 S 和 P。xl 的一层（RMSNorm 这类中间量已经被省掉）一共要为反向存 3655 MiB，其中一半以上是 S 和 P（[图 4-5](#fig-4-5)）。这组测量用的是 16 头，S、P 各 1 GiB；标准 xl 是 32 头，S、P 还要再大一倍。
+显存上，[表 4-1](#tab-4-1) 是一层 attention 单独测的：新占显存的主要是两个 seq × seq 张量。放到整层 Transformer block 上也是这样，只是 `torch.compile` 之后存下的两个 seq × seq 张量换成了 S 和 P。xl 的一层（RMSNorm 这类中间量已经被省掉）一共要为反向存 3655 MiB，其中一半以上是 S 和 P（[图 4-5](#fig-4-5)）。这组测量用的是 16 头，S、P 各 1 GiB；标准 xl 是 32 头，S、P 还要再大一倍。
 
 <figure id="fig-4-5" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 246" width="100%" role="img" aria-label="xl 一层为反向存的 3655 MiB：S、P 占 56%，FFN 中间量 26%，[b, s, d] 级张量 17.5%，其他 0.2%">
