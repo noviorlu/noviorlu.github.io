@@ -122,7 +122,7 @@ series_order: 2
 <figcaption><strong>图 2-1</strong> 一个 Linear 的前向与反向：前向从左边往下，误差从右边传回；虚线是反向要从前向拿的东西。</figcaption>
 </figure>
 
-于是前向每个 token 大约 2N FLOPs（N 是参数量），反向 4N，一步加起来 6N × token 数，这里是 batch 4 × seq 512 = 2048 个 token。attention 的 QKᵀ、PV 不带参数，seq 512 时只占 2–4%，先不管。用 nsys 看 medium 的一步，GEMM kernel 果然整整齐齐分成三组，每组 169 个；实测时间也对得上，反向差不多是前向的两倍（[图 2-2](#fig-2-2)）。
+于是前向每个 token 大约 2N FLOPs（N 是参数量），反向 4N，一步加起来 6N × token 数，这里是 batch 4 × seq 512 = 2048 个 token（attention 的 QKᵀ、PV 不带参数，seq 512 时只占 2–4%，忽略不计）。实测也是这样，反向耗时差不多是前向的两倍（[图 2-2](#fig-2-2)），因为反向要把 weight grad 和 activation grad 各算一遍。
 
 <figure id="fig-2-2" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 172" width="100%" role="img" aria-label="三档模型一步训练的耗时构成：前向约 31%，反向约 62%，optimizer 约 7%；右侧是每步总耗时和 MFU">
