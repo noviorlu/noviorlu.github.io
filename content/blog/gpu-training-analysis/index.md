@@ -550,7 +550,7 @@ fp32 + AdamW 训练，每个参数要占权重 4 B、梯度 4 B、Adam 的 m 和
 
 <p align="center">$M(j) = W + G \cdot \dfrac{j}{L} + A \cdot \dfrac{L-j}{L} + T$</p>
 
-A 在前向一层层攒起来，反向再一层层还掉；G 正好相反，前向时根本不存在，`.grad` 要到反向算到那个参数才分配，optimizer step 一结束又被 `zero_grad(set_to_none=True)` 清掉。一个涨一个退，M(j) 是条直线，最高点只可能在两头。再加上一直占着的 Adam 状态，full step 的峰值就是
+A 在前向一层层攒起来，反向再一层层还掉；G 正好相反，前向时根本不存在，`.grad` 要到反向算到那个参数才分配，optimizer step 一结束又被 `zero_grad(set_to_none=True)` 清掉。一个涨一个退，M(j) 是条直线，最高点只可能在两头。full step 里还有一直占着的 Adam 状态，m 和 v 各和权重一样大，共 2W，和权重加起来常驻 3W。所以 full step 的峰值是
 
 <p align="center">$\mathrm{peak}_{\mathrm{full}} \approx 3W + \max(A,\ G)$</p>
 
