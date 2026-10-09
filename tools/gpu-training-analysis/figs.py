@@ -175,7 +175,13 @@ def roofline():
 def roofline_ops():
     return _roofline("fig-4-2", "RTX 5090 fp32 的 roofline 和一层 attention 里实测的 op：attention 的 op 都在斜线上，只有作对照的 Linear 在平线下", [("fp32", 1.048e14, "峰值 π = 1.05e14 FLOPS", True)], None, 14.6)
 
-def _roofline(fid, label, ROOFS, OPS, YHI):
+def roofline_rms():
+    n = 32 * 512 * 2560
+    ops = [("eager", "RMSNorm eager（5 个 op）", 4 * n, 7 * n * 4, 0.8157, "MBU 80%"),
+           ("融合后", "RMSNorm torch.compile（1 个 kernel）", 4 * n, 2 * n * 4, 0.2363, "MBU 79%")]
+    return _roofline("fig-3-3", "RMSNorm 融合前后在 fp32 roofline 上的位置：eager 的 I = 0.14，融合后 0.5，都贴着带宽斜线，融合后实际 FLOPS 高 3.5 倍", [("fp32", 1.048e14, "峰值 π = 1.05e14 FLOPS", True)], ops, 14.6, link=True)
+
+def _roofline(fid, label, ROOFS, OPS, YHI, link=False):
     B = 1.792e12
     MiB = 2 ** 20
     if OPS is None: OPS = [("Linear", "Linear（FFN w1）", 2 * 4096 * 1024 * 4096, 96 * MiB, 0.5, "MFU 64%"),
@@ -220,7 +226,11 @@ def _roofline(fid, label, ROOFS, OPS, YHI):
     f.w(f'<text class="lab" transform="translate(230 {yb - 8:.1f}) rotate({ang:.1f})" text-anchor="middle">带宽 β = 1.79e12 B/s</text>')
     f.w(f'<text class="lab2" x="{xp(8):.0f}" y="{Y0 - 14}" text-anchor="middle">memory-bound</text>')
     f.w(f'<text class="lab2" x="{xp(1500):.0f}" y="{Y0 - 14}" text-anchor="middle">compute-bound</text>')
-    place = {"Linear": (-10, 18, "end"), "QKᵀ": (10, 14, "start"), "PV": (10, -2, "start"), "softmax": (10, 16, "start"), "S / √d": (10, 12, "start")}
+    place = {"Linear": (-10, 18, "end"), "QKᵀ": (10, 14, "start"), "PV": (10, -2, "start"), "softmax": (10, 16, "start"), "S / √d": (10, 12, "start"),
+             "eager": (10, 16, "start"), "融合后": (-10, -10, "end")}
+    pts = [(xp(fl / by), yp(fl / (ms * 1e-3))) for _, _, fl, by, ms, _ in OPS]
+    if link and len(pts) == 2:
+        f.arrow(pts[0][0] + 7, pts[0][1] - 5, pts[1][0] - 8, pts[1][1] + 5, "--fig-hi", width=1.4)
     for key, full, fl, by, ms, util in OPS:
         i, v = fl / by, fl / (ms * 1e-3)
         x, y = xp(i), yp(v)
@@ -732,6 +742,7 @@ CAPS = {
  "step_time": '<strong>图 2-2</strong> 一步训练里前向、反向、optimizer 的耗时占比（fp32，batch 4，seq 512），右侧是每步耗时和 MFU。',
  "roofline": '<strong>图 1-1</strong> RTX 5090 各精度的 roofline：斜线是带宽，平线是峰值算力（dense，boost clock 2407 MHz，来自 NVIDIA RTX Blackwell 白皮书；Tensor core 按 fp32 累加）。',
  "roofline_ops": '<strong>图 4-2</strong> RTX 5090 fp32 的 roofline，以及 medium、seq 1024 时一层 attention 里实测的 op（另放一个 Linear 作对照）。causal mask 没有 FLOPs，不在图上；悬停可看数值。',
+ "roofline_rms": '<strong>图 3-3</strong> RMSNorm 融合前后在 fp32 roofline 上的位置（前向，<code>x: [32, 512, 2560]</code>，160 MiB，比 L2 大，避免数据留在缓存里）。读写字节按 eager 每元素 28 B、融合后 8 B 算，悬停可看数值。',
  "attn_flow": '<strong>图 4-1</strong> eager attention 一层（medium，seq 1024，画法同<a href="#fig-3-1">图 3-1</a>）。框下是每块的大小：S、S/√d、S+M、S−m、e、P 都是 [b, h, seq, seq]，m 和 Σ 每行一个数。max 同时写出每行最大值的下标（int64），反向只用它，m 用完即释放。粗实线框是为反向新存下的，细实线框是本来就在、只被引用的 Q、K、V、mask，灰色虚线框是用完即释放的临时量。',
  "softmax": '<strong>图 4-2</strong> eager softmax 的显存读写：每条编号箭头是一次完整的读或写，共 8 次；融合后只剩 2 次。',
  "flops_vs_time": '<strong>图 4-3</strong> 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间（medium，seq 1024）。',
@@ -746,7 +757,7 @@ CAPS = {
  "ckpt": '<strong>图 5-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。',
  "sweep": '<strong>图 5-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。',
 }
-OUT = {k: fn().html(CAPS[k]) for k, fn in (("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), 
+OUT = {k: fn().html(CAPS[k]) for k, fn in (("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
        ("flops_vs_time", flops_vs_time), ("share_vs_seq", share_vs_seq), ("peak_memory", peak_memory), ("peak_moment", peak_moment),
        ("rms_eager", rms_eager), ("rms_fused", rms_fused), ("attn_flow", attn_flow), ("layer_donut", layer_donut), ("timelines", timelines),
        ("bf16", bf16), ("ckpt", ckpt), ("sweep", sweep))}

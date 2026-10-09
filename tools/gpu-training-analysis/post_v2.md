@@ -142,7 +142,11 @@ Loading    1 → 2 → 3（与 Saving 同序）
 | 前向读写显存 | ~140 MiB | ~40 MiB（只读 $x$、写 $y$） |
 | FLOPs / 元素 | 前向 ~4 | 前向 ~4，反向多 1（重算 $\hat{x} = x\cdot r$） |
 | 前向算术强度 $I$ | ~4 / 28 B ≈ 0.14 | ~4 / 8 B ≈ 0.5 |
-{#tab-3-2 caption="**表 3-2** RMSNorm：eager 与 `torch.compile` 融合" note="kernel 数和存的张量是实测（`torch.profiler`，不含 memset、拷贝和 `.grad` 累加），FLOPs 和读写是纸面计数。I 按每个元素算：eager 每元素读写 7 次 × 4 B = 28 B（共 ~140 MiB），融合后只读 x、写 y，8 B。两者都远低于 ridge point 58，仍是 memory-bound，但融合后要搬的字节少到 1/3.5，时间也跟着降。"}
+{#tab-3-2 caption="**表 3-2** RMSNorm：eager 与 `torch.compile` 融合" note="kernel 数和存的张量是实测（`torch.profiler`，不含 memset、拷贝和 `.grad` 累加），FLOPs 和读写是纸面计数。I 按每个元素算：eager 每元素读写 7 次 × 4 B = 28 B（共 ~140 MiB），融合后只读 x、写 y，8 B。两者都远低于 ridge point 58，仍是 memory-bound。"}
+
+融合没有让 RMSNorm 变成 compute-bound。把两种写法放到 fp32 roofline 上（[图 3-3](#fig-3-3)），I 从 0.14 移到 0.5，两个点都贴着带宽斜线，MBU 都在 80% 左右；要读写的字节少了 3.5 倍，前向耗时也从 816 µs 降到 236 µs，正好快 3.5 倍。
+
+{{fig-3-3}}
 
 融合版也可以手写成 Triton（下面折叠的代码，eager 版就是本节开头那三行），思路和 `torch.compile` 一样：前向一个 kernel，一个 program 算一行，①–⑤ 都在寄存器里做完，只写出 y 和 r。反向比 `torch.compile` 少两个 kernel：dx 是按行归约，dw 却要把所有行加起来，`torch.compile` 为 dw 单独拆了两段归约；手写版让每个 program 读回 x、w、r，现场重算 x̂，算完自己这一行的 dx，再用 `atomic_add` 把这一行对 dw 的贡献直接累加上去，反向就只有一个 kernel。
 

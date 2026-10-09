@@ -715,7 +715,70 @@ Loading    1 → 2 → 3（与 Saving 同序）
 | 前向读写显存 | ~140 MiB | ~40 MiB（只读 $x$、写 $y$） |
 | FLOPs / 元素 | 前向 ~4 | 前向 ~4，反向多 1（重算 $\hat{x} = x\cdot r$） |
 | 前向算术强度 $I$ | ~4 / 28 B ≈ 0.14 | ~4 / 8 B ≈ 0.5 |
-{#tab-3-2 caption="**表 3-2** RMSNorm：eager 与 `torch.compile` 融合" note="kernel 数和存的张量是实测（`torch.profiler`，不含 memset、拷贝和 `.grad` 累加），FLOPs 和读写是纸面计数。I 按每个元素算：eager 每元素读写 7 次 × 4 B = 28 B（共 ~140 MiB），融合后只读 x、写 y，8 B。两者都远低于 ridge point 58，仍是 memory-bound，但融合后要搬的字节少到 1/3.5，时间也跟着降。"}
+{#tab-3-2 caption="**表 3-2** RMSNorm：eager 与 `torch.compile` 融合" note="kernel 数和存的张量是实测（`torch.profiler`，不含 memset、拷贝和 `.grad` 累加），FLOPs 和读写是纸面计数。I 按每个元素算：eager 每元素读写 7 次 × 4 B = 28 B（共 ~140 MiB），融合后只读 x、写 y，8 B。两者都远低于 ridge point 58，仍是 memory-bound。"}
+
+融合没有让 RMSNorm 变成 compute-bound。把两种写法放到 fp32 roofline 上（[图 3-3](#fig-3-3)），I 从 0.14 移到 0.5，两个点都贴着带宽斜线，MBU 都在 80% 左右；要读写的字节少了 3.5 倍，前向耗时也从 816 µs 降到 236 µs，正好快 3.5 倍。
+
+<figure id="fig-3-3" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 392" width="100%" role="img" aria-label="RMSNorm 融合前后在 fp32 roofline 上的位置：eager 的 I = 0.14，融合后 0.5，都贴着带宽斜线，融合后实际 FLOPS 高 3.5 倍">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <defs><marker id="fig-3-3-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker></defs>
+  <text class="tick" x="70.0" y="357" text-anchor="middle">0.1</text>
+  <line class="grid" x1="180.0" y1="20" x2="180.0" y2="340"/>
+  <text class="tick" x="180.0" y="357" text-anchor="middle">1</text>
+  <line class="grid" x1="290.0" y1="20" x2="290.0" y2="340"/>
+  <text class="tick" x="290.0" y="357" text-anchor="middle">10</text>
+  <line class="grid" x1="400.0" y1="20" x2="400.0" y2="340"/>
+  <text class="tick" x="400.0" y="357" text-anchor="middle">100</text>
+  <line class="grid" x1="510.0" y1="20" x2="510.0" y2="340"/>
+  <text class="tick" x="510.0" y="357" text-anchor="middle">1000</text>
+  <line class="grid" x1="620.0" y1="20" x2="620.0" y2="340"/>
+  <text class="tick" x="620.0" y="357" text-anchor="middle">10000</text>
+  <text class="tick" x="62" y="344.0" text-anchor="end">1e11</text>
+  <line class="grid" x1="70" y1="251.1" x2="620" y2="251.1"/>
+  <text class="tick" x="62" y="255.1" text-anchor="end">1e12</text>
+  <line class="grid" x1="70" y1="162.2" x2="620" y2="162.2"/>
+  <text class="tick" x="62" y="166.2" text-anchor="end">1e13</text>
+  <line class="grid" x1="70" y1="73.3" x2="620" y2="73.3"/>
+  <text class="tick" x="62" y="77.3" text-anchor="end">1e14</text>
+  <line class="axis" x1="70" y1="340" x2="620" y2="340"/><line class="axis" x1="70" y1="20" x2="70" y2="340"/>
+  <text class="lab2" x="345" y="380" text-anchor="middle">算术强度 I（FLOPs/B，对数轴）</text>
+  <text class="lab2" transform="translate(16 180) rotate(-90)" text-anchor="middle">可达算力（FLOPS，对数轴）</text>
+  <line x1="374.4" y1="71.5" x2="374.4" y2="340" stroke="currentColor" stroke-opacity=".25"/>
+  <line x1="374.4" y1="71.5" x2="620" y2="71.5" style="stroke: var(--fig-1)" stroke-width="2.2"/>
+  <g class="m"><title>fp32：ridge point = 1.05e14 / 1.792e12 = 58 FLOPs/B</title><circle cx="374.4" cy="71.5" r="3" style="fill: var(--fig-1)"/></g>
+  <text class="lab" x="374.4" y="61.5" text-anchor="middle">ridge point I* = 58</text>
+  <text class="lab" x="618" y="85.5" text-anchor="end">峰值 π = 1.05e14 FLOPS</text>
+  <line x1="70" y1="317.5" x2="374.4" y2="71.5" style="stroke: var(--fig-1)" stroke-width="2.2"/>
+  <text class="lab" transform="translate(230 180.2) rotate(-38.9)" text-anchor="middle">带宽 β = 1.79e12 B/s</text>
+  <text class="lab2" x="279" y="326" text-anchor="middle">memory-bound</text>
+  <text class="lab2" x="529" y="326" text-anchor="middle">compute-bound</text>
+  <line x1="94.0" y1="307.2" x2="138.9" y2="269.3" style="stroke: var(--fig-hi)" stroke-width="1.4" marker-end="url(#fig-3-3-m0)"/>
+  <g class="m"><title>RMSNorm eager（5 个 op）：I = 0.143 FLOPs/B，实测 2.06e11 FLOPS，MBU 80%</title><circle cx="87.0" cy="312.2" r="12" fill="transparent"/><circle cx="87.0" cy="312.2" r="5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <text class="lab" x="97.0" y="328.2" text-anchor="start">eager</text>
+  <g class="m"><title>RMSNorm torch.compile（1 个 kernel）：I = 0.5 FLOPs/B，实测 7.1e11 FLOPS，MBU 79%</title><circle cx="146.9" cy="264.3" r="12" fill="transparent"/><circle cx="146.9" cy="264.3" r="5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <text class="lab" x="136.9" y="254.3" text-anchor="end">融合后</text>
+</svg>
+<figcaption><strong>图 3-3</strong> RMSNorm 融合前后在 fp32 roofline 上的位置（前向，<code>x: [32, 512, 2560]</code>，160 MiB，比 L2 大，避免数据留在缓存里）。读写字节按 eager 每元素 28 B、融合后 8 B 算，悬停可看数值。</figcaption>
+</figure>
 
 融合版也可以手写成 Triton（下面折叠的代码，eager 版就是本节开头那三行），思路和 `torch.compile` 一样：前向一个 kernel，一个 program 算一行，①–⑤ 都在寄存器里做完，只写出 y 和 r。反向比 `torch.compile` 少两个 kernel：dx 是按行归约，dw 却要把所有行加起来，`torch.compile` 为 dw 单独拆了两段归约；手写版让每个 program 读回 x、w、r，现场重算 x̂，算完自己这一行的 dx，再用 `atomic_add` 把这一行对 dw 的贡献直接累加上去，反向就只有一个 kernel。
 
