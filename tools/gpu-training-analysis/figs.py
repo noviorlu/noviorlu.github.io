@@ -242,14 +242,14 @@ def attn_flow():
     ops_b = [(x, 60, n) for x, n in zip(X, names)]
     mid = [(X[k] + X[k + 1]) / 2 for k in range(8)]
     REF2, TMP = blk("--fig-2", "ref"), blk(None, "tmp")
-    blocks = {"M": (18, 30, "M", "引用", REF2, "--fig-2"),
-              "Q": (54, 40, "Q", "引用", REF2, "--fig-2"), "K": (90, 40, "K", "引用", REF2, "--fig-2"),
-              "S": (mid[0], 54, "S", "临时", TMP, "--fig-mute"), "S2": (mid[1], 54, "S/√d", "临时", TMP, "--fig-mute"),
-              "S3": (mid[2], 54, "S+M", "临时", TMP, "--fig-mute"), "idx": (X[3] + 6, 52, "下标", "+0.5 MiB", blk("--fig-3", "new"), "--fig-3"),
-              "m": (X[4] - 30, 38, "m", "临时", TMP, "--fig-mute"),
-              "Sm": (mid[4], 54, "S−m", "临时", TMP, "--fig-mute"), "e": (mid[5], 60, "e", "+256 MiB", blk("--fig-hi", "new"), "--fig-hi"),
-              "Z": (mid[6], 44, "Σ", "每行 1 个", blk("--fig-3", "new"), "--fig-3"), "P": (mid[7], 60, "P", "+256 MiB", blk("--fig-1", "new"), "--fig-1"),
-              "V": (774, 36, "V", "引用", REF2, "--fig-2")}
+    blocks = {"M": (18, 30, "M", "1 MiB", REF2, "--fig-2"),
+              "Q": (56, 40, "Q", "16 MiB", REF2, "--fig-2"), "K": (96, 40, "K", "16 MiB", REF2, "--fig-2"),
+              "S": (mid[0], 54, "S", "256 MiB", TMP, "--fig-mute"), "S2": (mid[1], 54, "S/√d", "256 MiB", TMP, "--fig-mute"),
+              "S3": (mid[2], 54, "S+M", "256 MiB", TMP, "--fig-mute"), "idx": (X[3] + 22, 52, "下标", "+0.5 MiB", blk("--fig-3", "new"), "--fig-3"),
+              "m": (X[4] - 16, 38, "m", "0.25 MiB", TMP, "--fig-mute"),
+              "Sm": (mid[4], 54, "S−m", "256 MiB", TMP, "--fig-mute"), "e": (mid[5], 60, "e", "+256 MiB", blk("--fig-hi", "new"), "--fig-hi"),
+              "Z": (mid[6], 44, "Σ", "+0.25 MiB", blk("--fig-3", "new"), "--fig-3"), "P": (mid[7], 60, "P", "+256 MiB", blk("--fig-1", "new"), "--fig-1"),
+              "V": (774, 36, "V", "16 MiB", REF2, "--fig-2")}
     fe = [(0, "Q", "R"), (0, "K", "R"), (0, "S", "W"), (1, "S", "R"), (1, "S2", "W"), (2, "S2", "R"), (2, "M", "R", "over"), (2, "S3", "W"),
           (3, "S3", "R"), (3, "m", "W"), (3, "idx", "W"), (4, "S3", "R", "over"), (4, "m", "R"), (4, "Sm", "W"), (5, "Sm", "R"), (5, "e", "W"),
           (6, "e", "R"), (6, "Z", "W"), (7, "e", "R", "over"), (7, "Z", "R"), (7, "P", "W"), (8, "P", "R"), (8, "V", "R")]
@@ -732,7 +732,7 @@ CAPS = {
  "step_time": '<strong>图 2-2</strong> 一步训练里前向、反向、optimizer 的耗时占比（fp32，batch 4，seq 512），右侧是每步耗时和 MFU。',
  "roofline": '<strong>图 1-1</strong> RTX 5090 各精度的 roofline：斜线是带宽，平线是峰值算力（dense，boost clock 2407 MHz，来自 NVIDIA RTX Blackwell 白皮书；Tensor core 按 fp32 累加）。',
  "roofline_ops": '<strong>图 4-2</strong> RTX 5090 fp32 的 roofline，以及 medium、seq 1024 时一层 attention 里实测的 op（另放一个 Linear 作对照）。causal mask 没有 FLOPs，不在图上；悬停可看数值。',
- "attn_flow": '<strong>图 4-1</strong> eager attention 一层（medium，seq 1024，画法同<a href="#fig-3-1">图 3-1</a>）。S、S/√d、S+M、S−m、e、P 都是 [b, h, seq, seq]，各 256 MiB；Q、K、V 各 16 MiB，mask 1 MiB，m 和 Σ 每行一个数（256 KiB）。max 同时写出每行最大值的下标（int64，0.5 MiB），反向只用它，m 用完即释放。粗实线框是为反向新存下的，细实线框是本来就在、只被引用的 Q、K、V、mask，灰色虚线框是用完即释放的临时量。',
+ "attn_flow": '<strong>图 4-1</strong> eager attention 一层（medium，seq 1024，画法同<a href="#fig-3-1">图 3-1</a>）。框下是每块的大小：S、S/√d、S+M、S−m、e、P 都是 [b, h, seq, seq]，m 和 Σ 每行一个数。max 同时写出每行最大值的下标（int64），反向只用它，m 用完即释放。粗实线框是为反向新存下的，细实线框是本来就在、只被引用的 Q、K、V、mask，灰色虚线框是用完即释放的临时量。',
  "softmax": '<strong>图 4-2</strong> eager softmax 的显存读写：每条编号箭头是一次完整的读或写，共 8 次；融合后只剩 2 次。',
  "flops_vs_time": '<strong>图 4-3</strong> 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间（medium，seq 1024）。',
  "share_vs_seq": '<strong>图 4-4</strong> attention 三段占 forward GPU 时间的比例随 seq 变化（medium）。',

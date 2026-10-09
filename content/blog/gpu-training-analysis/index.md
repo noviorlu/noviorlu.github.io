@@ -822,8 +822,8 @@ $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 cau
   <rect class="band" x="4" y="6" width="792" height="106" rx="8"/>
   <rect class="band" x="4" y="148" width="792" height="92" rx="8"/>
   <rect class="band" x="4" y="252" width="792" height="92" rx="8"/>
-  <line x1="54.0" y1="174.0" x2="129.0" y2="92.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-4-1-m0)"/>
-  <line x1="90.0" y1="174.0" x2="140.0" y2="92.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-4-1-m0)"/>
+  <line x1="56.0" y1="174.0" x2="129.0" y2="92.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-4-1-m0)"/>
+  <line x1="96.0" y1="174.0" x2="140.0" y2="92.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-4-1-m0)"/>
   <line x1="151.0" y1="90.0" x2="164.8" y2="172.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
   <line x1="182.2" y1="174.0" x2="199.7" y2="92.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
   <line x1="214.3" y1="90.0" x2="231.8" y2="172.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
@@ -831,10 +831,10 @@ $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 cau
   <path d="M18.0,174 L18.0,40 L254.0,40 L254.0,52" fill="none" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-4-1-m0)"/>
   <line x1="281.3" y1="90.0" x2="298.8" y2="172.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
   <line x1="316.2" y1="174.0" x2="330.0" y2="92.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
-  <line x1="352.0" y1="90.0" x2="411.7" y2="172.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
-  <line x1="341.0" y1="90.0" x2="347.0" y2="172.0" style="stroke: var(--fig-3)" stroke-width="1.3" marker-end="url(#fig-4-1-m2)"/>
+  <line x1="352.0" y1="90.0" x2="425.7" y2="172.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
+  <line x1="341.0" y1="90.0" x2="363.0" y2="172.0" style="stroke: var(--fig-3)" stroke-width="1.3" marker-end="url(#fig-4-1-m2)"/>
   <path d="M307.5,174 L307.5,40 L422.0,40 L422.0,52" fill="none" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
-  <line x1="412.3" y1="174.0" x2="434.7" y2="92.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
+  <line x1="426.3" y1="174.0" x2="434.7" y2="92.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
   <line x1="449.3" y1="90.0" x2="466.8" y2="172.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
   <line x1="484.2" y1="174.0" x2="501.7" y2="92.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
   <line x1="516.3" y1="90.0" x2="533.8" y2="172.0" style="stroke: var(--fig-hi)" stroke-width="1.3" marker-end="url(#fig-4-1-m3)"/>
@@ -845,10 +845,10 @@ $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 cau
   <line x1="650.3" y1="90.0" x2="667.8" y2="172.0" style="stroke: var(--fig-1)" stroke-width="1.3" marker-end="url(#fig-4-1-m4)"/>
   <line x1="685.2" y1="174.0" x2="702.7" y2="92.0" style="stroke: var(--fig-1)" stroke-width="1.3" marker-end="url(#fig-4-1-m4)"/>
   <line x1="774.0" y1="174.0" x2="717.3" y2="92.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-4-1-m0)"/>
-  <line x1="54.0" y1="228.0" x2="132.7" y2="270.0" style="stroke: var(--fig-2)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m0)"/>
-  <line x1="90.0" y1="228.0" x2="147.3" y2="270.0" style="stroke: var(--fig-2)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m0)"/>
+  <line x1="56.0" y1="228.0" x2="132.7" y2="270.0" style="stroke: var(--fig-2)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m0)"/>
+  <line x1="96.0" y1="228.0" x2="147.3" y2="270.0" style="stroke: var(--fig-2)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m0)"/>
   <path d="M18.0,228 L18.0,322 L254.0,322 L254.0,310" fill="none" style="stroke: var(--fig-2)" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#fig-4-1-m0)"/>
-  <line x1="347.0" y1="228.0" x2="341.0" y2="270.0" style="stroke: var(--fig-3)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m2)"/>
+  <line x1="363.0" y1="228.0" x2="341.0" y2="270.0" style="stroke: var(--fig-3)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m2)"/>
   <line x1="533.8" y1="228.0" x2="509.0" y2="270.0" style="stroke: var(--fig-hi)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m3)"/>
   <line x1="551.2" y1="228.0" x2="635.7" y2="270.0" style="stroke: var(--fig-hi)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m3)"/>
   <line x1="609.5" y1="228.0" x2="650.3" y2="270.0" style="stroke: var(--fig-3)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m2)"/>
@@ -874,43 +874,43 @@ $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 cau
   <text class="tb" x="710" y="71" text-anchor="middle">⑤ PV</text>
   <rect x="16.0" y="174" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-2) 10%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
   <text x="18" y="210" text-anchor="middle" font-size="11" fill="currentColor">M</text>
-  <text x="18" y="223" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">引用</text>
-  <rect x="52.0" y="174" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-2) 10%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
-  <text x="54" y="210" text-anchor="middle" font-size="11" fill="currentColor">Q</text>
-  <text x="54" y="223" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">引用</text>
-  <rect x="88.0" y="174" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-2) 10%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
-  <text x="90" y="210" text-anchor="middle" font-size="11" fill="currentColor">K</text>
-  <text x="90" y="223" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">引用</text>
+  <text x="18" y="223" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">1 MiB</text>
+  <rect x="54.0" y="174" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-2) 10%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
+  <text x="56" y="210" text-anchor="middle" font-size="11" fill="currentColor">Q</text>
+  <text x="56" y="223" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">16 MiB</text>
+  <rect x="94.0" y="174" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-2) 10%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
+  <text x="96" y="210" text-anchor="middle" font-size="11" fill="currentColor">K</text>
+  <text x="96" y="223" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">16 MiB</text>
   <rect x="146.5" y="174" width="54.0" height="24" rx="4.0" style="fill: color-mix(in srgb, var(--fig-mute) 6%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
   <text x="173.5" y="210" text-anchor="middle" font-size="11" fill="currentColor">S</text>
-  <text x="173.5" y="223" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">临时</text>
+  <text x="173.5" y="223" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">256 MiB</text>
   <rect x="213.5" y="174" width="54.0" height="24" rx="4.0" style="fill: color-mix(in srgb, var(--fig-mute) 6%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
   <text x="240.5" y="210" text-anchor="middle" font-size="11" fill="currentColor">S/√d</text>
-  <text x="240.5" y="223" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">临时</text>
+  <text x="240.5" y="223" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">256 MiB</text>
   <rect x="280.5" y="174" width="54.0" height="24" rx="4.0" style="fill: color-mix(in srgb, var(--fig-mute) 6%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
   <text x="307.5" y="210" text-anchor="middle" font-size="11" fill="currentColor">S+M</text>
-  <text x="307.5" y="223" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">临时</text>
-  <rect x="345.0" y="174" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-3) 16%, transparent); stroke: var(--fig-3)" stroke-width="2.2"/>
-  <text x="347" y="210" text-anchor="middle" font-size="11" fill="currentColor">下标</text>
-  <text x="347" y="223" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+0.5 MiB</text>
-  <rect x="410.0" y="174" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-mute) 6%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
-  <text x="412" y="210" text-anchor="middle" font-size="11" fill="currentColor">m</text>
-  <text x="412" y="223" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">临时</text>
+  <text x="307.5" y="223" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">256 MiB</text>
+  <rect x="361.0" y="174" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-3) 16%, transparent); stroke: var(--fig-3)" stroke-width="2.2"/>
+  <text x="363" y="210" text-anchor="middle" font-size="11" fill="currentColor">下标</text>
+  <text x="363" y="223" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+0.5 MiB</text>
+  <rect x="424.0" y="174" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-mute) 6%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="426" y="210" text-anchor="middle" font-size="11" fill="currentColor">m</text>
+  <text x="426" y="223" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">0.25 MiB</text>
   <rect x="448.5" y="174" width="54.0" height="24" rx="4.0" style="fill: color-mix(in srgb, var(--fig-mute) 6%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
   <text x="475.5" y="210" text-anchor="middle" font-size="11" fill="currentColor">S−m</text>
-  <text x="475.5" y="223" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">临时</text>
+  <text x="475.5" y="223" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">256 MiB</text>
   <rect x="515.5" y="174" width="54.0" height="24" rx="4.0" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="2.2"/>
   <text x="542.5" y="210" text-anchor="middle" font-size="11" fill="currentColor">e</text>
   <text x="542.5" y="223" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+256 MiB</text>
   <rect x="607.5" y="174" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-3) 16%, transparent); stroke: var(--fig-3)" stroke-width="2.2"/>
   <text x="609.5" y="210" text-anchor="middle" font-size="11" fill="currentColor">Σ</text>
-  <text x="609.5" y="223" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">每行 1 个</text>
+  <text x="609.5" y="223" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+0.25 MiB</text>
   <rect x="649.5" y="174" width="54.0" height="24" rx="4.0" style="fill: color-mix(in srgb, var(--fig-1) 16%, transparent); stroke: var(--fig-1)" stroke-width="2.2"/>
   <text x="676.5" y="210" text-anchor="middle" font-size="11" fill="currentColor">P</text>
   <text x="676.5" y="223" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+256 MiB</text>
   <rect x="772.0" y="174" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-2) 10%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
   <text x="774" y="210" text-anchor="middle" font-size="11" fill="currentColor">V</text>
-  <text x="774" y="223" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">引用</text>
+  <text x="774" y="223" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">16 MiB</text>
   <rect x="110.0" y="272.0" width="60" height="36" rx="6" class="op"/>
   <text class="t" x="140" y="294.5" text-anchor="middle">① QKᵀ</text>
   <rect x="177.0" y="272.0" width="60" height="36" rx="6" class="op"/>
@@ -952,7 +952,7 @@ $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 cau
   <text class="ttl halo" x="16" y="270">反向</text><text class="lab2 halo" x="50" y="270"></text>
   <text class="ttl " x="16" y="270">反向</text><text class="lab2 " x="50" y="270"></text>
 </svg>
-<figcaption><strong>图 4-1</strong> eager attention 一层（medium，seq 1024，画法同<a href="#fig-3-1">图 3-1</a>）。S、S/√d、S+M、S−m、e、P 都是 [b, h, seq, seq]，各 256 MiB；Q、K、V 各 16 MiB，mask 1 MiB，m 和 Σ 每行一个数（256 KiB）。max 同时写出每行最大值的下标（int64，0.5 MiB），反向只用它，m 用完即释放。粗实线框是为反向新存下的，细实线框是本来就在、只被引用的 Q、K、V、mask，灰色虚线框是用完即释放的临时量。</figcaption>
+<figcaption><strong>图 4-1</strong> eager attention 一层（medium，seq 1024，画法同<a href="#fig-3-1">图 3-1</a>）。框下是每块的大小：S、S/√d、S+M、S−m、e、P 都是 [b, h, seq, seq]，m 和 Σ 每行一个数。max 同时写出每行最大值的下标（int64），反向只用它，m 用完即释放。粗实线框是为反向新存下的，细实线框是本来就在、只被引用的 Q、K、V、mask，灰色虚线框是用完即释放的临时量。</figcaption>
 </figure>
 
 ### 4.1 时间：都在搬 S 和 P {#attn-time}
