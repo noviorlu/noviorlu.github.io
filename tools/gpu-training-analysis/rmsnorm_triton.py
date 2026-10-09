@@ -8,7 +8,7 @@ via {{code:rmsnorm_triton.py:<name>}}. Run this file to check the Triton version
 # post:eager
 import torch
 
-def rmsnorm_eager(x, weight, eps=1e-6):
+def rmsnorm_eager(x, weight, eps=1e-5):
     rms = torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + eps)  # ① pow ② mean ③ rsqrt，各一个 kernel
     x_hat = x * rms                                            # ④
     return weight * x_hat                                      # ⑤
@@ -52,7 +52,7 @@ def rmsnorm_bwd(DY, X, W, R, DX, DW, M, D, ROWS: tl.constexpr, BLOCK: tl.constex
 
 class RMSNorm(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, weight, eps=1e-6):
+    def forward(ctx, x, weight, eps=1e-5):
         D = x.shape[-1]
         x2 = x.reshape(-1, D)
         M = x2.shape[0]

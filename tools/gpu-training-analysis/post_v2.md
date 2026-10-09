@@ -120,7 +120,7 @@ Loading    5 → 6 → 2 → 4 → 3 → 1
 
 时间上，RMSNorm 每个元素只算约 4 次，5 个 op 却要读写约 140 MiB 显存：①、④、⑤ 各读 20 MiB、写 20 MiB，② 读 20 MiB。$I \approx 0.14$，是 memory-bound。显存上，它为反向多存了一份 $\hat{x}$。
 
-$\hat{x}$ 其实不用存：它就是 $x \cdot r$，反向时用 $x$ 和 $r$ 重算一次就有。eager 模式做不到，因为每个 op 单独执行，⑤ 的反向只知道自己需要 $\hat{x}$，不知道它能由 $x$ 和 $r$ 算出来。用 `torch.compile` 把 ①–⑤ 编译成一个前向 kernel 和一个反向 kernel 后，只存 $x$、$w$、$r$：
+$\hat{x}$ 其实不用存：它就是 $x \cdot r$，反向时用 $x$ 和 $r$ 重算一次就有。eager 模式做不到，因为每个 op 单独执行，⑤ 的反向只知道自己需要 $\hat{x}$，不知道它能由 $x$ 和 $r$ 算出来。用 `torch.compile` 把 ①–⑤ 编译成一个前向 kernel、反向编成 3 个 kernel 后，只存 $x$、$w$、$r$：
 
 ```
 Saving  1  [4,512,2560]  grad_fn=None  ptr=…3c80   # x
@@ -135,16 +135,16 @@ Loading    1 → 2 → 3（与 Saving 同序）
 
 | | eager | 融合后 |
 |:--|:--|:--|
-| 前向 kernel | 5 个 | 1 个 |
-| 反向 kernel | 逐 op 执行，≥5 个 | 1 个 |
+| 前向 kernel | 6 个（③ 的 +ε 和 rsqrt 各一个） | 1 个 |
+| 反向 kernel | 13 个 | 3 个（dx 1 个，dw 两段归约 2 个） |
 | 为反向存的张量 | $x$、$w$、$r$、$\hat{x}$ | $x$、$w$、$r$ |
 | 新占显存 | $r + \hat{x}$ ≈ 20 MiB | $r$ ≈ 8 KiB |
 | 前向读写显存 | ~140 MiB | ~40 MiB（只读 $x$、写 $y$） |
 | FLOPs / 元素 | 前向 ~4 | 前向 ~4，反向多 1（重算 $\hat{x} = x\cdot r$） |
 | 前向算术强度 $I$ | ~4 / 28 B ≈ 0.14 | ~4 / 8 B ≈ 0.5 |
-{#tab-3-2 caption="**表 3-2** RMSNorm：eager 与 `torch.compile` 融合" note="存的张量是实测，FLOPs 和读写是纸面计数。I 按每个元素算：eager 每元素读写 7 次 × 4 B = 28 B（共 ~140 MiB），融合后只读 x、写 y，8 B。两者都远低于 ridge point 58，仍是 memory-bound，但融合后要搬的字节少到 1/3.5，时间也跟着降。"}
+{#tab-3-2 caption="**表 3-2** RMSNorm：eager 与 `torch.compile` 融合" note="kernel 数和存的张量是实测（`torch.profiler`，不含 memset、拷贝和 `.grad` 累加），FLOPs 和读写是纸面计数。I 按每个元素算：eager 每元素读写 7 次 × 4 B = 28 B（共 ~140 MiB），融合后只读 x、写 y，8 B。两者都远低于 ridge point 58，仍是 memory-bound，但融合后要搬的字节少到 1/3.5，时间也跟着降。"}
 
-下面是两种写法的代码。融合版是照 `torch.compile` 的做法手写的 Triton：前向一个 kernel，一个 program 算一行，①–⑤ 都在寄存器里做完，只写出 y 和 r；反向一个 kernel，读回 x、w、r，现场重算 x̂，dw 的部分和用 `atomic_add` 累加。
+下面是两种写法的代码。融合版是手写的 Triton，思路和 `torch.compile` 一样：前向一个 kernel，一个 program 算一行，①–⑤ 都在寄存器里做完，只写出 y 和 r。反向比 `torch.compile` 少两个 kernel：dx 是按行归约，dw 却要把所有行加起来，`torch.compile` 为 dw 单独拆了两段归约；手写版让每个 program 读回 x、w、r，现场重算 x̂，算完自己这一行的 dx，再用 `atomic_add` 把这一行对 dw 的贡献直接累加上去，反向就只有一个 kernel。
 
 <details class="fold">
 <summary>eager：5 个 op，反向交给 autograd</summary>
@@ -196,7 +196,7 @@ S、P 的读写量随 seq² 增长，Linear 只随 seq 线性增长。seq 从 25
 
 要少搬，就得把几步合进一个 kernel，中间结果留在片上：融合的 softmax 只读一次 S、写一次 P；FlashAttention 更进一步，S、P 根本不写回显存。
 
-### 4.2 显存：S、P 占了一半以上 {#attn-memory}
+### 4.2 显存：两个 seq × seq 张量占了一半以上 {#attn-memory}
 
 用同样的 `saved_tensors_hooks` 打印 eager attention 存下的张量（medium、seq 1024，b·h = 64 合成一维）：
 
@@ -225,7 +225,7 @@ Saving  9  [64,1024,1024]      float32  # P
 | ⑤ $O = PV$ | $\partial O/\partial P = V$，$\partial O/\partial V = P$ | $P$、$V$ | **256 MiB** |
 {#tab-4-1 caption="**表 4-1** attention 各 op 为反向存的张量（eager，medium，seq 1024）" note="存下的张量是实测。④ 的减 max 和求和偏导是常数，不存；除法存的 e 和 exp 存的是同一块内存。"}
 
-放到一整层上也是这样。xl 的一层（`torch.compile` 已经省掉了 RMSNorm 这类中间量）一共要为反向存 3655 MiB，其中一半以上是 S 和 P（[图 4-4](#fig-4-4)）。这组测量用的是 16 头，S、P 各 1 GiB；标准 xl 是 32 头，S、P 还要再大一倍。
+放到一整层上也是这样，只是 `torch.compile` 之后存下的两个 seq × seq 张量换成了 S 和 P。xl 的一层（RMSNorm 这类中间量已经被省掉）一共要为反向存 3655 MiB，其中一半以上是 S 和 P（[图 4-4](#fig-4-4)）。这组测量用的是 16 头，S、P 各 1 GiB；标准 xl 是 32 头，S、P 还要再大一倍。
 
 {{fig-4-4}}
 

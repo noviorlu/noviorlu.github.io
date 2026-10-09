@@ -218,8 +218,9 @@ def roofline():
 
 # ── 图 4-1 attention 的前向、显存读写、saved tensors 和反向 ─────────────────────
 def attn_flow():
-    f = F("fig-4-1", 340, "eager attention 一层：前向 9 个 kernel 依次读写显存里 S 大小的张量，softmax 拆成 max、减 max、exp、求和、除；为反向新存了 e = exp(S−m) 和 P 两个 256 MiB 的张量，Q、K、V、mask 只是引用", W=800)
-    LANES = [(6, 98, "前向", "箭头指向 op 是读，指向显存是写"), (128, 224, "显存", ""), (254, 330, "反向", "")]
+    f = F("fig-4-1", 350, "eager attention 一层：前向 9 个 kernel 依次读写显存里 S 大小的张量，softmax 拆成 max、减 max、exp、求和、除；为反向新存了 e = exp(S−m) 和 P 两个 256 MiB 的张量，Q、K、V、mask 只是引用", W=800)
+    YF, YM, YB = 70, 196, 290
+    LANES = [(6, 112, "前向", "箭头指向 op 是读，指向显存是写"), (148, 240, "显存", ""), (252, 344, "反向", "")]
     rms_lanes(f, LANES, titles=False)
     X = [140 + 67 * i + (34 if i > 3 else 0) for i in range(9)]
     names = ["① QKᵀ", "② ÷√d", "③ +M", "max", "− m", "exp", "求和", "÷ Σ", "⑤ PV"]
@@ -227,29 +228,29 @@ def attn_flow():
     ops_b = [(x, 60, n) for x, n in zip(X, names)]
     mid = [(X[k] + X[k + 1]) / 2 for k in range(8)]
     REF2, TMP = blk("--fig-2", "ref"), blk(None, "tmp")
-    blocks = {"Q": (32, 44, "Q", "引用", REF2, "--fig-2"), "K": (80, 44, "K", "引用", REF2, "--fig-2"),
-              "M": (124, 36, "M", "引用", REF2, "--fig-2"),
+    blocks = {"M": (18, 30, "M", "引用", REF2, "--fig-2"),
+              "Q": (54, 40, "Q", "引用", REF2, "--fig-2"), "K": (90, 40, "K", "引用", REF2, "--fig-2"),
               "S": (mid[0], 54, "S", "临时", TMP, "--fig-mute"), "S2": (mid[1], 54, "S/√d", "临时", TMP, "--fig-mute"),
-              "S3": (mid[2], 54, "S+M", "临时", TMP, "--fig-mute"), "m": (X[3] + 20.5, 38, "m", "临时", TMP, "--fig-mute"),
-              "idx": (X[4] - 28, 52, "下标", "+0.5 MiB", blk("--fig-3", "new"), "--fig-3"),
+              "S3": (mid[2], 54, "S+M", "临时", TMP, "--fig-mute"), "idx": (X[3] + 6, 52, "下标", "+0.5 MiB", blk("--fig-3", "new"), "--fig-3"),
+              "m": (X[4] - 30, 38, "m", "临时", TMP, "--fig-mute"),
               "Sm": (mid[4], 54, "S−m", "临时", TMP, "--fig-mute"), "e": (mid[5], 60, "e", "+256 MiB", blk("--fig-hi", "new"), "--fig-hi"),
               "Z": (mid[6], 44, "Σ", "每行 1 个", blk("--fig-3", "new"), "--fig-3"), "P": (mid[7], 60, "P", "+256 MiB", blk("--fig-1", "new"), "--fig-1"),
               "V": (774, 36, "V", "引用", REF2, "--fig-2")}
-    fe = [(0, "Q", "R"), (0, "K", "R"), (0, "S", "W"), (1, "S", "R"), (1, "S2", "W"), (2, "S2", "R"), (2, "M", "R"), (2, "S3", "W"),
-          (3, "S3", "R"), (3, "m", "W"), (3, "idx", "W"), (4, "S3", "R"), (4, "m", "R"), (4, "Sm", "W"), (5, "Sm", "R"), (5, "e", "W"),
-          (6, "e", "R"), (6, "Z", "W"), (7, "e", "R"), (7, "Z", "R"), (7, "P", "W"), (8, "P", "R"), (8, "V", "R")]
-    be = [(0, "Q"), (0, "K"), (2, "M"), (3, "idx"), (5, "e"), (7, "e"), (7, "Z"), (8, "P"), (8, "V")]
+    fe = [(0, "Q", "R"), (0, "K", "R"), (0, "S", "W"), (1, "S", "R"), (1, "S2", "W"), (2, "S2", "R"), (2, "M", "R", "over"), (2, "S3", "W"),
+          (3, "S3", "R"), (3, "m", "W"), (3, "idx", "W"), (4, "S3", "R", "over"), (4, "m", "R"), (4, "Sm", "W"), (5, "Sm", "R"), (5, "e", "W"),
+          (6, "e", "R"), (6, "Z", "W"), (7, "e", "R", "over"), (7, "Z", "R"), (7, "P", "W"), (8, "P", "R"), (8, "V", "R")]
+    be = [(0, "Q"), (0, "K"), (2, "M", "under"), (3, "idx"), (5, "e"), (7, "e"), (7, "Z"), (8, "P"), (8, "V")]
     big, q = 256 << 20, 16 << 20
-    flow(f, ops_f, ops_b, blocks, fe, be, route=140, cap=54,
+    flow(f, ops_f, ops_b, blocks, fe, be, YF=YF, YM=YM, YB=YB, route=400, cap=54,
          sizes={"Q": q, "K": q, "V": q, "M": 1 << 20, "S": big, "S2": big, "S3": big, "m": 256 << 10, "idx": 512 << 10,
                 "Sm": big, "e": big, "Z": 256 << 10, "P": big})
-    f.w(f'<line x1="{X[3] - 30}" y1="30" x2="{X[7] + 30}" y2="30" stroke="currentColor" stroke-opacity=".35"/>')
-    f.w(f'<text class="lab2" x="{(X[3] + X[7]) / 2}" y="24" text-anchor="middle">④ softmax，5 个 kernel</text>')
-    f.arrow(X[8] + 30, 60, 770, 60); f.w('<text class="t" x="778" y="64">O</text>')
-    f.w('<text class="t" x="776" y="300">dO</text>'); f.arrow(770, 296, X[8] + 32, 296)
+    f.w(f'<line x1="{X[3] - 30}" y1="28" x2="{X[7] + 30}" y2="28" stroke="currentColor" stroke-opacity=".35"/>')
+    f.w(f'<text class="lab2" x="{(X[3] + X[7]) / 2}" y="22" text-anchor="middle">④ softmax，5 个 kernel</text>')
+    f.arrow(X[8] + 30, YF, 770, YF); f.w(f'<text class="t" x="778" y="{YF + 4}">O</text>')
+    f.w(f'<text class="t" x="776" y="{YB + 4}">dO</text>'); f.arrow(770, YB, X[8] + 32, YB)
     for c0, c1 in zip(X, X[1:]):
-        f.arrow(c1 - 30, 296, c0 + 32, 296)
-    f.arrow(X[0] - 30, 296, 100, 296); f.w('<text class="t" x="96" y="300" text-anchor="end">dQ dK</text>')
+        f.arrow(c1 - 30, YB, c0 + 32, YB)
+    f.arrow(X[0] - 30, YB, 100, YB); f.w(f'<text class="t" x="96" y="{YB + 4}" text-anchor="end">dQ dK</text>')
     lane_titles(f, LANES)
     return f
 
@@ -452,22 +453,32 @@ def flow(f, ops_f, ops_b, blocks, fe, be, YF=56, YM=176, YB=296, route=170, size
     # forward-side attachment points
     op_pts, blk_top, blk_bot, opb_pts = {}, {}, {}, {}
     for i, (cx, w, *_r) in enumerate(ops_f):
-        es = sorted([e for e in fe if e[0] == i], key=lambda e: blocks[e[1]][0])
-        op_pts.update({(i,) + e[1:]: p for e, p in zip(es, attach(cx, w - 16, es).values())})
+        es = sorted([e for e in fe if e[0] == i and len(e) == 3], key=lambda e: blocks[e[1]][0])
+        op_pts.update({e: p for e, p in zip(es, attach(cx, w - 16, es).values())})
+        op_pts.update({e: cx for e in fe if e[0] == i and len(e) > 3})
     for b, (cx, w, *_r) in blocks.items():
         if sizes: w = bws[b] + 8
-        es = sorted([e for e in fe if e[1] == b], key=lambda e: ops_f[e[0]][0])
+        es = sorted([e for e in fe if e[1] == b and len(e) == 3], key=lambda e: ops_f[e[0]][0])
         blk_top.update({e: p for e, p in zip(es, attach(cx, w - 10, es).values())})
-        es2 = sorted([e for e in be if e[1] == b], key=lambda e: ops_b[e[0]][0])
+        blk_top.update({e: cx for e in fe if e[1] == b and len(e) > 3})
+        es2 = sorted([e for e in be if e[1] == b and len(e) == 2], key=lambda e: ops_b[e[0]][0])
         blk_bot.update({e: p for e, p in zip(es2, attach(cx, w - 10, es2).values())})
+        blk_bot.update({e: cx for e in be if e[1] == b and len(e) > 2})
     for i, (cx, w, *_r) in enumerate(ops_b):
-        es = sorted([e for e in be if e[0] == i], key=lambda e: blocks[e[1]][0])
+        es = sorted([e for e in be if e[0] == i and len(e) == 2], key=lambda e: blocks[e[1]][0])
         opb_pts.update({e: p for e, p in zip(es, attach(cx, w - 16, es).values())})
+        opb_pts.update({e: cx for e in be if e[0] == i and len(e) > 2})
     yo, yt, yb, yob = YF + 20, YM - 22, YM + (32 if sizes else 22), YB - 18
+    otop, bbot = YF - 16, YB + 18
     for e in fe:
-        i, b, kind = e
+        i, b, kind = e[:3]
         ox, bx, var = op_pts[e], blk_top[e], blocks[b][5]
-        if abs(ox - bx) > route:
+        if len(e) > 3:  # over the top: leave the block straight up through a gap between op boxes
+            gx, yc = blocks[b][0] if len(e) < 5 else e[4], otop - 14
+            ox = ops_f[i][0] + (ops_f[i][1] / 2 - 10) * (1 if gx > ops_f[i][0] else -1)
+            d = f"M{gx:.1f},{yt} L{gx:.1f},{yc} L{ox:.1f},{yc} L{ox:.1f},{otop - 2}" if kind == "R" else f"M{ox:.1f},{otop} L{ox:.1f},{yc} L{gx:.1f},{yc} L{gx:.1f},{yt - 2}"
+            f.path(d, var, width=1.3)
+        elif abs(ox - bx) > route:
             yc = yo + 14
             d = f"M{bx:.1f},{yt} L{bx:.1f},{yc} L{ox:.1f},{yc} L{ox:.1f},{yo + 2}" if kind == "R" else f"M{ox:.1f},{yo} L{ox:.1f},{yc} L{bx:.1f},{yc} L{bx:.1f},{yt - 2}"
             f.path(d, var, width=1.3)
@@ -476,9 +487,13 @@ def flow(f, ops_f, ops_b, blocks, fe, be, YF=56, YM=176, YB=296, route=170, size
         else:
             f.arrow(ox, yo, bx, yt - 2, var, width=1.3)
     for e in be:
-        i, b = e
+        i, b = e[:2]
         ox, bx, var = opb_pts[e], blk_bot[e], blocks[b][5]
-        if abs(ox - bx) > route:
+        if len(e) > 2:  # under the backward row
+            gx, yc = blocks[b][0] if len(e) < 4 else e[3], bbot + 14
+            ox = ops_b[i][0] + (ops_b[i][1] / 2 - 10) * (1 if gx > ops_b[i][0] else -1)
+            f.path(f"M{gx:.1f},{yb} L{gx:.1f},{yc} L{ox:.1f},{yc} L{ox:.1f},{bbot + 2}", var, dash=True, width=1.3)
+        elif abs(ox - bx) > route:
             yc = yob - 14
             f.path(f"M{bx:.1f},{yb} L{bx:.1f},{yc} L{ox:.1f},{yc} L{ox:.1f},{yob - 2}", var, dash=True, width=1.3)
         else:
@@ -504,38 +519,39 @@ def blk(var, kind):
     return tint(var, 16 if kind == "new" else 10, sw=2.2 if kind == "new" else 1.2)
 
 def rms_eager():
-    f = F("fig-3-1", 336, "RMSNorm eager：中间一排是显存里的每一块张量，前向箭头表示读写，反向虚线箭头表示读回存下的张量；x 被 ① 和 ④ 共用，r 被 ③ 和 ④ 共用")
-    LANES = [(6, 98, "前向", "箭头指向 op 是读，指向显存是写"), (128, 224, "显存", ""), (254, 330, "反向", "")]
+    f = F("fig-3-1", 350, "RMSNorm eager：中间一排是显存里的每一块张量，前向箭头表示读写，反向虚线箭头表示读回存下的张量；x 被 ① 和 ④ 共用，r 被 ③ 和 ④ 共用")
+    YF, YM, YB = 70, 196, 290
+    LANES = [(6, 112, "前向", "箭头指向 op 是读，指向显存是写"), (148, 240, "显存", ""), (252, 344, "反向", "")]
     rms_lanes(f, LANES, titles=False)
-    C, BW = [92, 206, 320, 434, 548], 84
+    C, BW = [100, 210, 320, 430, 540], 84
     ops_f = [(C[0], BW, "① x²", "1 FLOP/元素"), (C[1], BW, "② mean", "1 FLOP/元素"), (C[2], BW, "③ rsqrt", "每行 2 FLOPs"),
              (C[3], BW, "④ x · r", "1 FLOP/元素"), (C[4], BW, "⑤ w ⊙ x̂", "1 FLOP/元素")]
     ops_b = [(c, BW, f"{n} 反向") for c, n in zip(C, "①②③④⑤")]
-    blocks = {"x": (64, 80, "x …9040", "20 MiB，输入", blk("--fig-2", "ref"), "--fig-2"),
+    blocks = {"x": (46, 80, "x …9040", "20 MiB，输入", blk("--fig-2", "ref"), "--fig-2"),
               "x2": (158, 76, "x²", "20 MiB，临时", blk(None, "tmp"), "--fig-mute"),
               "v": (264, 72, "v", "8 KiB，临时", blk(None, "tmp"), "--fig-mute"),
               "r": (377, 70, "r …6b00", "+8 KiB", blk("--fig-1", "new"), "--fig-1"),
               "xh": (491, 70, "x̂ …3c00", "+20 MiB", blk("--fig-hi", "new"), "--fig-hi"),
               "w": (600, 60, "w …1000", "参数", blk("--fig-3", "ref"), "--fig-3")}
     fe = [(0, "x", "R"), (0, "x2", "W"), (1, "x2", "R"), (1, "v", "W"), (2, "v", "R"), (2, "r", "W"),
-          (3, "x", "R"), (3, "r", "R"), (3, "xh", "W"), (4, "xh", "R"), (4, "w", "R")]
-    be = [(0, "x"), (2, "r"), (3, "r"), (3, "x"), (4, "xh"), (4, "w")]
-    flow(f, ops_f, ops_b, blocks, fe, be, cap=72,
+          (3, "x", "R", "over", 11), (3, "r", "R"), (3, "xh", "W"), (4, "xh", "R"), (4, "w", "R")]
+    be = [(0, "x"), (2, "r"), (3, "r"), (3, "x", "under", 11), (4, "xh"), (4, "w")]
+    flow(f, ops_f, ops_b, blocks, fe, be, YF=YF, YM=YM, YB=YB, cap=72,
          sizes={"x": 20 << 20, "x2": 20 << 20, "v": 8 << 10, "r": 8 << 10, "xh": 20 << 20, "w": 10 << 10})
-    f.arrow(C[4] + BW / 2, 56, 614, 56); f.w('<text class="t" x="620" y="60">y</text>')
+    f.arrow(C[4] + BW / 2, YF, 614, YF); f.w(f'<text class="t" x="620" y="{YF + 4}">y</text>')
     for c0, c1 in zip(C, C[1:]):
-        f.arrow(c1 - BW / 2, 296, c0 + BW / 2 + 2, 296)
-    f.w('<text class="t" x="620" y="300">dy</text>'); f.arrow(616, 296, C[4] + BW / 2 + 2, 296)
-    f.arrow(C[0] - BW / 2, 296, 28, 296); f.w('<text class="t" x="8" y="300">dx</text>')
+        f.arrow(c1 - BW / 2, YB, c0 + BW / 2 + 2, YB)
+    f.w(f'<text class="t" x="620" y="{YB + 4}">dy</text>'); f.arrow(616, YB, C[4] + BW / 2 + 2, YB)
+    f.arrow(C[0] - BW / 2, YB, 24, YB); f.w(f'<text class="t" x="30" y="{YB - 7}">dx</text>')
     lane_titles(f, LANES)
     return f
 
 def rms_fused():
-    f = F("fig-3-2", 336, "torch.compile 融合后的 RMSNorm：前向一个 kernel 只读 x、w，写 r 和 y；x̂ 不存；反向一个 kernel 读回 x、w、r，现场重算 x̂")
+    f = F("fig-3-2", 336, "torch.compile 融合后的 RMSNorm：前向一个 kernel 只读 x、w，写 r 和 y；x̂ 不存；反向 3 个 kernel 读回 x、w、r，现场重算 x̂")
     LANES = [(6, 98, "前向", "箭头指向 op 是读，指向显存是写"), (128, 224, "显存", ""), (254, 330, "反向", "")]
     rms_lanes(f, LANES, titles=False)
     ops_f = [(330, 420, "fused forward：①–⑤ 一个 kernel", "~4 FLOPs/元素")]
-    ops_b = [(330, 420, "fused backward：x̂ = x · r 现场重算")]
+    ops_b = [(330, 420, "反向 3 个 kernel（dx 1 个，dw 2 个），x̂ = x · r 现场重算")]
     blocks = {"x": (180, 90, "x …3c80", "20 MiB，输入", blk("--fig-2", "ref"), "--fig-2"),
               "r": (330, 80, "r …f9c0", "+8 KiB", blk("--fig-1", "new"), "--fig-1"),
               "w": (480, 70, "w …b3c0", "参数", blk("--fig-3", "ref"), "--fig-3")}
