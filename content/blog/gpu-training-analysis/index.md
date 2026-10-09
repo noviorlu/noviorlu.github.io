@@ -321,7 +321,7 @@ A 在前向一层层攒起来，反向再一层层释放；G 正好相反，前�
 
 <p align="center">$\mathrm{peak}_{\mathrm{full}} \approx 3W + \max(A,\ G)$</p>
 
-拿 large 验算：3 × 3.61 + 16.58 = 27.4 GiB，实测 27.51 GiB，差的 0.1 GiB 就是 T。正常训练 token 多，A 比 G 大，峰值出现在前向刚结束时；token 很少时才反过来，比如 xl 在 seq 128（[图 2-4](#fig-2-4) 左）。
+拿 large 验算：3 × 3.61 + 16.58 = 27.4 GiB，实测 27.51 GiB，差的 0.1 GiB 就是 T。正常训练 token 多，A 比 G 大，峰值出现在前向刚结束时；token 很少时才反过来，比如 xl 在 seq 128（[图 2-4](#fig-2-4) 左）。如果把 attention 换成不落 S、P 的 kernel，再把整个模型交给 `torch.compile` 融合，small 在 seq 512 的 A 从 3.41 GiB 降到 1.65 GiB，峰值从 4.08 GiB 降到约 2.3 GiB。A 仍然比 G 大，峰值还在前向结束时（图 2-4 右）。省下的这一半是什么，[第 3 节](#rmsnorm)和[第 4 节](#attention)会逐个 op 拆开看。
 
 <figure id="fig-2-4" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="一步前向 + 反向的显存：按 M(j) 用实测的 W、A、G、T 堆叠；xl seq 128 时 G 大于 A，峰值在反向结束；small seq 512 时 A 大于 G，峰值在前向结束">
@@ -354,132 +354,149 @@ A 在前向一层层攒起来，反向再一层层释放；G 正好相反，前�
   <text class="lab" x="189.79999999999998" y="18">T</text>
   <text x="212.39999999999998" y="18" class="val" >×</text>
   <text class="lab" x="226.39999999999998" y="18">逐层实测</text>
-  <text class="ttl" x="64" y="44">xl，seq 128（G > A）</text>
-  <line class="grid" x1="64" y1="250.0" x2="314" y2="250.0"/><text class="tick" x="58" y="254.0" text-anchor="end">0</text>
-  <line class="grid" x1="64" y1="216.4" x2="314" y2="216.4"/><text class="tick" x="58" y="220.4" text-anchor="end">5</text>
-  <line class="grid" x1="64" y1="182.9" x2="314" y2="182.9"/><text class="tick" x="58" y="186.9" text-anchor="end">10</text>
-  <line class="grid" x1="64" y1="149.3" x2="314" y2="149.3"/><text class="tick" x="58" y="153.3" text-anchor="end">15</text>
-  <line class="grid" x1="64" y1="115.7" x2="314" y2="115.7"/><text class="tick" x="58" y="119.7" text-anchor="end">20</text>
-  <line class="grid" x1="64" y1="82.1" x2="314" y2="82.1"/><text class="tick" x="58" y="86.1" text-anchor="end">25</text>
-  <g class="m"><title>W</title><polygon points="64.0,164.7 67.9,164.7 71.8,164.7 75.7,164.7 79.6,164.7 83.5,164.7 87.4,164.7 91.3,164.7 95.2,164.7 99.2,164.7 103.1,164.7 107.0,164.7 110.9,164.7 114.8,164.7 118.7,164.7 122.6,164.7 126.5,164.7 130.4,164.7 134.3,164.7 138.2,164.7 142.1,164.7 146.0,164.7 149.9,164.7 153.8,164.7 157.8,164.7 161.7,164.7 165.6,164.7 169.5,164.7 173.4,164.7 177.3,164.7 181.2,164.7 185.1,164.7 189.0,164.7 192.9,164.7 196.8,164.7 200.7,164.7 204.6,164.7 208.5,164.7 212.4,164.7 216.3,164.7 220.2,164.7 224.2,164.7 228.1,164.7 232.0,164.7 235.9,164.7 239.8,164.7 243.7,164.7 247.6,164.7 251.5,164.7 255.4,164.7 259.3,164.7 263.2,164.7 267.1,164.7 271.0,164.7 274.9,164.7 278.8,164.7 282.8,164.7 286.7,164.7 290.6,164.7 294.5,164.7 298.4,164.7 302.3,164.7 306.2,164.7 310.1,164.7 314.0,164.7 314.0,250.0 310.1,250.0 306.2,250.0 302.3,250.0 298.4,250.0 294.5,250.0 290.6,250.0 286.7,250.0 282.8,250.0 278.8,250.0 274.9,250.0 271.0,250.0 267.1,250.0 263.2,250.0 259.3,250.0 255.4,250.0 251.5,250.0 247.6,250.0 243.7,250.0 239.8,250.0 235.9,250.0 232.0,250.0 228.1,250.0 224.2,250.0 220.2,250.0 216.3,250.0 212.4,250.0 208.5,250.0 204.6,250.0 200.7,250.0 196.8,250.0 192.9,250.0 189.0,250.0 185.1,250.0 181.2,250.0 177.3,250.0 173.4,250.0 169.5,250.0 165.6,250.0 161.7,250.0 157.8,250.0 153.8,250.0 149.9,250.0 146.0,250.0 142.1,250.0 138.2,250.0 134.3,250.0 130.4,250.0 126.5,250.0 122.6,250.0 118.7,250.0 114.8,250.0 110.9,250.0 107.0,250.0 103.1,250.0 99.2,250.0 95.2,250.0 91.3,250.0 87.4,250.0 83.5,250.0 79.6,250.0 75.7,250.0 71.8,250.0 67.9,250.0 64.0,250.0" style="fill: var(--fig-1)" stroke-width=".8"/></g>
-  <g class="m"><title>A</title><polygon points="64.0,164.7 67.9,163.6 71.8,162.5 75.7,161.4 79.6,160.3 83.5,159.2 87.4,158.1 91.3,156.9 95.2,155.8 99.2,154.7 103.1,153.6 107.0,152.5 110.9,151.4 114.8,150.3 118.7,149.2 122.6,148.0 126.5,146.9 130.4,145.8 134.3,144.7 138.2,143.6 142.1,142.5 146.0,141.4 149.9,140.3 153.8,139.2 157.8,138.0 161.7,136.9 165.6,135.8 169.5,134.7 173.4,133.6 177.3,132.5 181.2,131.4 185.1,130.3 189.0,129.1 192.9,130.3 196.8,131.4 200.7,132.5 204.6,133.6 208.5,134.7 212.4,135.8 216.3,136.9 220.2,138.0 224.2,139.2 228.1,140.3 232.0,141.4 235.9,142.5 239.8,143.6 243.7,144.7 247.6,145.8 251.5,146.9 255.4,148.0 259.3,149.2 263.2,150.3 267.1,151.4 271.0,152.5 274.9,153.6 278.8,154.7 282.8,155.8 286.7,156.9 290.6,158.1 294.5,159.2 298.4,160.3 302.3,161.4 306.2,162.5 310.1,163.6 314.0,164.7 314.0,164.7 310.1,164.7 306.2,164.7 302.3,164.7 298.4,164.7 294.5,164.7 290.6,164.7 286.7,164.7 282.8,164.7 278.8,164.7 274.9,164.7 271.0,164.7 267.1,164.7 263.2,164.7 259.3,164.7 255.4,164.7 251.5,164.7 247.6,164.7 243.7,164.7 239.8,164.7 235.9,164.7 232.0,164.7 228.1,164.7 224.2,164.7 220.2,164.7 216.3,164.7 212.4,164.7 208.5,164.7 204.6,164.7 200.7,164.7 196.8,164.7 192.9,164.7 189.0,164.7 185.1,164.7 181.2,164.7 177.3,164.7 173.4,164.7 169.5,164.7 165.6,164.7 161.7,164.7 157.8,164.7 153.8,164.7 149.9,164.7 146.0,164.7 142.1,164.7 138.2,164.7 134.3,164.7 130.4,164.7 126.5,164.7 122.6,164.7 118.7,164.7 114.8,164.7 110.9,164.7 107.0,164.7 103.1,164.7 99.2,164.7 95.2,164.7 91.3,164.7 87.4,164.7 83.5,164.7 79.6,164.7 75.7,164.7 71.8,164.7 67.9,164.7 64.0,164.7" style="fill: var(--fig-2)" stroke-width=".8"/></g>
-  <g class="m"><title>G</title><polygon points="64.0,164.7 67.9,163.6 71.8,162.5 75.7,161.4 79.6,160.3 83.5,159.2 87.4,158.1 91.3,156.9 95.2,155.8 99.2,154.7 103.1,153.6 107.0,152.5 110.9,151.4 114.8,150.3 118.7,149.2 122.6,148.0 126.5,146.9 130.4,145.8 134.3,144.7 138.2,143.6 142.1,142.5 146.0,141.4 149.9,140.3 153.8,139.2 157.8,138.0 161.7,136.9 165.6,135.8 169.5,134.7 173.4,133.6 177.3,132.5 181.2,131.4 185.1,130.3 189.0,129.1 192.9,127.6 196.8,126.0 200.7,124.5 204.6,122.9 208.5,121.4 212.4,119.8 216.3,118.3 220.2,116.7 224.2,115.2 228.1,113.6 232.0,112.1 235.9,110.5 239.8,109.0 243.7,107.4 247.6,105.9 251.5,104.3 255.4,102.7 259.3,101.2 263.2,99.6 267.1,98.1 271.0,96.5 274.9,95.0 278.8,93.4 282.8,91.9 286.7,90.3 290.6,88.8 294.5,87.2 298.4,85.7 302.3,84.1 306.2,82.6 310.1,81.0 314.0,79.5 314.0,164.7 310.1,163.6 306.2,162.5 302.3,161.4 298.4,160.3 294.5,159.2 290.6,158.1 286.7,156.9 282.8,155.8 278.8,154.7 274.9,153.6 271.0,152.5 267.1,151.4 263.2,150.3 259.3,149.2 255.4,148.0 251.5,146.9 247.6,145.8 243.7,144.7 239.8,143.6 235.9,142.5 232.0,141.4 228.1,140.3 224.2,139.2 220.2,138.0 216.3,136.9 212.4,135.8 208.5,134.7 204.6,133.6 200.7,132.5 196.8,131.4 192.9,130.3 189.0,129.1 185.1,130.3 181.2,131.4 177.3,132.5 173.4,133.6 169.5,134.7 165.6,135.8 161.7,136.9 157.8,138.0 153.8,139.2 149.9,140.3 146.0,141.4 142.1,142.5 138.2,143.6 134.3,144.7 130.4,145.8 126.5,146.9 122.6,148.0 118.7,149.2 114.8,150.3 110.9,151.4 107.0,152.5 103.1,153.6 99.2,154.7 95.2,155.8 91.3,156.9 87.4,158.1 83.5,159.2 79.6,160.3 75.7,161.4 71.8,162.5 67.9,163.6 64.0,164.7" style="fill: var(--fig-hi)" stroke-width=".8"/></g>
-  <g class="m"><title>T</title><polygon points="64.0,164.7 67.9,163.6 71.8,162.5 75.7,161.4 79.6,160.3 83.5,159.2 87.4,158.1 91.3,156.9 95.2,155.8 99.2,154.7 103.1,153.6 107.0,152.5 110.9,151.4 114.8,150.3 118.7,149.2 122.6,148.0 126.5,146.9 130.4,145.8 134.3,144.7 138.2,143.6 142.1,142.5 146.0,141.4 149.9,140.3 153.8,139.2 157.8,138.0 161.7,136.9 165.6,135.8 169.5,134.7 173.4,133.6 177.3,132.5 181.2,131.4 185.1,130.3 189.0,127.8 192.9,126.2 196.8,124.7 200.7,123.1 204.6,121.6 208.5,120.0 212.4,118.5 216.3,116.9 220.2,115.4 224.2,113.8 228.1,112.3 232.0,110.7 235.9,109.2 239.8,107.6 243.7,106.1 247.6,104.5 251.5,103.0 255.4,101.4 259.3,99.9 263.2,98.3 267.1,96.7 271.0,95.2 274.9,93.6 278.8,92.1 282.8,90.5 286.7,89.0 290.6,87.4 294.5,85.9 298.4,84.3 302.3,82.8 306.2,81.2 310.1,79.7 314.0,78.1 314.0,79.5 310.1,81.0 306.2,82.6 302.3,84.1 298.4,85.7 294.5,87.2 290.6,88.8 286.7,90.3 282.8,91.9 278.8,93.4 274.9,95.0 271.0,96.5 267.1,98.1 263.2,99.6 259.3,101.2 255.4,102.7 251.5,104.3 247.6,105.9 243.7,107.4 239.8,109.0 235.9,110.5 232.0,112.1 228.1,113.6 224.2,115.2 220.2,116.7 216.3,118.3 212.4,119.8 208.5,121.4 204.6,122.9 200.7,124.5 196.8,126.0 192.9,127.6 189.0,129.1 185.1,130.3 181.2,131.4 177.3,132.5 173.4,133.6 169.5,134.7 165.6,135.8 161.7,136.9 157.8,138.0 153.8,139.2 149.9,140.3 146.0,141.4 142.1,142.5 138.2,143.6 134.3,144.7 130.4,145.8 126.5,146.9 122.6,148.0 118.7,149.2 114.8,150.3 110.9,151.4 107.0,152.5 103.1,153.6 99.2,154.7 95.2,155.8 91.3,156.9 87.4,158.1 83.5,159.2 79.6,160.3 75.7,161.4 71.8,162.5 67.9,163.6 64.0,164.7" style="fill: var(--fig-3); stroke: var(--fig-2)" stroke-width=".8"/></g>
-  <text x="67.9" y="166.2" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="71.8" y="165.1" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="75.7" y="164.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="79.6" y="162.9" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="83.5" y="161.8" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="87.4" y="160.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="91.3" y="159.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="95.2" y="158.6" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="99.2" y="157.5" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="103.1" y="156.4" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="107.0" y="155.3" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="110.9" y="154.2" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="114.8" y="153.1" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="118.7" y="152.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="122.6" y="150.9" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="126.5" y="149.8" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="130.4" y="148.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="134.3" y="147.6" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="138.2" y="146.5" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="142.1" y="145.4" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="146.0" y="144.3" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="149.9" y="143.2" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="153.8" y="142.1" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="157.8" y="141.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="161.7" y="139.9" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="165.6" y="138.8" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="169.5" y="137.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="173.4" y="136.6" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="177.3" y="135.5" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="181.2" y="134.4" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="185.1" y="133.3" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="189.0" y="132.2" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="192.9" y="130.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="196.8" y="128.5" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="200.7" y="127.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="204.6" y="125.5" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="208.5" y="123.9" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="212.4" y="122.4" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="216.3" y="120.9" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="220.2" y="119.3" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="224.2" y="117.8" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="228.1" y="116.3" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="232.0" y="114.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="235.9" y="113.2" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="239.8" y="111.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="243.7" y="110.2" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="247.6" y="108.6" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="251.5" y="107.1" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="255.4" y="105.6" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="259.3" y="104.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="263.2" y="102.5" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="267.1" y="101.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="271.0" y="99.5" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="274.9" y="97.9" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="278.8" y="96.4" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="282.8" y="94.9" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="286.7" y="93.3" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="290.6" y="91.8" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="294.5" y="90.3" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="298.4" y="88.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="302.3" y="87.2" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="306.2" y="85.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="310.1" y="84.1" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="314.0" y="82.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text class="val" x="308.0" y="70.1" text-anchor="end">峰值 25.56 GiB</text>
-  <line x1="189.0" y1="62" x2="189.0" y2="250" stroke="currentColor" stroke-opacity=".3" stroke-dasharray="2 3"/>
-  <line class="axis" x1="64" y1="250" x2="314" y2="250"/>
-  <text class="tick" x="64.0" y="266" text-anchor="start">开始</text>
-  <text class="tick" x="189.0" y="266" text-anchor="middle">前向结束</text>
-  <text class="tick" x="314.0" y="266" text-anchor="end">反向结束</text>
-  <text class="lab2" x="64" y="286">W = G = 12.7 GiB，A = 5.3 GiB，L = 32</text>
-  <text class="ttl" x="364" y="44">small，seq 512（A > G）</text>
-  <line class="grid" x1="364" y1="250.0" x2="614" y2="250.0"/><text class="tick" x="358" y="254.0" text-anchor="end">0</text>
-  <line class="grid" x1="364" y1="208.2" x2="614" y2="208.2"/><text class="tick" x="358" y="212.2" text-anchor="end">1</text>
-  <line class="grid" x1="364" y1="166.4" x2="614" y2="166.4"/><text class="tick" x="358" y="170.4" text-anchor="end">2</text>
-  <line class="grid" x1="364" y1="124.7" x2="614" y2="124.7"/><text class="tick" x="358" y="128.7" text-anchor="end">3</text>
-  <line class="grid" x1="364" y1="82.9" x2="614" y2="82.9"/><text class="tick" x="358" y="86.9" text-anchor="end">4</text>
-  <g class="m"><title>W</title><polygon points="364.0,229.9 374.4,229.9 384.8,229.9 395.2,229.9 405.7,229.9 416.1,229.9 426.5,229.9 436.9,229.9 447.3,229.9 457.8,229.9 468.2,229.9 478.6,229.9 489.0,229.9 499.4,229.9 509.8,229.9 520.2,229.9 530.7,229.9 541.1,229.9 551.5,229.9 561.9,229.9 572.3,229.9 582.8,229.9 593.2,229.9 603.6,229.9 614.0,229.9 614.0,250.0 603.6,250.0 593.2,250.0 582.8,250.0 572.3,250.0 561.9,250.0 551.5,250.0 541.1,250.0 530.7,250.0 520.2,250.0 509.8,250.0 499.4,250.0 489.0,250.0 478.6,250.0 468.2,250.0 457.8,250.0 447.3,250.0 436.9,250.0 426.5,250.0 416.1,250.0 405.7,250.0 395.2,250.0 384.8,250.0 374.4,250.0 364.0,250.0" style="fill: var(--fig-1)" stroke-width=".8"/></g>
-  <g class="m"><title>A</title><polygon points="364.0,229.9 374.4,218.1 384.8,206.2 395.2,194.3 405.7,182.5 416.1,170.6 426.5,158.7 436.9,146.8 447.3,135.0 457.8,123.1 468.2,111.2 478.6,99.4 489.0,87.5 499.4,99.4 509.8,111.2 520.2,123.1 530.7,135.0 541.1,146.8 551.5,158.7 561.9,170.6 572.3,182.5 582.8,194.3 593.2,206.2 603.6,218.1 614.0,229.9 614.0,229.9 603.6,229.9 593.2,229.9 582.8,229.9 572.3,229.9 561.9,229.9 551.5,229.9 541.1,229.9 530.7,229.9 520.2,229.9 509.8,229.9 499.4,229.9 489.0,229.9 478.6,229.9 468.2,229.9 457.8,229.9 447.3,229.9 436.9,229.9 426.5,229.9 416.1,229.9 405.7,229.9 395.2,229.9 384.8,229.9 374.4,229.9 364.0,229.9" style="fill: var(--fig-2)" stroke-width=".8"/></g>
-  <g class="m"><title>G</title><polygon points="364.0,229.9 374.4,218.1 384.8,206.2 395.2,194.3 405.7,182.5 416.1,170.6 426.5,158.7 436.9,146.8 447.3,135.0 457.8,123.1 468.2,111.2 478.6,99.4 489.0,87.5 499.4,97.7 509.8,107.9 520.2,118.1 530.7,128.3 541.1,138.5 551.5,148.7 561.9,158.9 572.3,169.1 582.8,179.3 593.2,189.5 603.6,199.7 614.0,209.9 614.0,229.9 603.6,218.1 593.2,206.2 582.8,194.3 572.3,182.5 561.9,170.6 551.5,158.7 541.1,146.8 530.7,135.0 520.2,123.1 509.8,111.2 499.4,99.4 489.0,87.5 478.6,99.4 468.2,111.2 457.8,123.1 447.3,135.0 436.9,146.8 426.5,158.7 416.1,170.6 405.7,182.5 395.2,194.3 384.8,206.2 374.4,218.1 364.0,229.9" style="fill: var(--fig-hi)" stroke-width=".8"/></g>
-  <g class="m"><title>T</title><polygon points="364.0,229.9 374.4,218.1 384.8,206.2 395.2,194.3 405.7,182.5 416.1,170.6 426.5,158.7 436.9,146.8 447.3,135.0 457.8,123.1 468.2,111.2 478.6,99.4 489.0,80.4 499.4,90.6 509.8,100.8 520.2,111.0 530.7,121.2 541.1,131.4 551.5,141.6 561.9,151.8 572.3,162.0 582.8,172.2 593.2,182.4 603.6,192.6 614.0,202.8 614.0,209.9 603.6,199.7 593.2,189.5 582.8,179.3 572.3,169.1 561.9,158.9 551.5,148.7 541.1,138.5 530.7,128.3 520.2,118.1 509.8,107.9 499.4,97.7 489.0,87.5 478.6,99.4 468.2,111.2 457.8,123.1 447.3,135.0 436.9,146.8 426.5,158.7 416.1,170.6 405.7,182.5 395.2,194.3 384.8,206.2 374.4,218.1 364.0,229.9" style="fill: var(--fig-3); stroke: var(--fig-2)" stroke-width=".8"/></g>
-  <text x="374.4" y="221.2" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="384.8" y="209.9" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="395.2" y="198.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="405.7" y="187.4" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="416.1" y="176.1" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="426.5" y="164.8" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="436.9" y="153.5" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="447.3" y="142.2" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="457.8" y="131.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="468.2" y="119.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="478.6" y="108.4" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="489.0" y="97.1" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="499.4" y="105.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="509.8" y="115.5" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="520.2" y="125.3" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="530.7" y="135.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="541.1" y="144.9" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="551.5" y="154.6" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="561.9" y="164.4" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="572.3" y="174.3" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="582.8" y="184.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="593.2" y="193.8" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="603.6" y="203.6" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text x="614.0" y="212.4" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text class="val" x="495.0" y="72.4" text-anchor="start">峰值 4.08 GiB</text>
-  <line x1="489.0" y1="62" x2="489.0" y2="250" stroke="currentColor" stroke-opacity=".3" stroke-dasharray="2 3"/>
-  <line class="axis" x1="364" y1="250" x2="614" y2="250"/>
-  <text class="tick" x="364.0" y="266" text-anchor="start">开始</text>
-  <text class="tick" x="489.0" y="266" text-anchor="middle">前向结束</text>
-  <text class="tick" x="614.0" y="266" text-anchor="end">反向结束</text>
-  <text class="lab2" x="364" y="286">W = G = 0.48 GiB，A = 3.41 GiB，L = 12</text>
+  <text class="ttl" x="50" y="44">xl，seq 128（G > A）</text>
+  <line class="grid" x1="50" y1="250.0" x2="220" y2="250.0"/><text class="tick" x="44" y="254.0" text-anchor="end">0</text>
+  <line class="grid" x1="50" y1="216.4" x2="220" y2="216.4"/><text class="tick" x="44" y="220.4" text-anchor="end">5</text>
+  <line class="grid" x1="50" y1="182.9" x2="220" y2="182.9"/><text class="tick" x="44" y="186.9" text-anchor="end">10</text>
+  <line class="grid" x1="50" y1="149.3" x2="220" y2="149.3"/><text class="tick" x="44" y="153.3" text-anchor="end">15</text>
+  <line class="grid" x1="50" y1="115.7" x2="220" y2="115.7"/><text class="tick" x="44" y="119.7" text-anchor="end">20</text>
+  <line class="grid" x1="50" y1="82.1" x2="220" y2="82.1"/><text class="tick" x="44" y="86.1" text-anchor="end">25</text>
+  <g class="m"><title>W</title><polygon points="50.0,164.7 52.7,164.7 55.3,164.7 58.0,164.7 60.6,164.7 63.3,164.7 65.9,164.7 68.6,164.7 71.2,164.7 73.9,164.7 76.6,164.7 79.2,164.7 81.9,164.7 84.5,164.7 87.2,164.7 89.8,164.7 92.5,164.7 95.2,164.7 97.8,164.7 100.5,164.7 103.1,164.7 105.8,164.7 108.4,164.7 111.1,164.7 113.8,164.7 116.4,164.7 119.1,164.7 121.7,164.7 124.4,164.7 127.0,164.7 129.7,164.7 132.3,164.7 135.0,164.7 137.7,164.7 140.3,164.7 143.0,164.7 145.6,164.7 148.3,164.7 150.9,164.7 153.6,164.7 156.2,164.7 158.9,164.7 161.6,164.7 164.2,164.7 166.9,164.7 169.5,164.7 172.2,164.7 174.8,164.7 177.5,164.7 180.2,164.7 182.8,164.7 185.5,164.7 188.1,164.7 190.8,164.7 193.4,164.7 196.1,164.7 198.8,164.7 201.4,164.7 204.1,164.7 206.7,164.7 209.4,164.7 212.0,164.7 214.7,164.7 217.3,164.7 220.0,164.7 220.0,250.0 217.3,250.0 214.7,250.0 212.0,250.0 209.4,250.0 206.7,250.0 204.1,250.0 201.4,250.0 198.8,250.0 196.1,250.0 193.4,250.0 190.8,250.0 188.1,250.0 185.5,250.0 182.8,250.0 180.2,250.0 177.5,250.0 174.8,250.0 172.2,250.0 169.5,250.0 166.9,250.0 164.2,250.0 161.6,250.0 158.9,250.0 156.2,250.0 153.6,250.0 150.9,250.0 148.3,250.0 145.6,250.0 143.0,250.0 140.3,250.0 137.7,250.0 135.0,250.0 132.3,250.0 129.7,250.0 127.0,250.0 124.4,250.0 121.7,250.0 119.1,250.0 116.4,250.0 113.8,250.0 111.1,250.0 108.4,250.0 105.8,250.0 103.1,250.0 100.5,250.0 97.8,250.0 95.2,250.0 92.5,250.0 89.8,250.0 87.2,250.0 84.5,250.0 81.9,250.0 79.2,250.0 76.6,250.0 73.9,250.0 71.2,250.0 68.6,250.0 65.9,250.0 63.3,250.0 60.6,250.0 58.0,250.0 55.3,250.0 52.7,250.0 50.0,250.0" style="fill: var(--fig-1)" stroke-width=".8"/></g>
+  <g class="m"><title>A</title><polygon points="50.0,164.7 52.7,163.6 55.3,162.5 58.0,161.4 60.6,160.3 63.3,159.2 65.9,158.1 68.6,156.9 71.2,155.8 73.9,154.7 76.6,153.6 79.2,152.5 81.9,151.4 84.5,150.3 87.2,149.2 89.8,148.0 92.5,146.9 95.2,145.8 97.8,144.7 100.5,143.6 103.1,142.5 105.8,141.4 108.4,140.3 111.1,139.2 113.8,138.0 116.4,136.9 119.1,135.8 121.7,134.7 124.4,133.6 127.0,132.5 129.7,131.4 132.3,130.3 135.0,129.1 137.7,130.3 140.3,131.4 143.0,132.5 145.6,133.6 148.3,134.7 150.9,135.8 153.6,136.9 156.2,138.0 158.9,139.2 161.6,140.3 164.2,141.4 166.9,142.5 169.5,143.6 172.2,144.7 174.8,145.8 177.5,146.9 180.2,148.0 182.8,149.2 185.5,150.3 188.1,151.4 190.8,152.5 193.4,153.6 196.1,154.7 198.8,155.8 201.4,156.9 204.1,158.1 206.7,159.2 209.4,160.3 212.0,161.4 214.7,162.5 217.3,163.6 220.0,164.7 220.0,164.7 217.3,164.7 214.7,164.7 212.0,164.7 209.4,164.7 206.7,164.7 204.1,164.7 201.4,164.7 198.8,164.7 196.1,164.7 193.4,164.7 190.8,164.7 188.1,164.7 185.5,164.7 182.8,164.7 180.2,164.7 177.5,164.7 174.8,164.7 172.2,164.7 169.5,164.7 166.9,164.7 164.2,164.7 161.6,164.7 158.9,164.7 156.2,164.7 153.6,164.7 150.9,164.7 148.3,164.7 145.6,164.7 143.0,164.7 140.3,164.7 137.7,164.7 135.0,164.7 132.3,164.7 129.7,164.7 127.0,164.7 124.4,164.7 121.7,164.7 119.1,164.7 116.4,164.7 113.8,164.7 111.1,164.7 108.4,164.7 105.8,164.7 103.1,164.7 100.5,164.7 97.8,164.7 95.2,164.7 92.5,164.7 89.8,164.7 87.2,164.7 84.5,164.7 81.9,164.7 79.2,164.7 76.6,164.7 73.9,164.7 71.2,164.7 68.6,164.7 65.9,164.7 63.3,164.7 60.6,164.7 58.0,164.7 55.3,164.7 52.7,164.7 50.0,164.7" style="fill: var(--fig-2)" stroke-width=".8"/></g>
+  <g class="m"><title>G</title><polygon points="50.0,164.7 52.7,163.6 55.3,162.5 58.0,161.4 60.6,160.3 63.3,159.2 65.9,158.1 68.6,156.9 71.2,155.8 73.9,154.7 76.6,153.6 79.2,152.5 81.9,151.4 84.5,150.3 87.2,149.2 89.8,148.0 92.5,146.9 95.2,145.8 97.8,144.7 100.5,143.6 103.1,142.5 105.8,141.4 108.4,140.3 111.1,139.2 113.8,138.0 116.4,136.9 119.1,135.8 121.7,134.7 124.4,133.6 127.0,132.5 129.7,131.4 132.3,130.3 135.0,129.1 137.7,127.6 140.3,126.0 143.0,124.5 145.6,122.9 148.3,121.4 150.9,119.8 153.6,118.3 156.2,116.7 158.9,115.2 161.6,113.6 164.2,112.1 166.9,110.5 169.5,109.0 172.2,107.4 174.8,105.9 177.5,104.3 180.2,102.7 182.8,101.2 185.5,99.6 188.1,98.1 190.8,96.5 193.4,95.0 196.1,93.4 198.8,91.9 201.4,90.3 204.1,88.8 206.7,87.2 209.4,85.7 212.0,84.1 214.7,82.6 217.3,81.0 220.0,79.5 220.0,164.7 217.3,163.6 214.7,162.5 212.0,161.4 209.4,160.3 206.7,159.2 204.1,158.1 201.4,156.9 198.8,155.8 196.1,154.7 193.4,153.6 190.8,152.5 188.1,151.4 185.5,150.3 182.8,149.2 180.2,148.0 177.5,146.9 174.8,145.8 172.2,144.7 169.5,143.6 166.9,142.5 164.2,141.4 161.6,140.3 158.9,139.2 156.2,138.0 153.6,136.9 150.9,135.8 148.3,134.7 145.6,133.6 143.0,132.5 140.3,131.4 137.7,130.3 135.0,129.1 132.3,130.3 129.7,131.4 127.0,132.5 124.4,133.6 121.7,134.7 119.1,135.8 116.4,136.9 113.8,138.0 111.1,139.2 108.4,140.3 105.8,141.4 103.1,142.5 100.5,143.6 97.8,144.7 95.2,145.8 92.5,146.9 89.8,148.0 87.2,149.2 84.5,150.3 81.9,151.4 79.2,152.5 76.6,153.6 73.9,154.7 71.2,155.8 68.6,156.9 65.9,158.1 63.3,159.2 60.6,160.3 58.0,161.4 55.3,162.5 52.7,163.6 50.0,164.7" style="fill: var(--fig-hi)" stroke-width=".8"/></g>
+  <g class="m"><title>T</title><polygon points="50.0,164.7 52.7,163.6 55.3,162.5 58.0,161.4 60.6,160.3 63.3,159.2 65.9,158.1 68.6,156.9 71.2,155.8 73.9,154.7 76.6,153.6 79.2,152.5 81.9,151.4 84.5,150.3 87.2,149.2 89.8,148.0 92.5,146.9 95.2,145.8 97.8,144.7 100.5,143.6 103.1,142.5 105.8,141.4 108.4,140.3 111.1,139.2 113.8,138.0 116.4,136.9 119.1,135.8 121.7,134.7 124.4,133.6 127.0,132.5 129.7,131.4 132.3,130.3 135.0,127.8 137.7,126.2 140.3,124.7 143.0,123.1 145.6,121.6 148.3,120.0 150.9,118.5 153.6,116.9 156.2,115.4 158.9,113.8 161.6,112.3 164.2,110.7 166.9,109.2 169.5,107.6 172.2,106.1 174.8,104.5 177.5,103.0 180.2,101.4 182.8,99.9 185.5,98.3 188.1,96.7 190.8,95.2 193.4,93.6 196.1,92.1 198.8,90.5 201.4,89.0 204.1,87.4 206.7,85.9 209.4,84.3 212.0,82.8 214.7,81.2 217.3,79.7 220.0,78.1 220.0,79.5 217.3,81.0 214.7,82.6 212.0,84.1 209.4,85.7 206.7,87.2 204.1,88.8 201.4,90.3 198.8,91.9 196.1,93.4 193.4,95.0 190.8,96.5 188.1,98.1 185.5,99.6 182.8,101.2 180.2,102.7 177.5,104.3 174.8,105.9 172.2,107.4 169.5,109.0 166.9,110.5 164.2,112.1 161.6,113.6 158.9,115.2 156.2,116.7 153.6,118.3 150.9,119.8 148.3,121.4 145.6,122.9 143.0,124.5 140.3,126.0 137.7,127.6 135.0,129.1 132.3,130.3 129.7,131.4 127.0,132.5 124.4,133.6 121.7,134.7 119.1,135.8 116.4,136.9 113.8,138.0 111.1,139.2 108.4,140.3 105.8,141.4 103.1,142.5 100.5,143.6 97.8,144.7 95.2,145.8 92.5,146.9 89.8,148.0 87.2,149.2 84.5,150.3 81.9,151.4 79.2,152.5 76.6,153.6 73.9,154.7 71.2,155.8 68.6,156.9 65.9,158.1 63.3,159.2 60.6,160.3 58.0,161.4 55.3,162.5 52.7,163.6 50.0,164.7" style="fill: var(--fig-3); stroke: var(--fig-2)" stroke-width=".8"/></g>
+  <text x="52.7" y="166.2" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="55.3" y="165.1" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="58.0" y="164.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="60.6" y="162.9" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="63.3" y="161.8" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="65.9" y="160.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="68.6" y="159.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="71.2" y="158.6" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="73.9" y="157.5" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="76.6" y="156.4" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="79.2" y="155.3" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="81.9" y="154.2" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="84.5" y="153.1" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="87.2" y="152.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="89.8" y="150.9" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="92.5" y="149.8" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="95.2" y="148.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="97.8" y="147.6" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="100.5" y="146.5" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="103.1" y="145.4" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="105.8" y="144.3" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="108.4" y="143.2" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="111.1" y="142.1" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="113.8" y="141.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="116.4" y="139.9" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="119.1" y="138.8" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="121.7" y="137.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="124.4" y="136.6" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="127.0" y="135.5" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="129.7" y="134.4" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="132.3" y="133.3" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="135.0" y="132.2" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="137.7" y="130.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="140.3" y="128.5" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="143.0" y="127.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="145.6" y="125.5" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="148.3" y="123.9" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="150.9" y="122.4" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="153.6" y="120.9" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="156.2" y="119.3" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="158.9" y="117.8" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="161.6" y="116.3" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="164.2" y="114.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="166.9" y="113.2" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="169.5" y="111.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="172.2" y="110.2" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="174.8" y="108.6" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="177.5" y="107.1" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="180.2" y="105.6" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="182.8" y="104.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="185.5" y="102.5" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="188.1" y="101.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="190.8" y="99.5" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="193.4" y="97.9" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="196.1" y="96.4" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="198.8" y="94.9" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="201.4" y="93.3" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="204.1" y="91.8" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="206.7" y="90.3" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="209.4" y="88.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="212.0" y="87.2" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="214.7" y="85.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="217.3" y="84.1" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="220.0" y="82.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text class="val" x="214.0" y="70.1" text-anchor="end">峰值 25.56 GiB</text>
+  <line x1="135.0" y1="62" x2="135.0" y2="250" stroke="currentColor" stroke-opacity=".3" stroke-dasharray="2 3"/>
+  <line class="axis" x1="50" y1="250" x2="220" y2="250"/>
+  <text class="tick" x="50.0" y="266" text-anchor="start">开始</text>
+  <text class="tick" x="135.0" y="266" text-anchor="middle">前向结束</text>
+  <text class="tick" x="220.0" y="266" text-anchor="end">反向结束</text>
+  <text class="lab2" x="50" y="286">W = G = 12.7，A = 5.3 GiB</text>
+  <text class="ttl" x="250" y="44">small，seq 512（A > G）</text>
+  <line class="grid" x1="250" y1="250.0" x2="420" y2="250.0"/><text class="tick" x="244" y="254.0" text-anchor="end">0</text>
+  <line class="grid" x1="250" y1="208.2" x2="420" y2="208.2"/><text class="tick" x="244" y="212.2" text-anchor="end">1</text>
+  <line class="grid" x1="250" y1="166.4" x2="420" y2="166.4"/><text class="tick" x="244" y="170.4" text-anchor="end">2</text>
+  <line class="grid" x1="250" y1="124.7" x2="420" y2="124.7"/><text class="tick" x="244" y="128.7" text-anchor="end">3</text>
+  <line class="grid" x1="250" y1="82.9" x2="420" y2="82.9"/><text class="tick" x="244" y="86.9" text-anchor="end">4</text>
+  <g class="m"><title>W</title><polygon points="250.0,229.9 257.1,229.9 264.2,229.9 271.2,229.9 278.3,229.9 285.4,229.9 292.5,229.9 299.6,229.9 306.7,229.9 313.8,229.9 320.8,229.9 327.9,229.9 335.0,229.9 342.1,229.9 349.2,229.9 356.2,229.9 363.3,229.9 370.4,229.9 377.5,229.9 384.6,229.9 391.7,229.9 398.8,229.9 405.8,229.9 412.9,229.9 420.0,229.9 420.0,250.0 412.9,250.0 405.8,250.0 398.8,250.0 391.7,250.0 384.6,250.0 377.5,250.0 370.4,250.0 363.3,250.0 356.2,250.0 349.2,250.0 342.1,250.0 335.0,250.0 327.9,250.0 320.8,250.0 313.8,250.0 306.7,250.0 299.6,250.0 292.5,250.0 285.4,250.0 278.3,250.0 271.2,250.0 264.2,250.0 257.1,250.0 250.0,250.0" style="fill: var(--fig-1)" stroke-width=".8"/></g>
+  <g class="m"><title>A</title><polygon points="250.0,229.9 257.1,218.1 264.2,206.2 271.2,194.3 278.3,182.5 285.4,170.6 292.5,158.7 299.6,146.8 306.7,135.0 313.8,123.1 320.8,111.2 327.9,99.4 335.0,87.5 342.1,99.4 349.2,111.2 356.2,123.1 363.3,135.0 370.4,146.8 377.5,158.7 384.6,170.6 391.7,182.5 398.8,194.3 405.8,206.2 412.9,218.1 420.0,229.9 420.0,229.9 412.9,229.9 405.8,229.9 398.8,229.9 391.7,229.9 384.6,229.9 377.5,229.9 370.4,229.9 363.3,229.9 356.2,229.9 349.2,229.9 342.1,229.9 335.0,229.9 327.9,229.9 320.8,229.9 313.8,229.9 306.7,229.9 299.6,229.9 292.5,229.9 285.4,229.9 278.3,229.9 271.2,229.9 264.2,229.9 257.1,229.9 250.0,229.9" style="fill: var(--fig-2)" stroke-width=".8"/></g>
+  <g class="m"><title>G</title><polygon points="250.0,229.9 257.1,218.1 264.2,206.2 271.2,194.3 278.3,182.5 285.4,170.6 292.5,158.7 299.6,146.8 306.7,135.0 313.8,123.1 320.8,111.2 327.9,99.4 335.0,87.5 342.1,97.7 349.2,107.9 356.2,118.1 363.3,128.3 370.4,138.5 377.5,148.7 384.6,158.9 391.7,169.1 398.8,179.3 405.8,189.5 412.9,199.7 420.0,209.9 420.0,229.9 412.9,218.1 405.8,206.2 398.8,194.3 391.7,182.5 384.6,170.6 377.5,158.7 370.4,146.8 363.3,135.0 356.2,123.1 349.2,111.2 342.1,99.4 335.0,87.5 327.9,99.4 320.8,111.2 313.8,123.1 306.7,135.0 299.6,146.8 292.5,158.7 285.4,170.6 278.3,182.5 271.2,194.3 264.2,206.2 257.1,218.1 250.0,229.9" style="fill: var(--fig-hi)" stroke-width=".8"/></g>
+  <g class="m"><title>T</title><polygon points="250.0,229.9 257.1,218.1 264.2,206.2 271.2,194.3 278.3,182.5 285.4,170.6 292.5,158.7 299.6,146.8 306.7,135.0 313.8,123.1 320.8,111.2 327.9,99.4 335.0,80.4 342.1,90.6 349.2,100.8 356.2,111.0 363.3,121.2 370.4,131.4 377.5,141.6 384.6,151.8 391.7,162.0 398.8,172.2 405.8,182.4 412.9,192.6 420.0,202.8 420.0,209.9 412.9,199.7 405.8,189.5 398.8,179.3 391.7,169.1 384.6,158.9 377.5,148.7 370.4,138.5 363.3,128.3 356.2,118.1 349.2,107.9 342.1,97.7 335.0,87.5 327.9,99.4 320.8,111.2 313.8,123.1 306.7,135.0 299.6,146.8 292.5,158.7 285.4,170.6 278.3,182.5 271.2,194.3 264.2,206.2 257.1,218.1 250.0,229.9" style="fill: var(--fig-3); stroke: var(--fig-2)" stroke-width=".8"/></g>
+  <text x="257.1" y="221.2" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="264.2" y="209.9" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="271.2" y="198.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="278.3" y="187.4" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="285.4" y="176.1" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="292.5" y="164.8" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="299.6" y="153.5" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="306.7" y="142.2" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="313.8" y="131.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="320.8" y="119.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="327.9" y="108.4" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="335.0" y="97.1" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="342.1" y="105.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="349.2" y="115.5" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="356.2" y="125.3" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="363.3" y="135.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="370.4" y="144.9" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="377.5" y="154.6" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="384.6" y="164.4" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="391.7" y="174.3" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="398.8" y="184.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="405.8" y="193.8" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="412.9" y="203.6" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text x="420.0" y="212.4" text-anchor="middle" font-size="10" fill="currentColor">×</text>
+  <text class="val" x="341.0" y="72.4" text-anchor="start">峰值 4.08 GiB</text>
+  <line x1="335.0" y1="62" x2="335.0" y2="250" stroke="currentColor" stroke-opacity=".3" stroke-dasharray="2 3"/>
+  <line class="axis" x1="250" y1="250" x2="420" y2="250"/>
+  <text class="tick" x="250.0" y="266" text-anchor="start">开始</text>
+  <text class="tick" x="335.0" y="266" text-anchor="middle">前向结束</text>
+  <text class="tick" x="420.0" y="266" text-anchor="end">反向结束</text>
+  <text class="lab2" x="250" y="286">W = G = 0.48，A = 3.41 GiB</text>
+  <text class="ttl" x="450" y="44">small，seq 512，融合后</text>
+  <line class="grid" x1="450" y1="250.0" x2="620" y2="250.0"/><text class="tick" x="444" y="254.0" text-anchor="end">0</text>
+  <line class="grid" x1="450" y1="208.2" x2="620" y2="208.2"/><text class="tick" x="444" y="212.2" text-anchor="end">1</text>
+  <line class="grid" x1="450" y1="166.4" x2="620" y2="166.4"/><text class="tick" x="444" y="170.4" text-anchor="end">2</text>
+  <line class="grid" x1="450" y1="124.7" x2="620" y2="124.7"/><text class="tick" x="444" y="128.7" text-anchor="end">3</text>
+  <line class="grid" x1="450" y1="82.9" x2="620" y2="82.9"/><text class="tick" x="444" y="86.9" text-anchor="end">4</text>
+  <g class="m"><title>W</title><polygon points="450.0,229.9 457.1,229.9 464.2,229.9 471.2,229.9 478.3,229.9 485.4,229.9 492.5,229.9 499.6,229.9 506.7,229.9 513.8,229.9 520.8,229.9 527.9,229.9 535.0,229.9 542.1,229.9 549.2,229.9 556.2,229.9 563.3,229.9 570.4,229.9 577.5,229.9 584.6,229.9 591.7,229.9 598.8,229.9 605.8,229.9 612.9,229.9 620.0,229.9 620.0,250.0 612.9,250.0 605.8,250.0 598.8,250.0 591.7,250.0 584.6,250.0 577.5,250.0 570.4,250.0 563.3,250.0 556.2,250.0 549.2,250.0 542.1,250.0 535.0,250.0 527.9,250.0 520.8,250.0 513.8,250.0 506.7,250.0 499.6,250.0 492.5,250.0 485.4,250.0 478.3,250.0 471.2,250.0 464.2,250.0 457.1,250.0 450.0,250.0" style="fill: var(--fig-1)" stroke-width=".8"/></g>
+  <g class="m"><title>A</title><polygon points="450.0,229.9 457.1,224.2 464.2,218.5 471.2,212.7 478.3,207.0 485.4,201.2 492.5,195.5 499.6,189.7 506.7,184.0 513.8,178.2 520.8,172.5 527.9,166.8 535.0,161.0 542.1,166.8 549.2,172.5 556.2,178.2 563.3,184.0 570.4,189.7 577.5,195.5 584.6,201.2 591.7,207.0 598.8,212.7 605.8,218.5 612.9,224.2 620.0,229.9 620.0,229.9 612.9,229.9 605.8,229.9 598.8,229.9 591.7,229.9 584.6,229.9 577.5,229.9 570.4,229.9 563.3,229.9 556.2,229.9 549.2,229.9 542.1,229.9 535.0,229.9 527.9,229.9 520.8,229.9 513.8,229.9 506.7,229.9 499.6,229.9 492.5,229.9 485.4,229.9 478.3,229.9 471.2,229.9 464.2,229.9 457.1,229.9 450.0,229.9" style="fill: var(--fig-2)" stroke-width=".8"/></g>
+  <g class="m"><title>G</title><polygon points="450.0,229.9 457.1,224.2 464.2,218.5 471.2,212.7 478.3,207.0 485.4,201.2 492.5,195.5 499.6,189.7 506.7,184.0 513.8,178.2 520.8,172.5 527.9,166.8 535.0,161.0 542.1,165.1 549.2,169.2 556.2,173.2 563.3,177.3 570.4,181.4 577.5,185.5 584.6,189.5 591.7,193.6 598.8,197.7 605.8,201.7 612.9,205.8 620.0,209.9 620.0,229.9 612.9,224.2 605.8,218.5 598.8,212.7 591.7,207.0 584.6,201.2 577.5,195.5 570.4,189.7 563.3,184.0 556.2,178.2 549.2,172.5 542.1,166.8 535.0,161.0 527.9,166.8 520.8,172.5 513.8,178.2 506.7,184.0 499.6,189.7 492.5,195.5 485.4,201.2 478.3,207.0 471.2,212.7 464.2,218.5 457.1,224.2 450.0,229.9" style="fill: var(--fig-hi)" stroke-width=".8"/></g>
+  <g class="m"><title>T</title><polygon points="450.0,229.9 457.1,224.2 464.2,218.5 471.2,212.7 478.3,207.0 485.4,201.2 492.5,195.5 499.6,189.7 506.7,184.0 513.8,178.2 520.8,172.5 527.9,166.8 535.0,153.9 542.1,158.0 549.2,162.1 556.2,166.1 563.3,170.2 570.4,174.3 577.5,178.4 584.6,182.4 591.7,186.5 598.8,190.6 605.8,194.6 612.9,198.7 620.0,202.8 620.0,209.9 612.9,205.8 605.8,201.7 598.8,197.7 591.7,193.6 584.6,189.5 577.5,185.5 570.4,181.4 563.3,177.3 556.2,173.2 549.2,169.2 542.1,165.1 535.0,161.0 527.9,166.8 520.8,172.5 513.8,178.2 506.7,184.0 499.6,189.7 492.5,195.5 485.4,201.2 478.3,207.0 471.2,212.7 464.2,218.5 457.1,224.2 450.0,229.9" style="fill: var(--fig-3); stroke: var(--fig-2)" stroke-width=".8"/></g>
+  <text class="val" x="541.0" y="145.9" text-anchor="start">峰值约 2.3 GiB</text>
+  <line x1="535.0" y1="62" x2="535.0" y2="250" stroke="currentColor" stroke-opacity=".3" stroke-dasharray="2 3"/>
+  <line class="axis" x1="450" y1="250" x2="620" y2="250"/>
+  <text class="tick" x="450.0" y="266" text-anchor="start">开始</text>
+  <text class="tick" x="535.0" y="266" text-anchor="middle">前向结束</text>
+  <text class="tick" x="620.0" y="266" text-anchor="end">反向结束</text>
+  <text class="lab2" x="450" y="286">W = G = 0.48，A = 1.65 GiB</text>
   <text class="lab2" x="14" y="160" transform="rotate(-90 14 160)" text-anchor="middle">GiB</text>
 </svg>
-<figcaption><strong>图 2-4</strong> 一步前向 + 反向的显存（fp32）：色带按 M(j) 用实测的 W、A、G、T 堆叠，× 是逐层实测值。</figcaption>
+<figcaption><strong>图 2-4</strong> 一步前向 + 反向的显存（fp32）：色带按 M(j) 用实测的 W、A、G、T 堆叠，× 是逐层实测值。右图把 attention 换成不落 S、P 的 kernel 并整体 <code>torch.compile</code>，A 是 batch 1 实测乘 4。</figcaption>
 </figure>
 
 总账算下来有两条线索：时间上，40% 花在逐元素 kernel 上；显存上，峰值主要由 <span class="sw" style="background: var(--fig-2)"></span>A 决定，而且四项里只有 A 随 seq 变大。下面把单个 op 拆开，同时看这两件事：每一步算了多少、读写了多少显存、为反向存了什么。先拿最简单的 RMSNorm 把方法走一遍，再用到 attention 上。
