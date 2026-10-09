@@ -3,51 +3,48 @@ title: "谁偷走了 5090 的算力和显存：一步 Transformer 训练的 roof
 date: 2026-10-04
 draft: false
 math: true
-description: "在 RTX 5090 上实测一步 Transformer 训练的时间和显存：用 roofline、MFU 看时间，用 saved tensors 看显存，两条线都追到 attention 的 S、P 矩阵上。FlashAttention 一文的前置。"
+description: "在 RTX 5090 上实测一步 Transformer 训练的时间和显存：用 roofline 和 MFU 看时间花在哪，用 saved tensors 看显存花在哪，最后都落到 attention 的 S、P 矩阵上。FlashAttention 一文的前置。"
 tags: ["GPU", "Roofline", "Transformer", "显存", "LLM", "AI"]
 categories: ["AI笔记"]
 series: ["AI笔记"]
 series_order: 2
 ---
 
-训练一步 Transformer，时间花在哪、显存又花在哪？我在一张 RTX 5090 上把一步训练拆开量了一遍，结果有点出乎意料：慢的不是矩阵乘，占显存最多的也不是权重，两头最后都栽在同一个地方，attention 里那个 seq × seq 的分数矩阵 S 和它的 softmax 结果 P。下面按时间（第 2 节）、显存（第 3 节）、能不能省（第 4 节）的顺序把它们揪出来，怎么真正消掉它们留给下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/)。
+我在一张 RTX 5090 上把一步 Transformer 训练拆开，分别量了时间和显存。结果和预想的不太一样：拖慢速度的不是矩阵乘，占显存最多的也不是权重。两边查到最后，都落在 attention 里的两个 seq × seq 矩阵上，一个是分数矩阵 S，一个是它过 softmax 之后的 P。[第 2 节](#time)看时间，[第 3 节](#memory)看显存，[第 4 节](#savings)试 bf16 和 activation checkpoint 能省多少。怎么把 S、P 彻底去掉，留给下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/)。
 
-模型是我自己写的 Transformer LM（RMSNorm + RoPE + SwiGLU，pre-norm），从 small 0.13B 到 10B 12.83B 共五档，中间是 medium 0.42B、large 0.97B、xl 3.41B。
+模型是我自己写的 Transformer LM（RMSNorm、RoPE、SwiGLU，pre-norm），一共五档：small 0.13B、medium 0.42B、large 0.97B、xl 3.41B，以及 10B（实际 12.83B 参数）。
 
-> 环境：RTX 5090 32 GB，torch 2.11.0+cu130。fp32 基准关掉 tf32（`allow_tf32=False`）；除注明外 batch 4、seq 512，预热 5 步、计时 10 步；显存一律 GiB = 2³⁰ B（`max_memory_allocated() / 1024³`）。
+> 环境：RTX 5090 32 GB，torch 2.11.0+cu130。fp32 基准关掉 tf32（`allow_tf32=False`）。除注明外 batch 4、seq 512，预热 5 步、计时 10 步。「full step」指前向、反向加 optimizer 的一整步，「前向 + 反向」不含 optimizer。显存一律 GiB = 2³⁰ B（`max_memory_allocated() / 1024³`）。
 
 ---
 
 ## 1 一把尺子：roofline {#basics}
 
-找时间花在哪之前，先得有把尺子：一个 op 到底跑多快，由什么说了算。
+一个 op 跑多快，取决于它要算多少和要搬多少。
 
-直觉上是看它要算多少。运算量用 FLOPs（浮点运算次数）数，GPU 的算力用 FLOPS（每秒能做多少次）标，本文都写成 10 的幂。矩阵乘 `[M, K] × [K, N]` 要 2·M·N·K 次（M·N 个输出，每个 K 次乘加）；逐元素 op（加、乘、exp、mask）每个元素才算一到几十次，跟同样大小的矩阵乘差了几个数量级。
+算的量用 FLOPs（浮点运算次数）数，GPU 的算力用 FLOPS（每秒浮点运算次数）标，本文都写成 1.05e14 这样的 10 的幂。矩阵乘 `[M, K] × [K, N]` 要 2·M·N·K 次（M·N 个输出，每个做 K 次乘加）；逐元素 op（加、乘、exp、mask）每个元素只算一到几十次，比同样大小的矩阵乘少几个数量级。
 
-但 GPU 不光要算，数据还得从显存搬进来、结果再搬回去。算受峰值算力 P 限制，搬受显存带宽 B 限制，一个 op 再快也快不过两者里更慢的那个：
+搬的是显存里的数据：输入要从显存读进来，结果要写回去。算受峰值算力 P 限制，搬受显存带宽 B 限制，一个 op 的耗时不会低于两者中较大的那个：
 
 <p align="center">$t \ge \max\left(\dfrac{\mathrm{FLOPs}}{P},\ \dfrac{\mathrm{bytes}}{B}\right)$</p>
 
-算和搬的比值叫**算术强度** $I = \mathrm{FLOPs} / \mathrm{bytes}$，意思是每搬 1 个字节能干多少活。把上式反过来写成「最多能跑到多少 FLOPS」，就是 **roofline**：
+算和搬的比值叫**算术强度** $I = \mathrm{FLOPs} / \mathrm{bytes}$，即每搬 1 字节做多少次运算。把上式改写成「最多能跑到多少 FLOPS」，就是 **roofline**：
 
 <p align="center">$\mathrm{FLOPS}_{\max}(I) = \min(P,\ I \cdot B)$</p>
 
-画在 log-log 坐标上它像个屋顶：先是一段斜坡（被带宽卡住），再变成平顶（被算力卡住），拐角 $I^* = P / B$ 叫 **ridge point**。落在拐角左边的 op 是 **memory-bound**，时间全耗在搬数据上，FLOPs 再少也没用；落在右边的是 **compute-bound**，这才轮到算力说话。判断一个 op 跑得好不好，compute-bound 的看 MFU（实际 FLOPS / 峰值），memory-bound 的看 MBU（实际带宽 / 峰值带宽）。
+在 log-log 坐标上它像一个屋顶（[图 2-3](#fig-2-3)）：左边是斜坡，被带宽限制；右边是平顶，被算力限制；拐角 $I^* = P / B$ 叫 **ridge point**。落在拐角左边的 op 是 **memory-bound**，耗时由搬数据决定，减少 FLOPs 没有用；落在右边的是 **compute-bound**，耗时由算力决定。衡量 op 跑得好不好也分两种：compute-bound 的看 MFU（实际 FLOPS / 峰值 FLOPS），memory-bound 的看 MBU（实际带宽 / 峰值带宽）。
 
-5090 的带宽是 1.79e12 B/s，屋顶有多高、拐角在哪，要看用什么精度：
+5090 的带宽是 1.79e12 B/s，屋顶的高度和拐角的位置取决于精度：
 
-| 精度 | 计算单元 | 累加 | 峰值 (FLOPS) | ridge point (FLOPs/B) |
-|:--|:--|:--|--:|--:|
-| **fp32** | CUDA core | fp32 | **1.05e14** | **58** |
-| tf32 | Tensor core | fp32 | 1.05e14 | 58 |
-| **bf16** / fp16 | Tensor core | fp32 | **2.1e14** | **117** |
-| fp16 | Tensor core | fp16 | 4.19e14 | 234 |
-| **fp8** | Tensor core | fp32 | **4.19e14** | **234** |
-| fp8 | Tensor core | fp16 | 8.38e14 | 468 |
-| **nvfp4** | Tensor core | fp32 | **1.68e15** | **935** |
-{#tab-1-1 caption="**表 1-1** RTX 5090 各精度的峰值算力与 ridge point" note="dense 峰值，按 boost clock 2407 MHz，来自 NVIDIA RTX Blackwell 白皮书附录 A 表 3；nvfp4 按白皮书的 FP4 一档。本文关掉 tf32，fp32 基准按 1.05e14 算。ridge point = 峰值 / 1.792e12 B/s。"}
+| 精度 | 计算单元 | 峰值 (FLOPS) | ridge point (FLOPs/B) |
+|:--|:--|--:|--:|
+| fp32 | CUDA core | 1.05e14 | 58 |
+| bf16 | Tensor core | 2.1e14 | 117 |
+| fp8 | Tensor core | 4.19e14 | 234 |
+| nvfp4 | Tensor core | 1.68e15 | 935 |
+{#tab-1-1 caption="**表 1-1** RTX 5090 各精度的峰值算力与 ridge point" note="dense 峰值，按 boost clock 2407 MHz，来自 NVIDIA RTX Blackwell 白皮书附录 A 表 3。Tensor core 都按 fp32 累加；改用 fp16 累加时 fp16 是 4.19e14、fp8 是 8.38e14。tf32 和 fp32 一样是 1.05e14，本文关掉了 tf32。ridge point = 峰值 / 1.792e12 B/s。"}
 
-一个 op 在拐角哪一边，拿张量形状就能估。逐元素 op 在 fp32 下每个元素算 1 次、搬 8 个字节，I ≈ 0.13，离拐角远得很。矩阵乘的 I 大约是内维 K 的一半：Linear 的 K 是 d_model（1024），I ≈ 340，稳稳在右边；可 attention 里 QKᵀ 的 K 只是 d_head（64），I 只有 28。同样叫矩阵乘，attention 里那两个其实也在饿着肚子等数据。
+一个 op 在拐角哪一边，用张量形状就能估。逐元素 op 在 fp32 下每个元素算 1 次、读写 8 字节，$I \approx 0.13$，远在拐角左边。矩阵乘的 $I$ 由 M、N、K 里最小的那个决定，fp32 下不超过它的一半。Linear 的三个维度都上千（medium、seq 1024 时 FFN 第一层是 `[4096, 1024] × [1024, 4096]`），$I \approx 340$，在拐角右边；attention 里的 QKᵀ 和 PV 都有一个维度是 d_head（64），$I$ 只有 28，在拐角左边。所以 QKᵀ 和 PV 虽然是矩阵乘，在 attention 里也是 memory-bound。
 
 ---
 
@@ -55,7 +52,7 @@ series_order: 2
 
 ### 2.1 FLOPs 与实测 {#fwd-bwd}
 
-先算账。Transformer 的 FLOPs 几乎都花在 Linear 上，一个 Linear 前向只做一次矩阵乘 $X_L = X_{L-1} W_L$；反向收到误差 $\nabla X_L$ 后却要做两次：算参数梯度 $\nabla W_L = X_{L-1}^{\top} \nabla X_L$，再算往前传的 $\nabla X_{L-1} = \nabla X_L W_L^{\top}$，每次都和前向一样大（[图 2-1](#fig-2-1)）。
+Transformer 的 FLOPs 几乎都在 Linear 上。一个 Linear 前向只做一次矩阵乘 $X_L = X_{L-1} W_L$；反向收到误差 $\nabla X_L$ 后要做两次：算参数梯度 $\nabla W_L = X_{L-1}^{\top} \nabla X_L$，再算传给上一层的 $\nabla X_{L-1} = \nabla X_L W_L^{\top}$，每次都和前向一样大（[图 2-1](#fig-2-1)）。
 
 <figure id="fig-2-1" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 444" width="100%" role="img" aria-label="一个 Linear 的前向与反向：前向从输入 X_{L-1} 算出 X_L，进入深层；反向收到误差后，用留下来的 X_{L-1} 算参数梯度，用 W_L 算激活梯度，再传给浅层">
@@ -74,31 +71,32 @@ series_order: 2
     .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
     .fg .band { fill: currentColor; fill-opacity: .045; }
     .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 5px; stroke-linejoin: round; }
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: 540px; } }
   </style>
-  <defs><marker id="fig-2-1-m0" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-2-1-m1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-2)"/></marker><marker id="fig-2-1-m2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker></defs>
-  <text class="tb" x="160" y="24" text-anchor="middle">Forward Pass（前向）</text>
+  <defs><marker id="fig-2-1-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-2-1-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-2)"/></marker><marker id="fig-2-1-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker></defs>
+  <text class="tb" x="176" y="24" text-anchor="middle">Forward Pass（前向）</text>
   <text class="tb" x="482" y="24" text-anchor="middle">Backward Pass（反向）</text>
   <line x1="320" y1="36" x2="320" y2="364" stroke="currentColor" stroke-opacity=".25" stroke-dasharray="5 4"/>
-  <rect x="91" y="51" width="150" height="50" rx="8" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="166" y="67" text-anchor="middle">输入</text>
-  <text class="t" x="166" y="89" text-anchor="middle"><tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L−1</tspan><tspan dy="-4"> </tspan></text>
-  <rect x="92" y="155" width="168" height="54" rx="8" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="176" y="173" text-anchor="middle">计算</text>
-  <text class="t" x="176" y="195" text-anchor="middle"><tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-4"> </tspan>= <tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L−1</tspan><tspan dy="-4"> </tspan>· <tspan font-style="italic">W</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-4"> </tspan></text>
-  <rect x="8" y="157" width="72" height="50" rx="8" style="fill: color-mix(in srgb, var(--fig-1) 14%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <rect x="101" y="51" width="150" height="50" rx="8" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="176" y="67" text-anchor="middle">输入</text>
+  <text class="t" x="176" y="89" text-anchor="middle"><tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L−1</tspan><tspan dy="-4"> </tspan></text>
+  <rect x="115" y="155" width="150" height="54" rx="8" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="190" y="173" text-anchor="middle">计算</text>
+  <text class="t" x="190" y="195" text-anchor="middle"><tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-4"> </tspan>= <tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L−1</tspan><tspan dy="-4"> </tspan>· <tspan font-style="italic">W</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-4"> </tspan></text>
+  <rect x="10" y="157" width="68" height="50" rx="8" style="fill: color-mix(in srgb, var(--fig-1) 14%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <text class="s" x="44" y="173" text-anchor="middle">权重</text>
   <text class="t" x="44" y="195" text-anchor="middle"><tspan font-style="italic">W</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-4"> </tspan></text>
-  <rect x="91" y="263" width="150" height="50" rx="8" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="166" y="279" text-anchor="middle">输出</text>
-  <text class="t" x="166" y="301" text-anchor="middle"><tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-4"> </tspan></text>
-  <line x1="166.0" y1="101.0" x2="166.0" y2="152.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-2-1-m0)"/>
-  <line x1="80.0" y1="182.0" x2="89.0" y2="182.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-2-1-m0)"/>
-  <line x1="166.0" y1="209.0" x2="166.0" y2="260.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-2-1-m0)"/>
+  <rect x="101" y="263" width="150" height="50" rx="8" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="176" y="279" text-anchor="middle">输出</text>
+  <text class="t" x="176" y="301" text-anchor="middle"><tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-4"> </tspan></text>
+  <line x1="176.0" y1="101.0" x2="176.0" y2="152.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-2-1-m0)"/>
+  <line x1="78.0" y1="182.0" x2="112.0" y2="182.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-2-1-m0)"/>
+  <line x1="176.0" y1="209.0" x2="176.0" y2="260.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-2-1-m0)"/>
   <rect x="210" y="376" width="220" height="44" rx="8" class="op"/>
   <text class="t" x="320" y="402" text-anchor="middle">进入深层 Layer L+1，等误差传回</text>
-  <path d="M166,313 L166,398 L206,398" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-2-1-m0)"/>
+  <path d="M176,313 L176,398 L207,398" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-2-1-m0)"/>
   <path d="M430,398 L482,398 L482,316" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-2-1-m0)"/>
   <rect x="407" y="263" width="150" height="50" rx="8" style="fill: var(--fig-3); stroke: var(--fig-2)" stroke-width="1"/>
   <text class="s" x="482" y="279" text-anchor="middle">接收误差</text>
@@ -111,18 +109,20 @@ series_order: 2
   <text class="t" x="562" y="195" text-anchor="middle">∇<tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L−1</tspan><tspan dy="-4"> </tspan>= ∇<tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-4"> </tspan>· <tspan font-style="italic">W</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-10" font-size="10">T</tspan><tspan dy="6"> </tspan></text>
   <rect x="486" y="51" width="152" height="50" rx="8" style="fill: var(--fig-3); stroke: var(--fig-2)" stroke-width="1"/>
   <text class="t" x="562" y="80" text-anchor="middle">进入浅层 Layer L−1</text>
-  <line x1="468.0" y1="263.0" x2="422.0" y2="212.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-2-1-m0)"/>
-  <line x1="496.0" y1="263.0" x2="544.0" y2="212.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-2-1-m0)"/>
+  <line x1="462.0" y1="263.0" x2="420.0" y2="212.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-2-1-m0)"/>
+  <line x1="502.0" y1="263.0" x2="540.0" y2="212.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-2-1-m0)"/>
   <line x1="562.0" y1="155.0" x2="562.0" y2="104.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-2-1-m0)"/>
-  <path d="M241,76 L404,76 L404,151" fill="none" style="stroke: var(--fig-2)" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#fig-2-1-m1)"/>
-  <text class="s" x="322" y="68" text-anchor="middle"><tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L−1</tspan><tspan dy="-4"> </tspan> 留到反向（第 3 节的 A）</text>
-  <path d="M44,207 L44,236 L610,236 L610,212" fill="none" style="stroke: var(--fig-1)" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#fig-2-1-m2)"/>
-  <text class="s" x="322" y="252" text-anchor="middle"><tspan font-style="italic">W</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-4"> </tspan> 是参数，本来就在显存里</text>
+  <path d="M251,76 L404,76 L404,151" fill="none" style="stroke: var(--fig-2)" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#fig-2-1-m1)"/>
+  <text class="s halo" x="262" y="66"><tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L−1</tspan><tspan dy="-4"> </tspan> 留到反向（第 3 节的 A）</text>
+  <text class="s" x="262" y="66"><tspan font-style="italic">X</tspan><tspan dy="4" font-size="10">L−1</tspan><tspan dy="-4"> </tspan> 留到反向（第 3 节的 A）</text>
+  <path d="M44,207 L44,236 L618,236 L618,212" fill="none" style="stroke: var(--fig-1)" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#fig-2-1-m2)"/>
+  <text class="s halo" x="320" y="253" text-anchor="middle"><tspan font-style="italic">W</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-4"> </tspan> 是参数，本来就在显存里</text>
+  <text class="s" x="320" y="253" text-anchor="middle"><tspan font-style="italic">W</tspan><tspan dy="4" font-size="10">L</tspan><tspan dy="-4"> </tspan> 是参数，本来就在显存里</text>
 </svg>
 <figcaption><strong>图 2-1</strong> 一个 Linear 的前向与反向：前向从左边往下，误差从右边传回；虚线是反向要从前向拿的东西。</figcaption>
 </figure>
 
-于是前向每个 token 大约 2N FLOPs（N 是参数量），反向 4N，一步加起来 6N × token 数，这里是 batch 4 × seq 512 = 2048 个 token（attention 的 QKᵀ、PV 不带参数，seq 512 时只占 2–4%，忽略不计）。实测也是这样，反向耗时差不多是前向的两倍（[图 2-2](#fig-2-2)），因为反向要把 weight grad 和 activation grad 各算一遍。
+每个参数对每个 token 做一次乘加，也就是 2 FLOPs，所以前向每个 token 约 2N FLOPs（N 是参数量），反向 4N，一步一共 6N × token 数，这里是 batch 4 × seq 512 = 2048 个 token。attention 的 QKᵀ 和 PV 没有参数，不在 6N 里，seq 512 时只占 2–4%，可以忽略。实测也是这样，反向耗时差不多是前向的两倍（[图 2-2](#fig-2-2)），因为反向要把 weight grad 和 activation grad 各算一遍。
 
 <figure id="fig-2-2" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 172" width="100%" role="img" aria-label="三档模型一步训练的耗时构成：前向约 31%，反向约 62%，optimizer 约 7%；右侧是每步总耗时和 MFU">
@@ -141,6 +141,7 @@ series_order: 2
     .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
     .fg .band { fill: currentColor; fill-opacity: .045; }
     .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 5px; stroke-linejoin: round; }
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: 540px; } }
   </style>
@@ -181,11 +182,11 @@ series_order: 2
 <figcaption><strong>图 2-2</strong> 一步训练里前向、反向、optimizer 的耗时占比（fp32，batch 4，seq 512），右侧是每步耗时和 MFU。</figcaption>
 </figure>
 
-这样算下来，medium 和 large 的 MFU 只有 31%（实际 3.2e13 FLOPS，fp32 峰值 1.05e14），small 是 27%。单个大矩阵乘其实能跑到峰值的 64%，但它只占一步 GPU 时间的 60%，剩下 40% 花在几乎不做计算的逐元素 kernel 上。
+按 6N 算，medium 和 large 的 MFU 只有 31%（实际 3.2e13 FLOPS，fp32 峰值 1.05e14），small 是 27%。矩阵乘本身不慢，单个大矩阵乘能跑到峰值的 64%；问题是所有矩阵乘加起来只占一步 GPU 时间的 60%，剩下 40% 花在几乎不做计算的逐元素 kernel 上。
 
 ### 2.2 消失的 40%：都在搬数据 {#memory-bound}
 
-这 40% 花在哪，把 medium、seq 1024 时一层 attention 里的 op 画到 roofline 上（[图 2-3](#fig-2-3)）就能看出来。
+这 40% 里，attention 的那部分会随 seq² 变大。我把 medium、seq 1024 时一层 attention 里的 op 放到 roofline 上（[图 2-3](#fig-2-3)），另放一个 Linear 作对照。
 
 <figure id="fig-2-3" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 392" width="100%" role="img" aria-label="RTX 5090 的 roofline：带宽斜线与 fp32、bf16、fp8、nvfp4 四条平线分别交于 58、117、234、935 FLOPs/B；attention 的 op 都贴着斜线，只有 Linear 在 fp32 平线下">
@@ -204,6 +205,7 @@ series_order: 2
     .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
     .fg .band { fill: currentColor; fill-opacity: .045; }
     .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 5px; stroke-linejoin: round; }
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: 540px; } }
   </style>
@@ -264,12 +266,12 @@ series_order: 2
   <g class="m"><title>S / √d：I = 0.125 FLOPs/B，实测 1.92e11 FLOPS，MBU 86%</title><circle cx="80.7" cy="319.9" r="12" fill="transparent"/><circle cx="80.7" cy="319.9" r="5" class="ring" style="fill: var(--fig-hi)"/></g>
   <text class="lab" x="90.7" y="331.9" text-anchor="start">S / √d</text>
 </svg>
-<figcaption><strong>图 2-3</strong> RTX 5090 的 roofline，以及 medium、seq 1024 时一层 attention 里实测的 op。斜线是带宽，平线是各精度峰值（<a href="#tab-1-1">表 1-1</a>），拐点旁是 ridge point；悬停可看数值，causal mask 没有 FLOPs，不在图上。</figcaption>
+<figcaption><strong>图 2-3</strong> RTX 5090 的 roofline，以及 medium、seq 1024 时一层 attention 里实测的 op。斜线是带宽，平线是各精度峰值（<a href="#tab-1-1">表 1-1</a>），causal mask 没有 FLOPs，不在图上；悬停可看数值。</figcaption>
 </figure>
 
-除了拿来对照的 Linear，attention 的 op 全趴在斜坡上，连 QKᵀ 和 PV 这两个矩阵乘也不例外。而且它们离坡顶已经不远，带宽利用率 57–86%，kernel 本身没什么可抠的，想快只能少搬。
+attention 的 op 全在斜坡上，包括 QKᵀ 和 PV 这两个矩阵乘。它们的 MBU 已经有 57–86%，kernel 本身没多少优化空间，要更快只能少搬数据。
 
-搬得最凶的是 softmax。它对 S 的每一行做 $P_{ij} = e^{S_{ij} - m_i} / \sum_k e^{S_{ik} - m_i}$，其中 $m_i = \max_k S_{ik}$，先减掉行最大值是为了防止 exp 溢出。eager 下这一行公式拆成 5 个 kernel（求 max、减 max、exp、求和、除），每个都要把一张和 S 一样大的表（256 MiB）从头到尾读一遍或写一遍，一次 softmax 下来，这张表在显存里进进出出 8 趟（[图 2-4](#fig-2-4)）。
+搬得最多的是 softmax。它对 S 的每一行算 $P_{ij} = e^{S_{ij} - m_i} / \sum_k e^{S_{ik} - m_i}$，其中 $m_i = \max_k S_{ik}$，减掉行最大值是为了防止 exp 溢出。eager 模式下这个公式拆成 5 个 kernel：求 max、减 max、exp、求和、除。每个 kernel 都要读或写和 S 一样大的张量（这里是 256 MiB），5 个加起来一共读写 8 次（[图 2-4](#fig-2-4)）。
 
 <figure id="fig-2-4" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 262" width="100%" role="img" aria-label="eager softmax 的 5 个 kernel 共读写显存里 S 大小的张量 8 次；融合成一个 kernel 后只读 S、写 P 两次">
@@ -288,10 +290,11 @@ series_order: 2
     .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
     .fg .band { fill: currentColor; fill-opacity: .045; }
     .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 5px; stroke-linejoin: round; }
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: 540px; } }
   </style>
-  <defs><marker id="fig-2-4-m0" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker><marker id="fig-2-4-m1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
+  <defs><marker id="fig-2-4-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker><marker id="fig-2-4-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
   <rect class="band" x="70" y="24" width="562" height="56" rx="8"/>
   <text class="lab" x="8" y="50">显存</text><text class="lab2" x="8" y="66">(HBM)</text>
   <rect class="band" x="70" y="122" width="562" height="56" rx="8"/>
@@ -350,10 +353,10 @@ series_order: 2
 <figcaption><strong>图 2-4</strong> eager softmax 的显存读写：每条编号箭头是一次完整的读或写，共 8 次；融合后只剩 2 次。</figcaption>
 </figure>
 
-难怪 FLOPs 和时间完全对不上：softmax 的运算量只有 PV 的 1/5，花的时间却是它的 6 倍（[图 2-5](#fig-2-5)）。
+FLOPs 和耗时因此对不上：softmax 的运算量只有 PV 的 1/5，耗时却是 PV 的 6 倍（[图 2-5](#fig-2-5)）。
 
 <figure id="fig-2-5" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 186" width="100%" role="img" aria-label="medium、seq 1024 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间：softmax 和 /√d、mask 的 FLOPs 很少，时间却最多">
+<svg class="fg" viewBox="0 0 640 186" width="100%" role="img" aria-label="medium、seq 1024 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间：softmax 和 ÷√d、mask 的 FLOPs 很少，时间却最多">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -369,6 +372,7 @@ series_order: 2
     .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
     .fg .band { fill: currentColor; fill-opacity: .045; }
     .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 5px; stroke-linejoin: round; }
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: 540px; } }
   </style>
@@ -382,10 +386,10 @@ series_order: 2
   <text class="val" x="309.1" y="75">8.6e9</text>
   <g class="m"><title>QKᵀ：0.3 ms（一层）</title><rect x="392.0" y="62.0" width="40.0" height="18.0" rx="3" style="fill: var(--fig-1)"/></g>
   <text class="val" x="438.0" y="75">0.30</text>
-  <text class="lab" x="102" y="105" text-anchor="end">/√d + mask</text>
-  <g class="m"><title>/√d + mask：6.7e7 FLOPs（一层）</title><rect x="112.0" y="92.0" width="1.5" height="18.0" rx="3" style="fill: var(--fig-hi)"/></g>
+  <text class="lab" x="102" y="105" text-anchor="end">÷√d + mask</text>
+  <g class="m"><title>÷√d + mask：6.7e7 FLOPs（一层）</title><rect x="112.0" y="92.0" width="1.5" height="18.0" rx="3" style="fill: var(--fig-hi)"/></g>
   <text class="val" x="119.5" y="105">6.7e7</text>
-  <g class="m"><title>/√d + mask：0.75 ms（一层）</title><rect x="392.0" y="92.0" width="100.0" height="18.0" rx="3" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>÷√d + mask：0.75 ms（一层）</title><rect x="392.0" y="92.0" width="100.0" height="18.0" rx="3" style="fill: var(--fig-hi)"/></g>
   <text class="val" x="498.0" y="105">0.75</text>
   <text class="lab" x="102" y="135" text-anchor="end">softmax</text>
   <g class="m"><title>softmax：1.8e9 FLOPs（一层）</title><rect x="112.0" y="122.0" width="40.0" height="18.0" rx="3" style="fill: var(--fig-hi)"/></g>
@@ -403,7 +407,7 @@ series_order: 2
 <figcaption><strong>图 2-5</strong> 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间（medium，seq 1024）。</figcaption>
 </figure>
 
-更麻烦的是，S、P 的形状是 `[b, h, seq, seq]`，要搬的量跟着 seq² 涨，Linear 只跟着 seq 涨。seq 从 256 拉到 1024，attention 在前向里的时间占比从 10% 一路涨到 46%，多出来的几乎全是 softmax、scale、mask 这些只会来回搬数据的小算子（[图 2-6](#fig-2-6)）。
+S、P 的形状是 `[b, h, seq, seq]`，读写量随 seq² 增长，Linear 只随 seq 线性增长。seq 从 256 增加到 1024，attention 占前向时间的比例从 10% 涨到 46%，多出来的几乎全是 softmax、除以 √d、mask 这类只搬数据的小 op（[图 2-6](#fig-2-6)）。
 
 <figure id="fig-2-6" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 262" width="100%" role="img" aria-label="attention 三段占 forward 时间随 seq 的变化：softmax 从 4% 涨到 24%，scores 从 4% 涨到 18%，PV 只从 2% 到 4%，合计从 10% 到 46%">
@@ -422,17 +426,18 @@ series_order: 2
     .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
     .fg .band { fill: currentColor; fill-opacity: .045; }
     .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 5px; stroke-linejoin: round; }
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: 540px; } }
   </style>
   <line x1="70" y1="16" x2="82" y2="16" style="stroke: var(--fig-hi)" stroke-width="2"/>
   <text class="lab" x="86" y="20">softmax</text>
   <line x1="154.2" y1="16" x2="166.2" y2="16" style="stroke: var(--fig-1)" stroke-width="2"/>
-  <text class="lab" x="170.2" y="20">scores（QKᵀ + /√d + mask）</text>
-  <line x1="361.4" y1="16" x2="373.4" y2="16" style="stroke: var(--fig-2)" stroke-width="2"/>
-  <text class="lab" x="377.4" y="20">PV</text>
-  <line x1="412.59999999999997" y1="16" x2="424.59999999999997" y2="16" stroke="currentColor" stroke-width="1.6" stroke-dasharray="4 3"/>
-  <text class="lab" x="428.59999999999997" y="20">attention 合计</text>
+  <text class="lab" x="170.2" y="20">scores（QKᵀ、÷√d、mask）</text>
+  <line x1="345.79999999999995" y1="16" x2="357.79999999999995" y2="16" style="stroke: var(--fig-2)" stroke-width="2"/>
+  <text class="lab" x="361.79999999999995" y="20">PV</text>
+  <line x1="396.99999999999994" y1="16" x2="408.99999999999994" y2="16" stroke="currentColor" stroke-width="1.6" stroke-dasharray="4 3"/>
+  <text class="lab" x="412.99999999999994" y="20">attention 合计</text>
   <line class="grid" x1="70" y1="236.0" x2="520" y2="236.0"/><text class="tick" x="62" y="240.0" text-anchor="end">0%</text>
   <line class="grid" x1="70" y1="200.0" x2="520" y2="200.0"/><text class="tick" x="62" y="204.0" text-anchor="end">10%</text>
   <line class="grid" x1="70" y1="164.0" x2="520" y2="164.0"/><text class="tick" x="62" y="168.0" text-anchor="end">20%</text>
@@ -467,9 +472,9 @@ series_order: 2
 <figcaption><strong>图 2-6</strong> attention 三段占 forward GPU 时间的比例随 seq 变化（medium）。</figcaption>
 </figure>
 
-所以时间这条线最后指向的是 S 和 P。想少搬，只能把几步揉进一个 kernel，中间结果留在片上别回显存：融合版 softmax 只读一次 S、写一次 P；FlashAttention 更狠，S、P 干脆不落显存。
+所以 attention 慢在 S 和 P 的读写上。要少搬，就得把几步合进一个 kernel，中间结果留在片上：融合的 softmax 只读一次 S、写一次 P（[图 2-4](#fig-2-4) 下）；FlashAttention 更进一步，S、P 根本不写回显存。
 
-S、P 还有第二宗罪。它们是 softmax 和 PV 的输入，跟[图 2-1](#fig-2-1) 里的 $X_{L-1}$ 一样，反向还要用，前向算完了也不能扔。时间的问题，就这样变成了显存的问题。
+S、P 还有一个问题：它们分别是 softmax 和 PV 的输入，和[图 2-1](#fig-2-1) 里的 $X_{L-1}$ 一样要留到反向，所以前向算完也一直占着显存。这是[第 3 节](#memory)要看的。
 
 ---
 
@@ -477,12 +482,12 @@ S、P 还有第二宗罪。它们是 softmax 和 PV 的输入，跟[图 2-1](#fi
 
 ### 3.1 少掉的那份梯度 {#peak-memory}
 
-fp32 + AdamW 训练，每个参数要占权重 4 B、梯度 4 B、Adam 的 m 和 v 各 4 B，再加上前向为反向留下的 activation。xl 光参数相关的部分就要 50.8 GiB，5090 塞不下，10B 在建模型时就 OOM。下面用这几个记号：
+fp32 + AdamW 训练时，每个参数要占 16 B：权重 4 B、梯度 4 B、Adam 的 m 和 v 各 4 B，此外还有前向为反向留下的 activation。xl 光这部分就要 50.8 GiB，5090 放不下；10B 在建模型时就 OOM 了。下面用这几个记号：
 
 - <span class="sw" style="background: var(--fig-1)"></span>**W** 全部权重；<span class="sw" style="background: var(--fig-hi)"></span>**G** 全部梯度 `.grad`，大小等于 W；<span class="sw" style="background: var(--fig-mute)"></span>Adam 的 m、v 合计 2W，第一步之后常驻；
 - <span class="sw" style="background: var(--fig-2)"></span>**A** 前向为反向存下的张量（saved tensors）；<span class="sw" style="background: var(--fig-3)"></span>**T** 当前层的临时量，算完即释放。
 
-实测的 full step 峰值里只有权重、Adam 状态和 A，并没有梯度（[图 3-1](#fig-3-1)）。
+实测 full step 的峰值里只有权重、Adam 状态和 A，没有梯度（[图 3-1](#fig-3-1)）。
 
 <figure id="fig-3-1" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="三档模型 full step 的实测峰值显存，由权重、Adam 状态和 activation 组成，里面没有梯度">
@@ -501,6 +506,7 @@ fp32 + AdamW 训练，每个参数要占权重 4 B、梯度 4 B、Adam 的 m 和
     .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
     .fg .band { fill: currentColor; fill-opacity: .045; }
     .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 5px; stroke-linejoin: round; }
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: 540px; } }
   </style>
@@ -546,18 +552,18 @@ fp32 + AdamW 训练，每个参数要占权重 4 B、梯度 4 B、Adam 的 m 和
 <figcaption><strong>图 3-1</strong> full step 的实测峰值显存（batch 4，seq 512）。A = 带梯度的前向峰值 − W，顶上 ~0.1 GiB 是 T。</figcaption>
 </figure>
 
-梯度不在峰值里，是因为 G 和 A 从来不同时在场。反向走完 j 层（共 L 层）时，显存里是：
+梯度不在峰值里，是因为 G 和 A 此消彼长。反向走完 j 层（共 L 层）时，显存里是：
 
 <p align="center">$M(j) = W + G \cdot \dfrac{j}{L} + A \cdot \dfrac{L-j}{L} + T$</p>
 
-A 在前向一层层攒起来，反向再一层层还掉；G 正好相反，前向时根本不存在，`.grad` 要到反向算到那个参数才分配，optimizer step 一结束又被 `zero_grad(set_to_none=True)` 清掉。一个涨一个退，M(j) 是条直线，最高点只可能在两头。full step 里还有一直占着的 Adam 状态，m 和 v 各和权重一样大，共 2W，和权重加起来常驻 3W。所以 full step 的峰值是
+A 在前向一层层攒起来，反向再一层层释放；G 正好相反，前向时还不存在，`.grad` 要等反向算到那个参数才分配，optimizer step 结束后又被 `zero_grad(set_to_none=True)` 释放。一个涨一个降，M(j) 是一条直线，最高点只可能在两端。full step 里还有一直占着的 Adam 状态，m 和 v 各和权重一样大，共 2W，和权重加起来常驻 3W。所以 full step 的峰值是
 
 <p align="center">$\mathrm{peak}_{\mathrm{full}} \approx 3W + \max(A,\ G)$</p>
 
-拿 large 验算：3 × 3.61 + 16.58 = 27.4 GiB，实测 27.51，几乎分毫不差。正常训练 token 够多，A 比 G 大，峰值落在前向刚结束的那一刻；只有 token 很少时才反过来，比如 xl 在 seq 128（[图 3-2](#fig-3-2) 左）。
+拿 large 验算：3 × 3.61 + 16.58 = 27.4 GiB，实测 27.51 GiB，差的 0.1 GiB 就是 T。正常训练 token 多，A 比 G 大，峰值出现在前向刚结束时；token 很少时才反过来，比如 xl 在 seq 128（[图 3-2](#fig-3-2) 左）。
 
 <figure id="fig-3-2" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="一步 fwd_bwd 的显存：按 M(j) 用实测的 W、A、G、T 堆叠；xl seq 128 时 G 大于 A，峰值在反向结束；small seq 512 时 A 大于 G，峰值在前向结束">
+<svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="一步前向 + 反向的显存：按 M(j) 用实测的 W、A、G、T 堆叠；xl seq 128 时 G 大于 A，峰值在反向结束；small seq 512 时 A 大于 G，峰值在前向结束">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -573,6 +579,7 @@ A 在前向一层层攒起来，反向再一层层还掉；G 正好相反，前�
     .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
     .fg .band { fill: currentColor; fill-opacity: .045; }
     .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 5px; stroke-linejoin: round; }
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: 540px; } }
   </style>
@@ -584,10 +591,8 @@ A 在前向一层层攒起来，反向再一层层还掉；G 正好相反，前�
   <text class="lab" x="153.2" y="18">G</text>
   <rect x="173.79999999999998" y="9" width="10" height="10" rx="2" style="fill: var(--fig-3); stroke: var(--fig-2)"/>
   <text class="lab" x="189.79999999999998" y="18">T</text>
-  <line x1="210.39999999999998" y1="14" x2="222.39999999999998" y2="14" stroke="currentColor" stroke-width="1.6" stroke-dasharray="4 3"/>
-  <text class="lab" x="226.39999999999998" y="18">bf16（公式）</text>
-  <text x="316.79999999999995" y="18" class="val" >×</text>
-  <text class="lab" x="330.79999999999995" y="18">实测 fp32</text>
+  <text x="212.39999999999998" y="18" class="val" >×</text>
+  <text class="lab" x="226.39999999999998" y="18">逐层实测</text>
   <text class="ttl" x="64" y="44">xl，seq 128（G > A）</text>
   <line class="grid" x1="64" y1="250.0" x2="314" y2="250.0"/><text class="tick" x="58" y="254.0" text-anchor="end">0</text>
   <line class="grid" x1="64" y1="216.4" x2="314" y2="216.4"/><text class="tick" x="58" y="220.4" text-anchor="end">5</text>
@@ -599,7 +604,6 @@ A 在前向一层层攒起来，反向再一层层还掉；G 正好相反，前�
   <g class="m"><title>A</title><polygon points="64.0,164.7 67.9,163.6 71.8,162.5 75.7,161.4 79.6,160.3 83.5,159.2 87.4,158.1 91.3,156.9 95.2,155.8 99.2,154.7 103.1,153.6 107.0,152.5 110.9,151.4 114.8,150.3 118.7,149.2 122.6,148.0 126.5,146.9 130.4,145.8 134.3,144.7 138.2,143.6 142.1,142.5 146.0,141.4 149.9,140.3 153.8,139.2 157.8,138.0 161.7,136.9 165.6,135.8 169.5,134.7 173.4,133.6 177.3,132.5 181.2,131.4 185.1,130.3 189.0,129.1 192.9,130.3 196.8,131.4 200.7,132.5 204.6,133.6 208.5,134.7 212.4,135.8 216.3,136.9 220.2,138.0 224.2,139.2 228.1,140.3 232.0,141.4 235.9,142.5 239.8,143.6 243.7,144.7 247.6,145.8 251.5,146.9 255.4,148.0 259.3,149.2 263.2,150.3 267.1,151.4 271.0,152.5 274.9,153.6 278.8,154.7 282.8,155.8 286.7,156.9 290.6,158.1 294.5,159.2 298.4,160.3 302.3,161.4 306.2,162.5 310.1,163.6 314.0,164.7 314.0,164.7 310.1,164.7 306.2,164.7 302.3,164.7 298.4,164.7 294.5,164.7 290.6,164.7 286.7,164.7 282.8,164.7 278.8,164.7 274.9,164.7 271.0,164.7 267.1,164.7 263.2,164.7 259.3,164.7 255.4,164.7 251.5,164.7 247.6,164.7 243.7,164.7 239.8,164.7 235.9,164.7 232.0,164.7 228.1,164.7 224.2,164.7 220.2,164.7 216.3,164.7 212.4,164.7 208.5,164.7 204.6,164.7 200.7,164.7 196.8,164.7 192.9,164.7 189.0,164.7 185.1,164.7 181.2,164.7 177.3,164.7 173.4,164.7 169.5,164.7 165.6,164.7 161.7,164.7 157.8,164.7 153.8,164.7 149.9,164.7 146.0,164.7 142.1,164.7 138.2,164.7 134.3,164.7 130.4,164.7 126.5,164.7 122.6,164.7 118.7,164.7 114.8,164.7 110.9,164.7 107.0,164.7 103.1,164.7 99.2,164.7 95.2,164.7 91.3,164.7 87.4,164.7 83.5,164.7 79.6,164.7 75.7,164.7 71.8,164.7 67.9,164.7 64.0,164.7" style="fill: var(--fig-2)" stroke-width=".8"/></g>
   <g class="m"><title>G</title><polygon points="64.0,164.7 67.9,163.6 71.8,162.5 75.7,161.4 79.6,160.3 83.5,159.2 87.4,158.1 91.3,156.9 95.2,155.8 99.2,154.7 103.1,153.6 107.0,152.5 110.9,151.4 114.8,150.3 118.7,149.2 122.6,148.0 126.5,146.9 130.4,145.8 134.3,144.7 138.2,143.6 142.1,142.5 146.0,141.4 149.9,140.3 153.8,139.2 157.8,138.0 161.7,136.9 165.6,135.8 169.5,134.7 173.4,133.6 177.3,132.5 181.2,131.4 185.1,130.3 189.0,129.1 192.9,127.6 196.8,126.0 200.7,124.5 204.6,122.9 208.5,121.4 212.4,119.8 216.3,118.3 220.2,116.7 224.2,115.2 228.1,113.6 232.0,112.1 235.9,110.5 239.8,109.0 243.7,107.4 247.6,105.9 251.5,104.3 255.4,102.7 259.3,101.2 263.2,99.6 267.1,98.1 271.0,96.5 274.9,95.0 278.8,93.4 282.8,91.9 286.7,90.3 290.6,88.8 294.5,87.2 298.4,85.7 302.3,84.1 306.2,82.6 310.1,81.0 314.0,79.5 314.0,164.7 310.1,163.6 306.2,162.5 302.3,161.4 298.4,160.3 294.5,159.2 290.6,158.1 286.7,156.9 282.8,155.8 278.8,154.7 274.9,153.6 271.0,152.5 267.1,151.4 263.2,150.3 259.3,149.2 255.4,148.0 251.5,146.9 247.6,145.8 243.7,144.7 239.8,143.6 235.9,142.5 232.0,141.4 228.1,140.3 224.2,139.2 220.2,138.0 216.3,136.9 212.4,135.8 208.5,134.7 204.6,133.6 200.7,132.5 196.8,131.4 192.9,130.3 189.0,129.1 185.1,130.3 181.2,131.4 177.3,132.5 173.4,133.6 169.5,134.7 165.6,135.8 161.7,136.9 157.8,138.0 153.8,139.2 149.9,140.3 146.0,141.4 142.1,142.5 138.2,143.6 134.3,144.7 130.4,145.8 126.5,146.9 122.6,148.0 118.7,149.2 114.8,150.3 110.9,151.4 107.0,152.5 103.1,153.6 99.2,154.7 95.2,155.8 91.3,156.9 87.4,158.1 83.5,159.2 79.6,160.3 75.7,161.4 71.8,162.5 67.9,163.6 64.0,164.7" style="fill: var(--fig-hi)" stroke-width=".8"/></g>
   <g class="m"><title>T</title><polygon points="64.0,164.7 67.9,163.6 71.8,162.5 75.7,161.4 79.6,160.3 83.5,159.2 87.4,158.1 91.3,156.9 95.2,155.8 99.2,154.7 103.1,153.6 107.0,152.5 110.9,151.4 114.8,150.3 118.7,149.2 122.6,148.0 126.5,146.9 130.4,145.8 134.3,144.7 138.2,143.6 142.1,142.5 146.0,141.4 149.9,140.3 153.8,139.2 157.8,138.0 161.7,136.9 165.6,135.8 169.5,134.7 173.4,133.6 177.3,132.5 181.2,131.4 185.1,130.3 189.0,127.8 192.9,126.2 196.8,124.7 200.7,123.1 204.6,121.6 208.5,120.0 212.4,118.5 216.3,116.9 220.2,115.4 224.2,113.8 228.1,112.3 232.0,110.7 235.9,109.2 239.8,107.6 243.7,106.1 247.6,104.5 251.5,103.0 255.4,101.4 259.3,99.9 263.2,98.3 267.1,96.7 271.0,95.2 274.9,93.6 278.8,92.1 282.8,90.5 286.7,89.0 290.6,87.4 294.5,85.9 298.4,84.3 302.3,82.8 306.2,81.2 310.1,79.7 314.0,78.1 314.0,79.5 310.1,81.0 306.2,82.6 302.3,84.1 298.4,85.7 294.5,87.2 290.6,88.8 286.7,90.3 282.8,91.9 278.8,93.4 274.9,95.0 271.0,96.5 267.1,98.1 263.2,99.6 259.3,101.2 255.4,102.7 251.5,104.3 247.6,105.9 243.7,107.4 239.8,109.0 235.9,110.5 232.0,112.1 228.1,113.6 224.2,115.2 220.2,116.7 216.3,118.3 212.4,119.8 208.5,121.4 204.6,122.9 200.7,124.5 196.8,126.0 192.9,127.6 189.0,129.1 185.1,130.3 181.2,131.4 177.3,132.5 173.4,133.6 169.5,134.7 165.6,135.8 161.7,136.9 157.8,138.0 153.8,139.2 149.9,140.3 146.0,141.4 142.1,142.5 138.2,143.6 134.3,144.7 130.4,145.8 126.5,146.9 122.6,148.0 118.7,149.2 114.8,150.3 110.9,151.4 107.0,152.5 103.1,153.6 99.2,154.7 95.2,155.8 91.3,156.9 87.4,158.1 83.5,159.2 79.6,160.3 75.7,161.4 71.8,162.5 67.9,163.6 64.0,164.7" style="fill: var(--fig-3); stroke: var(--fig-2)" stroke-width=".8"/></g>
-  <polyline points="64.0,164.7 67.9,162.7 71.8,160.6 75.7,158.5 79.6,156.5 83.5,154.4 87.4,152.3 91.3,150.3 95.2,148.2 99.2,146.1 103.1,144.1 107.0,142.0 110.9,139.9 114.8,137.9 118.7,135.8 122.6,133.7 126.5,131.7 130.4,129.6 134.3,127.5 138.2,125.5 142.1,123.4 146.0,121.3 149.9,119.3 153.8,117.2 157.8,115.1 161.7,113.1 165.6,111.0 169.5,108.9 173.4,106.9 177.3,104.8 181.2,102.7 185.1,100.7 189.0,97.3 192.9,96.7 196.8,96.1 200.7,95.5 204.6,94.9 208.5,94.3 212.4,93.7 216.3,93.1 220.2,92.5 224.2,91.9 228.1,91.3 232.0,90.7 235.9,90.1 239.8,89.5 243.7,88.9 247.6,88.3 251.5,87.7 255.4,87.1 259.3,86.5 263.2,85.9 267.1,85.3 271.0,84.7 274.9,84.1 278.8,83.5 282.8,82.9 286.7,82.3 290.6,81.7 294.5,81.1 298.4,80.5 302.3,79.9 306.2,79.3 310.1,78.7 314.0,78.1" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="4 3"/>
   <text x="67.9" y="166.2" text-anchor="middle" font-size="10" fill="currentColor">×</text>
   <text x="71.8" y="165.1" text-anchor="middle" font-size="10" fill="currentColor">×</text>
   <text x="75.7" y="164.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
@@ -664,7 +668,7 @@ A 在前向一层层攒起来，反向再一层层还掉；G 正好相反，前�
   <text x="306.2" y="85.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
   <text x="310.1" y="84.1" text-anchor="middle" font-size="10" fill="currentColor">×</text>
   <text x="314.0" y="82.0" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text class="val" x="308.0" y="70.1" text-anchor="end">fp32 峰值 25.60（实测 25.56）</text>
+  <text class="val" x="308.0" y="70.1" text-anchor="end">峰值 25.56 GiB</text>
   <line x1="189.0" y1="62" x2="189.0" y2="250" stroke="currentColor" stroke-opacity=".3" stroke-dasharray="2 3"/>
   <line class="axis" x1="64" y1="250" x2="314" y2="250"/>
   <text class="tick" x="64.0" y="266" text-anchor="start">开始</text>
@@ -681,7 +685,6 @@ A 在前向一层层攒起来，反向再一层层还掉；G 正好相反，前�
   <g class="m"><title>A</title><polygon points="364.0,229.9 374.4,218.1 384.8,206.2 395.2,194.3 405.7,182.5 416.1,170.6 426.5,158.7 436.9,146.8 447.3,135.0 457.8,123.1 468.2,111.2 478.6,99.4 489.0,87.5 499.4,99.4 509.8,111.2 520.2,123.1 530.7,135.0 541.1,146.8 551.5,158.7 561.9,170.6 572.3,182.5 582.8,194.3 593.2,206.2 603.6,218.1 614.0,229.9 614.0,229.9 603.6,229.9 593.2,229.9 582.8,229.9 572.3,229.9 561.9,229.9 551.5,229.9 541.1,229.9 530.7,229.9 520.2,229.9 509.8,229.9 499.4,229.9 489.0,229.9 478.6,229.9 468.2,229.9 457.8,229.9 447.3,229.9 436.9,229.9 426.5,229.9 416.1,229.9 405.7,229.9 395.2,229.9 384.8,229.9 374.4,229.9 364.0,229.9" style="fill: var(--fig-2)" stroke-width=".8"/></g>
   <g class="m"><title>G</title><polygon points="364.0,229.9 374.4,218.1 384.8,206.2 395.2,194.3 405.7,182.5 416.1,170.6 426.5,158.7 436.9,146.8 447.3,135.0 457.8,123.1 468.2,111.2 478.6,99.4 489.0,87.5 499.4,97.7 509.8,107.9 520.2,118.1 530.7,128.3 541.1,138.5 551.5,148.7 561.9,158.9 572.3,169.1 582.8,179.3 593.2,189.5 603.6,199.7 614.0,209.9 614.0,229.9 603.6,218.1 593.2,206.2 582.8,194.3 572.3,182.5 561.9,170.6 551.5,158.7 541.1,146.8 530.7,135.0 520.2,123.1 509.8,111.2 499.4,99.4 489.0,87.5 478.6,99.4 468.2,111.2 457.8,123.1 447.3,135.0 436.9,146.8 426.5,158.7 416.1,170.6 405.7,182.5 395.2,194.3 384.8,206.2 374.4,218.1 364.0,229.9" style="fill: var(--fig-hi)" stroke-width=".8"/></g>
   <g class="m"><title>T</title><polygon points="364.0,229.9 374.4,218.1 384.8,206.2 395.2,194.3 405.7,182.5 416.1,170.6 426.5,158.7 436.9,146.8 447.3,135.0 457.8,123.1 468.2,111.2 478.6,99.4 489.0,80.4 499.4,90.6 509.8,100.8 520.2,111.0 530.7,121.2 541.1,131.4 551.5,141.6 561.9,151.8 572.3,162.0 582.8,172.2 593.2,182.4 603.6,192.6 614.0,202.8 614.0,209.9 603.6,199.7 593.2,189.5 582.8,179.3 572.3,169.1 561.9,158.9 551.5,148.7 541.1,138.5 530.7,128.3 520.2,118.1 509.8,107.9 499.4,97.7 489.0,87.5 478.6,99.4 468.2,111.2 457.8,123.1 447.3,135.0 436.9,146.8 426.5,158.7 416.1,170.6 405.7,182.5 395.2,194.3 384.8,206.2 374.4,218.1 364.0,229.9" style="fill: var(--fig-3); stroke: var(--fig-2)" stroke-width=".8"/></g>
-  <polyline points="364.0,229.9 374.4,221.2 384.8,212.5 395.2,203.7 405.7,195.0 416.1,186.3 426.5,177.5 436.9,168.8 447.3,160.0 457.8,151.3 468.2,142.6 478.6,133.8 489.0,118.0 499.4,125.0 509.8,132.1 520.2,139.2 530.7,146.3 541.1,153.3 551.5,160.4 561.9,167.5 572.3,174.5 582.8,181.6 593.2,188.7 603.6,195.7 614.0,202.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="4 3"/>
   <text x="374.4" y="221.2" text-anchor="middle" font-size="10" fill="currentColor">×</text>
   <text x="384.8" y="209.9" text-anchor="middle" font-size="10" fill="currentColor">×</text>
   <text x="395.2" y="198.7" text-anchor="middle" font-size="10" fill="currentColor">×</text>
@@ -706,7 +709,7 @@ A 在前向一层层攒起来，反向再一层层还掉；G 正好相反，前�
   <text x="593.2" y="193.8" text-anchor="middle" font-size="10" fill="currentColor">×</text>
   <text x="603.6" y="203.6" text-anchor="middle" font-size="10" fill="currentColor">×</text>
   <text x="614.0" y="212.4" text-anchor="middle" font-size="10" fill="currentColor">×</text>
-  <text class="val" x="495.0" y="72.4" text-anchor="start">fp32 峰值 4.06（实测 4.08）</text>
+  <text class="val" x="495.0" y="72.4" text-anchor="start">峰值 4.08 GiB</text>
   <line x1="489.0" y1="62" x2="489.0" y2="250" stroke="currentColor" stroke-opacity=".3" stroke-dasharray="2 3"/>
   <line class="axis" x1="364" y1="250" x2="614" y2="250"/>
   <text class="tick" x="364.0" y="266" text-anchor="start">开始</text>
@@ -715,18 +718,14 @@ A 在前向一层层攒起来，反向再一层层还掉；G 正好相反，前�
   <text class="lab2" x="364" y="286">W = G = 0.48 GiB，A = 3.41 GiB，L = 12</text>
   <text class="lab2" x="14" y="160" transform="rotate(-90 14 160)" text-anchor="middle">GiB</text>
 </svg>
-<figcaption><strong>图 3-2</strong> 一步 fwd_bwd 的显存：色带按 M(j) 用实测的 W、A、G、T 堆叠，× 是逐层实测值，虚线是 bf16 下的公式值。</figcaption>
+<figcaption><strong>图 3-2</strong> 一步前向 + 反向的显存（fp32）：色带按 M(j) 用实测的 W、A、G、T 堆叠，× 是逐层实测值。</figcaption>
 </figure>
 
-所以真正决定训练显存峰值的是 <span class="sw" style="background: var(--fig-2)"></span>A，它也是唯一一个跟着 seq 长大的。那 A 里到底装了些什么？
+所以训练显存的峰值主要由 <span class="sw" style="background: var(--fig-2)"></span>A 决定，而且四项里只有 A 随 seq 变大。下面拿 RMSNorm 看 A 具体存了哪些张量。
 
 ### 3.2 拆开 RMSNorm：autograd 到底存了什么 {#rmsnorm}
 
-`torch.autograd.graph.saved_tensors_hooks` 能在每个张量被存下（pack）和取出（unpack）时喊一声。先拿最简单的 RMSNorm（fp32，`x: [4, 512, 2560]`）试试，它可以拆成 5 个 op：
-
-$\mathrm{RMSNorm}(x)_i = w_i \cdot \dfrac{x_i}{\sqrt{\frac{1}{d}\sum_{j=1}^{d} x_j^2 + \epsilon}}$
-
-<p align="center">$\underbrace{r = \big(\underbrace{\tfrac{1}{d}\textstyle\sum_j \underbrace{x_j^2}_{\text{①}}}_{\text{②}} + \epsilon\big)^{-1/2}}_{\text{③}}$，$\underbrace{\hat{x} = x \cdot r}_{\text{④}}$，$\underbrace{y = w \odot \hat{x}}_{\text{⑤}}$</p>
+PyTorch 的 `torch.autograd.graph.saved_tensors_hooks` 可以在 autograd 每存下（pack）或取出（unpack）一个张量时调用一个自定义函数，在里面打印就知道存了什么。先拿 RMSNorm 试（fp32，`x: [4, 512, 2560]`）。它算的是 $y = w \odot (x \cdot r)$，其中 $r = (\tfrac{1}{d}\sum_j x_j^2 + \epsilon)^{-1/2}$ 每行一个数，代码里拆成 5 个 op：
 
 ```python
 rms = torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + eps)  # ①②③
@@ -735,28 +734,28 @@ y = weight * x_hat                                         # ⑤
 ```
 
 ```
-Saving  1  [4,512,2560]  grad_fn=None            ptr=…9040
-Saving  2  [4,512,1]     grad_fn=RsqrtBackward0  ptr=…6b00
-Saving  3  [4,512,1]     grad_fn=RsqrtBackward0  ptr=…6b00
-Saving  4  [4,512,2560]  grad_fn=None            ptr=…9040
-Saving  5  [4,512,2560]  grad_fn=MulBackward0    ptr=…3c00
-Saving  6  [2560]        grad_fn=None            ptr=…1000
+Saving  1  [4,512,2560]  grad_fn=None            ptr=…9040   # x
+Saving  2  [4,512,1]     grad_fn=RsqrtBackward0  ptr=…6b00   # r
+Saving  3  [4,512,1]     grad_fn=RsqrtBackward0  ptr=…6b00   # r
+Saving  4  [4,512,2560]  grad_fn=None            ptr=…9040   # x
+Saving  5  [4,512,2560]  grad_fn=MulBackward0    ptr=…3c00   # x̂
+Saving  6  [2560]        grad_fn=None            ptr=…1000   # w
 Loading    5 → 6 → 2 → 4 → 3 → 1
 ```
 
-看完打印，autograd 的规矩其实只有一条：**一个 op 的局部偏导里用到谁，前向就把谁留下；偏导是常数就什么都不留**。留的只是引用，不是拷贝，本来就在显存里的输入 `x` 和参数 `w` 不额外花钱。逐个 op 对一遍（[表 3-1](#tab-3-1)、[图 3-3](#fig-3-3)），6 次 Saving 其实只落在 4 块内存上，真正新开的只有 $r$（8 KiB）和 $\hat{x}$（20 MiB）。
+从打印能看出 autograd 存张量的规则：**一个 op 的局部偏导里用到谁，前向就存谁；偏导是常数就什么都不存**。存的是引用，不是拷贝，所以本来就在显存里的输入 `x` 和参数 `w` 不额外占显存。6 次 Saving 只落在 4 块内存上（ptr 相同就是同一块），新占显存的只有 $r$（8 KiB）和 $\hat{x}$（20 MiB）。每个 op 存了什么、为什么存，见[表 3-1](#tab-3-1) 和[图 3-3](#fig-3-3)。
 
-| op | 前向 | FLOPs / 元素 | 反向要的偏导 | 存 | 额外显存 | print |
-|:--|:--|--:|:--|:--|--:|:--|
-| ① | $x^2$ | 1 | $\partial x^2/\partial x = 2x$ | $x$ | 0 | 1 |
-| ② | $v=\tfrac1d\sum x^2$ | 1 | $\partial v/\partial x^2 = \tfrac1d$ | 常数，不存 | 0 | — |
-| ③ | $r=(v+\epsilon)^{-1/2}$ | 每行 2 | $\partial r/\partial v = -\tfrac12 r^3$ | $r$ | **8 KiB** | 3 |
-| ④ | $\hat{x}=x\cdot r$ | 1 | $\partial\hat{x}/\partial x = r$，$\partial\hat{x}/\partial r = x$ | $r$、$x$ | 0 | 2、4 |
-| ⑤ | $y=w\odot\hat{x}$ | 1 | $\partial y/\partial w = \hat{x}$，$\partial y/\partial\hat{x} = w$ | $\hat{x}$、$w$ | **20 MiB** | 5、6 |
-{#tab-3-1 caption="**表 3-1** RMSNorm 五个 op 的 FLOPs 与为反向存的张量（eager）" note="FLOPs 是纸面计数；print 列是上面打印里的第几条 Saving，第 1、4 条和第 2、3 条分别是同一块内存。"}
+| op | 反向要的偏导 | 存下 | 新占显存 |
+|:--|:--|:--|--:|
+| ① $x^2$ | $\partial x^2/\partial x = 2x$ | $x$ | 0 |
+| ② $v=\tfrac1d\sum x^2$ | $\partial v/\partial x^2 = \tfrac1d$，常数 | 不存 | 0 |
+| ③ $r=(v+\epsilon)^{-1/2}$ | $\partial r/\partial v = -\tfrac12 r^3$ | $r$ | **8 KiB** |
+| ④ $\hat{x}=x\cdot r$ | $\partial\hat{x}/\partial x = r$，$\partial\hat{x}/\partial r = x$ | $r$、$x$ | 0 |
+| ⑤ $y=w\odot\hat{x}$ | $\partial y/\partial w = \hat{x}$，$\partial y/\partial\hat{x} = w$ | $\hat{x}$、$w$ | **20 MiB** |
+{#tab-3-1 caption="**表 3-1** RMSNorm 五个 op 为反向存的张量（eager）" note="④ 存的 $r$、$x$ 和 ③、① 存的是同一块内存，所以不再占显存。新占显存按 fp32 算：$r$ 是 [4, 512, 1]，$\hat{x}$ 是 [4, 512, 2560]。"}
 
 <figure id="fig-3-3" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 332" width="100%" role="img" aria-label="RMSNorm eager 的前向、为反向留下的张量和反向：前向 5 个算子每元素约 1 次运算；显存里多留 r 8 KiB 和 x̂ 20 MiB；反向各步读取这些张量">
+<svg class="fg" viewBox="0 0 640 330" width="100%" role="img" aria-label="RMSNorm eager：前向 5 个算子每元素约 1 次运算；为反向存了 6 次张量，落在 x、r、x̂、w 四块内存上，新占的只有 r 8 KiB 和 x̂ 20 MiB；反向各步读回这些张量">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -772,86 +771,96 @@ Loading    5 → 6 → 2 → 4 → 3 → 1
     .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
     .fg .band { fill: currentColor; fill-opacity: .045; }
     .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 5px; stroke-linejoin: round; }
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: 540px; } }
   </style>
-  <defs><marker id="fig-3-3-m0" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-3-3-m1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker><marker id="fig-3-3-m2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-mute)"/></marker><marker id="fig-3-3-m3" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker></defs>
-  <rect class="band" x="74" y="18" width="560" height="74" rx="8"/>
-  <text class="lab" x="6" y="53">前向</text><text class="lab2" x="6" y="68">花 FLOPs</text>
-  <rect class="band" x="74" y="124" width="560" height="72" rx="8"/>
-  <text class="lab" x="6" y="158">显存</text><text class="lab2" x="6" y="173">为反向留下</text>
-  <rect class="band" x="74" y="228" width="560" height="74" rx="8"/>
-  <text class="lab" x="6" y="263">反向</text><text class="lab2" x="6" y="278">再花 FLOPs</text>
-  <rect x="108.0" y="32.0" width="76" height="46" rx="6" class="op"/>
-  <text class="tb" x="146" y="52" text-anchor="middle">① x²</text>
-  <text class="s" x="146" y="68" text-anchor="middle">1 FLOP/元素</text>
-  <rect x="194.0" y="32.0" width="76" height="46" rx="6" class="op"/>
-  <text class="tb" x="232" y="52" text-anchor="middle">② mean</text>
-  <text class="s" x="232" y="68" text-anchor="middle">1 FLOP/元素</text>
-  <rect x="280.0" y="32.0" width="76" height="46" rx="6" class="op"/>
-  <text class="tb" x="318" y="52" text-anchor="middle">③ rsqrt</text>
-  <text class="s" x="318" y="68" text-anchor="middle">每行 2 FLOPs</text>
-  <rect x="366.0" y="32.0" width="76" height="46" rx="6" class="op"/>
-  <text class="tb" x="404" y="52" text-anchor="middle">④ x · r</text>
-  <text class="s" x="404" y="68" text-anchor="middle">1 FLOP/元素</text>
-  <rect x="452.0" y="32.0" width="76" height="46" rx="6" class="op"/>
-  <text class="tb" x="490" y="52" text-anchor="middle">⑤ w ⊙ x̂</text>
-  <text class="s" x="490" y="68" text-anchor="middle">1 FLOP/元素</text>
-  <line x1="184.0" y1="55.0" x2="191.0" y2="55.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
-  <line x1="270.0" y1="55.0" x2="277.0" y2="55.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
-  <line x1="356.0" y1="55.0" x2="363.0" y2="55.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
-  <line x1="442.0" y1="55.0" x2="449.0" y2="55.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
-  <text class="t" x="84" y="59">x</text>
-  <line x1="95.0" y1="55.0" x2="105.0" y2="55.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
-  <line x1="528.0" y1="55.0" x2="580.0" y2="55.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
-  <text class="t" x="587" y="59">y</text>
-  <rect x="129.0" y="138.0" width="120" height="44" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
-  <text class="t" x="189" y="157" text-anchor="middle">x  …9040</text>
-  <text class="s" x="189" y="173" text-anchor="middle">0：输入本来就在</text>
-  <rect x="313.0" y="138.0" width="96" height="44" rx="6" style="fill: color-mix(in srgb, var(--fig-1) 14%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="t" x="361" y="157" text-anchor="middle">r  …6b00</text>
-  <text class="tb" x="361" y="173" text-anchor="middle">+8 KiB</text>
-  <rect x="446.0" y="138.0" width="88" height="44" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="2"/>
-  <text class="t" x="490" y="157" text-anchor="middle">x̂  …3c00</text>
-  <text class="tb" x="490" y="173" text-anchor="middle">+20 MiB</text>
-  <rect x="544.0" y="138.0" width="88" height="44" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
-  <text class="t" x="588" y="157" text-anchor="middle">w  …1000</text>
-  <text class="s" x="588" y="173" text-anchor="middle">0：参数</text>
-  <line x1="324.0" y1="78.0" x2="341.0" y2="138.0" style="stroke: var(--fig-1)" stroke-width="1.2"/>
-  <line x1="398.0" y1="78.0" x2="381.0" y2="138.0" style="stroke: var(--fig-1)" stroke-width="1.2"/>
-  <line x1="490.0" y1="78.0" x2="490.0" y2="138.0" style="stroke: var(--fig-hi)" stroke-width="1.2"/>
-  <rect x="108.0" y="252.0" width="76" height="34" rx="6" class="op"/>
-  <text class="t" x="146" y="266" text-anchor="middle">① 反向</text>
-  <rect x="194.0" y="252.0" width="76" height="34" rx="6" class="op"/>
-  <text class="t" x="232" y="266" text-anchor="middle">② 反向</text>
-  <rect x="280.0" y="252.0" width="76" height="34" rx="6" class="op"/>
-  <text class="t" x="318" y="266" text-anchor="middle">③ 反向</text>
-  <rect x="366.0" y="252.0" width="76" height="34" rx="6" class="op"/>
-  <text class="t" x="404" y="266" text-anchor="middle">④ 反向</text>
-  <rect x="452.0" y="252.0" width="76" height="34" rx="6" class="op"/>
-  <text class="t" x="490" y="266" text-anchor="middle">⑤ 反向</text>
-  <line x1="194.0" y1="265.0" x2="187.0" y2="265.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
-  <line x1="280.0" y1="265.0" x2="273.0" y2="265.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
-  <line x1="366.0" y1="265.0" x2="359.0" y2="265.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
-  <line x1="452.0" y1="265.0" x2="445.0" y2="265.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
-  <text class="t" x="600" y="269">dy</text>
-  <line x1="596.0" y1="265.0" x2="531.0" y2="265.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
-  <line x1="108.0" y1="265.0" x2="102.0" y2="265.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
-  <text class="t" x="82" y="269">dx</text>
-  <line x1="490.0" y1="182.0" x2="490.0" y2="246.0" style="stroke: var(--fig-hi)" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#fig-3-3-m1)"/>
-  <line x1="568.0" y1="182.0" x2="508.0" y2="246.0" style="stroke: var(--fig-mute)" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#fig-3-3-m2)"/>
-  <line x1="375.0" y1="182.0" x2="400.0" y2="246.0" style="stroke: var(--fig-1)" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#fig-3-3-m3)"/>
-  <line x1="347.0" y1="182.0" x2="322.0" y2="246.0" style="stroke: var(--fig-1)" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#fig-3-3-m3)"/>
-  <line x1="229.0" y1="182.0" x2="382.0" y2="246.0" style="stroke: var(--fig-mute)" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#fig-3-3-m2)"/>
-  <line x1="149.0" y1="182.0" x2="146.0" y2="246.0" style="stroke: var(--fig-mute)" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#fig-3-3-m2)"/>
-  <text class="lab2" x="232" y="295" text-anchor="middle">偏导是常数 1/d，什么都不读</text>
+  <defs><marker id="fig-3-3-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-3-3-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-mute)"/></marker><marker id="fig-3-3-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker><marker id="fig-3-3-m3" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker></defs>
+  <rect class="band" x="4" y="6" width="632" height="98" rx="8"/>
+  <text class="ttl" x="16" y="24">前向</text><text class="lab2" x="50" y="24">花 FLOPs</text>
+  <rect class="band" x="4" y="114" width="632" height="98" rx="8"/>
+  <text class="ttl" x="16" y="132">显存</text><text class="lab2" x="50" y="132">为反向存下：6 次 Saving，落在 4 块内存上</text>
+  <rect class="band" x="4" y="222" width="632" height="100" rx="8"/>
+  <text class="ttl" x="16" y="240">反向</text><text class="lab2" x="50" y="240">再花 FLOPs</text>
+  <rect x="50.0" y="43.0" width="84" height="46" rx="6" class="op"/>
+  <text class="tb" x="92" y="63" text-anchor="middle">① x²</text>
+  <text class="s" x="92" y="79" text-anchor="middle">1 FLOP/元素</text>
+  <rect x="164.0" y="43.0" width="84" height="46" rx="6" class="op"/>
+  <text class="tb" x="206" y="63" text-anchor="middle">② mean</text>
+  <text class="s" x="206" y="79" text-anchor="middle">1 FLOP/元素</text>
+  <rect x="278.0" y="43.0" width="84" height="46" rx="6" class="op"/>
+  <text class="tb" x="320" y="63" text-anchor="middle">③ rsqrt</text>
+  <text class="s" x="320" y="79" text-anchor="middle">每行 2 FLOPs</text>
+  <rect x="392.0" y="43.0" width="84" height="46" rx="6" class="op"/>
+  <text class="tb" x="434" y="63" text-anchor="middle">④ x · r</text>
+  <text class="s" x="434" y="79" text-anchor="middle">1 FLOP/元素</text>
+  <rect x="506.0" y="43.0" width="84" height="46" rx="6" class="op"/>
+  <text class="tb" x="548" y="63" text-anchor="middle">⑤ w ⊙ x̂</text>
+  <text class="s" x="548" y="79" text-anchor="middle">1 FLOP/元素</text>
+  <line x1="134.0" y1="62.0" x2="162.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
+  <line x1="248.0" y1="62.0" x2="276.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
+  <line x1="362.0" y1="62.0" x2="390.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
+  <line x1="476.0" y1="62.0" x2="504.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
+  <text class="t" x="12" y="66">x</text>
+  <line x1="24.0" y1="62.0" x2="48.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
+  <line x1="590.0" y1="62.0" x2="616.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
+  <text class="t" x="622" y="66">y</text>
+  <line x1="92.0" y1="89.0" x2="92.0" y2="154.0" style="stroke: var(--fig-mute)" stroke-width="1.1"/>
+  <rect x="54.0" y="154" width="76" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="92" y="170" text-anchor="middle" font-size="11.5" fill="currentColor">x …9040</text>
+  <text x="92" y="186" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">输入，不新占</text>
+  <line x1="92.0" y1="194.0" x2="92.0" y2="264.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-3-m1)"/>
+  <line x1="320.0" y1="89.0" x2="320.0" y2="154.0" style="stroke: var(--fig-1)" stroke-width="1.1"/>
+  <rect x="282.0" y="154" width="76" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-1) 14%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text x="320" y="170" text-anchor="middle" font-size="11.5" fill="currentColor">r …6b00</text>
+  <text x="320" y="186" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+8 KiB</text>
+  <line x1="320.0" y1="194.0" x2="320.0" y2="264.0" style="stroke: var(--fig-1)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-3-m2)"/>
+  <line x1="407.0" y1="89.0" x2="407.0" y2="154.0" style="stroke: var(--fig-1)" stroke-width="1.1"/>
+  <rect x="383.0" y="154" width="48" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="407" y="170" text-anchor="middle" font-size="10.5" fill="currentColor">r …6b00</text>
+  <text x="407" y="186" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">同 ③</text>
+  <line x1="407.0" y1="194.0" x2="407.0" y2="264.0" style="stroke: var(--fig-1)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-3-m2)"/>
+  <line x1="461.0" y1="89.0" x2="461.0" y2="154.0" style="stroke: var(--fig-mute)" stroke-width="1.1"/>
+  <rect x="437.0" y="154" width="48" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="461" y="170" text-anchor="middle" font-size="10.5" fill="currentColor">x …9040</text>
+  <text x="461" y="186" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">同 ①</text>
+  <line x1="461.0" y1="194.0" x2="461.0" y2="264.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-3-m1)"/>
+  <line x1="521.0" y1="89.0" x2="521.0" y2="154.0" style="stroke: var(--fig-hi)" stroke-width="1.1"/>
+  <rect x="497.0" y="154" width="48" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="2"/>
+  <text x="521" y="170" text-anchor="middle" font-size="10.5" fill="currentColor">x̂ …3c00</text>
+  <text x="521" y="186" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+20 MiB</text>
+  <line x1="521.0" y1="194.0" x2="521.0" y2="264.0" style="stroke: var(--fig-hi)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-3-m3)"/>
+  <line x1="575.0" y1="89.0" x2="575.0" y2="154.0" style="stroke: var(--fig-mute)" stroke-width="1.1"/>
+  <rect x="551.0" y="154" width="48" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="575" y="170" text-anchor="middle" font-size="10.5" fill="currentColor">w …1000</text>
+  <text x="575" y="186" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">参数</text>
+  <line x1="575.0" y1="194.0" x2="575.0" y2="264.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-3-m1)"/>
+  <text class="lab2" x="206" y="172" text-anchor="middle">偏导是常数 1/d</text><text class="lab2" x="206" y="187" text-anchor="middle">什么都不存</text>
+  <rect x="50.0" y="266.0" width="84" height="36" rx="6" class="op"/>
+  <text class="t" x="92" y="288.5" text-anchor="middle">① 反向</text>
+  <rect x="164.0" y="266.0" width="84" height="36" rx="6" class="op"/>
+  <text class="t" x="206" y="288.5" text-anchor="middle">② 反向</text>
+  <rect x="278.0" y="266.0" width="84" height="36" rx="6" class="op"/>
+  <text class="t" x="320" y="288.5" text-anchor="middle">③ 反向</text>
+  <rect x="392.0" y="266.0" width="84" height="36" rx="6" class="op"/>
+  <text class="t" x="434" y="288.5" text-anchor="middle">④ 反向</text>
+  <rect x="506.0" y="266.0" width="84" height="36" rx="6" class="op"/>
+  <text class="t" x="548" y="288.5" text-anchor="middle">⑤ 反向</text>
+  <line x1="164.0" y1="284.0" x2="136.0" y2="284.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
+  <line x1="278.0" y1="284.0" x2="250.0" y2="284.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
+  <line x1="392.0" y1="284.0" x2="364.0" y2="284.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
+  <line x1="506.0" y1="284.0" x2="478.0" y2="284.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
+  <text class="t" x="620" y="288">dy</text>
+  <line x1="616.0" y1="284.0" x2="592.0" y2="284.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
+  <line x1="50.0" y1="284.0" x2="28.0" y2="284.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-3-m0)"/>
+  <text class="t" x="8" y="288">dx</text>
 </svg>
-<figcaption><strong>图 3-3</strong> RMSNorm（eager）：上排算子花 FLOPs，中排张量占显存（实线框新占，灰色虚线框本来就在），下排是反向，虚线箭头是它读回的张量。</figcaption>
+<figcaption><strong>图 3-3</strong> RMSNorm（eager）：中排是打印里的 6 次 Saving，ptr 相同就是同一块内存，实线框才新占显存；反向沿虚线箭头读回它们。</figcaption>
 </figure>
 
-眼熟吗？和第 2 节的 softmax 是一个毛病：RMSNorm 每个元素只算 ~4 次，5 个 kernel 却各把 20 MiB 来回搬一遍，I ≈ 0.14，妥妥的 memory-bound；显存上还为反向多攒了一份 $\hat{x}$。
+RMSNorm 和 [2.2 节](#memory-bound)的 softmax 是同一个问题：每个元素只算约 4 次，5 个 op 却要读写约 140 MiB 显存，$I \approx 0.14$，是 memory-bound；显存上还为反向多存了一份 $\hat{x}$。
 
-可 $\hat{x}$ 不过是 $x \cdot r$，反向时拿 $x$ 和 $r$ 现算一下就有了，何必存？逐个算子跑的时候没办法，⑤ 的反向只知道自己要 $\hat{x}$，不知道它从哪来；换成 `torch.compile` 把 ①–⑤ 编成一个前向 kernel 和一个反向 kernel，它就聪明了，只留 $x$、$w$、$r$：
+$\hat{x}$ 其实不用存：它就是 $x \cdot r$，反向时用 $x$ 和 $r$ 重算一次就有。eager 模式做不到，因为每个 op 单独执行，⑤ 的反向只知道自己需要 $\hat{x}$，不知道它能由 $x$ 和 $r$ 算出来。用 `torch.compile` 把 ①–⑤ 编译成一个前向 kernel 和一个反向 kernel 后，只存 $x$、$w$、$r$：
 
 ```
 Saving  1  [4,512,2560]  grad_fn=None  ptr=…3c80   # x
@@ -860,10 +869,10 @@ Saving  3  [4,512,1]     grad_fn=None  ptr=…f9c0   # r
 Loading    1 → 2 → 3（与 Saving 同序）
 ```
 
-反向公式 $\partial y/\partial x = r\,w\odot(I-\tfrac1d\hat{x}\hat{x}^{\!\top})$ 里要用的 $\hat{x}$ 都是现场算的（[图 3-4](#fig-3-4)），前后对比见[表 3-2](#tab-3-2)。
+反向要算 $\nabla x = r\,\big(g - \hat{x} \cdot \mathrm{mean}(g \odot \hat{x})\big)$，其中 $g = w \odot \nabla y$。式子里的 $\hat{x}$ 都在反向 kernel 里用 $x \cdot r$ 现算（[图 3-4](#fig-3-4)），前后对比见[表 3-2](#tab-3-2)。
 
 <figure id="fig-3-4" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="torch.compile 融合后的 RMSNorm：前向一个 kernel；显存只多留 r 8 KiB，x̂ 不存；反向一个 kernel，用 x 和 r 现场重算 x̂">
+<svg class="fg" viewBox="0 0 640 330" width="100%" role="img" aria-label="torch.compile 融合后的 RMSNorm：前向一个 kernel；显存只多留 r 8 KiB，x̂ 不存；反向一个 kernel，用 x 和 r 现场重算 x̂">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -879,47 +888,50 @@ Loading    1 → 2 → 3（与 Saving 同序）
     .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
     .fg .band { fill: currentColor; fill-opacity: .045; }
     .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 5px; stroke-linejoin: round; }
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: 540px; } }
   </style>
-  <defs><marker id="fig-3-4-m0" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-3-4-m1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-mute)"/></marker><marker id="fig-3-4-m2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker></defs>
-  <rect class="band" x="74" y="18" width="560" height="68" rx="8"/>
-  <text class="lab" x="6" y="50">前向</text><text class="lab2" x="6" y="65">花 FLOPs</text>
-  <rect class="band" x="74" y="114" width="560" height="72" rx="8"/>
-  <text class="lab" x="6" y="148">显存</text><text class="lab2" x="6" y="163">为反向留下</text>
-  <rect class="band" x="74" y="214" width="560" height="72" rx="8"/>
-  <text class="lab" x="6" y="248">反向</text><text class="lab2" x="6" y="263">再花 FLOPs</text>
-  <rect x="180.0" y="34.0" width="300" height="44" rx="6" class="op"/>
-  <text class="tb" x="330" y="53" text-anchor="middle">fused forward：①–⑤ 一个 kernel</text>
-  <text class="s" x="330" y="69" text-anchor="middle">~4 FLOPs/元素</text>
-  <text class="t" x="80" y="56">x</text>
-  <line x1="90.0" y1="52.0" x2="177.0" y2="52.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-4-m0)"/>
-  <line x1="480.0" y1="52.0" x2="585.0" y2="52.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-4-m0)"/>
-  <text class="t" x="592" y="56">y</text>
-  <rect x="116.0" y="128.0" width="120" height="44" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
-  <text class="t" x="176" y="147" text-anchor="middle">x  …3c80</text>
-  <text class="s" x="176" y="163" text-anchor="middle">0：输入本来就在</text>
-  <rect x="304.0" y="128.0" width="96" height="44" rx="6" style="fill: color-mix(in srgb, var(--fig-1) 14%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="t" x="352" y="147" text-anchor="middle">r  …f9c0</text>
-  <text class="tb" x="352" y="163" text-anchor="middle">+8 KiB</text>
-  <rect x="438.0" y="128.0" width="92" height="44" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 8%, transparent); stroke: var(--fig-hi)" stroke-width="1.4" stroke-dasharray="5 3"/>
-  <text class="t" x="484" y="147" text-anchor="middle">x̂ 不存</text>
-  <text class="s" x="484" y="163" text-anchor="middle">省下 20 MiB</text>
-  <line x1="444.0" y1="166.0" x2="524.0" y2="134.0" style="stroke: var(--fig-hi)" stroke-width="1.4" stroke-opacity=".8"/>
-  <rect x="540.0" y="128.0" width="92" height="44" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
-  <text class="t" x="586" y="147" text-anchor="middle">w  …b3c0</text>
-  <text class="s" x="586" y="163" text-anchor="middle">0：参数</text>
-  <line x1="352.0" y1="75.0" x2="352.0" y2="128.0" style="stroke: var(--fig-1)" stroke-width="1.2"/>
-  <rect x="140.0" y="232.0" width="380" height="44" rx="6" class="op"/>
-  <text class="tb" x="330" y="251" text-anchor="middle">fused backward：∂y/∂w、∂y/∂x 一个 kernel</text>
-  <text class="s" x="330" y="267" text-anchor="middle">x̂ = x · r 现场重算，每元素多 1 FLOP</text>
-  <line x1="186.0" y1="172.0" x2="216.0" y2="226.0" style="stroke: var(--fig-mute)" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#fig-3-4-m1)"/>
-  <line x1="352.0" y1="172.0" x2="352.0" y2="226.0" style="stroke: var(--fig-1)" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#fig-3-4-m2)"/>
-  <line x1="566.0" y1="172.0" x2="500.0" y2="226.0" style="stroke: var(--fig-mute)" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#fig-3-4-m1)"/>
-  <text class="t" x="600" y="254">dy</text>
-  <line x1="596.0" y1="250.0" x2="523.0" y2="250.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-4-m0)"/>
-  <line x1="140.0" y1="250.0" x2="102.0" y2="250.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-4-m0)"/>
-  <text class="t" x="82" y="254">dx</text>
+  <defs><marker id="fig-3-4-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-3-4-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-mute)"/></marker><marker id="fig-3-4-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker></defs>
+  <rect class="band" x="4" y="6" width="632" height="98" rx="8"/>
+  <text class="ttl" x="16" y="24">前向</text><text class="lab2" x="50" y="24">花 FLOPs</text>
+  <rect class="band" x="4" y="114" width="632" height="98" rx="8"/>
+  <text class="ttl" x="16" y="132">显存</text><text class="lab2" x="50" y="132">为反向存下：3 次 Saving</text>
+  <rect class="band" x="4" y="222" width="632" height="100" rx="8"/>
+  <text class="ttl" x="16" y="240">反向</text><text class="lab2" x="50" y="240">再花 FLOPs</text>
+  <rect x="120.0" y="43.0" width="470" height="46" rx="6" class="op"/>
+  <text class="tb" x="355.0" y="63" text-anchor="middle">fused forward：①–⑤ 一个 kernel</text>
+  <text class="s" x="355.0" y="79" text-anchor="middle">~4 FLOPs/元素</text>
+  <text class="t" x="12" y="66">x</text>
+  <line x1="24.0" y1="62.0" x2="118.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-4-m0)"/>
+  <line x1="590.0" y1="62.0" x2="616.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-4-m0)"/>
+  <text class="t" x="622" y="66">y</text>
+  <rect x="142.0" y="154" width="96" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="190" y="170" text-anchor="middle" font-size="11.5" fill="currentColor">x …3c80</text>
+  <text x="190" y="186" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">输入，不新占</text>
+  <line x1="190.0" y1="89.0" x2="190.0" y2="154.0" style="stroke: var(--fig-mute)" stroke-width="1.1"/>
+  <line x1="190.0" y1="194.0" x2="190.0" y2="260.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-4-m1)"/>
+  <rect x="275.0" y="154" width="90" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-1) 14%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text x="320" y="170" text-anchor="middle" font-size="11.5" fill="currentColor">r …f9c0</text>
+  <text x="320" y="186" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+8 KiB</text>
+  <line x1="320.0" y1="89.0" x2="320.0" y2="154.0" style="stroke: var(--fig-1)" stroke-width="1.1"/>
+  <line x1="320.0" y1="194.0" x2="320.0" y2="260.0" style="stroke: var(--fig-1)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-4-m2)"/>
+  <rect x="400.0" y="154" width="104" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 8%, transparent); stroke: var(--fig-hi)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="452" y="170" text-anchor="middle" font-size="11.5" fill="currentColor">x̂ 不存</text>
+  <text x="452" y="186" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">省下 20 MiB</text>
+  <line x1="406.0" y1="188" x2="498.0" y2="160" style="stroke: var(--fig-hi)" stroke-width="1.4" stroke-opacity=".8"/>
+  <rect x="516.0" y="154" width="64" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="548" y="170" text-anchor="middle" font-size="11.5" fill="currentColor">w …b3c0</text>
+  <text x="548" y="186" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">参数</text>
+  <line x1="548.0" y1="89.0" x2="548.0" y2="154.0" style="stroke: var(--fig-mute)" stroke-width="1.1"/>
+  <line x1="548.0" y1="194.0" x2="548.0" y2="260.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-4-m1)"/>
+  <rect x="120.0" y="266.0" width="470" height="44" rx="6" class="op"/>
+  <text class="tb" x="355.0" y="285" text-anchor="middle">fused backward：∂y/∂w、∂y/∂x 一个 kernel</text>
+  <text class="s" x="355.0" y="301" text-anchor="middle">x̂ = x · r 现场重算，每元素多 1 FLOP</text>
+  <text class="t" x="620" y="288">dy</text>
+  <line x1="616.0" y1="284.0" x2="592.0" y2="284.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-4-m0)"/>
+  <line x1="120.0" y1="284.0" x2="28.0" y2="284.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-4-m0)"/>
+  <text class="t" x="8" y="288">dx</text>
 </svg>
 <figcaption><strong>图 3-4</strong> 融合后的 RMSNorm（泳道同<a href="#fig-3-3">图 3-3</a>）：只多存 $r$（8 KiB），$\hat{x}$ 在反向用 $x$、$r$ 重算。</figcaption>
 </figure>
@@ -928,16 +940,16 @@ Loading    1 → 2 → 3（与 Saving 同序）
 |:--|:--|:--|
 | kernel 数 | 前向 5 个 | 前向 1 个 + 反向 1 个 |
 | 为反向存的张量 | $x$、$w$、$r$、$\hat{x}$ | $x$、$w$、$r$ |
-| 额外显存 | $r + \hat{x}$ ≈ 20 MiB | $r$ ≈ 8 KiB |
+| 新占显存 | $r + \hat{x}$ ≈ 20 MiB | $r$ ≈ 8 KiB |
 | 前向读写显存 | ~140 MiB | ~40 MiB（只读 $x$、写 $y$） |
 | FLOPs / 元素 | 前向 ~4 | 前向 ~4，反向多 1（重算 $\hat{x} = x\cdot r$） |
 {#tab-3-2 caption="**表 3-2** RMSNorm：eager 与 `torch.compile` 融合" note="存的张量是实测，FLOPs 和读写是纸面计数。"}
 
-> 多算一次乘法，换来显存从 20 MiB 降到 8 KiB、前向读写从 ~140 MiB 降到 ~40 MiB，这笔买卖很划算。「不存，用的时候再算」这招后面还会出场两次：checkpoint，还有 FlashAttention。
+> 融合后的 RMSNorm 用一次乘法的重算换掉了 20 MiB 的 $\hat{x}$。不存、反向时再算，这个办法在 [4.2 节](#checkpoint)的 checkpoint 和 FlashAttention 里还会用到。
 
-### 3.3 一整层：S、P 吃掉一大半 {#one-layer}
+### 3.3 一整层：S、P 占了一半以上 {#one-layer}
 
-把同样的规矩套到一整层上：每个矩阵乘的输入都得留着，S、P 自然也跑不掉。数一下 xl 的一层（`torch.compile` 已经把 RMSNorm 这类中间量省掉了），要为反向留 3655 MiB，一大半是 S 和 P（[图 3-5](#fig-3-5)）。
+同样的规则放到一整层上：每个矩阵乘的输入都要存，S 和 P 分别是 softmax 和 PV 的输入，也要存。数一下 xl 的一层（`torch.compile` 已经省掉了 RMSNorm 这类中间量），一共要为反向存 3655 MiB，其中一半以上是 S 和 P（[图 3-5](#fig-3-5)）。这组测量用的是 16 头，S、P 各 1 GiB；标准 xl 是 32 头，S、P 还要再大一倍。
 
 <figure id="fig-3-5" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 246" width="100%" role="img" aria-label="xl 一层为反向存的 3655 MiB：S、P 占 56%，FFN 中间量 26%，[b, s, d] 级张量 17.5%，其他 0.2%">
@@ -956,6 +968,7 @@ Loading    1 → 2 → 3（与 Saving 同序）
     .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
     .fg .band { fill: currentColor; fill-opacity: .045; }
     .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 5px; stroke-linejoin: round; }
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: 540px; } }
   </style>
@@ -977,10 +990,12 @@ Loading    1 → 2 → 3（与 Saving 同序）
   <text class="lab" x="310" y="182">其他</text><text class="lab2" x="310" y="198">mask、RoPE、softmax 统计量</text>
   <text class="val" x="630" y="182" text-anchor="end">7 MiB · 0.2%</text>
 </svg>
-<figcaption><strong>图 3-5</strong> xl 一层为反向存的张量（batch 4，seq 2048，<code>torch.compile</code> 后用 <code>saved_tensors_hooks</code> 实测；这组用 16 头，S、P 各 1 GiB）。</figcaption>
+<figcaption><strong>图 3-5</strong> xl 一层为反向存的张量（batch 4，seq 2048，16 头，<code>torch.compile</code> 后用 <code>saved_tensors_hooks</code> 实测）。</figcaption>
 </figure>
 
-xl 有 32 层，加起来 114 GiB，是 5090 显存的三倍多。更要命的是，只有 S、P 跟着 seq² 涨：同一个 `[b, h, s, s]` 张量，seq 128 时才 8 MiB，seq 2048 时就是 2 GiB，是残差流上一个张量的 25 倍。看 xl 一步的显存时间线（[图 3-6](#fig-3-6)）：seq 2048 的纯前向里，每过一层 attention 显存就冲起一根 ~8 GiB 的尖刺，算完落回去，32 层也能熬过去；可一旦要做反向，每层都得把 S、P 留下，第 1 层就压上 ~4.7 GiB，到第 2 层，尖刺直接顶穿了显存。
+xl 有 32 层，按 16 头算加起来也有 114 GiB，是 5090 显存的三倍多。而且只有 S、P 随 seq² 增长：32 头时，同一个 `[b, h, s, s]` 张量在 seq 128 时是 8 MiB，seq 2048 时是 2 GiB，是残差流上一个 `[b, s, d]` 张量的 25 倍。
+
+[图 3-6](#fig-3-6) 是 xl 一步的显存时间线。seq 2048 只跑前向时，每层 attention 都让显存冲高约 8 GiB，算完再落回去，32 层都能跑完；加上反向后，每层的 S、P 都得留下，第 1 层就多占约 4.7 GiB，到第 2 层就 OOM 了。
 
 <figure id="fig-3-6" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 420" width="100%" role="img" aria-label="xl 一步的显存时间线：seq 128 纯前向是平的；seq 2048 纯前向每层冲出一个尖峰；seq 128 full step 前向和反向一路上升，到 optimizer 时 OOM；seq 2048 带反向时第 2 层 OOM">
@@ -999,6 +1014,7 @@ xl 有 32 层，加起来 114 GiB，是 5090 显存的三倍多。更要命的�
     .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
     .fg .band { fill: currentColor; fill-opacity: .045; }
     .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 5px; stroke-linejoin: round; }
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: 540px; } }
   </style>
@@ -1061,20 +1077,18 @@ xl 有 32 层，加起来 114 GiB，是 5090 显存的三倍多。更要命的�
 <figcaption><strong>图 3-6</strong> xl（batch 4，32 头）一步的显存时间线，横轴是分配 / 释放的次序。</figcaption>
 </figure>
 
-显存这条线，也绕回了 S 和 P。
-
 ---
 
 ## 4 能省吗：bf16 和 checkpoint 都差一口气 {#savings}
 
-A 能不能小一点？两条路：每个张量存得瘦一点（bf16），或者干脆少存，反向时再算（checkpoint）。
+要减小 A 有两种办法：把每个张量存得小一点（bf16），或者少存一些、反向时重算（checkpoint）。
 
 ### 4.1 bf16 autocast {#bf16}
 
-autocast 只把矩阵乘的输入换成 bf16，权重、梯度、Adam 状态都还是 fp32（[图 4-1](#fig-4-1)）。
+autocast 只把矩阵乘的输入换成 bf16，权重、梯度和 Adam 状态还是 fp32。速度提升很明显，前向快了 1.9–2.3 倍（[图 4-1](#fig-4-1)）：矩阵乘换到 bf16 的 Tensor core 上，峰值翻倍（[表 1-1](#tab-1-1)），要搬的字节也少了一半。显存只省了 18–21%：W、G 和 Adam 状态大小不变；A 也没有减半，因为 norm、softmax、残差和 loss 还在 fp32 下算（这些累加在 bf16 下不准，bf16 只有 7 位尾数，把 0.01 累加 1000 次只能得到 4.0），反向还要多存一份 bf16 的权重副本。存下的张量还是那些，只是一部分从 4 字节变成了 2 字节。
 
 <figure id="fig-4-1" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 252" width="100%" role="img" aria-label="bf16 autocast 相对 fp32：前向快 1.87 到 2.30 倍，反向快 1.69 到 1.87 倍；fwd_bwd 峰值显存少 18% 到 21%">
+<svg class="fg" viewBox="0 0 640 252" width="100%" role="img" aria-label="bf16 autocast 相对 fp32：前向快 1.87 到 2.30 倍，反向快 1.69 到 1.87 倍；前向 + 反向的峰值显存少 18% 到 21%">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -1090,6 +1104,7 @@ autocast 只把矩阵乘的输入换成 bf16，权重、梯度、Adam 状态都�
     .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
     .fg .band { fill: currentColor; fill-opacity: .045; }
     .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 5px; stroke-linejoin: round; }
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: 540px; } }
   </style>
@@ -1120,7 +1135,7 @@ autocast 只把矩阵乘的输入换成 bf16，权重、梯度、Adam 状态都�
   <text class="lab" x="400" y="20">fp32</text>
   <rect x="448.4" y="11" width="10" height="10" rx="2" style="fill: var(--fig-1)"/>
   <text class="lab" x="464.4" y="20">bf16</text>
-  <text class="ttl" x="384" y="46">fwd_bwd 峰值显存（GiB）</text>
+  <text class="ttl" x="384" y="46">前向 + 反向的峰值显存（GiB）</text>
   <line class="grid" x1="384" y1="226" x2="630" y2="226"/><text class="tick" x="376" y="230" text-anchor="end">0</text>
   <line class="grid" x1="384" y1="156" x2="630" y2="156"/><text class="tick" x="376" y="160" text-anchor="end">10</text>
   <line class="grid" x1="384" y1="86" x2="630" y2="86"/><text class="tick" x="376" y="90" text-anchor="end">20</text>
@@ -1134,17 +1149,15 @@ autocast 只把矩阵乘的输入换成 bf16，权重、梯度、Adam 状态都�
   <g class="m"><title>large bf16：16.61 GiB</title><rect x="588.0" y="109.7" width="24.0" height="116.3" rx="3" style="fill: var(--fig-1)"/></g>
   <text class="val" x="600" y="104.7" text-anchor="middle">−18%</text><text class="lab" x="586" y="243" text-anchor="middle">large</text>
 </svg>
-<figcaption><strong>图 4-1</strong> bf16 autocast 相对 fp32（fwd_bwd，batch 4，seq 512）：左边是加速比，右边是峰值显存。</figcaption>
+<figcaption><strong>图 4-1</strong> bf16 autocast 相对 fp32（前向 + 反向，batch 4，seq 512）：左边是加速比，右边是峰值显存。</figcaption>
 </figure>
-
-速度上很爽，前向快了 1.9–2.3×：矩阵乘挪到了 bf16 的 Tensor core 上（[表 1-1](#tab-1-1) 里峰值直接翻倍），要搬的字节也少了一半。显存就没那么好看了，只省了 18–21%。W、G、Adam 状态纹丝不动；A 也没减半，因为 norm、softmax、残差和 loss 还留在 fp32（这些累加在 bf16 下不靠谱，7 位尾数把 0.01 累加 1000 次只能得到 4.0），反向还得多存一份 bf16 的权重副本。该存的张量一个都没少，只是瘦了点。
 
 ### 4.2 activation checkpoint {#checkpoint}
 
-checkpoint 就是 [3.2 节](#rmsnorm) RMSNorm 那招，只是从一个算子放大到一整层：前向只留每段的入口（entry，xl@2048 时 80 MiB），反向走到这一段，再拿入口把前向重跑一遍，用完就扔。4 层 xl block 每 2 层设一个 checkpoint，峰值就从 4 × 3655 MiB = 14.6 GiB 降到「2 个 entry 加一段」的 7.5 GiB（[图 4-2](#fig-4-2)）。
+checkpoint 和 [3.2 节](#rmsnorm)里 RMSNorm 的做法一样，只是从一个 op 扩大到几层：前向只存每段的入口（entry，xl、seq 2048 时 80 MiB），反向走到这一段时，用入口把这段的前向重跑一遍，用完就释放。4 层 xl block 每 2 层设一个 checkpoint，峰值就从 4 × 3655 MiB = 14.6 GiB 降到「2 个 entry 加一段」的 7.5 GiB（[图 4-2](#fig-4-2)）。
 
 <figure id="fig-4-2" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 334" width="100%" role="img" aria-label="4 层 xl block：不 checkpoint 时每层留 3655 MiB 一起活到反向，峰值 14.6 GiB；每 2 层一个 checkpoint 时只留 entry x0、x2，反向时逐段重算，峰值 7.5 GiB">
+<svg class="fg" viewBox="0 0 640 340" width="100%" role="img" aria-label="4 层 xl block：不 checkpoint 时每层留 3655 MiB 一起活到反向，峰值 14.6 GiB；每 2 层一个 checkpoint 时只留 entry x0、x2，反向时逐段重算，峰值 7.5 GiB">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -1160,75 +1173,76 @@ checkpoint 就是 [3.2 节](#rmsnorm) RMSNorm 那招，只是从一个算子放�
     .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
     .fg .band { fill: currentColor; fill-opacity: .045; }
     .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 5px; stroke-linejoin: round; }
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: 540px; } }
   </style>
-  <defs><marker id="fig-4-2-m0" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
-  <rect class="band" x="74" y="14" width="560" height="134" rx="8"/>
-  <text class="lab" x="6" y="79">全部存下</text><text class="lab2" x="6" y="94">峰值 14.6 GiB</text>
-  <text class="t" x="92" y="52" text-anchor="end">x0</text>
-  <line x1="96.0" y1="48.0" x2="115.0" y2="48.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
-  <rect x="118.0" y="37.0" width="64" height="30" rx="6" class="op"/>
-  <text class="tb" x="150" y="49" text-anchor="middle">L1</text>
-  <rect x="102.0" y="92.0" width="96" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="t" x="150" y="109" text-anchor="middle">3655 MiB</text>
-  <text class="s" x="150" y="125" text-anchor="middle">含 x0</text>
-  <line x1="150.0" y1="63.0" x2="150.0" y2="92.0" style="stroke: var(--fig-2)" stroke-width="1.2"/>
-  <rect x="228.0" y="37.0" width="64" height="30" rx="6" class="op"/>
-  <text class="tb" x="260" y="49" text-anchor="middle">L2</text>
-  <line x1="182.0" y1="48.0" x2="225.0" y2="48.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
-  <rect x="212.0" y="92.0" width="96" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="t" x="260" y="109" text-anchor="middle">3655 MiB</text>
-  <text class="s" x="260" y="125" text-anchor="middle">含 x1</text>
-  <line x1="260.0" y1="63.0" x2="260.0" y2="92.0" style="stroke: var(--fig-2)" stroke-width="1.2"/>
-  <rect x="338.0" y="37.0" width="64" height="30" rx="6" class="op"/>
-  <text class="tb" x="370" y="49" text-anchor="middle">L3</text>
-  <line x1="292.0" y1="48.0" x2="335.0" y2="48.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
-  <rect x="322.0" y="92.0" width="96" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="t" x="370" y="109" text-anchor="middle">3655 MiB</text>
-  <text class="s" x="370" y="125" text-anchor="middle">含 x2</text>
-  <line x1="370.0" y1="63.0" x2="370.0" y2="92.0" style="stroke: var(--fig-2)" stroke-width="1.2"/>
-  <rect x="448.0" y="37.0" width="64" height="30" rx="6" class="op"/>
-  <text class="tb" x="480" y="49" text-anchor="middle">L4</text>
-  <line x1="402.0" y1="48.0" x2="445.0" y2="48.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
-  <rect x="432.0" y="92.0" width="96" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="t" x="480" y="109" text-anchor="middle">3655 MiB</text>
-  <text class="s" x="480" y="125" text-anchor="middle">含 x3</text>
-  <line x1="480.0" y1="63.0" x2="480.0" y2="92.0" style="stroke: var(--fig-2)" stroke-width="1.2"/>
-  <line x1="512.0" y1="48.0" x2="560.0" y2="48.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
-  <text class="t" x="566" y="52">y</text>
-  <text class="lab2" x="626" y="143" text-anchor="end">4 份同时留到反向</text>
-  <rect class="band" x="74" y="168" width="560" height="156" rx="8"/>
-  <text class="lab" x="6" y="244">每 2 层一段</text><text class="lab2" x="6" y="259">峰值 7.5 GiB</text>
-  <rect x="75.0" y="195.0" width="58" height="30" rx="6" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="t" x="104" y="207" text-anchor="middle">x0</text>
-  <text class="lab2" x="104" y="236" text-anchor="middle">entry 80 MiB</text>
-  <rect x="316.0" y="195.0" width="58" height="30" rx="6" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="t" x="345" y="207" text-anchor="middle">x2</text>
-  <text class="lab2" x="345" y="236" text-anchor="middle">entry 80 MiB</text>
-  <rect x="150.0" y="193.0" width="150" height="34" rx="6" class="op"/>
-  <text class="tb" x="225" y="207" text-anchor="middle">checkpoint［L1 L2］</text>
-  <rect x="137.0" y="256.0" width="176" height="40" rx="6" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-width="1.2" stroke-dasharray="5 3"/>
-  <text class="t" x="225" y="273" text-anchor="middle">2 × 3655 MiB</text>
-  <text class="s" x="225" y="289" text-anchor="middle">反向时用 x0 重算，用完即丢</text>
-  <line x1="225.0" y1="223.0" x2="225.0" y2="256.0" style="stroke: var(--fig-1)" stroke-width="1.2"/>
-  <rect x="390.0" y="193.0" width="150" height="34" rx="6" class="op"/>
-  <text class="tb" x="465" y="207" text-anchor="middle">checkpoint［L3 L4］</text>
-  <rect x="377.0" y="256.0" width="176" height="40" rx="6" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-width="1.2" stroke-dasharray="5 3"/>
-  <text class="t" x="465" y="273" text-anchor="middle">2 × 3655 MiB</text>
-  <text class="s" x="465" y="289" text-anchor="middle">反向时用 x2 重算，用完即丢</text>
-  <line x1="465.0" y1="223.0" x2="465.0" y2="256.0" style="stroke: var(--fig-1)" stroke-width="1.2"/>
-  <line x1="133.0" y1="206.0" x2="147.0" y2="206.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
-  <line x1="300.0" y1="206.0" x2="313.0" y2="206.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
-  <line x1="374.0" y1="206.0" x2="387.0" y2="206.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
-  <line x1="540.0" y1="206.0" x2="575.0" y2="206.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
-  <text class="t" x="581" y="210">y</text>
-  <text class="lab2" x="626" y="312" text-anchor="end">反向时一次只物化一段</text>
+  <defs><marker id="fig-4-2-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
+  <rect class="band" x="4" y="6" width="632" height="150" rx="8"/>
+  <text class="ttl" x="16" y="24">全部存下</text><text class="lab2" x="76" y="24">峰值 14.6 GiB</text>
+  <rect class="band" x="4" y="168" width="632" height="166" rx="8"/>
+  <text class="ttl" x="16" y="186">每 2 层一段</text><text class="lab2" x="115" y="186">峰值 7.5 GiB</text>
+  <text class="t" x="16" y="66">x0</text>
+  <line x1="36.0" y1="62.0" x2="106.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
+  <rect x="108.0" y="51.0" width="64" height="30" rx="6" class="op"/>
+  <text class="tb" x="140" y="63" text-anchor="middle">L1</text>
+  <rect x="90.0" y="94.0" width="100" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="t" x="140" y="111" text-anchor="middle">3655 MiB</text>
+  <text class="s" x="140" y="127" text-anchor="middle">含 x0</text>
+  <line x1="140.0" y1="81.0" x2="140.0" y2="94.0" style="stroke: var(--fig-2)" stroke-width="1.2"/>
+  <rect x="230.0" y="51.0" width="64" height="30" rx="6" class="op"/>
+  <text class="tb" x="262" y="63" text-anchor="middle">L2</text>
+  <line x1="172.0" y1="62.0" x2="228.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
+  <rect x="212.0" y="94.0" width="100" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="t" x="262" y="111" text-anchor="middle">3655 MiB</text>
+  <text class="s" x="262" y="127" text-anchor="middle">含 x1</text>
+  <line x1="262.0" y1="81.0" x2="262.0" y2="94.0" style="stroke: var(--fig-2)" stroke-width="1.2"/>
+  <rect x="352.0" y="51.0" width="64" height="30" rx="6" class="op"/>
+  <text class="tb" x="384" y="63" text-anchor="middle">L3</text>
+  <line x1="294.0" y1="62.0" x2="350.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
+  <rect x="334.0" y="94.0" width="100" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="t" x="384" y="111" text-anchor="middle">3655 MiB</text>
+  <text class="s" x="384" y="127" text-anchor="middle">含 x2</text>
+  <line x1="384.0" y1="81.0" x2="384.0" y2="94.0" style="stroke: var(--fig-2)" stroke-width="1.2"/>
+  <rect x="474.0" y="51.0" width="64" height="30" rx="6" class="op"/>
+  <text class="tb" x="506" y="63" text-anchor="middle">L4</text>
+  <line x1="416.0" y1="62.0" x2="472.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
+  <rect x="456.0" y="94.0" width="100" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="t" x="506" y="111" text-anchor="middle">3655 MiB</text>
+  <text class="s" x="506" y="127" text-anchor="middle">含 x3</text>
+  <line x1="506.0" y1="81.0" x2="506.0" y2="94.0" style="stroke: var(--fig-2)" stroke-width="1.2"/>
+  <line x1="538.0" y1="62.0" x2="600.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
+  <text class="t" x="606" y="66">y</text>
+  <text class="lab2" x="626" y="148" text-anchor="end">4 份同时留到反向</text>
+  <rect x="24.0" y="211.0" width="56" height="30" rx="6" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="t" x="52" y="223" text-anchor="middle">x0</text>
+  <text class="lab2" x="52" y="256" text-anchor="middle">entry 80 MiB</text>
+  <rect x="308.0" y="211.0" width="56" height="30" rx="6" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="t" x="336" y="223" text-anchor="middle">x2</text>
+  <text class="lab2" x="336" y="256" text-anchor="middle">entry 80 MiB</text>
+  <rect x="120.0" y="209.0" width="152" height="34" rx="6" class="op"/>
+  <text class="tb" x="196" y="223" text-anchor="middle">checkpoint［L1 L2］</text>
+  <rect x="108.0" y="270.0" width="176" height="40" rx="6" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-width="1.2" stroke-dasharray="5 3"/>
+  <text class="t" x="196" y="287" text-anchor="middle">2 × 3655 MiB</text>
+  <text class="s" x="196" y="303" text-anchor="middle">反向时用 x0 重算，用完即丢</text>
+  <line x1="196.0" y1="243.0" x2="196.0" y2="270.0" style="stroke: var(--fig-1)" stroke-width="1.2"/>
+  <rect x="400.0" y="209.0" width="152" height="34" rx="6" class="op"/>
+  <text class="tb" x="476" y="223" text-anchor="middle">checkpoint［L3 L4］</text>
+  <rect x="388.0" y="270.0" width="176" height="40" rx="6" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-width="1.2" stroke-dasharray="5 3"/>
+  <text class="t" x="476" y="287" text-anchor="middle">2 × 3655 MiB</text>
+  <text class="s" x="476" y="303" text-anchor="middle">反向时用 x2 重算，用完即丢</text>
+  <line x1="476.0" y1="243.0" x2="476.0" y2="270.0" style="stroke: var(--fig-1)" stroke-width="1.2"/>
+  <line x1="80.0" y1="222.0" x2="118.0" y2="222.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
+  <line x1="272.0" y1="222.0" x2="306.0" y2="222.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
+  <line x1="364.0" y1="222.0" x2="398.0" y2="222.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
+  <line x1="552.0" y1="222.0" x2="600.0" y2="222.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
+  <text class="t" x="606" y="226">y</text>
+  <text class="lab2" x="626" y="326" text-anchor="end">反向时一次只重算一段</text>
 </svg>
 <figcaption><strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。</figcaption>
 </figure>
 
-天下没有免费的午餐，代价是整个网络多跑一遍前向。我在 large 上把每段放几层扫了一遍（[图 4-3](#fig-4-3)；xl@2048 光参数加梯度就 25.4 GiB，放不下），不管怎么切，step 都在 302–313 ms，比不用 checkpoint 的 236 ms 慢 28–33%，正好是一步从 3F 变成 4F（F 是一次前向，反向约 2F）。显存则是切得越细越省，每层一个 checkpoint 时最低，7.8 GiB，不用时是 15.0 GiB。
+代价是整个网络要多跑一遍前向。xl 在 seq 2048 下光参数加梯度就要 25.4 GiB，放不下 activation，所以我在 large 上扫了每段放几层（[图 4-3](#fig-4-3)）。不管怎么切，step 都是 302–313 ms，比不用 checkpoint 的 236 ms 慢 28–33%，正好对应一步从 3F 变成 4F（F 是一次前向，反向约 2F）。显存则是切得越细越省，每层一个 checkpoint 时最低，7.8 GiB，不用时是 15.0 GiB。
 
 <figure id="fig-4-3" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 250" width="100%" role="img" aria-label="checkpoint 段长扫描：step 时间都在 302 到 313 ms，高于不 checkpoint 的 236 ms；峰值显存随每段层数增加，每层一个 checkpoint 时最低 7.8 GiB">
@@ -1247,6 +1261,7 @@ checkpoint 就是 [3.2 节](#rmsnorm) RMSNorm 那招，只是从一个算子放�
     .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
     .fg .band { fill: currentColor; fill-opacity: .045; }
     .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 5px; stroke-linejoin: round; }
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: 540px; } }
   </style>
@@ -1312,17 +1327,17 @@ checkpoint 就是 [3.2 节](#rmsnorm) RMSNorm 那招，只是从一个算子放�
   <line class="axis" x1="364" y1="206" x2="614" y2="206"/>
   <text class="lab2" x="489" y="238" text-anchor="middle">每段几层（对数轴）</text>
 </svg>
-<figcaption><strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，fwd_bwd，fp32 eager）。</figcaption>
+<figcaption><strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。</figcaption>
 </figure>
 
-切得越细越省，是因为入口实在太小。设每段 e 层、入口大小 a、一层 saved tensors 大小 r，峰值大约是 $\frac{L}{e}a + e\,r$；只要所有入口加起来都比一层小（这里 36 × 5 MiB = 180 MiB < 220 MiB），e = 1 就是最优。
+切得越细越省，是因为入口很小。设共 $L$ 层、每段 $e$ 层、入口大小 $a$、一层的 A 为 $A_1$，峰值约为 $\frac{L}{e}a + e\,A_1$。只要所有入口加起来比一层的 A 小（这里 36 × 5 MiB = 180 MiB < 220 MiB），$e = 1$ 就是最优。
 
-可 checkpoint 还是拿 S、P 没办法。重算到某一层时，那一层的 S、P 照样要完整写进显存再读出来，seq 2048 时那根 ~8 GiB 的尖刺一根都没少。
+但 checkpoint 解决不了 S、P。重算到某一层时，这一层的 S、P 照样要完整写进显存再读出来，seq 2048 时每层约 8 GiB 的峰值还在。
 
 ---
 
-## 5 结案：都是 S、P 干的 {#conclusion}
+## 5 小结 {#conclusion}
 
-回头看，时间和显存这两笔账最后都记在了 S、P 头上：时间上，它们让 attention 变成 memory-bound，seq 一长就吃掉前向将近一半的时间；显存上，它们占了一层 saved tensors 的一大半，xl 在 seq 2048 时第 2 层就撑爆了显存。bf16 只能让它们瘦一点，checkpoint 只能让它们晚点出现，谁都没能把它们赶出显存。
+时间和显存的问题最后都落在 S、P 上。时间上，它们让 attention 成了 memory-bound，seq 1024 时占前向将近一半的时间；显存上，它们占一层 saved tensors 的一半以上，xl 在 seq 2048 时第 2 层就 OOM。bf16 只能把它们存小一点，checkpoint 只能推迟它们出现，都没能让它们离开显存。
 
-要赶走它们，得把 RMSNorm 那招用到 attention 上：把 QKᵀ、softmax、PV 揉进一个 kernel，分块在片上算完，S、P 一次都不落回显存，反向要用时再现算。这正是下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 要讲的事。
+要解决，得把 RMSNorm 的做法用到 attention 上：把 QKᵀ、softmax、PV 合进一个 kernel，分块在片上算完，S、P 不写回显存，反向需要时再重算。下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 讲的就是这个。
