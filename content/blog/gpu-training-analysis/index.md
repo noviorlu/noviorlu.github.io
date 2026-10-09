@@ -477,15 +477,15 @@ S、P 还有第二宗罪。它们是 softmax 和 PV 的输入，跟[图 2-1](#fi
 
 ### 3.1 少掉的那份梯度 {#peak-memory}
 
-显存的常见算法是每个参数 16 B（fp32 权重 4、梯度 4、Adam 的 m 和 v 各 4），再加上前向为反向留下的 activation。这么一算，xl 光参数这块就要 50.8 GiB，5090 根本塞不下，10B 更是连模型都建不起来。下面用这几个记号：
+fp32 + AdamW 训练，每个参数要占权重 4 B、梯度 4 B、Adam 的 m 和 v 各 4 B，再加上前向为反向留下的 activation。xl 光参数相关的部分就要 50.8 GiB，5090 塞不下，10B 在建模型时就 OOM。下面用这几个记号：
 
 - <span class="sw" style="background: var(--fig-1)"></span>**W** 全部权重；<span class="sw" style="background: var(--fig-hi)"></span>**G** 全部梯度 `.grad`，大小等于 W；<span class="sw" style="background: var(--fig-mute)"></span>Adam 的 m、v 合计 2W，第一步之后常驻；
 - <span class="sw" style="background: var(--fig-2)"></span>**A** 前向为反向存下的张量（saved tensors）；<span class="sw" style="background: var(--fig-3)"></span>**T** 当前层的临时量，算完即释放。
 
-可实测的峰值总比估算小一截，小的那块正好是一份 <span class="sw" style="background: var(--fig-hi)"></span>G（[图 3-1](#fig-3-1)）。
+实测的 full step 峰值里只有权重、Adam 状态和 A，并没有梯度（[图 3-1](#fig-3-1)）。
 
 <figure id="fig-3-1" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 304" width="100%" role="img" aria-label="三档模型 full step 的峰值显存，纸面估算与实测对比：实测少的正好是梯度 G 这一块">
+<svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="三档模型 full step 的实测峰值显存，由权重、Adam 状态和 activation 组成，里面没有梯度">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -510,74 +510,43 @@ S、P 还有第二宗罪。它们是 softmax 和 PV 的输入，跟[图 2-1](#fi
   <text class="lab" x="155.2" y="20">Adam m、v</text>
   <rect x="229.39999999999998" y="11" width="10" height="10" rx="2" style="fill: var(--fig-2)"/>
   <text class="lab" x="245.39999999999998" y="20">A activation</text>
-  <rect x="340.59999999999997" y="11" width="10" height="10" rx="2" style="fill: var(--fig-hi)"/>
-  <text class="lab" x="356.59999999999997" y="20">G 梯度</text>
-  <rect x="409.79999999999995" y="11" width="10" height="10" rx="2" style="fill: var(--fig-3); stroke: var(--fig-2)"/>
-  <text class="lab" x="425.79999999999995" y="20">T 临时量</text>
+  <rect x="340.59999999999997" y="11" width="10" height="10" rx="2" style="fill: var(--fig-3); stroke: var(--fig-2)"/>
+  <text class="lab" x="356.59999999999997" y="20">T 临时量</text>
   <line class="grid" x1="70" y1="262.0" x2="630" y2="262.0"/><text class="tick" x="62" y="266.0" text-anchor="end">0</text>
-  <line class="grid" x1="70" y1="200.0" x2="630" y2="200.0"/><text class="tick" x="62" y="204.0" text-anchor="end">10</text>
-  <line class="grid" x1="70" y1="138.0" x2="630" y2="138.0"/><text class="tick" x="62" y="142.0" text-anchor="end">20</text>
-  <line class="grid" x1="70" y1="76.0" x2="630" y2="76.0"/><text class="tick" x="62" y="80.0" text-anchor="end">30</text>
+  <line class="grid" x1="70" y1="196.0" x2="630" y2="196.0"/><text class="tick" x="62" y="200.0" text-anchor="end">10</text>
+  <line class="grid" x1="70" y1="130.0" x2="630" y2="130.0"/><text class="tick" x="62" y="134.0" text-anchor="end">20</text>
+  <line class="grid" x1="70" y1="64.0" x2="630" y2="64.0"/><text class="tick" x="62" y="68.0" text-anchor="end">30</text>
   <text class="lab2" x="70" y="40">GiB</text>
-  <line class="ref" x1="70" y1="67.9" x2="630" y2="67.9"/><text class="lab2" x="630" y="61.9" text-anchor="end">5090 可用 31.3 GiB</text>
-  <g class="m"><title>small 纸面：W 0.48 GiB</title><rect x="112.0" y="260.0" width="44.0" height="3.0" rx="2" style="fill: var(--fig-1)"/></g>
-  <g class="m"><title>small 纸面：Adam 0.96 GiB</title><rect x="112.0" y="254.1" width="44.0" height="4.0" rx="2" style="fill: var(--fig-mute)"/></g>
-  <g class="m"><title>small 纸面：A 3.50 GiB</title><rect x="112.0" y="232.4" width="44.0" height="19.7" rx="2" style="fill: var(--fig-2)"/></g>
-  <text x="134.0" y="246.2" text-anchor="middle" font-size="11" style="fill: var(--fig-on-2)">A</text>
-  <g class="m"><title>small 纸面：G 0.48 GiB</title><rect x="112.0" y="229.4" width="44.0" height="3.0" rx="2" style="fill: var(--fig-hi)"/></g>
-  <text class="val" x="134.0" y="222.4" text-anchor="middle">5.4</text>
-  <text class="lab2" x="134.0" y="277" text-anchor="middle">纸面</text>
-  <g class="m"><title>small 实测：W 0.48 GiB</title><rect x="164.0" y="260.0" width="44.0" height="3.0" rx="2" style="fill: var(--fig-1)"/></g>
-  <g class="m"><title>small 实测：Adam 0.96 GiB</title><rect x="164.0" y="254.1" width="44.0" height="4.0" rx="2" style="fill: var(--fig-mute)"/></g>
-  <g class="m"><title>small 实测：A 3.50 GiB</title><rect x="164.0" y="232.4" width="44.0" height="19.7" rx="2" style="fill: var(--fig-2)"/></g>
-  <text x="186.0" y="246.2" text-anchor="middle" font-size="11" style="fill: var(--fig-on-2)">A</text>
-  <g class="m"><title>small 实测：T 0.10 GiB</title><rect x="164.0" y="231.8" width="44.0" height="0.6" rx="2" style="fill: var(--fig-3); stroke: var(--fig-2)"/></g>
-  <text class="val" x="186.0" y="224.8" text-anchor="middle">5.0</text>
-  <text class="lab2" x="186.0" y="277" text-anchor="middle">实测</text>
-  <text class="lab" x="160" y="294" text-anchor="middle">small 0.13B</text>
-  <g class="m"><title>medium 纸面：W 1.58 GiB</title><rect x="262.0" y="253.2" width="44.0" height="7.8" rx="2" style="fill: var(--fig-1)"/></g>
-  <g class="m"><title>medium 纸面：Adam 3.16 GiB</title><rect x="262.0" y="233.6" width="44.0" height="17.6" rx="2" style="fill: var(--fig-mute)"/></g>
-  <text x="284.0" y="246.4" text-anchor="middle" font-size="11" style="fill: var(--fig-on-mute)">Adam</text>
-  <g class="m"><title>medium 纸面：A 8.91 GiB</title><rect x="262.0" y="178.4" width="44.0" height="53.2" rx="2" style="fill: var(--fig-2)"/></g>
-  <text x="284.0" y="209.0" text-anchor="middle" font-size="11" style="fill: var(--fig-on-2)">A</text>
-  <g class="m"><title>medium 纸面：G 1.58 GiB</title><rect x="262.0" y="168.6" width="44.0" height="7.8" rx="2" style="fill: var(--fig-hi)"/></g>
-  <text class="val" x="284.0" y="161.6" text-anchor="middle">15.2</text>
-  <text class="lab2" x="284.0" y="277" text-anchor="middle">纸面</text>
-  <g class="m"><title>medium 实测：W 1.58 GiB</title><rect x="314.0" y="253.2" width="44.0" height="7.8" rx="2" style="fill: var(--fig-1)"/></g>
-  <g class="m"><title>medium 实测：Adam 3.16 GiB</title><rect x="314.0" y="233.6" width="44.0" height="17.6" rx="2" style="fill: var(--fig-mute)"/></g>
-  <text x="336.0" y="246.4" text-anchor="middle" font-size="11" style="fill: var(--fig-on-mute)">Adam</text>
-  <g class="m"><title>medium 实测：A 8.91 GiB</title><rect x="314.0" y="178.4" width="44.0" height="53.2" rx="2" style="fill: var(--fig-2)"/></g>
-  <text x="336.0" y="209.0" text-anchor="middle" font-size="11" style="fill: var(--fig-on-2)">A</text>
-  <g class="m"><title>medium 实测：T 0.09 GiB</title><rect x="314.0" y="177.8" width="44.0" height="0.6" rx="2" style="fill: var(--fig-3); stroke: var(--fig-2)"/></g>
-  <text class="val" x="336.0" y="170.8" text-anchor="middle">13.7</text>
-  <text class="lab2" x="336.0" y="277" text-anchor="middle">实测</text>
-  <text class="lab" x="310" y="294" text-anchor="middle">medium 0.42B</text>
-  <g class="m"><title>large 纸面：W 3.61 GiB</title><rect x="412.0" y="240.6" width="44.0" height="20.4" rx="2" style="fill: var(--fig-1)"/></g>
-  <text x="434.0" y="254.8" text-anchor="middle" font-size="11" style="fill: var(--fig-on-1)">W</text>
-  <g class="m"><title>large 纸面：Adam 7.22 GiB</title><rect x="412.0" y="195.9" width="44.0" height="42.8" rx="2" style="fill: var(--fig-mute)"/></g>
-  <text x="434.0" y="221.2" text-anchor="middle" font-size="11" style="fill: var(--fig-on-mute)">Adam</text>
-  <g class="m"><title>large 纸面：A 16.58 GiB</title><rect x="412.0" y="93.1" width="44.0" height="100.8" rx="2" style="fill: var(--fig-2)"/></g>
-  <text x="434.0" y="147.5" text-anchor="middle" font-size="11" style="fill: var(--fig-on-2)">A</text>
-  <g class="m"><title>large 纸面：G 3.61 GiB</title><rect x="412.0" y="70.7" width="44.0" height="20.4" rx="2" style="fill: var(--fig-hi)"/></g>
-  <text x="434.0" y="84.9" text-anchor="middle" font-size="11" style="fill: var(--fig-on-hi)">G</text>
-  <text class="val" x="434.0" y="63.7" text-anchor="middle">31.0</text>
-  <text class="lab2" x="434.0" y="277" text-anchor="middle">纸面</text>
-  <g class="m"><title>large 实测：W 3.61 GiB</title><rect x="464.0" y="240.6" width="44.0" height="20.4" rx="2" style="fill: var(--fig-1)"/></g>
-  <text x="486.0" y="254.8" text-anchor="middle" font-size="11" style="fill: var(--fig-on-1)">W</text>
-  <g class="m"><title>large 实测：Adam 7.22 GiB</title><rect x="464.0" y="195.9" width="44.0" height="42.8" rx="2" style="fill: var(--fig-mute)"/></g>
-  <text x="486.0" y="221.2" text-anchor="middle" font-size="11" style="fill: var(--fig-on-mute)">Adam</text>
-  <g class="m"><title>large 实测：A 16.58 GiB</title><rect x="464.0" y="93.1" width="44.0" height="100.8" rx="2" style="fill: var(--fig-2)"/></g>
-  <text x="486.0" y="147.5" text-anchor="middle" font-size="11" style="fill: var(--fig-on-2)">A</text>
-  <g class="m"><title>large 实测：T 0.10 GiB</title><rect x="464.0" y="92.4" width="44.0" height="0.6" rx="2" style="fill: var(--fig-3); stroke: var(--fig-2)"/></g>
-  <text class="val" x="486.0" y="85.4" text-anchor="middle">27.5</text>
-  <text class="lab2" x="486.0" y="277" text-anchor="middle">实测</text>
-  <text class="lab" x="460" y="294" text-anchor="middle">large 0.97B</text>
+  <g class="m"><title>small：W 0.48 GiB</title><rect x="135.0" y="259.8" width="70.0" height="1.2" rx="2" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>small：Adam 0.96 GiB</title><rect x="135.0" y="253.5" width="70.0" height="4.3" rx="2" style="fill: var(--fig-mute)"/></g>
+  <g class="m"><title>small：A 3.50 GiB</title><rect x="135.0" y="230.4" width="70.0" height="21.1" rx="2" style="fill: var(--fig-2)"/></g>
+  <text x="170" y="244.9" text-anchor="middle" font-size="11" style="fill: var(--fig-on-2)">A 3.5</text>
+  <g class="m"><title>small：T 0.10 GiB</title><rect x="135.0" y="229.7" width="70.0" height="0.7" rx="2" style="fill: var(--fig-3); stroke: var(--fig-2)"/></g>
+  <text class="val" x="170" y="222.7" text-anchor="middle">5.04 GiB</text>
+  <text class="lab" x="170" y="280" text-anchor="middle">small 0.13B</text>
+  <g class="m"><title>medium：W 1.58 GiB</title><rect x="305.0" y="252.6" width="70.0" height="8.4" rx="2" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>medium：Adam 3.16 GiB</title><rect x="305.0" y="231.7" width="70.0" height="18.9" rx="2" style="fill: var(--fig-mute)"/></g>
+  <text x="340" y="245.1" text-anchor="middle" font-size="11" style="fill: var(--fig-on-mute)">Adam 3.2</text>
+  <g class="m"><title>medium：A 8.91 GiB</title><rect x="305.0" y="172.9" width="70.0" height="56.8" rx="2" style="fill: var(--fig-2)"/></g>
+  <text x="340" y="205.3" text-anchor="middle" font-size="11" style="fill: var(--fig-on-2)">A 8.9</text>
+  <g class="m"><title>medium：T 0.09 GiB</title><rect x="305.0" y="172.3" width="70.0" height="0.6" rx="2" style="fill: var(--fig-3); stroke: var(--fig-2)"/></g>
+  <text class="val" x="340" y="165.3" text-anchor="middle">13.74 GiB</text>
+  <text class="lab" x="340" y="280" text-anchor="middle">medium 0.42B</text>
+  <g class="m"><title>large：W 3.61 GiB</title><rect x="475.0" y="239.2" width="70.0" height="21.8" rx="2" style="fill: var(--fig-1)"/></g>
+  <text x="510" y="254.1" text-anchor="middle" font-size="11" style="fill: var(--fig-on-1)">W 3.6</text>
+  <g class="m"><title>large：Adam 7.22 GiB</title><rect x="475.0" y="191.5" width="70.0" height="45.7" rx="2" style="fill: var(--fig-mute)"/></g>
+  <text x="510" y="218.3" text-anchor="middle" font-size="11" style="fill: var(--fig-on-mute)">Adam 7.2</text>
+  <g class="m"><title>large：A 16.58 GiB</title><rect x="475.0" y="82.1" width="70.0" height="107.4" rx="2" style="fill: var(--fig-2)"/></g>
+  <text x="510" y="139.8" text-anchor="middle" font-size="11" style="fill: var(--fig-on-2)">A 16.6</text>
+  <g class="m"><title>large：T 0.10 GiB</title><rect x="475.0" y="81.4" width="70.0" height="0.7" rx="2" style="fill: var(--fig-3); stroke: var(--fig-2)"/></g>
+  <text class="val" x="510" y="74.4" text-anchor="middle">27.51 GiB</text>
+  <text class="lab" x="510" y="280" text-anchor="middle">large 0.97B</text>
   <line class="axis" x1="70" y1="262" x2="630" y2="262"/>
 </svg>
-<figcaption><strong>图 3-1</strong> full step 的峰值显存，纸面估算与实测（batch 4，seq 512）。A = 带梯度的前向峰值 − W；实测里没有 G，顶上 ~0.1 GiB 是 T。</figcaption>
+<figcaption><strong>图 3-1</strong> full step 的实测峰值显存（batch 4，seq 512）。A = 带梯度的前向峰值 − W，顶上 ~0.1 GiB 是 T。</figcaption>
 </figure>
 
-梯度去哪了？其实 G 和 A 从来不同时在场。反向走完 j 层（共 L 层）时，显存里是：
+梯度不在峰值里，是因为 G 和 A 从来不同时在场。反向走完 j 层（共 L 层）时，显存里是：
 
 <p align="center">$M(j) = W + G \cdot \dfrac{j}{L} + A \cdot \dfrac{L-j}{L} + T$</p>
 
