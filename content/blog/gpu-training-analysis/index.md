@@ -1,5 +1,5 @@
 ---
-title: "GPU 训练分析：FLOPs、Roofline 与显存峰值（RTX 5090 实测）"
+title: "谁偷走了 5090 的算力和显存：一步 Transformer 训练的 roofline 侦查"
 date: 2026-10-04
 draft: false
 math: true
@@ -10,31 +10,31 @@ series: ["AI笔记"]
 series_order: 2
 ---
 
-标准 attention 在训练里同时卡住了时间和显存，原因都在 attention 里 seq × seq 的分数矩阵 S 和 P。这篇在一张 RTX 5090 上实测一步训练，先看时间花在哪（第 2 节），再看显存花在哪（第 3 节），最后看 bf16 和 checkpoint 能省多少（第 4 节），三条线最后都会落到 S、P 上。下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 讲怎么把它们消掉。
+训练一步 Transformer，时间花在哪、显存又花在哪？我在一张 RTX 5090 上把一步训练拆开量了一遍，结果有点出乎意料：慢的不是矩阵乘，占显存最多的也不是权重，两头最后都栽在同一个地方，attention 里那个 seq × seq 的分数矩阵 S 和它的 softmax 结果 P。下面按时间（第 2 节）、显存（第 3 节）、能不能省（第 4 节）的顺序把它们揪出来，怎么真正消掉它们留给下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/)。
 
-模型是自己写的 Transformer LM（RMSNorm + RoPE + SwiGLU，pre-norm），分 small 0.13B、medium 0.42B、large 0.97B、xl 3.41B、10B 12.83B 五档。
+模型是我自己写的 Transformer LM（RMSNorm + RoPE + SwiGLU，pre-norm），从 small 0.13B 到 10B 12.83B 共五档，中间是 medium 0.42B、large 0.97B、xl 3.41B。
 
 > 环境：RTX 5090 32 GB，torch 2.11.0+cu130。fp32 基准关掉 tf32（`allow_tf32=False`）；除注明外 batch 4、seq 512，预热 5 步、计时 10 步；显存一律 GiB = 2³⁰ B（`max_memory_allocated() / 1024³`）。
 
 ---
 
-## 1 Roofline：一个 op 慢在哪 {#basics}
+## 1 一把尺子：roofline {#basics}
 
-要知道时间花在哪，先得知道一个 op 的耗时由什么决定。
+找时间花在哪之前，先得有把尺子：一个 op 到底跑多快，由什么说了算。
 
-运算量用 FLOPs（浮点运算次数）衡量，算力用 FLOPS（每秒浮点运算次数）衡量，本文都写成 10 的幂。矩阵乘 `[M, K] × [K, N]` 的 FLOPs 是 2·M·N·K（M·N 个输出，每个 K 次乘加）；逐元素 op（加、乘、exp、mask）每个元素只有一次到几十次运算，比同样大小的矩阵乘少几个数量级。
+直觉上是看它要算多少。运算量用 FLOPs（浮点运算次数）数，GPU 的算力用 FLOPS（每秒能做多少次）标，本文都写成 10 的幂。矩阵乘 `[M, K] × [K, N]` 要 2·M·N·K 次（M·N 个输出，每个 K 次乘加）；逐元素 op（加、乘、exp、mask）每个元素才算一到几十次，跟同样大小的矩阵乘差了几个数量级。
 
-除了计算，op 还要从显存读输入、把输出写回去。计算受峰值算力 P 限制，读写受显存带宽 B 限制，所以耗时有两个下限，实际耗时不低于较大的那个：
+但 GPU 不光要算，数据还得从显存搬进来、结果再搬回去。算受峰值算力 P 限制，搬受显存带宽 B 限制，一个 op 再快也快不过两者里更慢的那个：
 
 <p align="center">$t \ge \max\left(\dfrac{\mathrm{FLOPs}}{P},\ \dfrac{\mathrm{bytes}}{B}\right)$</p>
 
-两者之比是**算术强度** $I = \mathrm{FLOPs} / \mathrm{bytes}$，即每读写 1 字节做几次运算。上式换成可达的 FLOPS，就是 **roofline**：
+算和搬的比值叫**算术强度** $I = \mathrm{FLOPs} / \mathrm{bytes}$，意思是每搬 1 个字节能干多少活。把上式反过来写成「最多能跑到多少 FLOPS」，就是 **roofline**：
 
 <p align="center">$\mathrm{FLOPS}_{\max}(I) = \min(P,\ I \cdot B)$</p>
 
-在 log-log 坐标上它是一条斜线接一条水平线，交点 $I^* = P / B$ 叫 **ridge point**。$I < I^*$ 的 op 是 **memory-bound**，耗时 ≈ bytes / B，只能靠少读写来提速；$I > I^*$ 的是 **compute-bound**，耗时 ≈ FLOPs / P。实测速度占上限的比例，compute-bound 的看 MFU（实际 FLOPS / 峰值 FLOPS），memory-bound 的看 MBU（实际带宽 / 峰值带宽）。
+画在 log-log 坐标上它像个屋顶：先是一段斜坡（被带宽卡住），再变成平顶（被算力卡住），拐角 $I^* = P / B$ 叫 **ridge point**。落在拐角左边的 op 是 **memory-bound**，时间全耗在搬数据上，FLOPs 再少也没用；落在右边的是 **compute-bound**，这才轮到算力说话。判断一个 op 跑得好不好，compute-bound 的看 MFU（实际 FLOPS / 峰值），memory-bound 的看 MBU（实际带宽 / 峰值带宽）。
 
-5090 的带宽是 1.79e12 B/s，峰值算力和 ridge point 随精度变化：
+5090 的带宽是 1.79e12 B/s，屋顶有多高、拐角在哪，要看用什么精度：
 
 | 精度 | 计算单元 | 累加 | 峰值 (FLOPS) | ridge point (FLOPs/B) |
 |:--|:--|:--|--:|--:|
@@ -47,15 +47,15 @@ series_order: 2
 | **nvfp4** | Tensor core | fp32 | **1.68e15** | **935** |
 {#tab-1-1 caption="**表 1-1** RTX 5090 各精度的峰值算力与 ridge point" note="dense 峰值，按 boost clock 2407 MHz，来自 NVIDIA RTX Blackwell 白皮书附录 A 表 3；nvfp4 按白皮书的 FP4 一档。本文关掉 tf32，fp32 基准按 1.05e14 算。ridge point = 峰值 / 1.792e12 B/s。"}
 
-$I$ 可以从张量形状估出来。逐元素 op 在 fp32 下每个元素算 1 次、读写 8 B，I ≈ 0.13，远在 ridge point 左边。矩阵乘的 I 约为内维 K 的一半：Linear 的 K 是 d_model（1024），I ≈ 340；attention 里 QKᵀ 的 K 是 d_head（64），I 只有 28。所以同样是矩阵乘，attention 里的也会是 memory-bound。
+一个 op 在拐角哪一边，拿张量形状就能估。逐元素 op 在 fp32 下每个元素算 1 次、搬 8 个字节，I ≈ 0.13，离拐角远得很。矩阵乘的 I 大约是内维 K 的一半：Linear 的 K 是 d_model（1024），I ≈ 340，稳稳在右边；可 attention 里 QKᵀ 的 K 只是 d_head（64），I 只有 28。同样叫矩阵乘，attention 里那两个其实也在饿着肚子等数据。
 
 ---
 
-## 2 时间：一步训练慢在哪 {#time}
+## 2 时间去哪了：矩阵乘没在偷懒 {#time}
 
 ### 2.1 FLOPs 与实测 {#fwd-bwd}
 
-Transformer 的 FLOPs 基本都来自 Linear。一个 Linear 前向做一次矩阵乘 $X_L = X_{L-1} W_L$；反向收到误差 $\nabla X_L$ 后要算两个梯度，参数梯度 $\nabla W_L = X_{L-1}^{\top} \nabla X_L$ 和传给浅层的激活梯度 $\nabla X_{L-1} = \nabla X_L W_L^{\top}$，各是一次同样大的矩阵乘（[图 2-1](#fig-2-1)）。
+先算账。Transformer 的 FLOPs 几乎都花在 Linear 上，一个 Linear 前向只做一次矩阵乘 $X_L = X_{L-1} W_L$；反向收到误差 $\nabla X_L$ 后却要做两次：算参数梯度 $\nabla W_L = X_{L-1}^{\top} \nabla X_L$，再算往前传的 $\nabla X_{L-1} = \nabla X_L W_L^{\top}$，每次都和前向一样大（[图 2-1](#fig-2-1)）。
 
 <figure id="fig-2-1" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 444" width="100%" role="img" aria-label="一个 Linear 的前向与反向：前向从输入 X_{L-1} 算出 X_L，进入深层；反向收到误差后，用留下来的 X_{L-1} 算参数梯度，用 W_L 算激活梯度，再传给浅层">
@@ -122,7 +122,7 @@ Transformer 的 FLOPs 基本都来自 Linear。一个 Linear 前向做一次矩�
 <figcaption><strong>图 2-1</strong> 一个 Linear 的前向与反向：前向从左边往下，误差从右边传回；虚线是反向要从前向拿的东西。</figcaption>
 </figure>
 
-所以前向每个 token 约 2N FLOPs（N 是参数量，每个参数一次乘加），反向约 4N，一步约 6N × token 数，这里 batch 4 × seq 512 = 2048 个 token。attention 的 QKᵀ、PV 不含参数，seq 512 时只占 2–4%。nsys 里 medium 一步的 GEMM kernel 也正好分成三组，每组 169 个，分别是前向的 $X_L$ 和反向的两个梯度。实测时间和这个比例一致，反向约是前向的两倍（[图 2-2](#fig-2-2)）。
+于是前向每个 token 大约 2N FLOPs（N 是参数量），反向 4N，一步加起来 6N × token 数，这里是 batch 4 × seq 512 = 2048 个 token。attention 的 QKᵀ、PV 不带参数，seq 512 时只占 2–4%，先不管。用 nsys 看 medium 的一步，GEMM kernel 果然整整齐齐分成三组，每组 169 个；实测时间也对得上，反向差不多是前向的两倍（[图 2-2](#fig-2-2)）。
 
 <figure id="fig-2-2" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 172" width="100%" role="img" aria-label="三档模型一步训练的耗时构成：前向约 31%，反向约 62%，optimizer 约 7%；右侧是每步总耗时和 MFU">
@@ -181,11 +181,11 @@ Transformer 的 FLOPs 基本都来自 Linear。一个 Linear 前向做一次矩�
 <figcaption><strong>图 2-2</strong> 一步训练里前向、反向、optimizer 的耗时占比（fp32，batch 4，seq 512），右侧是每步耗时和 MFU。</figcaption>
 </figure>
 
-按 6N 算，medium 和 large 实际只跑到 3.2e13 FLOPS，是 fp32 峰值的 31%。单个大矩阵乘能跑到峰值的 64%，问题不在矩阵乘：它只占一步 GPU 时间的 60%，另外 40% 花在 FLOPs 很少的逐元素 kernel 上。
+账是对的，速度却不对。按 6N 算，medium 和 large 只跑出 3.2e13 FLOPS，才到 fp32 峰值的 31%。我一开始怀疑矩阵乘，结果单个大矩阵乘能跑到 64%，它不背这个锅。真正的问题是矩阵乘只占了一步 GPU 时间的 60%，剩下 40% 被一堆几乎不做计算的逐元素 kernel 吃掉了。
 
-### 2.2 剩下的 40%：memory bound {#memory-bound}
+### 2.2 消失的 40%：都在搬数据 {#memory-bound}
 
-把 medium、seq 1024 时一层 attention 的 op 画到 roofline 上（[图 2-3](#fig-2-3)），这 40% 的来源就清楚了。
+这 40% 去哪了？把 medium、seq 1024 时一层 attention 里的 op 一个个点到屋顶上（[图 2-3](#fig-2-3)），凶手就站在斜坡上。
 
 <figure id="fig-2-3" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 392" width="100%" role="img" aria-label="RTX 5090 的 roofline：带宽斜线与 fp32、bf16、fp8、nvfp4 四条平线分别交于 58、117、234、935 FLOPs/B；attention 的 op 都贴着斜线，只有 Linear 在 fp32 平线下">
@@ -267,9 +267,9 @@ Transformer 的 FLOPs 基本都来自 Linear。一个 Linear 前向做一次矩�
 <figcaption><strong>图 2-3</strong> RTX 5090 的 roofline，以及 medium、seq 1024 时一层 attention 里实测的 op。斜线是带宽，平线是各精度峰值（<a href="#tab-1-1">表 1-1</a>），拐点旁是 ridge point；悬停可看数值，causal mask 没有 FLOPs，不在图上。</figcaption>
 </figure>
 
-除了作参照的 Linear，attention 的 op 全在斜线上，包括 QKᵀ 和 PV 两个矩阵乘。它们已经跑到带宽上限的 57–86%，kernel 本身没什么优化空间，只能减少读写。
+除了拿来对照的 Linear，attention 的 op 全趴在斜坡上，连 QKᵀ 和 PV 这两个矩阵乘也不例外。而且它们离坡顶已经不远，带宽利用率 57–86%，kernel 本身没什么可抠的，想快只能少搬。
 
-读写最多的是 softmax。eager 下它是 5 个 kernel，每个都把一个和 S 一样大的张量（256 MiB）读或写一遍，一共 8 次（[图 2-4](#fig-2-4)）。
+搬得最凶的是 softmax。eager 下它拆成 5 个 kernel，每个都要把一张和 S 一样大的表（256 MiB）从头到尾读一遍或写一遍，一次 softmax 下来，这张表在显存里进进出出 8 趟（[图 2-4](#fig-2-4)）。
 
 <figure id="fig-2-4" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 262" width="100%" role="img" aria-label="eager softmax 的 5 个 kernel 共读写显存里 S 大小的张量 8 次；融合成一个 kernel 后只读 S、写 P 两次">
@@ -350,7 +350,7 @@ Transformer 的 FLOPs 基本都来自 Linear。一个 Linear 前向做一次矩�
 <figcaption><strong>图 2-4</strong> eager softmax 的显存读写：每条编号箭头是一次完整的读或写，共 8 次；融合后只剩 2 次。</figcaption>
 </figure>
 
-所以 FLOPs 和时间完全对不上：softmax 的 FLOPs 是 PV 的 1/5，时间却是 PV 的 6 倍（[图 2-5](#fig-2-5)）。
+难怪 FLOPs 和时间完全对不上：softmax 的运算量只有 PV 的 1/5，花的时间却是它的 6 倍（[图 2-5](#fig-2-5)）。
 
 <figure id="fig-2-5" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 186" width="100%" role="img" aria-label="medium、seq 1024 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间：softmax 和 /√d、mask 的 FLOPs 很少，时间却最多">
@@ -403,7 +403,7 @@ Transformer 的 FLOPs 基本都来自 Linear。一个 Linear 前向做一次矩�
 <figcaption><strong>图 2-5</strong> 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间（medium，seq 1024）。</figcaption>
 </figure>
 
-S、P 的形状是 `[b, h, seq, seq]`，读写量随 seq² 增长，Linear 只随 seq 增长。seq 从 256 到 1024，attention 在前向里的时间占比从 10% 涨到 46%，涨的几乎都是 softmax 和 scores 里的逐元素部分（[图 2-6](#fig-2-6)）。
+更麻烦的是，S、P 的形状是 `[b, h, seq, seq]`，要搬的量跟着 seq² 涨，Linear 只跟着 seq 涨。seq 从 256 拉到 1024，attention 在前向里的时间占比从 10% 一路涨到 46%，多出来的几乎全是 softmax、scale、mask 这些只会来回搬数据的小算子（[图 2-6](#fig-2-6)）。
 
 <figure id="fig-2-6" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 262" width="100%" role="img" aria-label="attention 三段占 forward 时间随 seq 的变化：softmax 从 4% 涨到 24%，scores 从 4% 涨到 18%，PV 只从 2% 到 4%，合计从 10% 到 46%">
@@ -467,22 +467,22 @@ S、P 的形状是 `[b, h, seq, seq]`，读写量随 seq² 增长，Linear 只�
 <figcaption><strong>图 2-6</strong> attention 三段占 forward GPU 时间的比例随 seq 变化（medium）。</figcaption>
 </figure>
 
-时间这条线追到了 S、P。要减少它们的读写，只能把几步融合进一个 kernel，让中间结果留在片上：融合后的 softmax 只读一次 S、写一次 P，FlashAttention 则连 S、P 都不写回显存。
+所以时间这条线最后指向的是 S 和 P。想少搬，只能把几步揉进一个 kernel，中间结果留在片上别回显存：融合版 softmax 只读一次 S、写一次 P；FlashAttention 更狠，S、P 干脆不落显存。
 
-S、P 还有另一个问题：它们是 softmax 和 PV 的输入，和[图 2-1](#fig-2-1) 里的 $X_{L-1}$ 一样，反向时要用，所以前向算完也不能释放。这就牵扯到显存。
+S、P 还有第二宗罪。它们是 softmax 和 PV 的输入，跟[图 2-1](#fig-2-1) 里的 $X_{L-1}$ 一样，反向还要用，前向算完了也不能扔。时间的问题，就这样变成了显存的问题。
 
 ---
 
-## 3 显存：峰值由什么决定 {#memory}
+## 3 显存去哪了：权重只是小头 {#memory}
 
-### 3.1 峰值 = W + max(A, G) {#peak-memory}
+### 3.1 少掉的那份梯度 {#peak-memory}
 
-常见的估法是每个参数 16 B（fp32 权重 4、梯度 4、Adam 的 m 和 v 各 4），再加上前向为反向存下的 activation。按这个算，xl 光参数相关的部分就要 50.8 GiB，5090 放不下，10B 建模型时就 OOM。下文用这几个记号：
+显存的常见算法是每个参数 16 B（fp32 权重 4、梯度 4、Adam 的 m 和 v 各 4），再加上前向为反向留下的 activation。这么一算，xl 光参数这块就要 50.8 GiB，5090 根本塞不下，10B 更是连模型都建不起来。下面用这几个记号：
 
 - <span class="sw" style="background: var(--fig-1)"></span>**W** 全部权重；<span class="sw" style="background: var(--fig-hi)"></span>**G** 全部梯度 `.grad`，大小等于 W；<span class="sw" style="background: var(--fig-mute)"></span>Adam 的 m、v 合计 2W，第一步之后常驻；
 - <span class="sw" style="background: var(--fig-2)"></span>**A** 前向为反向存下的张量（saved tensors）；<span class="sw" style="background: var(--fig-3)"></span>**T** 当前层的临时量，算完即释放。
 
-实测的峰值比这个估算小，少的正好是 <span class="sw" style="background: var(--fig-hi)"></span>G（[图 3-1](#fig-3-1)）。
+可实测的峰值总比估算小一截，小的那块正好是一份 <span class="sw" style="background: var(--fig-hi)"></span>G（[图 3-1](#fig-3-1)）。
 
 <figure id="fig-3-1" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 304" width="100%" role="img" aria-label="三档模型 full step 的峰值显存，纸面估算与实测对比：实测少的正好是梯度 G 这一块">
@@ -577,15 +577,15 @@ S、P 还有另一个问题：它们是 softmax 和 PV 的输入，和[图 2-1](
 <figcaption><strong>图 3-1</strong> full step 的峰值显存，纸面估算与实测（batch 4，seq 512）。A = 带梯度的前向峰值 − W；实测里没有 G，顶上 ~0.1 GiB 是 T。</figcaption>
 </figure>
 
-原因是 G 和 A 不会同时出现。反向走完 j 层（共 L 层）时，显存里有
+梯度去哪了？其实 G 和 A 从来不同时在场。反向走完 j 层（共 L 层）时，显存里是：
 
 <p align="center">$M(j) = W + G \cdot \dfrac{j}{L} + A \cdot \dfrac{L-j}{L} + T$</p>
 
-A 在前向逐层存入、反向逐层释放；G 在反向逐层生成，前向时根本不存在：`.grad` 在反向算到对应参数时才分配，optimizer step 之后被 `zero_grad(set_to_none=True)` 释放。M(j) 是 j 的线性函数，最大值在两端，再加上常驻的 Adam 状态，full step 的峰值是
+A 在前向一层层攒起来，反向再一层层还掉；G 正好相反，前向时根本不存在，`.grad` 要到反向算到那个参数才分配，optimizer step 一结束又被 `zero_grad(set_to_none=True)` 清掉。一个涨一个退，M(j) 是条直线，最高点只可能在两头。再加上一直占着的 Adam 状态，full step 的峰值就是
 
 <p align="center">$\mathrm{peak}_{\mathrm{full}} \approx 3W + \max(A,\ G)$</p>
 
-large 按这个算是 3 × 3.61 + 16.58 = 27.4 GiB，实测 27.51。token 数正常时 A > G，峰值在前向结束时；token 很少时才反过来，比如 xl@128（[图 3-2](#fig-3-2) 左）。
+拿 large 验算：3 × 3.61 + 16.58 = 27.4 GiB，实测 27.51，几乎分毫不差。正常训练 token 够多，A 比 G 大，峰值落在前向刚结束的那一刻；只有 token 很少时才反过来，比如 xl 在 seq 128（[图 3-2](#fig-3-2) 左）。
 
 <figure id="fig-3-2" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="一步 fwd_bwd 的显存：按 M(j) 用实测的 W、A、G、T 堆叠；xl seq 128 时 G 大于 A，峰值在反向结束；small seq 512 时 A 大于 G，峰值在前向结束">
@@ -749,11 +749,11 @@ large 按这个算是 3 × 3.61 + 16.58 = 27.4 GiB，实测 27.51。token 数正
 <figcaption><strong>图 3-2</strong> 一步 fwd_bwd 的显存：色带按 M(j) 用实测的 W、A、G、T 堆叠，× 是逐层实测值，虚线是 bf16 下的公式值。</figcaption>
 </figure>
 
-所以训练时显存峰值由 <span class="sw" style="background: var(--fig-2)"></span>A 决定，它也是唯一随 seq 增长的一项。
+所以真正决定训练显存峰值的是 <span class="sw" style="background: var(--fig-2)"></span>A，它也是唯一一个跟着 seq 长大的。那 A 里到底装了些什么？
 
-### 3.2 A 里存的是什么：拆开 RMSNorm {#rmsnorm}
+### 3.2 拆开 RMSNorm：autograd 到底存了什么 {#rmsnorm}
 
-`torch.autograd.graph.saved_tensors_hooks` 可以在每个张量被存下（pack）和取出（unpack）时打印出来。先看最简单的 RMSNorm（fp32，`x: [4, 512, 2560]`），它可以拆成 5 个 op：
+`torch.autograd.graph.saved_tensors_hooks` 能在每个张量被存下（pack）和取出（unpack）时喊一声。先拿最简单的 RMSNorm（fp32，`x: [4, 512, 2560]`）试试，它可以拆成 5 个 op：
 
 $\mathrm{RMSNorm}(x)_i = w_i \cdot \dfrac{x_i}{\sqrt{\frac{1}{d}\sum_{j=1}^{d} x_j^2 + \epsilon}}$
 
@@ -775,7 +775,7 @@ Saving  6  [2560]        grad_fn=None            ptr=…1000
 Loading    5 → 6 → 2 → 4 → 3 → 1
 ```
 
-autograd 的规则是：**一个 op 的局部偏导里用到哪个变量，前向就要存它；偏导是常数就不存**。存的是引用，不是拷贝，输入 `x` 和参数 `w` 本来就在显存里，不额外占空间。逐个 op 对照下来（[表 3-1](#tab-3-1)、[图 3-3](#fig-3-3)），6 次 Saving 只对应 4 块内存，真正新增的只有 $r$（8 KiB）和 $\hat{x}$（20 MiB）。
+看完打印，autograd 的规矩其实只有一条：**一个 op 的局部偏导里用到谁，前向就把谁留下；偏导是常数就什么都不留**。留的只是引用，不是拷贝，本来就在显存里的输入 `x` 和参数 `w` 不额外花钱。逐个 op 对一遍（[表 3-1](#tab-3-1)、[图 3-3](#fig-3-3)），6 次 Saving 其实只落在 4 块内存上，真正新开的只有 $r$（8 KiB）和 $\hat{x}$（20 MiB）。
 
 | op | 前向 | FLOPs / 元素 | 反向要的偏导 | 存 | 额外显存 | print |
 |:--|:--|--:|:--|:--|--:|:--|
@@ -880,9 +880,9 @@ autograd 的规则是：**一个 op 的局部偏导里用到哪个变量，前�
 <figcaption><strong>图 3-3</strong> RMSNorm（eager）：上排算子花 FLOPs，中排张量占显存（实线框新占，灰色虚线框本来就在），下排是反向，虚线箭头是它读回的张量。</figcaption>
 </figure>
 
-这和第 2 节是同一个问题：RMSNorm 每个元素只有 ~4 次运算，5 个 kernel 却各把 20 MiB 读写一遍，I ≈ 0.14，是 memory-bound；显存上还为反向多存了一份 $\hat{x}$。
+眼熟吗？和第 2 节的 softmax 是一个毛病：RMSNorm 每个元素只算 ~4 次，5 个 kernel 却各把 20 MiB 来回搬一遍，I ≈ 0.14，妥妥的 memory-bound；显存上还为反向多攒了一份 $\hat{x}$。
 
-而 $\hat{x}$ 只是 $x \cdot r$，反向时用 $x$ 和 $r$ 重算一遍就行。逐个算子执行时，⑤ 的反向不知道 $\hat{x}$ 是怎么来的，只能存下来；`torch.compile` 把 ①–⑤ 编译成一个前向 kernel 和一个反向 kernel 之后，就只存 $x$、$w$、$r$：
+可 $\hat{x}$ 不过是 $x \cdot r$，反向时拿 $x$ 和 $r$ 现算一下就有了，何必存？逐个算子跑的时候没办法，⑤ 的反向只知道自己要 $\hat{x}$，不知道它从哪来；换成 `torch.compile` 把 ①–⑤ 编成一个前向 kernel 和一个反向 kernel，它就聪明了，只留 $x$、$w$、$r$：
 
 ```
 Saving  1  [4,512,2560]  grad_fn=None  ptr=…3c80   # x
@@ -891,7 +891,7 @@ Saving  3  [4,512,1]     grad_fn=None  ptr=…f9c0   # r
 Loading    1 → 2 → 3（与 Saving 同序）
 ```
 
-反向公式 $\partial y/\partial x = r\,w\odot(I-\tfrac1d\hat{x}\hat{x}^{\!\top})$ 里用到的 $\hat{x}$ 都现算（[图 3-4](#fig-3-4)），两种实现的对比见[表 3-2](#tab-3-2)。
+反向公式 $\partial y/\partial x = r\,w\odot(I-\tfrac1d\hat{x}\hat{x}^{\!\top})$ 里要用的 $\hat{x}$ 都是现场算的（[图 3-4](#fig-3-4)），前后对比见[表 3-2](#tab-3-2)。
 
 <figure id="fig-3-4" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="torch.compile 融合后的 RMSNorm：前向一个 kernel；显存只多留 r 8 KiB，x̂ 不存；反向一个 kernel，用 x 和 r 现场重算 x̂">
@@ -964,11 +964,11 @@ Loading    1 → 2 → 3（与 Saving 同序）
 | FLOPs / 元素 | 前向 ~4 | 前向 ~4，反向多 1（重算 $\hat{x} = x\cdot r$） |
 {#tab-3-2 caption="**表 3-2** RMSNorm：eager 与 `torch.compile` 融合" note="存的张量是实测，FLOPs 和读写是纸面计数。"}
 
-> 融合用少量重算换掉了显存和读写：额外显存 20 MiB → 8 KiB，前向读写 ~140 MiB → ~40 MiB，代价是反向每个元素多一次乘法。这个「不存，反向时重算」的做法后面还会出现两次：checkpoint，以及 FlashAttention。
+> 多算一次乘法，换来显存从 20 MiB 降到 8 KiB、前向读写从 ~140 MiB 降到 ~40 MiB，这笔买卖很划算。「不存，用的时候再算」这招后面还会出场两次：checkpoint，还有 FlashAttention。
 
-### 3.3 一层与整网：S、P 占一半以上 {#one-layer}
+### 3.3 一整层：S、P 吃掉一大半 {#one-layer}
 
-同样的规则用到整层，每个矩阵乘的输入都要存，S、P 也在其中。xl 的一层（`torch.compile` 后，RMSNorm 这类中间量已经省掉）要为反向存 3655 MiB，一半以上是 S、P（[图 3-5](#fig-3-5)）。
+把同样的规矩套到一整层上：每个矩阵乘的输入都得留着，S、P 自然也跑不掉。数一下 xl 的一层（`torch.compile` 已经把 RMSNorm 这类中间量省掉了），要为反向留 3655 MiB，一大半是 S 和 P（[图 3-5](#fig-3-5)）。
 
 <figure id="fig-3-5" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 246" width="100%" role="img" aria-label="xl 一层为反向存的 3655 MiB：S、P 占 56%，FFN 中间量 26%，[b, s, d] 级张量 17.5%，其他 0.2%">
@@ -1011,7 +1011,7 @@ Loading    1 → 2 → 3（与 Saving 同序）
 <figcaption><strong>图 3-5</strong> xl 一层为反向存的张量（batch 4，seq 2048，<code>torch.compile</code> 后用 <code>saved_tensors_hooks</code> 实测；这组用 16 头，S、P 各 1 GiB）。</figcaption>
 </figure>
 
-xl 共 32 层，加起来 114 GiB，远超 5090 的 31.3 GiB。而且只有 S、P 随 seq² 增长：同一个 `[b, h, s, s]` 张量，seq 128 时是 8 MiB，seq 2048 时是 2 GiB，是残差流张量的 25 倍。[图 3-6](#fig-3-6) 是 xl 一步的显存时间线。seq 2048 的纯前向里，每层 attention 都冲出一个 ~8 GiB 的尖峰（S 和它的几个中间量同时存在），用完就释放，32 层能跑完；带反向时每层还要把 S、P 留下来，第 1 层留下 ~4.7 GiB，第 2 层的尖峰就超过了显存。
+xl 有 32 层，加起来 114 GiB，是 5090 显存的三倍多。更要命的是，只有 S、P 跟着 seq² 涨：同一个 `[b, h, s, s]` 张量，seq 128 时才 8 MiB，seq 2048 时就是 2 GiB，是残差流上一个张量的 25 倍。看 xl 一步的显存时间线（[图 3-6](#fig-3-6)）：seq 2048 的纯前向里，每过一层 attention 显存就冲起一根 ~8 GiB 的尖刺，算完落回去，32 层也能熬过去；可一旦要做反向，每层都得把 S、P 留下，第 1 层就压上 ~4.7 GiB，到第 2 层，尖刺直接顶穿了显存。
 
 <figure id="fig-3-6" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 420" width="100%" role="img" aria-label="xl 一步的显存时间线：seq 128 纯前向是平的；seq 2048 纯前向每层冲出一个尖峰；seq 128 full step 前向和反向一路上升，到 optimizer 时 OOM；seq 2048 带反向时第 2 层 OOM">
@@ -1092,17 +1092,17 @@ xl 共 32 层，加起来 114 GiB，远超 5090 的 31.3 GiB。而且只有 S、
 <figcaption><strong>图 3-6</strong> xl（batch 4，32 头）一步的显存时间线，横轴是分配 / 释放的次序。</figcaption>
 </figure>
 
-显存这条线也追到了 S、P。
+显存这条线，也绕回了 S 和 P。
 
 ---
 
-## 4 能省吗：bf16 与 checkpoint {#savings}
+## 4 能省吗：bf16 和 checkpoint 都差一口气 {#savings}
 
-减少 A 有两个办法：每个张量存得小一点（bf16），或者少存一些、反向时重算（checkpoint）。
+A 能不能小一点？两条路：每个张量存得瘦一点（bf16），或者干脆少存，反向时再算（checkpoint）。
 
 ### 4.1 bf16 autocast {#bf16}
 
-autocast 把矩阵乘的输入转成 bf16，权重、梯度和 Adam 状态仍是 fp32（[图 4-1](#fig-4-1)）。
+autocast 只把矩阵乘的输入换成 bf16，权重、梯度、Adam 状态都还是 fp32（[图 4-1](#fig-4-1)）。
 
 <figure id="fig-4-1" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 252" width="100%" role="img" aria-label="bf16 autocast 相对 fp32：前向快 1.87 到 2.30 倍，反向快 1.69 到 1.87 倍；fwd_bwd 峰值显存少 18% 到 21%">
@@ -1168,11 +1168,11 @@ autocast 把矩阵乘的输入转成 bf16，权重、梯度和 Adam 状态仍是
 <figcaption><strong>图 4-1</strong> bf16 autocast 相对 fp32（fwd_bwd，batch 4，seq 512）：左边是加速比，右边是峰值显存。</figcaption>
 </figure>
 
-前向快 1.9–2.3×，因为矩阵乘换到了 bf16 的 Tensor core（[表 1-1](#tab-1-1) 里峰值翻倍），相关张量的字节数也减半。显存却只省 18–21%：W、G 和 Adam 状态不变；A 也没有减半，因为 norm、softmax、残差和 loss 留在 fp32（这些求和类的归约在 bf16 下精度不够，7 位尾数把 0.01 累加 1000 次只能得到 4.0），反向还要多存一份 bf16 权重副本。需要存的张量一个没少。
+速度上很爽，前向快了 1.9–2.3×：矩阵乘挪到了 bf16 的 Tensor core 上（[表 1-1](#tab-1-1) 里峰值直接翻倍），要搬的字节也少了一半。显存就没那么好看了，只省了 18–21%。W、G、Adam 状态纹丝不动；A 也没减半，因为 norm、softmax、残差和 loss 还留在 fp32（这些累加在 bf16 下不靠谱，7 位尾数把 0.01 累加 1000 次只能得到 4.0），反向还得多存一份 bf16 的权重副本。该存的张量一个都没少，只是瘦了点。
 
 ### 4.2 activation checkpoint {#checkpoint}
 
-checkpoint 用的是 [3.2 节](#rmsnorm) RMSNorm 的做法，只是粒度变成整层：前向只保留每段的输入（entry，xl@2048 时 80 MiB），反向时用它把这一段重跑一遍，生成 saved tensors，用完释放。4 层 xl block 每 2 层一个 checkpoint，峰值从 4 × 3655 MiB = 14.6 GiB 降到 2 个 entry 加一段的 7.5 GiB（[图 4-2](#fig-4-2)）。
+checkpoint 就是 [3.2 节](#rmsnorm) RMSNorm 那招，只是从一个算子放大到一整层：前向只留每段的入口（entry，xl@2048 时 80 MiB），反向走到这一段，再拿入口把前向重跑一遍，用完就扔。4 层 xl block 每 2 层设一个 checkpoint，峰值就从 4 × 3655 MiB = 14.6 GiB 降到「2 个 entry 加一段」的 7.5 GiB（[图 4-2](#fig-4-2)）。
 
 <figure id="fig-4-2" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 334" width="100%" role="img" aria-label="4 层 xl block：不 checkpoint 时每层留 3655 MiB 一起活到反向，峰值 14.6 GiB；每 2 层一个 checkpoint 时只留 entry x0、x2，反向时逐段重算，峰值 7.5 GiB">
@@ -1259,7 +1259,7 @@ checkpoint 用的是 [3.2 节](#rmsnorm) RMSNorm 的做法，只是粒度变成�
 <figcaption><strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。</figcaption>
 </figure>
 
-代价是整个网络多算一遍前向。在 large 上扫不同的段长（[图 4-3](#fig-4-3)；xl@2048 光参数加梯度就有 25.4 GiB，放不下），step 都是 302–313 ms，比不用 checkpoint 的 236 ms 多 28–33%，相当于一步从 3F 变成 4F（F 是一次前向，反向 ≈ 2F）。显存随每段层数单调增加，每层一个 checkpoint 最省，7.8 GiB，不用时是 15.0 GiB。
+天下没有免费的午餐，代价是整个网络多跑一遍前向。我在 large 上把每段放几层扫了一遍（[图 4-3](#fig-4-3)；xl@2048 光参数加梯度就 25.4 GiB，放不下），不管怎么切，step 都在 302–313 ms，比不用 checkpoint 的 236 ms 慢 28–33%，正好是一步从 3F 变成 4F（F 是一次前向，反向约 2F）。显存则是切得越细越省，每层一个 checkpoint 时最低，7.8 GiB，不用时是 15.0 GiB。
 
 <figure id="fig-4-3" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 250" width="100%" role="img" aria-label="checkpoint 段长扫描：step 时间都在 302 到 313 ms，高于不 checkpoint 的 236 ms；峰值显存随每段层数增加，每层一个 checkpoint 时最低 7.8 GiB">
@@ -1346,14 +1346,14 @@ checkpoint 用的是 [3.2 节](#rmsnorm) RMSNorm 的做法，只是粒度变成�
 <figcaption><strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，fwd_bwd，fp32 eager）。</figcaption>
 </figure>
 
-每段越短越省，是因为 entry 很小。设每段 e 层、entry 大小 a、一层 saved tensors 大小 r，峰值约为 $\frac{L}{e}a + e\,r$；只要全部 entry 加起来不到一层（这里 36 × 5 MiB = 180 MiB < 220 MiB），e = 1 就最好。
+切得越细越省，是因为入口实在太小。设每段 e 层、入口大小 a、一层 saved tensors 大小 r，峰值大约是 $\frac{L}{e}a + e\,r$；只要所有入口加起来都比一层小（这里 36 × 5 MiB = 180 MiB < 220 MiB），e = 1 就是最优。
 
-但 checkpoint 解决不了 S、P。重算到某一层时，它的 S、P 仍要完整写进显存再读出来，seq 2048 时每层那个 ~8 GiB 的尖峰还在。
+可 checkpoint 还是拿 S、P 没办法。重算到某一层时，那一层的 S、P 照样要完整写进显存再读出来，seq 2048 时那根 ~8 GiB 的尖刺一根都没少。
 
 ---
 
-## 5 结论：问题都在 S、P {#conclusion}
+## 5 结案：都是 S、P 干的 {#conclusion}
 
-时间上，S、P 让 attention 成为 memory-bound，seq 一长就占掉前向近一半的时间；显存上，它们占一层 saved tensors 的一半以上，seq 2048 时 xl 第 2 层就 OOM。bf16 只能让张量变小，checkpoint 只能推迟存储，都去不掉 S、P 的读写。
+回头看，时间和显存这两笔账最后都记在了 S、P 头上：时间上，它们让 attention 变成 memory-bound，seq 一长就吃掉前向将近一半的时间；显存上，它们占了一层 saved tensors 的一大半，xl 在 seq 2048 时第 2 层就撑爆了显存。bf16 只能让它们瘦一点，checkpoint 只能让它们晚点出现，谁都没能把它们赶出显存。
 
-要去掉它们，得用 RMSNorm 融合的思路：把 QKᵀ、softmax、PV 写进一个 kernel，分块在片上算完，S、P 不写回显存，反向需要时再重算。这就是下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 的内容。
+要赶走它们，得把 RMSNorm 那招用到 attention 上：把 QKᵀ、softmax、PV 揉进一个 kernel，分块在片上算完，S、P 一次都不落回显存，反向要用时再现算。这正是下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 要讲的事。
