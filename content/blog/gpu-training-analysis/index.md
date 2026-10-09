@@ -711,6 +711,87 @@ Loading    1 → 2 → 3（与 Saving 同序）
 | 前向算术强度 $I$ | ~4 / 28 B ≈ 0.14 | ~4 / 8 B ≈ 0.5 |
 {#tab-3-2 caption="**表 3-2** RMSNorm：eager 与 `torch.compile` 融合" note="存的张量是实测，FLOPs 和读写是纸面计数。I 按每个元素算：eager 每元素读写 7 次 × 4 B = 28 B（共 ~140 MiB），融合后只读 x、写 y，8 B。两者都远低于 ridge point 58，仍是 memory-bound，但融合后要搬的字节少到 1/3.5，时间也跟着降。"}
 
+下面是两种写法的代码。融合版是照 `torch.compile` 的做法手写的 Triton：前向一个 kernel，一个 program 算一行，①–⑤ 都在寄存器里做完，只写出 y 和 r；反向一个 kernel，读回 x、w、r，现场重算 x̂，dw 的部分和用 `atomic_add` 累加。
+
+<details class="fold">
+<summary>eager：5 个 op，反向交给 autograd</summary>
+
+```python
+import torch
+
+def rmsnorm_eager(x, weight, eps=1e-6):
+    rms = torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + eps)  # ① pow ② mean ③ rsqrt，各一个 kernel
+    x_hat = x * rms                                            # ④
+    return weight * x_hat                                      # ⑤
+# autograd 为反向存下 x、r、x̂、w（表 3-1），反向再由 autograd 逐个 op 执行
+```
+
+</details>
+
+<details class="fold">
+<summary>Triton 融合：前向 1 个 kernel，反向 1 个 kernel</summary>
+
+```python
+import torch
+import triton
+import triton.language as tl
+
+@triton.jit
+def rmsnorm_fwd(X, W, Y, R, D, eps, BLOCK: tl.constexpr):
+    row = tl.program_id(0)                       # 一个 program 算一行
+    cols = tl.arange(0, BLOCK)
+    mask = cols < D
+    x = tl.load(X + row * D + cols, mask=mask, other=0.0)
+    w = tl.load(W + cols, mask=mask, other=0.0)
+    r = tl.rsqrt(tl.sum(x * x, axis=0) / D + eps)  # ①②③ 在寄存器里做完
+    tl.store(R + row, r)                           # 只存 r：每行 4 B
+    tl.store(Y + row * D + cols, w * (x * r), mask=mask)  # ④⑤，x̂ 不落显存
+
+@triton.jit
+def rmsnorm_bwd(DY, X, W, R, DX, DW, M, D, ROWS: tl.constexpr, BLOCK: tl.constexpr):
+    cols = tl.arange(0, BLOCK)
+    mask = cols < D
+    w = tl.load(W + cols, mask=mask, other=0.0)
+    dw = tl.zeros([BLOCK], dtype=tl.float32)
+    for i in range(ROWS):                        # 一个 program 算 ROWS 行
+        row = tl.program_id(0) * ROWS + i
+        m = mask & (row < M)
+        x = tl.load(X + row * D + cols, mask=m, other=0.0)
+        dy = tl.load(DY + row * D + cols, mask=m, other=0.0)
+        r = tl.load(R + row, mask=row < M, other=0.0)
+        x_hat = x * r                            # 现场重算 x̂
+        g = w * dy
+        dx = r * (g - x_hat * tl.sum(g * x_hat, axis=0) / D)
+        tl.store(DX + row * D + cols, dx, mask=m)
+        dw += dy * x_hat
+    tl.atomic_add(DW + cols, dw, mask=mask)      # 各 program 的 dw 部分和累加到一起
+
+class RMSNorm(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x, weight, eps=1e-6):
+        D = x.shape[-1]
+        x2 = x.reshape(-1, D)
+        M = x2.shape[0]
+        y = torch.empty_like(x2)
+        r = torch.empty(M, device=x.device, dtype=torch.float32)
+        rmsnorm_fwd[(M,)](x2, weight, y, r, D, eps, BLOCK=triton.next_power_of_2(D))
+        ctx.save_for_backward(x2, weight, r)     # 存 x、w、r，不存 x̂
+        return y.view_as(x)
+
+    @staticmethod
+    def backward(ctx, dy):
+        x2, weight, r = ctx.saved_tensors
+        M, D = x2.shape
+        dx = torch.empty_like(x2)
+        dw = torch.zeros(D, device=x2.device, dtype=torch.float32)
+        ROWS = 16
+        rmsnorm_bwd[(triton.cdiv(M, ROWS),)](dy.reshape(M, D).contiguous(), x2, weight, r, dx, dw, M, D,
+                                             ROWS=ROWS, BLOCK=triton.next_power_of_2(D))
+        return dx.view(dy.shape), dw, None
+```
+
+</details>
+
 > 融合解决了两件事：几个 op 合成一个 kernel，中间结果不再进出显存；能重算的张量不存，反向时再算。[第 4 节](#attention)的 attention 和 [5.2 节](#checkpoint)的 checkpoint 都会再遇到这两件事。
 
 ---

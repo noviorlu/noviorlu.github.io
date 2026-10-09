@@ -606,6 +606,15 @@ html.dark {
 .article-content hr { margin: 2.4em 0; border-color: var(--nv-border); }
 .article-content ul > li::marker, .article-content ol > li::marker { color: var(--nv-text-3); }
 
+/* Collapsible code blocks in posts: <details class="fold"> */
+.article-content details.fold { margin: 1.2em 0; border: 1px solid var(--nv-border); border-radius: 12px; background: var(--nv-surface); overflow: hidden; }
+.article-content details.fold > summary { padding: 10px 16px; cursor: pointer; list-style: none; font-size: 14.5px; font-weight: 600; color: var(--nv-text); }
+.article-content details.fold > summary::-webkit-details-marker { display: none; }
+.article-content details.fold > summary::after { content: "展开"; float: right; font-size: 12.5px; font-weight: 500; color: var(--nv-text-3); }
+.article-content details.fold[open] > summary::after { content: "收起"; }
+.article-content details.fold[open] > summary { border-bottom: 1px solid var(--nv-border); }
+.article-content details.fold .highlight-wrapper, .article-content details.fold pre { margin: 0; border: 0; border-radius: 0; }
+
 .nv-article__after { margin-top: 56px; display: flex; flex-direction: column; gap: 20px; }
 /* Series (Blowfish details + the site's series_base partial) */
 .nv-article__after details {

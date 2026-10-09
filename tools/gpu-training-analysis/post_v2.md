@@ -144,6 +144,26 @@ Loading    1 → 2 → 3（与 Saving 同序）
 | 前向算术强度 $I$ | ~4 / 28 B ≈ 0.14 | ~4 / 8 B ≈ 0.5 |
 {#tab-3-2 caption="**表 3-2** RMSNorm：eager 与 `torch.compile` 融合" note="存的张量是实测，FLOPs 和读写是纸面计数。I 按每个元素算：eager 每元素读写 7 次 × 4 B = 28 B（共 ~140 MiB），融合后只读 x、写 y，8 B。两者都远低于 ridge point 58，仍是 memory-bound，但融合后要搬的字节少到 1/3.5，时间也跟着降。"}
 
+下面是两种写法的代码。融合版是照 `torch.compile` 的做法手写的 Triton：前向一个 kernel，一个 program 算一行，①–⑤ 都在寄存器里做完，只写出 y 和 r；反向一个 kernel，读回 x、w、r，现场重算 x̂，dw 的部分和用 `atomic_add` 累加。
+
+<details class="fold">
+<summary>eager：5 个 op，反向交给 autograd</summary>
+
+```python
+{{code:rmsnorm_triton.py:eager}}
+```
+
+</details>
+
+<details class="fold">
+<summary>Triton 融合：前向 1 个 kernel，反向 1 个 kernel</summary>
+
+```python
+{{code:rmsnorm_triton.py:triton}}
+```
+
+</details>
+
 > 融合解决了两件事：几个 op 合成一个 kernel，中间结果不再进出显存；能重算的张量不存，反向时再算。[第 4 节](#attention)的 attention 和 [5.2 节](#checkpoint)的 checkpoint 都会再遇到这两件事。
 
 ---
