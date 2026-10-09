@@ -12,7 +12,7 @@ series_order: 2
 
 我在一张 RTX 5090 上把一步 Transformer 训练拆开，分别量了时间和显存。结果和预想的不太一样：拖慢速度的不是矩阵乘，占显存最多的也不是权重。两边查到最后，都落在 attention 里的两个 seq × seq 矩阵上，一个是分数矩阵 S = QKᵀ（每个 query 对每个 key 的打分），一个是 S 按行过 softmax 之后的注意力权重 P，最后输出是 PV。
 
-文章分五步走：[第 1 节](#basics)准备工具 roofline；[第 2 节](#step)算一步训练的总账，找出时间和显存的大头；[第 3 节](#rmsnorm)拿最简单的 RMSNorm 逐个 op 拆开，看每一步算了多少、读写了多少显存、为反向存了什么；[第 4 节](#attention)用同样的方法拆 attention；[第 5 节](#savings)试 bf16 和 activation checkpoint 能省多少。怎么把 S、P 彻底去掉，留给下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/)。
+文章分四步走：[第 1 节](#basics)准备工具 roofline；[第 2 节](#step)算一步训练的总账，找出时间和显存的大头；[第 3 节](#ops)逐个 op 拆开，看每一步算了多少、读写了多少显存、为反向存了什么，先拿最简单的 RMSNorm 走一遍，再用同样的方法拆 attention；[第 4 节](#savings)试 bf16 和 activation checkpoint 能省多少。怎么把 S、P 彻底去掉，留给下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/)。
 
 模型是我自己写的 Transformer LM（RMSNorm、RoPE、SwiGLU，pre-norm），一共五档：small 0.13B、medium 0.42B、large 0.97B、xl 3.41B，以及 10B（实际 12.83B 参数）。
 
@@ -107,7 +107,7 @@ series_order: 2
 <figcaption><strong>图 1-1</strong> RTX 5090 各精度的 roofline：斜线是带宽，平线是峰值算力（dense，boost clock 2407 MHz，来自 NVIDIA RTX Blackwell 白皮书；Tensor core 按 fp32 累加）。</figcaption>
 </figure>
 
-一个 op 在拐角哪一边，用张量形状就能估。逐元素 op 在 fp32 下每个元素算 1 次、读写 8 字节，$I \approx 0.13$，远在拐角左边。矩阵乘的 $I$ 由 M、N、K 里最小的那个决定，fp32 下不超过它的一半。Linear 的三个维度都上千（medium、seq 1024 时 FFN 第一层是 `[4096, 1024] × [1024, 4096]`），$I \approx 340$，在拐角右边；attention 里的 QKᵀ 和 PV 都有一个维度是 d_head（64），$I$ 只有 28，在拐角左边。所以 QKᵀ 和 PV 虽然是矩阵乘，在 attention 里也是 memory-bound。[第 4 节](#attention)会把实测的 op 放到 fp32 的 roofline 上看（[图 4-2](#fig-4-2)）。
+一个 op 在拐角哪一边，用张量形状就能估。逐元素 op 在 fp32 下每个元素算 1 次、读写 8 字节，$I \approx 0.13$，远在拐角左边。矩阵乘的 $I$ 由 M、N、K 里最小的那个决定，fp32 下不超过它的一半。Linear 的三个维度都上千（medium、seq 1024 时 FFN 第一层是 `[4096, 1024] × [1024, 4096]`），$I \approx 340$，在拐角右边；attention 里的 QKᵀ 和 PV 都有一个维度是 d_head（64），$I$ 只有 28，在拐角左边。所以 QKᵀ 和 PV 虽然是矩阵乘，在 attention 里也是 memory-bound。[3.2 节](#attention)会把实测的 op 放到 fp32 的 roofline 上看（[图 3-5](#fig-3-5)）。
 
 ---
 
@@ -492,7 +492,9 @@ A 在前向一层层攒起来，反向再一层层释放；G 正好相反，前�
 
 ---
 
-## 3 拆开 RMSNorm {#rmsnorm}
+## 3 逐个 op 拆开 {#ops}
+
+### 3.1 RMSNorm {#rmsnorm}
 
 RMSNorm 算的是 $y = w \odot (x \cdot r)$，其中 $r = (\tfrac{1}{d}\sum_j x_j^2 + \epsilon)^{-1/2}$ 每行一个数。eager 模式下它拆成 5 个 op（fp32，`x: [4, 512, 2560]`，一份 x 是 20 MiB）：
 
@@ -846,11 +848,9 @@ class RMSNorm(torch.autograd.Function):
 
 </details>
 
-> 融合解决了两件事：几个 op 合成一个 kernel，中间结果不再进出显存；能重算的张量不存，反向时再算。[第 4 节](#attention)的 attention 和 [5.2 节](#checkpoint)的 checkpoint 都会再遇到这两件事。
+> 融合解决了两件事：几个 op 合成一个 kernel，中间结果不再进出显存；能重算的张量不存，反向时再算。[3.2 节](#attention)的 attention 和 [4.2 节](#checkpoint)的 checkpoint 都会再遇到这两件事。
 
----
-
-## 4 拆开 attention {#attention}
+### 3.2 attention {#attention}
 
 一层 attention 的完整公式是
 
@@ -858,7 +858,7 @@ class RMSNorm(torch.autograd.Function):
 
 $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 causal mask（未来位置为 $-\infty$）。eager 模式下它拆成 5 步：① 算分数 $S = QK^{\top}$；② 除以 $\sqrt{d}$；③ 加 mask；④ 按行 softmax 得到 $P$；⑤ $O = PV$。S、P 的形状都是 `[b, h, seq, seq]`，O 和 Q 一样大。
 
-和 RMSNorm 一样，逐步看它算了多少、读写了多少显存、为反向存了什么（[图 4-1](#fig-4-1)，medium、seq 1024：b = 4，h = 16，d = 64）。一份 S 或 P 是 4 × 16 × 1024 × 1024 × 4 B = 256 MiB，而 Q、K、V、O 各只有 16 MiB。
+和 RMSNorm 一样，逐步看它算了多少、读写了多少显存、为反向存了什么（[图 3-4](#fig-3-4)，medium、seq 1024：b = 4，h = 16，d = 64）。一份 S 或 P 是 4 × 16 × 1024 × 1024 × 4 B = 256 MiB，而 Q、K、V、O 各只有 16 MiB。
 
 用同样的 `saved_tensors_hooks` 打印 eager attention 存下的张量（medium、seq 1024，b·h = 64 合成一维）：
 
@@ -874,7 +874,7 @@ Saving  8  [64,1024,64]        float32  # V
 Saving  9  [64,1024,1024]      float32  # P
 ```
 
-按 RMSNorm 那条规则逐个 op 对一遍（[表 4-1](#tab-4-1)）：9 次 Saving 里，Q、K、V、mask 本来就在显存里，只是引用；softmax 的 5 个 kernel 里，max 只把梯度传给最大值所在的位置，存下每行最大值的下标；exp 的导数就是它自己的输出，除法要用分子和分母，所以存下 e 和 Σ；⑤ 要用 P 和 V。新占显存的是 e 和 P 两个 seq × seq 张量，各 256 MiB，加起来是 Q、K、V、O 总和的 8 倍。
+按 RMSNorm 那条规则逐个 op 对一遍（[表 3-3](#tab-3-3)）：9 次 Saving 里，Q、K、V、mask 本来就在显存里，只是引用；softmax 的 5 个 kernel 里，max 只把梯度传给最大值所在的位置，存下每行最大值的下标；exp 的导数就是它自己的输出，除法要用分子和分母，所以存下 e 和 Σ；⑤ 要用 P 和 V。新占显存的是 e 和 P 两个 seq × seq 张量，各 256 MiB，加起来是 Q、K、V、O 总和的 8 倍。
 
 | op | 反向要的偏导 | 存下 | 新占显存 |
 |:--|:--|:--|--:|
@@ -885,9 +885,9 @@ Saving  9  [64,1024,1024]      float32  # P
 | ④ $e = \exp(S - m)$ | $\partial e/\partial S = e$ | $e$ | **256 MiB** |
 | ④ $P = e / \Sigma$ | $\partial P/\partial e = 1/\Sigma$，$\partial P/\partial \Sigma = -e/\Sigma^2$ | $e$、$\Sigma$ | 0.25 MiB |
 | ⑤ $O = PV$ | $\partial O/\partial P = V$，$\partial O/\partial V = P$ | $P$、$V$ | **256 MiB** |
-{#tab-4-1 caption="**表 4-1** attention 各 op 为反向存的张量（eager，medium，seq 1024）" note="存下的张量是实测。④ 的减 max 和求和偏导是常数，不存；除法存的 e 和 exp 存的是同一块内存。"}
+{#tab-3-3 caption="**表 3-3** attention 各 op 为反向存的张量（eager，medium，seq 1024）" note="存下的张量是实测。④ 的减 max 和求和偏导是常数，不存；除法存的 e 和 exp 存的是同一块内存。"}
 
-<figure id="fig-4-1" class="fg-fig">
+<figure id="fig-3-4" class="fg-fig">
 <svg class="fg" viewBox="0 0 800 350" width="100%" style="--fg-minw: 675px" role="img" aria-label="eager attention 一层：前向 9 个 kernel 依次读写显存里 S 大小的张量，softmax 拆成 max、减 max、exp、求和、除；为反向新存了 e = exp(S−m) 和 P 两个 256 MiB 的张量，Q、K、V、mask 只是引用">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
@@ -908,42 +908,42 @@ Saving  9  [64,1024,1024]      float32  # P
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
   </style>
-  <defs><marker id="fig-4-1-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-2)"/></marker><marker id="fig-4-1-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-mute)"/></marker><marker id="fig-4-1-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-3)"/></marker><marker id="fig-4-1-m3" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker><marker id="fig-4-1-m4" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker><marker id="fig-4-1-m5" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
+  <defs><marker id="fig-3-4-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-2)"/></marker><marker id="fig-3-4-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-mute)"/></marker><marker id="fig-3-4-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-3)"/></marker><marker id="fig-3-4-m3" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker><marker id="fig-3-4-m4" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker><marker id="fig-3-4-m5" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
   <rect class="band" x="4" y="6" width="792" height="106" rx="8"/>
   <rect class="band" x="4" y="148" width="792" height="92" rx="8"/>
   <rect class="band" x="4" y="252" width="792" height="92" rx="8"/>
-  <line x1="56.0" y1="174.0" x2="129.0" y2="92.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-4-1-m0)"/>
-  <line x1="96.0" y1="174.0" x2="140.0" y2="92.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-4-1-m0)"/>
-  <line x1="151.0" y1="90.0" x2="164.8" y2="172.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
-  <line x1="182.2" y1="174.0" x2="199.7" y2="92.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
-  <line x1="214.3" y1="90.0" x2="231.8" y2="172.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
-  <line x1="249.2" y1="174.0" x2="266.7" y2="92.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
-  <path d="M18.0,174 L18.0,40 L254.0,40 L254.0,52" fill="none" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-4-1-m0)"/>
-  <line x1="281.3" y1="90.0" x2="298.8" y2="172.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
-  <line x1="316.2" y1="174.0" x2="330.0" y2="92.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
-  <line x1="352.0" y1="90.0" x2="425.7" y2="172.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
-  <line x1="341.0" y1="90.0" x2="363.0" y2="172.0" style="stroke: var(--fig-3)" stroke-width="1.3" marker-end="url(#fig-4-1-m2)"/>
-  <path d="M307.5,174 L307.5,40 L422.0,40 L422.0,52" fill="none" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
-  <line x1="426.3" y1="174.0" x2="434.7" y2="92.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
-  <line x1="449.3" y1="90.0" x2="466.8" y2="172.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
-  <line x1="484.2" y1="174.0" x2="501.7" y2="92.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
-  <line x1="516.3" y1="90.0" x2="533.8" y2="172.0" style="stroke: var(--fig-hi)" stroke-width="1.3" marker-end="url(#fig-4-1-m3)"/>
-  <line x1="551.2" y1="174.0" x2="568.7" y2="92.0" style="stroke: var(--fig-hi)" stroke-width="1.3" marker-end="url(#fig-4-1-m3)"/>
-  <line x1="583.3" y1="90.0" x2="609.2" y2="172.0" style="stroke: var(--fig-3)" stroke-width="1.3" marker-end="url(#fig-4-1-m2)"/>
-  <path d="M542.5,174 L542.5,40 L623.0,40 L623.0,52" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.3" marker-end="url(#fig-4-1-m3)"/>
-  <line x1="609.8" y1="174.0" x2="635.7" y2="92.0" style="stroke: var(--fig-3)" stroke-width="1.3" marker-end="url(#fig-4-1-m2)"/>
-  <line x1="650.3" y1="90.0" x2="667.8" y2="172.0" style="stroke: var(--fig-1)" stroke-width="1.3" marker-end="url(#fig-4-1-m4)"/>
-  <line x1="685.2" y1="174.0" x2="702.7" y2="92.0" style="stroke: var(--fig-1)" stroke-width="1.3" marker-end="url(#fig-4-1-m4)"/>
-  <line x1="774.0" y1="174.0" x2="717.3" y2="92.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-4-1-m0)"/>
-  <line x1="56.0" y1="228.0" x2="132.7" y2="270.0" style="stroke: var(--fig-2)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m0)"/>
-  <line x1="96.0" y1="228.0" x2="147.3" y2="270.0" style="stroke: var(--fig-2)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m0)"/>
-  <path d="M18.0,228 L18.0,322 L254.0,322 L254.0,310" fill="none" style="stroke: var(--fig-2)" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#fig-4-1-m0)"/>
-  <line x1="363.0" y1="228.0" x2="341.0" y2="270.0" style="stroke: var(--fig-3)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m2)"/>
-  <line x1="533.8" y1="228.0" x2="509.0" y2="270.0" style="stroke: var(--fig-hi)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m3)"/>
-  <line x1="551.2" y1="228.0" x2="635.7" y2="270.0" style="stroke: var(--fig-hi)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m3)"/>
-  <line x1="609.5" y1="228.0" x2="650.3" y2="270.0" style="stroke: var(--fig-3)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m2)"/>
-  <line x1="676.5" y1="228.0" x2="702.7" y2="270.0" style="stroke: var(--fig-1)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m4)"/>
-  <line x1="774.0" y1="228.0" x2="717.3" y2="270.0" style="stroke: var(--fig-2)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m0)"/>
+  <line x1="56.0" y1="174.0" x2="129.0" y2="92.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-3-4-m0)"/>
+  <line x1="96.0" y1="174.0" x2="140.0" y2="92.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-3-4-m0)"/>
+  <line x1="151.0" y1="90.0" x2="164.8" y2="172.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-3-4-m1)"/>
+  <line x1="182.2" y1="174.0" x2="199.7" y2="92.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-3-4-m1)"/>
+  <line x1="214.3" y1="90.0" x2="231.8" y2="172.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-3-4-m1)"/>
+  <line x1="249.2" y1="174.0" x2="266.7" y2="92.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-3-4-m1)"/>
+  <path d="M18.0,174 L18.0,40 L254.0,40 L254.0,52" fill="none" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-3-4-m0)"/>
+  <line x1="281.3" y1="90.0" x2="298.8" y2="172.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-3-4-m1)"/>
+  <line x1="316.2" y1="174.0" x2="330.0" y2="92.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-3-4-m1)"/>
+  <line x1="352.0" y1="90.0" x2="425.7" y2="172.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-3-4-m1)"/>
+  <line x1="341.0" y1="90.0" x2="363.0" y2="172.0" style="stroke: var(--fig-3)" stroke-width="1.3" marker-end="url(#fig-3-4-m2)"/>
+  <path d="M307.5,174 L307.5,40 L422.0,40 L422.0,52" fill="none" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-3-4-m1)"/>
+  <line x1="426.3" y1="174.0" x2="434.7" y2="92.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-3-4-m1)"/>
+  <line x1="449.3" y1="90.0" x2="466.8" y2="172.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-3-4-m1)"/>
+  <line x1="484.2" y1="174.0" x2="501.7" y2="92.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-3-4-m1)"/>
+  <line x1="516.3" y1="90.0" x2="533.8" y2="172.0" style="stroke: var(--fig-hi)" stroke-width="1.3" marker-end="url(#fig-3-4-m3)"/>
+  <line x1="551.2" y1="174.0" x2="568.7" y2="92.0" style="stroke: var(--fig-hi)" stroke-width="1.3" marker-end="url(#fig-3-4-m3)"/>
+  <line x1="583.3" y1="90.0" x2="609.2" y2="172.0" style="stroke: var(--fig-3)" stroke-width="1.3" marker-end="url(#fig-3-4-m2)"/>
+  <path d="M542.5,174 L542.5,40 L623.0,40 L623.0,52" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.3" marker-end="url(#fig-3-4-m3)"/>
+  <line x1="609.8" y1="174.0" x2="635.7" y2="92.0" style="stroke: var(--fig-3)" stroke-width="1.3" marker-end="url(#fig-3-4-m2)"/>
+  <line x1="650.3" y1="90.0" x2="667.8" y2="172.0" style="stroke: var(--fig-1)" stroke-width="1.3" marker-end="url(#fig-3-4-m4)"/>
+  <line x1="685.2" y1="174.0" x2="702.7" y2="92.0" style="stroke: var(--fig-1)" stroke-width="1.3" marker-end="url(#fig-3-4-m4)"/>
+  <line x1="774.0" y1="174.0" x2="717.3" y2="92.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-3-4-m0)"/>
+  <line x1="56.0" y1="228.0" x2="132.7" y2="270.0" style="stroke: var(--fig-2)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-3-4-m0)"/>
+  <line x1="96.0" y1="228.0" x2="147.3" y2="270.0" style="stroke: var(--fig-2)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-3-4-m0)"/>
+  <path d="M18.0,228 L18.0,322 L254.0,322 L254.0,310" fill="none" style="stroke: var(--fig-2)" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#fig-3-4-m0)"/>
+  <line x1="363.0" y1="228.0" x2="341.0" y2="270.0" style="stroke: var(--fig-3)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-3-4-m2)"/>
+  <line x1="533.8" y1="228.0" x2="509.0" y2="270.0" style="stroke: var(--fig-hi)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-3-4-m3)"/>
+  <line x1="551.2" y1="228.0" x2="635.7" y2="270.0" style="stroke: var(--fig-hi)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-3-4-m3)"/>
+  <line x1="609.5" y1="228.0" x2="650.3" y2="270.0" style="stroke: var(--fig-3)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-3-4-m2)"/>
+  <line x1="676.5" y1="228.0" x2="702.7" y2="270.0" style="stroke: var(--fig-1)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-3-4-m4)"/>
+  <line x1="774.0" y1="228.0" x2="717.3" y2="270.0" style="stroke: var(--fig-2)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-3-4-m0)"/>
   <rect x="110.0" y="54.0" width="60" height="40" rx="6" class="op"/>
   <text class="tb" x="140" y="71" text-anchor="middle">① QKᵀ</text>
   <rect x="177.0" y="54.0" width="60" height="40" rx="6" class="op"/>
@@ -1021,19 +1021,19 @@ Saving  9  [64,1024,1024]      float32  # P
   <text class="t" x="710" y="294.5" text-anchor="middle">⑤ PV</text>
   <line x1="311" y1="28" x2="673" y2="28" stroke="currentColor" stroke-opacity=".35"/>
   <text class="lab2" x="492.0" y="22" text-anchor="middle">④ softmax，5 个 kernel</text>
-  <line x1="740.0" y1="70.0" x2="770.0" y2="70.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m5)"/>
+  <line x1="740.0" y1="70.0" x2="770.0" y2="70.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-4-m5)"/>
   <text class="t" x="778" y="74">O</text>
   <text class="t" x="776" y="294">dO</text>
-  <line x1="770.0" y1="290.0" x2="742.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m5)"/>
-  <line x1="177.0" y1="290.0" x2="172.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m5)"/>
-  <line x1="244.0" y1="290.0" x2="239.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m5)"/>
-  <line x1="311.0" y1="290.0" x2="306.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m5)"/>
-  <line x1="412.0" y1="290.0" x2="373.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m5)"/>
-  <line x1="479.0" y1="290.0" x2="474.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m5)"/>
-  <line x1="546.0" y1="290.0" x2="541.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m5)"/>
-  <line x1="613.0" y1="290.0" x2="608.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m5)"/>
-  <line x1="680.0" y1="290.0" x2="675.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m5)"/>
-  <line x1="110.0" y1="290.0" x2="100.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m5)"/>
+  <line x1="770.0" y1="290.0" x2="742.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-4-m5)"/>
+  <line x1="177.0" y1="290.0" x2="172.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-4-m5)"/>
+  <line x1="244.0" y1="290.0" x2="239.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-4-m5)"/>
+  <line x1="311.0" y1="290.0" x2="306.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-4-m5)"/>
+  <line x1="412.0" y1="290.0" x2="373.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-4-m5)"/>
+  <line x1="479.0" y1="290.0" x2="474.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-4-m5)"/>
+  <line x1="546.0" y1="290.0" x2="541.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-4-m5)"/>
+  <line x1="613.0" y1="290.0" x2="608.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-4-m5)"/>
+  <line x1="680.0" y1="290.0" x2="675.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-4-m5)"/>
+  <line x1="110.0" y1="290.0" x2="100.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-4-m5)"/>
   <text class="t" x="96" y="294" text-anchor="end">dQ dK</text>
   <text class="ttl halo" x="16" y="24">前向</text><text class="lab2 halo" x="50" y="24">箭头指向 op 是读，指向显存是写</text>
   <text class="ttl " x="16" y="24">前向</text><text class="lab2 " x="50" y="24">箭头指向 op 是读，指向显存是写</text>
@@ -1042,12 +1042,12 @@ Saving  9  [64,1024,1024]      float32  # P
   <text class="ttl halo" x="16" y="270">反向</text><text class="lab2 halo" x="50" y="270"></text>
   <text class="ttl " x="16" y="270">反向</text><text class="lab2 " x="50" y="270"></text>
 </svg>
-<figcaption><strong>图 4-1</strong> eager attention 一层（medium，seq 1024，画法同<a href="#fig-3-1">图 3-1</a>）。框下是每块的大小：S、S/√d、S+M、S−m、e、P 都是 [b, h, seq, seq]，m 和 Σ 每行一个数。max 同时写出每行最大值的下标（int64），反向只用它，m 用完即释放。粗实线框是为反向新存下的，细实线框是本来就在、只被引用的 Q、K、V、mask，灰色虚线框是用完即释放的临时量。</figcaption>
+<figcaption><strong>图 3-4</strong> eager attention 一层（medium，seq 1024，画法同<a href="#fig-3-1">图 3-1</a>）。框下是每块的大小：S、S/√d、S+M、S−m、e、P 都是 [b, h, seq, seq]，m 和 Σ 每行一个数。max 同时写出每行最大值的下标（int64），反向只用它，m 用完即释放。粗实线框是为反向新存下的，细实线框是本来就在、只被引用的 Q、K、V、mask，灰色虚线框是用完即释放的临时量。</figcaption>
 </figure>
 
-时间上，FLOPs 集中在 ① 和 ⑤ 两个矩阵乘上，读写却集中在 ② ③ ④ 上：② 和 ③ 各把整个 256 MiB 的 S 读一遍、写一遍，④ 读写得更多。放到 roofline 上（[图 4-2](#fig-4-2)），attention 的 op 全在斜坡上，包括 QKᵀ 和 PV 这两个矩阵乘。它们的 MBU 已经有 57–86%，kernel 本身没多少优化空间，要更快只能少搬数据。
+时间上，FLOPs 集中在 ① 和 ⑤ 两个矩阵乘上，读写却集中在 ② ③ ④ 上：② 和 ③ 各把整个 256 MiB 的 S 读一遍、写一遍，④ 读写得更多。放到 roofline 上（[图 3-5](#fig-3-5)），attention 的 op 全在斜坡上，包括 QKᵀ 和 PV 这两个矩阵乘。它们的 MBU 已经有 57–86%，kernel 本身没多少优化空间，要更快只能少搬数据。
 
-<figure id="fig-4-2" class="fg-fig">
+<figure id="fig-3-5" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 392" width="100%" role="img" aria-label="RTX 5090 fp32 的 roofline 和一层 attention 里实测的 op：attention 的 op 都在斜线上，只有作对照的 Linear 在平线下">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
@@ -1109,14 +1109,14 @@ Saving  9  [64,1024,1024]      float32  # P
   <g class="m"><title>S / √d：I = 0.125 FLOPs/B，实测 1.92e11 FLOPS，MBU 86%</title><circle cx="80.7" cy="314.9" r="12" fill="transparent"/><circle cx="80.7" cy="314.9" r="5" class="ring" style="fill: var(--fig-hi)"/></g>
   <text class="lab" x="90.7" y="326.9" text-anchor="start">S / √d</text>
 </svg>
-<figcaption><strong>图 4-2</strong> RTX 5090 fp32 的 roofline，以及 medium、seq 1024 时一层 attention 里实测的 op（另放一个 Linear 作对照）。causal mask 没有 FLOPs，不在图上；悬停可看数值。</figcaption>
+<figcaption><strong>图 3-5</strong> RTX 5090 fp32 的 roofline，以及 medium、seq 1024 时一层 attention 里实测的 op（另放一个 Linear 作对照）。causal mask 没有 FLOPs，不在图上；悬停可看数值。</figcaption>
 </figure>
 
-搬得最多的是 ④ softmax。它对 S 的每一行算 $P_{ij} = e^{S_{ij} - m_i} / \sum_k e^{S_{ik} - m_i}$，其中 $m_i = \max_k S_{ik}$，减掉行最大值是为了防止 exp 溢出。eager 模式下这个公式拆成 5 个 kernel：求 max、减 max、exp、求和、除。每个 kernel 都要读或写和 S 一样大的张量，5 个加起来一共读写 8 次，2048 MiB（图 4-1 里 max 到 ÷Σ 这 5 个 kernel 进出显存的箭头）。
+搬得最多的是 ④ softmax。它对 S 的每一行算 $P_{ij} = e^{S_{ij} - m_i} / \sum_k e^{S_{ik} - m_i}$，其中 $m_i = \max_k S_{ik}$，减掉行最大值是为了防止 exp 溢出。eager 模式下这个公式拆成 5 个 kernel：求 max、减 max、exp、求和、除。每个 kernel 都要读或写和 S 一样大的张量，5 个加起来一共读写 8 次，2048 MiB（图 3-4 里 max 到 ÷Σ 这 5 个 kernel 进出显存的箭头）。
 
-FLOPs 和耗时因此对不上：softmax 的运算量只有 PV 的 1/5，耗时却是 PV 的 6 倍（[图 4-3](#fig-4-3)）。
+FLOPs 和耗时因此对不上：softmax 的运算量只有 PV 的 1/5，耗时却是 PV 的 6 倍（[图 3-6](#fig-3-6)）。
 
-<figure id="fig-4-3" class="fg-fig">
+<figure id="fig-3-6" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 186" width="100%" role="img" aria-label="medium、seq 1024 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间：softmax 和 ÷√d、mask 的 FLOPs 很少，时间却最多">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
@@ -1165,12 +1165,12 @@ FLOPs 和耗时因此对不上：softmax 的运算量只有 PV 的 1/5，耗时�
   <line class="axis" x1="112" y1="58" x2="112" y2="174"/>
   <line class="axis" x1="392" y1="58" x2="392" y2="174"/>
 </svg>
-<figcaption><strong>图 4-3</strong> 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间（medium，seq 1024）。</figcaption>
+<figcaption><strong>图 3-6</strong> 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间（medium，seq 1024）。</figcaption>
 </figure>
 
-S、P 的读写量随 seq² 增长，Linear 只随 seq 线性增长。seq 从 256 增加到 1024，attention 占前向时间的比例从 10% 涨到 46%，多出来的几乎全是 softmax、除以 √d、mask 这类只搬数据的 op（[图 4-4](#fig-4-4)）。这就是[第 2 节](#time)那 40% 里随 seq 涨得最快的部分。
+S、P 的读写量随 seq² 增长，Linear 只随 seq 线性增长。seq 从 256 增加到 1024，attention 占前向时间的比例从 10% 涨到 46%，多出来的几乎全是 softmax、除以 √d、mask 这类只搬数据的 op（[图 3-7](#fig-3-7)）。这就是[第 2 节](#time)那 40% 里随 seq 涨得最快的部分。
 
-<figure id="fig-4-4" class="fg-fig">
+<figure id="fig-3-7" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 262" width="100%" role="img" aria-label="attention 三段占 forward 时间随 seq 的变化：softmax 从 4% 涨到 24%，scores 从 4% 涨到 18%，PV 只从 2% 到 4%，合计从 10% 到 46%">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
@@ -1230,14 +1230,14 @@ S、P 的读写量随 seq² 增长，Linear 只随 seq 线性增长。seq 从 25
   <g class="m"><title>seq 1024：PV 5.5 ms，占 4%</title><circle cx="470" cy="221.6" r="4.5" class="ring" style="fill: var(--fig-2)"/></g>
   <text class="val" x="482" y="225.6">PV 4%</text>
 </svg>
-<figcaption><strong>图 4-4</strong> attention 三段占 forward GPU 时间的比例随 seq 变化（medium）。</figcaption>
+<figcaption><strong>图 3-7</strong> attention 三段占 forward GPU 时间的比例随 seq 变化（medium）。</figcaption>
 </figure>
 
 要少搬，就得把几步合进一个 kernel，中间结果留在片上：融合的 softmax 只读一次 S、写一次 P；FlashAttention 更进一步，S、P 根本不写回显存。
 
-显存上，[表 4-1](#tab-4-1) 是一层 attention 单独测的：新占显存的主要是两个 seq × seq 张量。放到整层 Transformer block 上也是这样，只是 `torch.compile` 之后存下的两个 seq × seq 张量换成了 S 和 P。xl 的一层（RMSNorm 这类中间量已经被省掉）一共要为反向存 3655 MiB，其中一半以上是 S 和 P（[图 4-5](#fig-4-5)）。这组测量用的是 16 头，S、P 各 1 GiB；标准 xl 是 32 头，S、P 还要再大一倍。
+显存上，[表 3-3](#tab-3-3) 是一层 attention 单独测的：新占显存的主要是两个 seq × seq 张量。放到整层 Transformer block 上也是这样，只是 `torch.compile` 之后存下的两个 seq × seq 张量换成了 S 和 P。xl 的一层（RMSNorm 这类中间量已经被省掉）一共要为反向存 3655 MiB，其中一半以上是 S 和 P（[图 3-8](#fig-3-8)）。这组测量用的是 16 头，S、P 各 1 GiB；标准 xl 是 32 头，S、P 还要再大一倍。
 
-<figure id="fig-4-5" class="fg-fig">
+<figure id="fig-3-8" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 246" width="100%" role="img" aria-label="xl 一层为反向存的 3655 MiB：S、P 占 56%，FFN 中间量 26%，[b, s, d] 级张量 17.5%，其他 0.2%">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
@@ -1276,14 +1276,14 @@ S、P 的读写量随 seq² 增长，Linear 只随 seq 线性增长。seq 从 25
   <text class="lab" x="310" y="182">其他</text><text class="lab2" x="310" y="198">mask、RoPE、softmax 统计量</text>
   <text class="val" x="630" y="182" text-anchor="end">7 MiB · 0.2%</text>
 </svg>
-<figcaption><strong>图 4-5</strong> xl 一层为反向存的张量（batch 4，seq 2048，16 头，<code>torch.compile</code> 后用 <code>saved_tensors_hooks</code> 实测）。</figcaption>
+<figcaption><strong>图 3-8</strong> xl 一层为反向存的张量（batch 4，seq 2048，16 头，<code>torch.compile</code> 后用 <code>saved_tensors_hooks</code> 实测）。</figcaption>
 </figure>
 
 xl 有 32 层，按 16 头算加起来也有 114 GiB，是 5090 显存的三倍多。而且只有 S、P 随 seq² 增长：32 头时，同一个 `[b, h, s, s]` 张量在 seq 128 时是 8 MiB，seq 2048 时是 2 GiB，是残差流上一个 `[b, s, d]` 张量的 25 倍。
 
-[图 4-6](#fig-4-6) 是 xl 一步的显存时间线。seq 2048 只跑前向时，每层 attention 都让显存冲高约 8 GiB，算完再落回去，32 层都能跑完；加上反向后，每层的 S、P 都得留下，第 1 层就多占约 4.7 GiB，到第 2 层就 OOM 了。
+[图 3-9](#fig-3-9) 是 xl 一步的显存时间线。seq 2048 只跑前向时，每层 attention 都让显存冲高约 8 GiB，算完再落回去，32 层都能跑完；加上反向后，每层的 S、P 都得留下，第 1 层就多占约 4.7 GiB，到第 2 层就 OOM 了。
 
-<figure id="fig-4-6" class="fg-fig">
+<figure id="fig-3-9" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 420" width="100%" role="img" aria-label="xl 一步的显存时间线：seq 128 纯前向是平的；seq 2048 纯前向每层冲出一个尖峰；seq 128 full step 前向和反向一路上升，到 optimizer 时 OOM；seq 2048 带反向时第 2 层 OOM">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
@@ -1360,20 +1360,20 @@ xl 有 32 层，按 16 头算加起来也有 114 GiB，是 5090 显存的三倍�
   <text class="tick" x="614" y="389" text-anchor="end">195 次分配 / 释放</text>
   <text class="lab2" x="12" y="210" transform="rotate(-90 12 210)" text-anchor="middle">显存（GiB）</text>
 </svg>
-<figcaption><strong>图 4-6</strong> xl（batch 4，32 头）一步的显存时间线，横轴是分配 / 释放的次序。</figcaption>
+<figcaption><strong>图 3-9</strong> xl（batch 4，32 头）一步的显存时间线，横轴是分配 / 释放的次序。</figcaption>
 </figure>
 
 ---
 
-## 5 能省吗：bf16 和 checkpoint 都差一口气 {#savings}
+## 4 能省吗：bf16 和 checkpoint 都差一口气 {#savings}
 
 要减小 A 有两种办法：把每个张量存得小一点（bf16），或者少存一些、反向时重算（checkpoint）。
 
-### 5.1 bf16 autocast {#bf16}
+### 4.1 bf16 autocast {#bf16}
 
-autocast 只把矩阵乘的输入换成 bf16，权重、梯度和 Adam 状态还是 fp32。速度提升很明显，前向快了 1.9–2.3 倍（[图 5-1](#fig-5-1)）：矩阵乘换到 bf16 的 Tensor core 上，峰值从 1.05e14 翻倍到 2.1e14，要搬的字节也少了一半。显存只省了 18–21%：W、G 和 Adam 状态大小不变；A 也没有减半，因为 norm、softmax、残差和 loss 还在 fp32 下算（这些累加在 bf16 下不准，bf16 只有 7 位尾数，把 0.01 累加 1000 次只能得到 4.0），反向还要多存一份 bf16 的权重副本。存下的张量还是那些，只是一部分从 4 字节变成了 2 字节。
+autocast 只把矩阵乘的输入换成 bf16，权重、梯度和 Adam 状态还是 fp32。速度提升很明显，前向快了 1.9–2.3 倍（[图 4-1](#fig-4-1)）：矩阵乘换到 bf16 的 Tensor core 上，峰值从 1.05e14 翻倍到 2.1e14，要搬的字节也少了一半。显存只省了 18–21%：W、G 和 Adam 状态大小不变；A 也没有减半，因为 norm、softmax、残差和 loss 还在 fp32 下算（这些累加在 bf16 下不准，bf16 只有 7 位尾数，把 0.01 累加 1000 次只能得到 4.0），反向还要多存一份 bf16 的权重副本。存下的张量还是那些，只是一部分从 4 字节变成了 2 字节。
 
-<figure id="fig-5-1" class="fg-fig">
+<figure id="fig-4-1" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 252" width="100%" role="img" aria-label="bf16 autocast 相对 fp32：前向快 1.87 到 2.30 倍，反向快 1.69 到 1.87 倍；前向 + 反向的峰值显存少 18% 到 21%">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
@@ -1435,14 +1435,14 @@ autocast 只把矩阵乘的输入换成 bf16，权重、梯度和 Adam 状态还
   <g class="m"><title>large bf16：16.61 GiB</title><rect x="588.0" y="109.7" width="24.0" height="116.3" rx="3" style="fill: var(--fig-1)"/></g>
   <text class="val" x="600" y="104.7" text-anchor="middle">−18%</text><text class="lab" x="586" y="243" text-anchor="middle">large</text>
 </svg>
-<figcaption><strong>图 5-1</strong> bf16 autocast 相对 fp32（前向 + 反向，batch 4，seq 512）：左边是加速比，右边是峰值显存。</figcaption>
+<figcaption><strong>图 4-1</strong> bf16 autocast 相对 fp32（前向 + 反向，batch 4，seq 512）：左边是加速比，右边是峰值显存。</figcaption>
 </figure>
 
-### 5.2 activation checkpoint {#checkpoint}
+### 4.2 activation checkpoint {#checkpoint}
 
-checkpoint 和[第 3 节](#rmsnorm)里融合 RMSNorm 的做法一样，只是从一个 op 扩大到几层：前向只存每段的入口（entry，xl、seq 2048 时 80 MiB），反向走到这一段时，用入口把这段的前向重跑一遍，用完就释放。4 层 xl block 每 2 层设一个 checkpoint，峰值就从 4 × 3655 MiB = 14.6 GiB 降到「2 个 entry 加一段」的 7.5 GiB（[图 5-2](#fig-5-2)）。
+checkpoint 和 [3.1 节](#rmsnorm)里融合 RMSNorm 的做法一样，只是从一个 op 扩大到几层：前向只存每段的入口（entry，xl、seq 2048 时 80 MiB），反向走到这一段时，用入口把这段的前向重跑一遍，用完就释放。4 层 xl block 每 2 层设一个 checkpoint，峰值就从 4 × 3655 MiB = 14.6 GiB 降到「2 个 entry 加一段」的 7.5 GiB（[图 4-2](#fig-4-2)）。
 
-<figure id="fig-5-2" class="fg-fig">
+<figure id="fig-4-2" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 340" width="100%" role="img" aria-label="4 层 xl block：不 checkpoint 时每层留 3655 MiB 一起活到反向，峰值 14.6 GiB；每 2 层一个 checkpoint 时只留 entry x0、x2，反向时逐段重算，峰值 7.5 GiB">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
@@ -1463,13 +1463,13 @@ checkpoint 和[第 3 节](#rmsnorm)里融合 RMSNorm 的做法一样，只是从
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
   </style>
-  <defs><marker id="fig-5-2-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
+  <defs><marker id="fig-4-2-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
   <rect class="band" x="4" y="6" width="632" height="150" rx="8"/>
   <text class="ttl" x="16" y="24">全部存下</text><text class="lab2" x="76" y="24">峰值 14.6 GiB</text>
   <rect class="band" x="4" y="168" width="632" height="166" rx="8"/>
   <text class="ttl" x="16" y="186">每 2 层一段</text><text class="lab2" x="115" y="186">峰值 7.5 GiB</text>
   <text class="t" x="16" y="66">x0</text>
-  <line x1="36.0" y1="62.0" x2="106.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-5-2-m0)"/>
+  <line x1="36.0" y1="62.0" x2="106.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
   <rect x="108.0" y="51.0" width="64" height="30" rx="6" class="op"/>
   <text class="tb" x="140" y="63" text-anchor="middle">L1</text>
   <rect x="90.0" y="94.0" width="100" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
@@ -1478,26 +1478,26 @@ checkpoint 和[第 3 节](#rmsnorm)里融合 RMSNorm 的做法一样，只是从
   <line x1="140.0" y1="81.0" x2="140.0" y2="94.0" style="stroke: var(--fig-2)" stroke-width="1.2"/>
   <rect x="230.0" y="51.0" width="64" height="30" rx="6" class="op"/>
   <text class="tb" x="262" y="63" text-anchor="middle">L2</text>
-  <line x1="172.0" y1="62.0" x2="228.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-5-2-m0)"/>
+  <line x1="172.0" y1="62.0" x2="228.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
   <rect x="212.0" y="94.0" width="100" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
   <text class="t" x="262" y="111" text-anchor="middle">3655 MiB</text>
   <text class="s" x="262" y="127" text-anchor="middle">含 x1</text>
   <line x1="262.0" y1="81.0" x2="262.0" y2="94.0" style="stroke: var(--fig-2)" stroke-width="1.2"/>
   <rect x="352.0" y="51.0" width="64" height="30" rx="6" class="op"/>
   <text class="tb" x="384" y="63" text-anchor="middle">L3</text>
-  <line x1="294.0" y1="62.0" x2="350.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-5-2-m0)"/>
+  <line x1="294.0" y1="62.0" x2="350.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
   <rect x="334.0" y="94.0" width="100" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
   <text class="t" x="384" y="111" text-anchor="middle">3655 MiB</text>
   <text class="s" x="384" y="127" text-anchor="middle">含 x2</text>
   <line x1="384.0" y1="81.0" x2="384.0" y2="94.0" style="stroke: var(--fig-2)" stroke-width="1.2"/>
   <rect x="474.0" y="51.0" width="64" height="30" rx="6" class="op"/>
   <text class="tb" x="506" y="63" text-anchor="middle">L4</text>
-  <line x1="416.0" y1="62.0" x2="472.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-5-2-m0)"/>
+  <line x1="416.0" y1="62.0" x2="472.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
   <rect x="456.0" y="94.0" width="100" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
   <text class="t" x="506" y="111" text-anchor="middle">3655 MiB</text>
   <text class="s" x="506" y="127" text-anchor="middle">含 x3</text>
   <line x1="506.0" y1="81.0" x2="506.0" y2="94.0" style="stroke: var(--fig-2)" stroke-width="1.2"/>
-  <line x1="538.0" y1="62.0" x2="600.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-5-2-m0)"/>
+  <line x1="538.0" y1="62.0" x2="600.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
   <text class="t" x="606" y="66">y</text>
   <text class="lab2" x="626" y="148" text-anchor="end">4 份同时留到反向</text>
   <rect x="24.0" y="211.0" width="56" height="30" rx="6" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
@@ -1518,19 +1518,19 @@ checkpoint 和[第 3 节](#rmsnorm)里融合 RMSNorm 的做法一样，只是从
   <text class="t" x="476" y="287" text-anchor="middle">2 × 3655 MiB</text>
   <text class="s" x="476" y="303" text-anchor="middle">反向时用 x2 重算，用完即丢</text>
   <line x1="476.0" y1="243.0" x2="476.0" y2="270.0" style="stroke: var(--fig-1)" stroke-width="1.2"/>
-  <line x1="80.0" y1="222.0" x2="118.0" y2="222.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-5-2-m0)"/>
-  <line x1="272.0" y1="222.0" x2="306.0" y2="222.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-5-2-m0)"/>
-  <line x1="364.0" y1="222.0" x2="398.0" y2="222.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-5-2-m0)"/>
-  <line x1="552.0" y1="222.0" x2="600.0" y2="222.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-5-2-m0)"/>
+  <line x1="80.0" y1="222.0" x2="118.0" y2="222.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
+  <line x1="272.0" y1="222.0" x2="306.0" y2="222.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
+  <line x1="364.0" y1="222.0" x2="398.0" y2="222.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
+  <line x1="552.0" y1="222.0" x2="600.0" y2="222.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-2-m0)"/>
   <text class="t" x="606" y="226">y</text>
   <text class="lab2" x="626" y="326" text-anchor="end">反向时一次只重算一段</text>
 </svg>
-<figcaption><strong>图 5-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。</figcaption>
+<figcaption><strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。</figcaption>
 </figure>
 
-代价是整个网络要多跑一遍前向。xl 在 seq 2048 下光参数加梯度就要 25.4 GiB，放不下 activation，所以我在 large 上扫了每段放几层（[图 5-3](#fig-5-3)）。不管怎么切，step 都是 302–313 ms，比不用 checkpoint 的 236 ms 慢 28–33%，正好对应一步从 3F 变成 4F（F 是一次前向，反向约 2F）。显存则是切得越细越省，每层一个 checkpoint 时最低，7.8 GiB，不用时是 15.0 GiB。
+代价是整个网络要多跑一遍前向。xl 在 seq 2048 下光参数加梯度就要 25.4 GiB，放不下 activation，所以我在 large 上扫了每段放几层（[图 4-3](#fig-4-3)）。不管怎么切，step 都是 302–313 ms，比不用 checkpoint 的 236 ms 慢 28–33%，正好对应一步从 3F 变成 4F（F 是一次前向，反向约 2F）。显存则是切得越细越省，每层一个 checkpoint 时最低，7.8 GiB，不用时是 15.0 GiB。
 
-<figure id="fig-5-3" class="fg-fig">
+<figure id="fig-4-3" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 250" width="100%" role="img" aria-label="checkpoint 段长扫描：step 时间都在 302 到 313 ms，高于不 checkpoint 的 236 ms；峰值显存随每段层数增加，每层一个 checkpoint 时最低 7.8 GiB">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
@@ -1613,7 +1613,7 @@ checkpoint 和[第 3 节](#rmsnorm)里融合 RMSNorm 的做法一样，只是从
   <line class="axis" x1="364" y1="206" x2="614" y2="206"/>
   <text class="lab2" x="489" y="238" text-anchor="middle">每段几层（对数轴）</text>
 </svg>
-<figcaption><strong>图 5-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。</figcaption>
+<figcaption><strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。</figcaption>
 </figure>
 
 切得越细越省，是因为入口很小。设共 $L$ 层、每段 $e$ 层、入口大小 $a$、一层的 A 为 $A_1$，峰值约为 $\frac{L}{e}a + e\,A_1$。只要所有入口加起来比一层的 A 小（这里 36 × 5 MiB = 180 MiB < 220 MiB），$e = 1$ 就是最优。
@@ -1622,7 +1622,7 @@ checkpoint 和[第 3 节](#rmsnorm)里融合 RMSNorm 的做法一样，只是从
 
 ---
 
-## 6 小结 {#conclusion}
+## 5 小结 {#conclusion}
 
 时间和显存的问题最后都落在 S、P 上。时间上，它们让 attention 成了 memory-bound，seq 1024 时占前向将近一半的时间；显存上，它们占一层 saved tensors 的一半以上，xl 在 seq 2048 时第 2 层就 OOM。bf16 只能把它们存小一点，checkpoint 只能推迟它们出现，都没能让它们离开显存。
 

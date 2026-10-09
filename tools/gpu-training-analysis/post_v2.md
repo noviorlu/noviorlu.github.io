@@ -12,7 +12,7 @@ series_order: 2
 
 我在一张 RTX 5090 上把一步 Transformer 训练拆开，分别量了时间和显存。结果和预想的不太一样：拖慢速度的不是矩阵乘，占显存最多的也不是权重。两边查到最后，都落在 attention 里的两个 seq × seq 矩阵上，一个是分数矩阵 S = QKᵀ（每个 query 对每个 key 的打分），一个是 S 按行过 softmax 之后的注意力权重 P，最后输出是 PV。
 
-文章分五步走：[第 1 节](#basics)准备工具 roofline；[第 2 节](#step)算一步训练的总账，找出时间和显存的大头；[第 3 节](#rmsnorm)拿最简单的 RMSNorm 逐个 op 拆开，看每一步算了多少、读写了多少显存、为反向存了什么；[第 4 节](#attention)用同样的方法拆 attention；[第 5 节](#savings)试 bf16 和 activation checkpoint 能省多少。怎么把 S、P 彻底去掉，留给下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/)。
+文章分四步走：[第 1 节](#basics)准备工具 roofline；[第 2 节](#step)算一步训练的总账，找出时间和显存的大头；[第 3 节](#ops)逐个 op 拆开，看每一步算了多少、读写了多少显存、为反向存了什么，先拿最简单的 RMSNorm 走一遍，再用同样的方法拆 attention；[第 4 节](#savings)试 bf16 和 activation checkpoint 能省多少。怎么把 S、P 彻底去掉，留给下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/)。
 
 模型是我自己写的 Transformer LM（RMSNorm、RoPE、SwiGLU，pre-norm），一共五档：small 0.13B、medium 0.42B、large 0.97B、xl 3.41B，以及 10B（实际 12.83B 参数）。
 
@@ -38,7 +38,7 @@ series_order: 2
 
 {{fig-1-1}}
 
-一个 op 在拐角哪一边，用张量形状就能估。逐元素 op 在 fp32 下每个元素算 1 次、读写 8 字节，$I \approx 0.13$，远在拐角左边。矩阵乘的 $I$ 由 M、N、K 里最小的那个决定，fp32 下不超过它的一半。Linear 的三个维度都上千（medium、seq 1024 时 FFN 第一层是 `[4096, 1024] × [1024, 4096]`），$I \approx 340$，在拐角右边；attention 里的 QKᵀ 和 PV 都有一个维度是 d_head（64），$I$ 只有 28，在拐角左边。所以 QKᵀ 和 PV 虽然是矩阵乘，在 attention 里也是 memory-bound。[第 4 节](#attention)会把实测的 op 放到 fp32 的 roofline 上看（[图 4-2](#fig-4-2)）。
+一个 op 在拐角哪一边，用张量形状就能估。逐元素 op 在 fp32 下每个元素算 1 次、读写 8 字节，$I \approx 0.13$，远在拐角左边。矩阵乘的 $I$ 由 M、N、K 里最小的那个决定，fp32 下不超过它的一半。Linear 的三个维度都上千（medium、seq 1024 时 FFN 第一层是 `[4096, 1024] × [1024, 4096]`），$I \approx 340$，在拐角右边；attention 里的 QKᵀ 和 PV 都有一个维度是 d_head（64），$I$ 只有 28，在拐角左边。所以 QKᵀ 和 PV 虽然是矩阵乘，在 attention 里也是 memory-bound。[3.2 节](#attention)会把实测的 op 放到 fp32 的 roofline 上看（[图 3-5](#fig-3-5)）。
 
 ---
 
@@ -83,7 +83,9 @@ A 在前向一层层攒起来，反向再一层层释放；G 正好相反，前�
 
 ---
 
-## 3 拆开 RMSNorm {#rmsnorm}
+## 3 逐个 op 拆开 {#ops}
+
+### 3.1 RMSNorm {#rmsnorm}
 
 RMSNorm 算的是 $y = w \odot (x \cdot r)$，其中 $r = (\tfrac{1}{d}\sum_j x_j^2 + \epsilon)^{-1/2}$ 每行一个数。eager 模式下它拆成 5 个 op（fp32，`x: [4, 512, 2560]`，一份 x 是 20 MiB）：
 
@@ -159,11 +161,9 @@ Loading    1 → 2 → 3（与 Saving 同序）
 
 </details>
 
-> 融合解决了两件事：几个 op 合成一个 kernel，中间结果不再进出显存；能重算的张量不存，反向时再算。[第 4 节](#attention)的 attention 和 [5.2 节](#checkpoint)的 checkpoint 都会再遇到这两件事。
+> 融合解决了两件事：几个 op 合成一个 kernel，中间结果不再进出显存；能重算的张量不存，反向时再算。[3.2 节](#attention)的 attention 和 [4.2 节](#checkpoint)的 checkpoint 都会再遇到这两件事。
 
----
-
-## 4 拆开 attention {#attention}
+### 3.2 attention {#attention}
 
 一层 attention 的完整公式是
 
@@ -171,7 +171,7 @@ Loading    1 → 2 → 3（与 Saving 同序）
 
 $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 causal mask（未来位置为 $-\infty$）。eager 模式下它拆成 5 步：① 算分数 $S = QK^{\top}$；② 除以 $\sqrt{d}$；③ 加 mask；④ 按行 softmax 得到 $P$；⑤ $O = PV$。S、P 的形状都是 `[b, h, seq, seq]`，O 和 Q 一样大。
 
-和 RMSNorm 一样，逐步看它算了多少、读写了多少显存、为反向存了什么（[图 4-1](#fig-4-1)，medium、seq 1024：b = 4，h = 16，d = 64）。一份 S 或 P 是 4 × 16 × 1024 × 1024 × 4 B = 256 MiB，而 Q、K、V、O 各只有 16 MiB。
+和 RMSNorm 一样，逐步看它算了多少、读写了多少显存、为反向存了什么（[图 3-4](#fig-3-4)，medium、seq 1024：b = 4，h = 16，d = 64）。一份 S 或 P 是 4 × 16 × 1024 × 1024 × 4 B = 256 MiB，而 Q、K、V、O 各只有 16 MiB。
 
 用同样的 `saved_tensors_hooks` 打印 eager attention 存下的张量（medium、seq 1024，b·h = 64 合成一维）：
 
@@ -187,7 +187,7 @@ Saving  8  [64,1024,64]        float32  # V
 Saving  9  [64,1024,1024]      float32  # P
 ```
 
-按 RMSNorm 那条规则逐个 op 对一遍（[表 4-1](#tab-4-1)）：9 次 Saving 里，Q、K、V、mask 本来就在显存里，只是引用；softmax 的 5 个 kernel 里，max 只把梯度传给最大值所在的位置，存下每行最大值的下标；exp 的导数就是它自己的输出，除法要用分子和分母，所以存下 e 和 Σ；⑤ 要用 P 和 V。新占显存的是 e 和 P 两个 seq × seq 张量，各 256 MiB，加起来是 Q、K、V、O 总和的 8 倍。
+按 RMSNorm 那条规则逐个 op 对一遍（[表 3-3](#tab-3-3)）：9 次 Saving 里，Q、K、V、mask 本来就在显存里，只是引用；softmax 的 5 个 kernel 里，max 只把梯度传给最大值所在的位置，存下每行最大值的下标；exp 的导数就是它自己的输出，除法要用分子和分母，所以存下 e 和 Σ；⑤ 要用 P 和 V。新占显存的是 e 和 P 两个 seq × seq 张量，各 256 MiB，加起来是 Q、K、V、O 总和的 8 倍。
 
 | op | 反向要的偏导 | 存下 | 新占显存 |
 |:--|:--|:--|--:|
@@ -198,57 +198,57 @@ Saving  9  [64,1024,1024]      float32  # P
 | ④ $e = \exp(S - m)$ | $\partial e/\partial S = e$ | $e$ | **256 MiB** |
 | ④ $P = e / \Sigma$ | $\partial P/\partial e = 1/\Sigma$，$\partial P/\partial \Sigma = -e/\Sigma^2$ | $e$、$\Sigma$ | 0.25 MiB |
 | ⑤ $O = PV$ | $\partial O/\partial P = V$，$\partial O/\partial V = P$ | $P$、$V$ | **256 MiB** |
-{#tab-4-1 caption="**表 4-1** attention 各 op 为反向存的张量（eager，medium，seq 1024）" note="存下的张量是实测。④ 的减 max 和求和偏导是常数，不存；除法存的 e 和 exp 存的是同一块内存。"}
+{#tab-3-3 caption="**表 3-3** attention 各 op 为反向存的张量（eager，medium，seq 1024）" note="存下的张量是实测。④ 的减 max 和求和偏导是常数，不存；除法存的 e 和 exp 存的是同一块内存。"}
 
-{{fig-4-1}}
+{{fig-3-4}}
 
-时间上，FLOPs 集中在 ① 和 ⑤ 两个矩阵乘上，读写却集中在 ② ③ ④ 上：② 和 ③ 各把整个 256 MiB 的 S 读一遍、写一遍，④ 读写得更多。放到 roofline 上（[图 4-2](#fig-4-2)），attention 的 op 全在斜坡上，包括 QKᵀ 和 PV 这两个矩阵乘。它们的 MBU 已经有 57–86%，kernel 本身没多少优化空间，要更快只能少搬数据。
+时间上，FLOPs 集中在 ① 和 ⑤ 两个矩阵乘上，读写却集中在 ② ③ ④ 上：② 和 ③ 各把整个 256 MiB 的 S 读一遍、写一遍，④ 读写得更多。放到 roofline 上（[图 3-5](#fig-3-5)），attention 的 op 全在斜坡上，包括 QKᵀ 和 PV 这两个矩阵乘。它们的 MBU 已经有 57–86%，kernel 本身没多少优化空间，要更快只能少搬数据。
 
-{{fig-4-2}}
+{{fig-3-5}}
 
-搬得最多的是 ④ softmax。它对 S 的每一行算 $P_{ij} = e^{S_{ij} - m_i} / \sum_k e^{S_{ik} - m_i}$，其中 $m_i = \max_k S_{ik}$，减掉行最大值是为了防止 exp 溢出。eager 模式下这个公式拆成 5 个 kernel：求 max、减 max、exp、求和、除。每个 kernel 都要读或写和 S 一样大的张量，5 个加起来一共读写 8 次，2048 MiB（图 4-1 里 max 到 ÷Σ 这 5 个 kernel 进出显存的箭头）。
+搬得最多的是 ④ softmax。它对 S 的每一行算 $P_{ij} = e^{S_{ij} - m_i} / \sum_k e^{S_{ik} - m_i}$，其中 $m_i = \max_k S_{ik}$，减掉行最大值是为了防止 exp 溢出。eager 模式下这个公式拆成 5 个 kernel：求 max、减 max、exp、求和、除。每个 kernel 都要读或写和 S 一样大的张量，5 个加起来一共读写 8 次，2048 MiB（图 3-4 里 max 到 ÷Σ 这 5 个 kernel 进出显存的箭头）。
 
-FLOPs 和耗时因此对不上：softmax 的运算量只有 PV 的 1/5，耗时却是 PV 的 6 倍（[图 4-3](#fig-4-3)）。
+FLOPs 和耗时因此对不上：softmax 的运算量只有 PV 的 1/5，耗时却是 PV 的 6 倍（[图 3-6](#fig-3-6)）。
 
-{{fig-4-3}}
+{{fig-3-6}}
 
-S、P 的读写量随 seq² 增长，Linear 只随 seq 线性增长。seq 从 256 增加到 1024，attention 占前向时间的比例从 10% 涨到 46%，多出来的几乎全是 softmax、除以 √d、mask 这类只搬数据的 op（[图 4-4](#fig-4-4)）。这就是[第 2 节](#time)那 40% 里随 seq 涨得最快的部分。
+S、P 的读写量随 seq² 增长，Linear 只随 seq 线性增长。seq 从 256 增加到 1024，attention 占前向时间的比例从 10% 涨到 46%，多出来的几乎全是 softmax、除以 √d、mask 这类只搬数据的 op（[图 3-7](#fig-3-7)）。这就是[第 2 节](#time)那 40% 里随 seq 涨得最快的部分。
 
-{{fig-4-4}}
+{{fig-3-7}}
 
 要少搬，就得把几步合进一个 kernel，中间结果留在片上：融合的 softmax 只读一次 S、写一次 P；FlashAttention 更进一步，S、P 根本不写回显存。
 
-显存上，[表 4-1](#tab-4-1) 是一层 attention 单独测的：新占显存的主要是两个 seq × seq 张量。放到整层 Transformer block 上也是这样，只是 `torch.compile` 之后存下的两个 seq × seq 张量换成了 S 和 P。xl 的一层（RMSNorm 这类中间量已经被省掉）一共要为反向存 3655 MiB，其中一半以上是 S 和 P（[图 4-5](#fig-4-5)）。这组测量用的是 16 头，S、P 各 1 GiB；标准 xl 是 32 头，S、P 还要再大一倍。
+显存上，[表 3-3](#tab-3-3) 是一层 attention 单独测的：新占显存的主要是两个 seq × seq 张量。放到整层 Transformer block 上也是这样，只是 `torch.compile` 之后存下的两个 seq × seq 张量换成了 S 和 P。xl 的一层（RMSNorm 这类中间量已经被省掉）一共要为反向存 3655 MiB，其中一半以上是 S 和 P（[图 3-8](#fig-3-8)）。这组测量用的是 16 头，S、P 各 1 GiB；标准 xl 是 32 头，S、P 还要再大一倍。
 
-{{fig-4-5}}
+{{fig-3-8}}
 
 xl 有 32 层，按 16 头算加起来也有 114 GiB，是 5090 显存的三倍多。而且只有 S、P 随 seq² 增长：32 头时，同一个 `[b, h, s, s]` 张量在 seq 128 时是 8 MiB，seq 2048 时是 2 GiB，是残差流上一个 `[b, s, d]` 张量的 25 倍。
 
-[图 4-6](#fig-4-6) 是 xl 一步的显存时间线。seq 2048 只跑前向时，每层 attention 都让显存冲高约 8 GiB，算完再落回去，32 层都能跑完；加上反向后，每层的 S、P 都得留下，第 1 层就多占约 4.7 GiB，到第 2 层就 OOM 了。
+[图 3-9](#fig-3-9) 是 xl 一步的显存时间线。seq 2048 只跑前向时，每层 attention 都让显存冲高约 8 GiB，算完再落回去，32 层都能跑完；加上反向后，每层的 S、P 都得留下，第 1 层就多占约 4.7 GiB，到第 2 层就 OOM 了。
 
-{{fig-4-6}}
+{{fig-3-9}}
 
 ---
 
-## 5 能省吗：bf16 和 checkpoint 都差一口气 {#savings}
+## 4 能省吗：bf16 和 checkpoint 都差一口气 {#savings}
 
 要减小 A 有两种办法：把每个张量存得小一点（bf16），或者少存一些、反向时重算（checkpoint）。
 
-### 5.1 bf16 autocast {#bf16}
+### 4.1 bf16 autocast {#bf16}
 
-autocast 只把矩阵乘的输入换成 bf16，权重、梯度和 Adam 状态还是 fp32。速度提升很明显，前向快了 1.9–2.3 倍（[图 5-1](#fig-5-1)）：矩阵乘换到 bf16 的 Tensor core 上，峰值从 1.05e14 翻倍到 2.1e14，要搬的字节也少了一半。显存只省了 18–21%：W、G 和 Adam 状态大小不变；A 也没有减半，因为 norm、softmax、残差和 loss 还在 fp32 下算（这些累加在 bf16 下不准，bf16 只有 7 位尾数，把 0.01 累加 1000 次只能得到 4.0），反向还要多存一份 bf16 的权重副本。存下的张量还是那些，只是一部分从 4 字节变成了 2 字节。
+autocast 只把矩阵乘的输入换成 bf16，权重、梯度和 Adam 状态还是 fp32。速度提升很明显，前向快了 1.9–2.3 倍（[图 4-1](#fig-4-1)）：矩阵乘换到 bf16 的 Tensor core 上，峰值从 1.05e14 翻倍到 2.1e14，要搬的字节也少了一半。显存只省了 18–21%：W、G 和 Adam 状态大小不变；A 也没有减半，因为 norm、softmax、残差和 loss 还在 fp32 下算（这些累加在 bf16 下不准，bf16 只有 7 位尾数，把 0.01 累加 1000 次只能得到 4.0），反向还要多存一份 bf16 的权重副本。存下的张量还是那些，只是一部分从 4 字节变成了 2 字节。
 
-{{fig-5-1}}
+{{fig-4-1}}
 
-### 5.2 activation checkpoint {#checkpoint}
+### 4.2 activation checkpoint {#checkpoint}
 
-checkpoint 和[第 3 节](#rmsnorm)里融合 RMSNorm 的做法一样，只是从一个 op 扩大到几层：前向只存每段的入口（entry，xl、seq 2048 时 80 MiB），反向走到这一段时，用入口把这段的前向重跑一遍，用完就释放。4 层 xl block 每 2 层设一个 checkpoint，峰值就从 4 × 3655 MiB = 14.6 GiB 降到「2 个 entry 加一段」的 7.5 GiB（[图 5-2](#fig-5-2)）。
+checkpoint 和 [3.1 节](#rmsnorm)里融合 RMSNorm 的做法一样，只是从一个 op 扩大到几层：前向只存每段的入口（entry，xl、seq 2048 时 80 MiB），反向走到这一段时，用入口把这段的前向重跑一遍，用完就释放。4 层 xl block 每 2 层设一个 checkpoint，峰值就从 4 × 3655 MiB = 14.6 GiB 降到「2 个 entry 加一段」的 7.5 GiB（[图 4-2](#fig-4-2)）。
 
-{{fig-5-2}}
+{{fig-4-2}}
 
-代价是整个网络要多跑一遍前向。xl 在 seq 2048 下光参数加梯度就要 25.4 GiB，放不下 activation，所以我在 large 上扫了每段放几层（[图 5-3](#fig-5-3)）。不管怎么切，step 都是 302–313 ms，比不用 checkpoint 的 236 ms 慢 28–33%，正好对应一步从 3F 变成 4F（F 是一次前向，反向约 2F）。显存则是切得越细越省，每层一个 checkpoint 时最低，7.8 GiB，不用时是 15.0 GiB。
+代价是整个网络要多跑一遍前向。xl 在 seq 2048 下光参数加梯度就要 25.4 GiB，放不下 activation，所以我在 large 上扫了每段放几层（[图 4-3](#fig-4-3)）。不管怎么切，step 都是 302–313 ms，比不用 checkpoint 的 236 ms 慢 28–33%，正好对应一步从 3F 变成 4F（F 是一次前向，反向约 2F）。显存则是切得越细越省，每层一个 checkpoint 时最低，7.8 GiB，不用时是 15.0 GiB。
 
-{{fig-5-3}}
+{{fig-4-3}}
 
 切得越细越省，是因为入口很小。设共 $L$ 层、每段 $e$ 层、入口大小 $a$、一层的 A 为 $A_1$，峰值约为 $\frac{L}{e}a + e\,A_1$。只要所有入口加起来比一层的 A 小（这里 36 × 5 MiB = 180 MiB < 220 MiB），$e = 1$ 就是最优。
 
@@ -256,7 +256,7 @@ checkpoint 和[第 3 节](#rmsnorm)里融合 RMSNorm 的做法一样，只是从
 
 ---
 
-## 6 小结 {#conclusion}
+## 5 小结 {#conclusion}
 
 时间和显存的问题最后都落在 S、P 上。时间上，它们让 attention 成了 memory-bound，seq 1024 时占前向将近一半的时间；显存上，它们占一层 saved tensors 的一半以上，xl 在 seq 2048 时第 2 层就 OOM。bf16 只能把它们存小一点，checkpoint 只能推迟它们出现，都没能让它们离开显存。
 
