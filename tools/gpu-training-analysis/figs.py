@@ -30,7 +30,7 @@ CSS = """  <style>
     .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
     .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
     .fg g.m:hover > :not(title) { opacity: .85; }
-    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: 540px; } }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
   </style>"""
 
 class F:
@@ -55,7 +55,8 @@ class F:
         self.w(f'<path d="{d}" fill="none" {st} stroke-width="{width}"{ds}{m}/>')
     def html(self, caption):
         defs = "".join(m for _, m in self.mk.values())
-        return (f'<figure id="{self.fid}" class="fg-fig">\n<svg class="fg" viewBox="0 0 {self.W} {self.h}" width="100%" role="img" aria-label="{self.label}">\n'
+        minw = f' style="--fg-minw: {540 * self.W / 640:.0f}px"' if self.W != 640 else ''
+        return (f'<figure id="{self.fid}" class="fg-fig">\n<svg class="fg" viewBox="0 0 {self.W} {self.h}" width="100%"{minw} role="img" aria-label="{self.label}">\n'
                 + CSS + (f"\n  <defs>{defs}</defs>" if defs else "") + "\n" + "\n".join("  " + x for x in self.b)
                 + f"\n</svg>\n<figcaption>{caption}</figcaption>\n</figure>")
 
@@ -220,7 +221,7 @@ def attn_flow():
     f = F("fig-4-1", 340, "eager attention 一层：前向 9 个 kernel 依次读写显存里 S 大小的张量，softmax 拆成 max、减 max、exp、求和、除；为反向新存了 e = exp(S−m) 和 P 两个 256 MiB 的张量，Q、K、V、mask 只是引用", W=800)
     LANES = [(6, 98, "前向", "箭头指向 op 是读，指向显存是写"), (128, 224, "显存", ""), (254, 330, "反向", "")]
     rms_lanes(f, LANES, titles=False)
-    X = [150 + 74 * i for i in range(9)]
+    X = [140 + 67 * i + (34 if i > 3 else 0) for i in range(9)]
     names = ["① QKᵀ", "② ÷√d", "③ +M", "max", "− m", "exp", "求和", "÷ Σ", "⑤ PV"]
     ops_f = [(x, 60, n, None) for x, n in zip(X, names)]
     ops_b = [(x, 60, n) for x, n in zip(X, names)]
@@ -229,18 +230,23 @@ def attn_flow():
     blocks = {"Q": (32, 44, "Q", "引用", REF2, "--fig-2"), "K": (80, 44, "K", "引用", REF2, "--fig-2"),
               "M": (124, 36, "M", "引用", REFM, "--fig-mute"),
               "S": (mid[0], 54, "S", "临时", TMP, "--fig-mute"), "S2": (mid[1], 54, "S/√d", "临时", TMP, "--fig-mute"),
-              "S3": (mid[2], 54, "S+M", "临时", TMP, "--fig-mute"), "m": (mid[3], 44, "m", "每行 1 个", blk("--fig-3", "new"), "--fig-3"),
+              "S3": (mid[2], 54, "S+M", "临时", TMP, "--fig-mute"), "m": (X[3] + 20.5, 38, "m", "临时", TMP, "--fig-mute"),
+              "idx": (X[4] - 28, 52, "下标", "+0.5 MiB", blk("--fig-3", "new"), "--fig-3"),
               "Sm": (mid[4], 54, "S−m", "临时", TMP, "--fig-mute"), "e": (mid[5], 60, "e", "+256 MiB", blk("--fig-hi", "new"), "--fig-hi"),
               "Z": (mid[6], 44, "Σ", "每行 1 个", blk("--fig-3", "new"), "--fig-3"), "P": (mid[7], 60, "P", "+256 MiB", blk("--fig-1", "new"), "--fig-1"),
               "V": (774, 36, "V", "引用", REF2, "--fig-2")}
     fe = [(0, "Q", "R"), (0, "K", "R"), (0, "S", "W"), (1, "S", "R"), (1, "S2", "W"), (2, "S2", "R"), (2, "M", "R"), (2, "S3", "W"),
-          (3, "S3", "R"), (3, "m", "W"), (4, "S3", "R"), (4, "m", "R"), (4, "Sm", "W"), (5, "Sm", "R"), (5, "e", "W"),
+          (3, "S3", "R"), (3, "m", "W"), (3, "idx", "W"), (4, "S3", "R"), (4, "m", "R"), (4, "Sm", "W"), (5, "Sm", "R"), (5, "e", "W"),
           (6, "e", "R"), (6, "Z", "W"), (7, "e", "R"), (7, "Z", "R"), (7, "P", "W"), (8, "P", "R"), (8, "V", "R")]
-    be = [(0, "Q"), (0, "K"), (2, "M"), (3, "m"), (5, "e"), (7, "e"), (7, "Z"), (8, "P"), (8, "V")]
-    flow(f, ops_f, ops_b, blocks, fe, be, route=140)
+    be = [(0, "Q"), (0, "K"), (2, "M"), (3, "idx"), (5, "e"), (7, "e"), (7, "Z"), (8, "P"), (8, "V")]
+    big, q = 256 << 20, 16 << 20
+    flow(f, ops_f, ops_b, blocks, fe, be, route=140, cap=54,
+         sizes={"Q": q, "K": q, "V": q, "M": 1 << 20, "S": big, "S2": big, "S3": big, "m": 256 << 10, "idx": 512 << 10,
+                "Sm": big, "e": big, "Z": 256 << 10, "P": big})
     f.w(f'<line x1="{X[3] - 30}" y1="30" x2="{X[7] + 30}" y2="30" stroke="currentColor" stroke-opacity=".35"/>')
     f.w(f'<text class="lab2" x="{(X[3] + X[7]) / 2}" y="24" text-anchor="middle">④ softmax，5 个 kernel</text>')
-    f.arrow(X[8] + 30, 60, 796, 60, head=False)
+    f.arrow(X[8] + 30, 60, 770, 60); f.w('<text class="t" x="778" y="64">O</text>')
+    f.w('<text class="t" x="776" y="300">dO</text>'); f.arrow(770, 296, X[8] + 32, 296)
     for c0, c1 in zip(X, X[1:]):
         f.arrow(c1 - 30, 296, c0 + 32, 296)
     f.arrow(X[0] - 30, 296, 100, 296); f.w('<text class="t" x="96" y="300" text-anchor="end">dQ dK</text>')
@@ -434,9 +440,13 @@ def passes(f, c, seq, label, YT, unit):
         f.w(f'<g class="m"><title>{"写" if ch in "Ww" else "读"} {unit if ch in "RW" else "8 KiB（每行一个数）"}</title><rect x="{x0 + k * (bw + gap):.1f}" y="{YT - 6 - h}" width="{bw}" height="{h}" rx="1.5" {st}/></g>')
     f.w(f'<text class="val" x="{c}" y="{YT + 8}" text-anchor="middle">{label}</text>')
 
-def flow(f, ops_f, ops_b, blocks, fe, be, YF=56, YM=176, YB=296, route=170):
+def flow(f, ops_f, ops_b, blocks, fe, be, YF=56, YM=176, YB=296, route=170, sizes=None, cap=60):
     """Three lanes: forward ops / memory blocks / backward ops. fe: (op, block, 'R'|'W'); be: (op, block)."""
+    if sizes:  # box width ∝ bytes (linear), thin bar below the minimum; labels go under the box
+        big = max(sizes.values())
+        bws = {b: max(4, cap * sizes[b] / big) for b in blocks}
     def attach(cx, w, items):
+        w = max(w, 0)
         n = len(items)
         return {it: cx - w / 2 + w * (k + 1) / (n + 1) for k, it in enumerate(items)}
     # forward-side attachment points
@@ -445,6 +455,7 @@ def flow(f, ops_f, ops_b, blocks, fe, be, YF=56, YM=176, YB=296, route=170):
         es = sorted([e for e in fe if e[0] == i], key=lambda e: blocks[e[1]][0])
         op_pts.update({(i,) + e[1:]: p for e, p in zip(es, attach(cx, w - 16, es).values())})
     for b, (cx, w, *_r) in blocks.items():
+        if sizes: w = bws[b] + 8
         es = sorted([e for e in fe if e[1] == b], key=lambda e: ops_f[e[0]][0])
         blk_top.update({e: p for e, p in zip(es, attach(cx, w - 10, es).values())})
         es2 = sorted([e for e in be if e[1] == b], key=lambda e: ops_b[e[0]][0])
@@ -452,7 +463,7 @@ def flow(f, ops_f, ops_b, blocks, fe, be, YF=56, YM=176, YB=296, route=170):
     for i, (cx, w, *_r) in enumerate(ops_b):
         es = sorted([e for e in be if e[0] == i], key=lambda e: blocks[e[1]][0])
         opb_pts.update({e: p for e, p in zip(es, attach(cx, w - 16, es).values())})
-    yo, yt, yb, yob = YF + 20, YM - 22, YM + 22, YB - 18
+    yo, yt, yb, yob = YF + 20, YM - 22, YM + (32 if sizes else 22), YB - 18
     for e in fe:
         i, b, kind = e
         ox, bx, var = op_pts[e], blk_top[e], blocks[b][5]
@@ -474,8 +485,15 @@ def flow(f, ops_f, ops_b, blocks, fe, be, YF=56, YM=176, YB=296, route=170):
             f.arrow(bx, yb, ox, yob - 2, var, dash=True, width=1.3)
     for cx, w, t, sub in ops_f:
         tbox(f, cx, YF + 4, w, 40, t, sub, 'class="op"', b1=True)
-    for cx, w, l1, l2, st, var in blocks.values():
-        chip(f, cx, YM, w, l1, l2, st, bold=l2.startswith("+"))
+    for b, (cx, w, l1, l2, st, var) in blocks.items():
+        if sizes:
+            bw = bws[b]
+            f.w(f'<rect x="{cx - bw / 2:.1f}" y="{YM - 22}" width="{bw:.1f}" height="24" rx="{min(4, bw / 2):.1f}" {st}/>')
+            f.w(f'<text x="{cx}" y="{YM + 14}" text-anchor="middle" font-size="11" fill="currentColor">{l1}</text>')
+            w2 = 'font-weight="600"' if l2.startswith("+") else 'opacity=".7"'
+            f.w(f'<text x="{cx}" y="{YM + 27}" text-anchor="middle" font-size="10.5" {w2} fill="currentColor">{l2}</text>')
+        else:
+            chip(f, cx, YM, w, l1, l2, st, bold=l2.startswith("+"))
     for cx, w, t in ops_b:
         bbox(f, cx, YB, w, 36, t)
 
@@ -493,16 +511,17 @@ def rms_eager():
     ops_f = [(C[0], BW, "① x²", "1 FLOP/元素"), (C[1], BW, "② mean", "1 FLOP/元素"), (C[2], BW, "③ rsqrt", "每行 2 FLOPs"),
              (C[3], BW, "④ x · r", "1 FLOP/元素"), (C[4], BW, "⑤ w ⊙ x̂", "1 FLOP/元素")]
     ops_b = [(c, BW, f"{n} 反向") for c, n in zip(C, "①②③④⑤")]
-    blocks = {"x": (64, 72, "x …9040", "20 MiB，输入", blk("--fig-2", "ref"), "--fig-2"),
-              "x2": (156, 60, "x²", "20 MiB，临时", blk(None, "tmp"), "--fig-mute"),
-              "v": (263, 64, "v", "8 KiB，临时", blk(None, "tmp"), "--fig-mute"),
+    blocks = {"x": (64, 80, "x …9040", "20 MiB，输入", blk("--fig-2", "ref"), "--fig-2"),
+              "x2": (158, 76, "x²", "20 MiB，临时", blk(None, "tmp"), "--fig-mute"),
+              "v": (264, 72, "v", "8 KiB，临时", blk(None, "tmp"), "--fig-mute"),
               "r": (377, 70, "r …6b00", "+8 KiB", blk("--fig-1", "new"), "--fig-1"),
               "xh": (491, 70, "x̂ …3c00", "+20 MiB", blk("--fig-hi", "new"), "--fig-hi"),
               "w": (600, 60, "w …1000", "参数", blk("--fig-mute", "ref"), "--fig-mute")}
     fe = [(0, "x", "R"), (0, "x2", "W"), (1, "x2", "R"), (1, "v", "W"), (2, "v", "R"), (2, "r", "W"),
           (3, "x", "R"), (3, "r", "R"), (3, "xh", "W"), (4, "xh", "R"), (4, "w", "R")]
     be = [(0, "x"), (2, "r"), (3, "r"), (3, "x"), (4, "xh"), (4, "w")]
-    flow(f, ops_f, ops_b, blocks, fe, be)
+    flow(f, ops_f, ops_b, blocks, fe, be, cap=72,
+         sizes={"x": 20 << 20, "x2": 20 << 20, "v": 8 << 10, "r": 8 << 10, "xh": 20 << 20, "w": 10 << 10})
     f.arrow(C[4] + BW / 2, 56, 614, 56); f.w('<text class="t" x="620" y="60">y</text>')
     for c0, c1 in zip(C, C[1:]):
         f.arrow(c1 - BW / 2, 296, c0 + BW / 2 + 2, 296)
@@ -522,7 +541,7 @@ def rms_fused():
               "w": (480, 70, "w …b3c0", "参数", blk("--fig-mute", "ref"), "--fig-mute")}
     fe = [(0, "x", "R"), (0, "r", "W"), (0, "w", "R")]
     be = [(0, "x"), (0, "r"), (0, "w")]
-    flow(f, ops_f, ops_b, blocks, fe, be)
+    flow(f, ops_f, ops_b, blocks, fe, be, cap=90, sizes={"x": 20 << 20, "r": 8 << 10, "w": 10 << 10})
     f.w('<text class="t" x="12" y="60">x</text>'); f.arrow(24, 56, 116, 56)
     f.arrow(540, 56, 614, 56); f.w('<text class="t" x="620" y="60">y</text>')
     f.w('<text class="t" x="620" y="300">dy</text>'); f.arrow(616, 296, 542, 296)
@@ -682,14 +701,14 @@ CAPS = {
  "linear": '<strong>图 2-1</strong> 一个 Linear 的前向与反向：前向从左边往下，误差从右边传回；虚线是反向要从前向拿的东西。',
  "step_time": '<strong>图 2-2</strong> 一步训练里前向、反向、optimizer 的耗时占比（fp32，batch 4，seq 512），右侧是每步耗时和 MFU。',
  "roofline": '<strong>图 1-1</strong> RTX 5090 fp32 的 roofline，以及 medium、seq 1024 时一层 attention 里实测的 op（另放一个 Linear 作对照）。causal mask 没有 FLOPs，不在图上；悬停可看数值。',
- "attn_flow": '<strong>图 4-1</strong> eager attention 一层（medium，seq 1024，画法同<a href="#fig-3-1">图 3-1</a>）。S、S/√d、S+M、S−m、e、P 都是 [b, h, seq, seq]，各 256 MiB；m 和 Σ 每行一个数。灰色虚线框是用完即释放的临时量，实线框是为反向新存下的，Q、K、V、mask 只是引用。',
+ "attn_flow": '<strong>图 4-1</strong> eager attention 一层（medium，seq 1024，画法同<a href="#fig-3-1">图 3-1</a>）。S、S/√d、S+M、S−m、e、P 都是 [b, h, seq, seq]，各 256 MiB；Q、K、V 各 16 MiB，mask 1 MiB，m 和 Σ 每行一个数（256 KiB）。max 同时写出每行最大值的下标（int64，0.5 MiB），反向只用它，m 用完即释放。灰色虚线框是用完即释放的临时量，实线框是为反向新存下的，Q、K、V、mask 只是引用。',
  "softmax": '<strong>图 4-2</strong> eager softmax 的显存读写：每条编号箭头是一次完整的读或写，共 8 次；融合后只剩 2 次。',
  "flops_vs_time": '<strong>图 4-2</strong> 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间（medium，seq 1024）。',
  "share_vs_seq": '<strong>图 4-3</strong> attention 三段占 forward GPU 时间的比例随 seq 变化（medium）。',
  "peak_memory": '<strong>图 2-3</strong> full step 的实测峰值显存（batch 4，seq 512）。A = 带梯度的前向峰值 − W，顶上 ~0.1 GiB 是 T。',
  "peak_moment": '<strong>图 2-4</strong> 一步前向 + 反向的显存（fp32）：色带按 M(j) 用实测的 W、A、G、T 堆叠，× 是逐层实测值。',
- "rms_eager": '<strong>图 3-1</strong> RMSNorm（eager，x 是 20 MiB）：中间一排是显存里的张量，每块只画一次，同色是同一块内存（ptr 相同）；实线框新占显存，虚线框本来就在，灰色是用完即释放的临时量。前向的实线箭头指向 op 是读、指向显存是写；反向沿虚线箭头读回存下的张量。',
- "rms_fused": '<strong>图 3-2</strong> 融合后的 RMSNorm（画法同<a href="#fig-3-1">图 3-1</a>）：前向只读 x、w，写 r 和 y，x²、v、x̂ 都不进显存；反向读回 x、w、r，现场重算 $\\hat{x}$。',
+ "rms_eager": '<strong>图 3-1</strong> RMSNorm（eager，x 是 20 MiB）：中间一排是显存里的张量，框宽按实际字节数线性画（KiB 级的只剩一条细线），每块只画一次，同色是同一块内存（ptr 相同）；实线框新占显存，虚线框本来就在，灰色是用完即释放的临时量。前向的实线箭头指向 op 是读、指向显存是写；反向沿虚线箭头读回存下的张量。',
+ "rms_fused": '<strong>图 3-2</strong> 融合后的 RMSNorm（画法同<a href="#fig-3-1">图 3-1</a>）：前向只读 x、w，写 r 和 y，x²、v、x̂ 都不进显存；反向读回 x、w、r，现场重算 x̂。',
  "layer_donut": '<strong>图 4-4</strong> xl 一层为反向存的张量（batch 4，seq 2048，16 头，<code>torch.compile</code> 后用 <code>saved_tensors_hooks</code> 实测）。',
  "timelines": '<strong>图 4-5</strong> xl（batch 4，32 头）一步的显存时间线，横轴是分配 / 释放的次序。',
  "bf16": '<strong>图 5-1</strong> bf16 autocast 相对 fp32（前向 + 反向，batch 4，seq 512）：左边是加速比，右边是峰值显存。',

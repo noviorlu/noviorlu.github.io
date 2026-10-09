@@ -161,7 +161,7 @@ $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 cau
 
 ### 4.1 时间：都在搬 S 和 P {#attn-time}
 
-FLOPs 集中在 ① 和 ⑤ 两个矩阵乘上，读写却集中在 ② ③ ④ 上，它们每一步都要把整个 256 MiB 的 S 读一遍、写一遍。放到 roofline 上（[图 1-1](#fig-1-1)），attention 的 op 全在斜坡上，包括 QKᵀ 和 PV 这两个矩阵乘。它们的 MBU 已经有 57–86%，kernel 本身没多少优化空间，要更快只能少搬数据。
+FLOPs 集中在 ① 和 ⑤ 两个矩阵乘上，读写却集中在 ② ③ ④ 上：② 和 ③ 各把整个 256 MiB 的 S 读一遍、写一遍，④ 读写得更多。放到 roofline 上（[图 1-1](#fig-1-1)），attention 的 op 全在斜坡上，包括 QKᵀ 和 PV 这两个矩阵乘。它们的 MBU 已经有 57–86%，kernel 本身没多少优化空间，要更快只能少搬数据。
 
 搬得最多的是 ④ softmax。它对 S 的每一行算 $P_{ij} = e^{S_{ij} - m_i} / \sum_k e^{S_{ik} - m_i}$，其中 $m_i = \max_k S_{ik}$，减掉行最大值是为了防止 exp 溢出。eager 模式下这个公式拆成 5 个 kernel：求 max、减 max、exp、求和、除。每个 kernel 都要读或写和 S 一样大的张量，5 个加起来一共读写 8 次，2048 MiB（图 4-1 里 max 到 ÷Σ 这 5 个 kernel 进出显存的箭头）。
 
@@ -191,7 +191,7 @@ Saving  8  [64,1024,64]        float32  # V
 Saving  9  [64,1024,1024]      float32  # P
 ```
 
-按 RMSNorm 那条规则逐个 op 对一遍（[表 4-1](#tab-4-1)）：9 次 Saving 里，Q、K、V、mask 本来就在显存里，只是引用；softmax 的 5 个 kernel 里，exp 的导数就是它自己的输出，除法要用分子和分母，所以存下 e 和 Σ；⑤ 要用 P 和 V。新占显存的是 e 和 P 两个 seq × seq 张量，各 256 MiB，加起来比 Q、K、V、O 的总和还大 8 倍。
+按 RMSNorm 那条规则逐个 op 对一遍（[表 4-1](#tab-4-1)）：9 次 Saving 里，Q、K、V、mask 本来就在显存里，只是引用；softmax 的 5 个 kernel 里，max 只把梯度传给最大值所在的位置，存下每行最大值的下标；exp 的导数就是它自己的输出，除法要用分子和分母，所以存下 e 和 Σ；⑤ 要用 P 和 V。新占显存的是 e 和 P 两个 seq × seq 张量，各 256 MiB，加起来是 Q、K、V、O 总和的 8 倍。
 
 | op | 反向要的偏导 | 存下 | 新占显存 |
 |:--|:--|:--|--:|
@@ -200,7 +200,7 @@ Saving  9  [64,1024,1024]      float32  # P
 | ③ $+M$ | 被 mask 的位置梯度为 0 | mask | 0 |
 | ④ max | 只有最大值的位置有梯度 | 下标 | 0.5 MiB |
 | ④ $e = \exp(S - m)$ | $\partial e/\partial S = e$ | $e$ | **256 MiB** |
-| ④ $P = e / \Sigma$ | $\partial P/\partial e = 1/\Sigma$，$\partial P/\partial \Sigma = -e/\Sigma^2$ | $e$、$\Sigma$ | 0.2 MiB |
+| ④ $P = e / \Sigma$ | $\partial P/\partial e = 1/\Sigma$，$\partial P/\partial \Sigma = -e/\Sigma^2$ | $e$、$\Sigma$ | 0.25 MiB |
 | ⑤ $O = PV$ | $\partial O/\partial P = V$，$\partial O/\partial V = P$ | $P$、$V$ | **256 MiB** |
 {#tab-4-1 caption="**表 4-1** attention 各 op 为反向存的张量（eager，medium，seq 1024）" note="存下的张量是实测。④ 的减 max 和求和偏导是常数，不存；除法存的 e 和 exp 存的是同一块内存。"}
 
