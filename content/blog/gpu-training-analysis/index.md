@@ -269,7 +269,7 @@ series_order: 2
 
 除了拿来对照的 Linear，attention 的 op 全趴在斜坡上，连 QKᵀ 和 PV 这两个矩阵乘也不例外。而且它们离坡顶已经不远，带宽利用率 57–86%，kernel 本身没什么可抠的，想快只能少搬。
 
-搬得最凶的是 softmax。eager 下它拆成 5 个 kernel，每个都要把一张和 S 一样大的表（256 MiB）从头到尾读一遍或写一遍，一次 softmax 下来，这张表在显存里进进出出 8 趟（[图 2-4](#fig-2-4)）。
+搬得最凶的是 softmax。它对 S 的每一行做 $P_{ij} = e^{S_{ij} - m_i} / \sum_k e^{S_{ik} - m_i}$，其中 $m_i = \max_k S_{ik}$，先减掉行最大值是为了防止 exp 溢出。eager 下这一行公式拆成 5 个 kernel（求 max、减 max、exp、求和、除），每个都要把一张和 S 一样大的表（256 MiB）从头到尾读一遍或写一遍，一次 softmax 下来，这张表在显存里进进出出 8 趟（[图 2-4](#fig-2-4)）。
 
 <figure id="fig-2-4" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 262" width="100%" role="img" aria-label="eager softmax 的 5 个 kernel 共读写显存里 S 大小的张量 8 次；融合成一个 kernel 后只读 S、写 P 两次">
