@@ -3,14 +3,14 @@ title: "谁偷走了 5090 的算力和显存：一步 Transformer 训练的 roof
 date: 2026-10-04
 draft: false
 math: true
-description: "在 RTX 5090 上实测一步 Transformer 训练的时间和显存：用 roofline 和 MFU 看时间花在哪，用 saved tensors 看显存花在哪，最后都落到 attention 的 S、P 矩阵上。FlashAttention 一文的前置。"
+description: "在 RTX 5090 上实测一步 Transformer 训练的时间和显存：用 roofline 和 MFU 看时间花在哪，用 saved tensors 看显存花在哪，最后都落到 attention 的两个 seq × seq 矩阵上：分数矩阵 S = QKᵀ/√d，和它过 softmax 之后的 P。FlashAttention 一文的前置。"
 tags: ["GPU", "Roofline", "Transformer", "显存", "LLM", "AI"]
 categories: ["AI笔记"]
 series: ["AI笔记"]
 series_order: 2
 ---
 
-我在一张 RTX 5090 上把一步 Transformer 训练拆开，分别量了时间和显存。结果和预想的不太一样：拖慢速度的不是矩阵乘，占显存最多的也不是权重。两边查到最后，都落在 attention 里的两个 seq × seq 矩阵上，一个是分数矩阵 S，一个是它过 softmax 之后的 P。[第 2 节](#time)看时间，[第 3 节](#memory)看显存，[第 4 节](#savings)试 bf16 和 activation checkpoint 能省多少。怎么把 S、P 彻底去掉，留给下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/)。
+我在一张 RTX 5090 上把一步 Transformer 训练拆开，分别量了时间和显存。结果和预想的不太一样：拖慢速度的不是矩阵乘，占显存最多的也不是权重。两边查到最后，都落在 attention 里的两个 seq × seq 矩阵上，一个是分数矩阵 S = QKᵀ/√d（每个 query 对每个 key 的打分），一个是 S 按行过 softmax 之后的注意力权重 P，最后输出是 PV。[第 2 节](#time)看时间，[第 3 节](#memory)看显存，[第 4 节](#savings)试 bf16 和 activation checkpoint 能省多少。怎么把 S、P 彻底去掉，留给下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/)。
 
 模型是我自己写的 Transformer LM（RMSNorm、RoPE、SwiGLU，pre-norm），一共五档：small 0.13B、medium 0.42B、large 0.97B、xl 3.41B，以及 10B（实际 12.83B 参数）。
 
