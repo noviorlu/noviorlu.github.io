@@ -181,11 +181,11 @@ series_order: 2
 <figcaption><strong>图 2-2</strong> 一步训练里前向、反向、optimizer 的耗时占比（fp32，batch 4，seq 512），右侧是每步耗时和 MFU。</figcaption>
 </figure>
 
-账是对的，速度却不对。按 6N 算，medium 和 large 只跑出 3.2e13 FLOPS，才到 fp32 峰值的 31%。我一开始怀疑矩阵乘，结果单个大矩阵乘能跑到 64%，它不背这个锅。真正的问题是矩阵乘只占了一步 GPU 时间的 60%，剩下 40% 被一堆几乎不做计算的逐元素 kernel 吃掉了。
+这样算下来，medium 和 large 的 MFU 只有 31%（实际 3.2e13 FLOPS，fp32 峰值 1.05e14），small 是 27%。单个大矩阵乘其实能跑到峰值的 64%，但它只占一步 GPU 时间的 60%，剩下 40% 花在几乎不做计算的逐元素 kernel 上。
 
 ### 2.2 消失的 40%：都在搬数据 {#memory-bound}
 
-这 40% 去哪了？把 medium、seq 1024 时一层 attention 里的 op 一个个点到屋顶上（[图 2-3](#fig-2-3)），凶手就站在斜坡上。
+这 40% 花在哪，把 medium、seq 1024 时一层 attention 里的 op 画到 roofline 上（[图 2-3](#fig-2-3)）就能看出来。
 
 <figure id="fig-2-3" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 392" width="100%" role="img" aria-label="RTX 5090 的 roofline：带宽斜线与 fp32、bf16、fp8、nvfp4 四条平线分别交于 58、117、234、935 FLOPs/B；attention 的 op 都贴着斜线，只有 Linear 在 fp32 平线下">
