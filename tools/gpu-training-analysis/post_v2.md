@@ -95,19 +95,64 @@ x_hat = x * rms                                            # ④
 y = weight * x_hat                                         # ⑤
 ```
 
-PyTorch 的 `torch.autograd.graph.saved_tensors_hooks` 可以在 autograd 每存下（pack）或取出（unpack）一个张量时调用一个自定义函数，在里面打印就知道存了什么：
+用 PyTorch 的 `saved_tensors_hooks` 可以直接看到 autograd 为反向存了哪些张量，用法、代码和打印放在下面的折叠栏里。
+
+<details class="fold">
+<summary>用 saved_tensors_hooks 看 autograd 存了什么（代码和打印）</summary>
+
+`torch.autograd.graph.saved_tensors_hooks(pack, unpack)` 是一个上下文管理器。在它里面跑前向时，autograd 每存下一个张量就调用一次 `pack(t)`，保存的是 `pack` 的返回值；反向每用到一个存下的张量就调用一次 `unpack`，收到的就是当初 `pack` 的返回值。两个函数都原样返回张量、只打印，就能看到存了什么、什么时候被读回。下面用 `data_ptr()` 给每块内存编号，编号相同就是同一块内存。
+
+```python
+{{code:saved_hooks_demo.py:hooks}}
+```
+
+```python
+{{code:saved_hooks_demo.py:models}}
+```
+
+RMSNorm 的打印。块 A 是 x，B 是 r，C 是 $\hat{x}$，D 是 w：
 
 ```
-Saving  1  [4,512,2560]  grad_fn=None            ptr=…9040   # x
-Saving  2  [4,512,1]     grad_fn=RsqrtBackward0  ptr=…6b00   # r
-Saving  3  [4,512,1]     grad_fn=RsqrtBackward0  ptr=…6b00   # r
-Saving  4  [4,512,2560]  grad_fn=None            ptr=…9040   # x
-Saving  5  [4,512,2560]  grad_fn=MulBackward0    ptr=…3c00   # x̂
-Saving  6  [2560]        grad_fn=None            ptr=…1000   # w
-Loading    5 → 6 → 2 → 4 → 3 → 1
+Saving  1  [4, 512, 2560]  float32  块 A
+Saving  2  [4, 512, 1]  float32  块 B
+Saving  3  [4, 512, 1]  float32  块 B
+Saving  4  [4, 512, 2560]  float32  块 A
+Saving  5  [4, 512, 2560]  float32  块 C
+Saving  6  [2560]  float32  块 D
+Loading    块 C
+Loading    块 D
+Loading    块 B
+Loading    块 A
+Loading    块 B
+Loading    块 A
 ```
 
-从打印能看出 autograd 存张量的规则：**一个 op 的局部偏导里用到谁，前向就存谁；偏导是常数就什么都不存**。存的是引用，不是拷贝，所以本来就在显存里的输入 `x` 和参数 `w` 不额外占显存。6 次 Saving 只落在 4 块内存上（ptr 相同就是同一块），新占显存的只有 $r$（8 KiB）和 $\hat{x}$（20 MiB），见[表 3-1](#tab-3-1) 和[图 3-1](#fig-3-1)。
+attention 的打印。块 A 是 K（转置后的 view），B 是 Q，C 是 mask，D 是每行 max 的下标，E 是 e = exp(S − m)，F 是行和 Σ，G 是 V，H 是 P：
+
+```
+Saving  1  [64, 64, 1024]  float32  块 A
+Saving  2  [64, 1024, 64]  float32  块 B
+Saving  3  [1024, 1024]  bool  块 C
+Saving  4  [4, 16, 1024, 1]  int64  块 D
+Saving  5  [4, 16, 1024, 1024]  float32  块 E
+Saving  6  [4, 16, 1024, 1]  float32  块 F
+Saving  7  [4, 16, 1024, 1024]  float32  块 E
+Saving  8  [64, 1024, 64]  float32  块 G
+Saving  9  [64, 1024, 1024]  float32  块 H
+Loading    块 G
+Loading    块 H
+Loading    块 F
+Loading    块 E
+Loading    块 E
+Loading    块 D
+Loading    块 C
+Loading    块 A
+Loading    块 B
+```
+
+</details>
+
+打印的结果说明了 autograd 存张量的规则：**一个 op 的局部偏导里用到谁，前向就存谁；偏导是常数就什么都不存**。存的是引用，不是拷贝，所以本来就在显存里的输入 `x` 和参数 `w` 不额外占显存。6 次 Saving 只落在 4 块内存上，新占显存的只有 $r$（8 KiB）和 $\hat{x}$（20 MiB），见[表 3-1](#tab-3-1) 和[图 3-1](#fig-3-1)。
 
 | op | 反向要的偏导 | 存下 | 新占显存 |
 |:--|:--|:--|--:|
@@ -173,21 +218,7 @@ $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 cau
 
 和 RMSNorm 一样，逐步看它算了多少、读写了多少显存、为反向存了什么（[图 3-4](#fig-3-4)，medium、seq 1024：b = 4，h = 16，d = 64）。一份 S 或 P 是 4 × 16 × 1024 × 1024 × 4 B = 256 MiB，而 Q、K、V、O 各只有 16 MiB。
 
-用同样的 `saved_tensors_hooks` 打印 eager attention 存下的张量（medium、seq 1024，b·h = 64 合成一维）：
-
-```
-Saving  1  [64,64,1024]        float32  # K（转置后的 view）
-Saving  2  [64,1024,64]        float32  # Q
-Saving  3  [1024,1024]         bool     # mask
-Saving  4  [4,16,1024,1]       int64    # 每行 max 的下标
-Saving  5  [4,16,1024,1024]    float32  # e = exp(S − m)
-Saving  6  [4,16,1024,1]       float32  # 行和 Σ
-Saving  7  [4,16,1024,1024]    float32  # e（和第 5 条同一块内存）
-Saving  8  [64,1024,64]        float32  # V
-Saving  9  [64,1024,1024]      float32  # P
-```
-
-按 RMSNorm 那条规则逐个 op 对一遍（[表 3-3](#tab-3-3)）：9 次 Saving 里，Q、K、V、mask 本来就在显存里，只是引用；softmax 的 5 个 kernel 里，max 只把梯度传给最大值所在的位置，存下每行最大值的下标；exp 的导数就是它自己的输出，除法要用分子和分母，所以存下 e 和 Σ；⑤ 要用 P 和 V。新占显存的是 e 和 P 两个 seq × seq 张量，各 256 MiB，加起来是 Q、K、V、O 总和的 8 倍。
+用同样的方法打印 eager attention 存下的张量（打印在 [3.1 节](#rmsnorm)的折叠栏里），再按 RMSNorm 那条规则逐个 op 对一遍（[表 3-3](#tab-3-3)）：9 次 Saving 里，Q、K、V、mask 本来就在显存里，只是引用；softmax 的 5 个 kernel 里，max 只把梯度传给最大值所在的位置，存下每行最大值的下标；exp 的导数就是它自己的输出，除法要用分子和分母，所以存下 e 和 Σ；⑤ 要用 P 和 V。新占显存的是 e 和 P 两个 seq × seq 张量，各 256 MiB，加起来是 Q、K、V、O 总和的 8 倍。
 
 | op | 反向要的偏导 | 存下 | 新占显存 |
 |:--|:--|:--|--:|
