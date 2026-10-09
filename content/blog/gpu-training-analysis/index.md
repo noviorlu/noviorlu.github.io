@@ -537,7 +537,7 @@ Loading    5 → 6 → 2 → 4 → 3 → 1
 {#tab-3-1 caption="**表 3-1** RMSNorm 五个 op 为反向存的张量（eager）" note="④ 存的 $r$、$x$ 和 ③、① 存的是同一块内存，所以不再占显存。新占显存按 fp32 算：$r$ 是 [4, 512, 1]，$\hat{x}$ 是 [4, 512, 2560]。"}
 
 <figure id="fig-3-1" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 330" width="100%" role="img" aria-label="RMSNorm eager：前向 5 个算子每元素约 1 次运算；为反向存了 6 次张量，落在 x、r、x̂、w 四块内存上，新占的只有 r 8 KiB 和 x̂ 20 MiB；反向各步读回这些张量">
+<svg class="fg" viewBox="0 0 640 410" width="100%" role="img" aria-label="RMSNorm eager：前向 5 个 op 每元素约 1 次运算，却完整读写 x 大小的张量 7 次共 140 MiB；为反向存了 6 次张量，落在 x、r、x̂、w 四块内存上，新占的只有 r 8 KiB 和 x̂ 20 MiB">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -560,25 +560,39 @@ Loading    5 → 6 → 2 → 4 → 3 → 1
   <defs><marker id="fig-3-1-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-3-1-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-mute)"/></marker><marker id="fig-3-1-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker><marker id="fig-3-1-m3" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker></defs>
   <rect class="band" x="4" y="6" width="632" height="98" rx="8"/>
   <text class="ttl" x="16" y="24">前向</text><text class="lab2" x="50" y="24">花 FLOPs</text>
-  <rect class="band" x="4" y="114" width="632" height="98" rx="8"/>
-  <text class="ttl" x="16" y="132">显存</text><text class="lab2" x="50" y="132">为反向存下：6 次 Saving，落在 4 块内存上</text>
-  <rect class="band" x="4" y="222" width="632" height="100" rx="8"/>
-  <text class="ttl" x="16" y="240">反向</text><text class="lab2" x="50" y="240">再花 FLOPs</text>
+  <rect class="band" x="4" y="114" width="632" height="80" rx="8"/>
+  <text class="ttl" x="16" y="132">显存读写</text><text class="lab2" x="76" y="132">每格 = 完整读（空心）或写（实心）一次 20 MiB 的 x 大小张量</text>
+  <rect class="band" x="4" y="204" width="632" height="98" rx="8"/>
+  <text class="ttl" x="16" y="222">为反向存下</text><text class="lab2" x="89" y="222">6 次 Saving，落在 4 块内存上</text>
+  <rect class="band" x="4" y="312" width="632" height="90" rx="8"/>
+  <text class="ttl" x="16" y="330">反向</text><text class="lab2" x="50" y="330"></text>
   <rect x="50.0" y="43.0" width="84" height="46" rx="6" class="op"/>
   <text class="tb" x="92" y="63" text-anchor="middle">① x²</text>
   <text class="s" x="92" y="79" text-anchor="middle">1 FLOP/元素</text>
+  <g class="m"><title>读 20 MiB</title><rect x="80.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>写 20 MiB</title><rect x="93.0" y="138" width="11" height="16" rx="2" style="fill: var(--fig-hi)"/></g>
+  <text class="val" x="92" y="168" text-anchor="middle">2 次，40 MiB</text>
   <rect x="164.0" y="43.0" width="84" height="46" rx="6" class="op"/>
   <text class="tb" x="206" y="63" text-anchor="middle">② mean</text>
   <text class="s" x="206" y="79" text-anchor="middle">1 FLOP/元素</text>
+  <g class="m"><title>读 20 MiB</title><rect x="200.5" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <text class="val" x="206" y="168" text-anchor="middle">1 次，20 MiB</text>
   <rect x="278.0" y="43.0" width="84" height="46" rx="6" class="op"/>
   <text class="tb" x="320" y="63" text-anchor="middle">③ rsqrt</text>
   <text class="s" x="320" y="79" text-anchor="middle">每行 2 FLOPs</text>
+  <text class="val" x="320" y="168" text-anchor="middle">每行一个数</text>
   <rect x="392.0" y="43.0" width="84" height="46" rx="6" class="op"/>
   <text class="tb" x="434" y="63" text-anchor="middle">④ x · r</text>
   <text class="s" x="434" y="79" text-anchor="middle">1 FLOP/元素</text>
+  <g class="m"><title>读 20 MiB</title><rect x="422.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>写 20 MiB</title><rect x="435.0" y="138" width="11" height="16" rx="2" style="fill: var(--fig-hi)"/></g>
+  <text class="val" x="434" y="168" text-anchor="middle">2 次，40 MiB</text>
   <rect x="506.0" y="43.0" width="84" height="46" rx="6" class="op"/>
   <text class="tb" x="548" y="63" text-anchor="middle">⑤ w ⊙ x̂</text>
   <text class="s" x="548" y="79" text-anchor="middle">1 FLOP/元素</text>
+  <g class="m"><title>读 20 MiB</title><rect x="536.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>写 20 MiB</title><rect x="549.0" y="138" width="11" height="16" rx="2" style="fill: var(--fig-hi)"/></g>
+  <text class="val" x="548" y="168" text-anchor="middle">2 次，40 MiB</text>
   <line x1="134.0" y1="62.0" x2="162.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m0)"/>
   <line x1="248.0" y1="62.0" x2="276.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m0)"/>
   <line x1="362.0" y1="62.0" x2="390.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m0)"/>
@@ -587,57 +601,51 @@ Loading    5 → 6 → 2 → 4 → 3 → 1
   <line x1="24.0" y1="62.0" x2="48.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m0)"/>
   <line x1="590.0" y1="62.0" x2="616.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m0)"/>
   <text class="t" x="622" y="66">y</text>
-  <line x1="92.0" y1="89.0" x2="92.0" y2="154.0" style="stroke: var(--fig-mute)" stroke-width="1.1"/>
-  <rect x="54.0" y="154" width="76" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
-  <text x="92" y="170" text-anchor="middle" font-size="11.5" fill="currentColor">x …9040</text>
-  <text x="92" y="186" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">输入，不新占</text>
-  <line x1="92.0" y1="194.0" x2="92.0" y2="264.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-1-m1)"/>
-  <line x1="320.0" y1="89.0" x2="320.0" y2="154.0" style="stroke: var(--fig-1)" stroke-width="1.1"/>
-  <rect x="282.0" y="154" width="76" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-1) 14%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text x="320" y="170" text-anchor="middle" font-size="11.5" fill="currentColor">r …6b00</text>
-  <text x="320" y="186" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+8 KiB</text>
-  <line x1="320.0" y1="194.0" x2="320.0" y2="264.0" style="stroke: var(--fig-1)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-1-m2)"/>
-  <line x1="407.0" y1="89.0" x2="407.0" y2="154.0" style="stroke: var(--fig-1)" stroke-width="1.1"/>
-  <rect x="383.0" y="154" width="48" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.4" stroke-dasharray="5 3"/>
-  <text x="407" y="170" text-anchor="middle" font-size="10.5" fill="currentColor">r …6b00</text>
-  <text x="407" y="186" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">同 ③</text>
-  <line x1="407.0" y1="194.0" x2="407.0" y2="264.0" style="stroke: var(--fig-1)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-1-m2)"/>
-  <line x1="461.0" y1="89.0" x2="461.0" y2="154.0" style="stroke: var(--fig-mute)" stroke-width="1.1"/>
-  <rect x="437.0" y="154" width="48" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
-  <text x="461" y="170" text-anchor="middle" font-size="10.5" fill="currentColor">x …9040</text>
-  <text x="461" y="186" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">同 ①</text>
-  <line x1="461.0" y1="194.0" x2="461.0" y2="264.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-1-m1)"/>
-  <line x1="521.0" y1="89.0" x2="521.0" y2="154.0" style="stroke: var(--fig-hi)" stroke-width="1.1"/>
-  <rect x="497.0" y="154" width="48" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="2"/>
-  <text x="521" y="170" text-anchor="middle" font-size="10.5" fill="currentColor">x̂ …3c00</text>
-  <text x="521" y="186" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+20 MiB</text>
-  <line x1="521.0" y1="194.0" x2="521.0" y2="264.0" style="stroke: var(--fig-hi)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-1-m3)"/>
-  <line x1="575.0" y1="89.0" x2="575.0" y2="154.0" style="stroke: var(--fig-mute)" stroke-width="1.1"/>
-  <rect x="551.0" y="154" width="48" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
-  <text x="575" y="170" text-anchor="middle" font-size="10.5" fill="currentColor">w …1000</text>
-  <text x="575" y="186" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">参数</text>
-  <line x1="575.0" y1="194.0" x2="575.0" y2="264.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-1-m1)"/>
-  <text class="lab2" x="206" y="172" text-anchor="middle">偏导是常数 1/d</text><text class="lab2" x="206" y="187" text-anchor="middle">什么都不存</text>
-  <rect x="50.0" y="266.0" width="84" height="36" rx="6" class="op"/>
-  <text class="t" x="92" y="288.5" text-anchor="middle">① 反向</text>
-  <rect x="164.0" y="266.0" width="84" height="36" rx="6" class="op"/>
-  <text class="t" x="206" y="288.5" text-anchor="middle">② 反向</text>
-  <rect x="278.0" y="266.0" width="84" height="36" rx="6" class="op"/>
-  <text class="t" x="320" y="288.5" text-anchor="middle">③ 反向</text>
-  <rect x="392.0" y="266.0" width="84" height="36" rx="6" class="op"/>
-  <text class="t" x="434" y="288.5" text-anchor="middle">④ 反向</text>
-  <rect x="506.0" y="266.0" width="84" height="36" rx="6" class="op"/>
-  <text class="t" x="548" y="288.5" text-anchor="middle">⑤ 反向</text>
-  <line x1="164.0" y1="284.0" x2="136.0" y2="284.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m0)"/>
-  <line x1="278.0" y1="284.0" x2="250.0" y2="284.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m0)"/>
-  <line x1="392.0" y1="284.0" x2="364.0" y2="284.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m0)"/>
-  <line x1="506.0" y1="284.0" x2="478.0" y2="284.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m0)"/>
-  <text class="t" x="620" y="288">dy</text>
-  <line x1="616.0" y1="284.0" x2="592.0" y2="284.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m0)"/>
-  <line x1="50.0" y1="284.0" x2="28.0" y2="284.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m0)"/>
-  <text class="t" x="8" y="288">dx</text>
+  <rect x="54.0" y="244" width="76" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="92" y="260" text-anchor="middle" font-size="11.5" fill="currentColor">x …9040</text>
+  <text x="92" y="276" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">输入，不新占</text>
+  <line x1="92.0" y1="284.0" x2="92.0" y2="342.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-1-m1)"/>
+  <rect x="282.0" y="244" width="76" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-1) 14%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text x="320" y="260" text-anchor="middle" font-size="11.5" fill="currentColor">r …6b00</text>
+  <text x="320" y="276" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+8 KiB</text>
+  <line x1="320.0" y1="284.0" x2="320.0" y2="342.0" style="stroke: var(--fig-1)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-1-m2)"/>
+  <rect x="383.0" y="244" width="48" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="407" y="260" text-anchor="middle" font-size="10.5" fill="currentColor">r …6b00</text>
+  <text x="407" y="276" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">同 ③</text>
+  <line x1="407.0" y1="284.0" x2="407.0" y2="342.0" style="stroke: var(--fig-1)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-1-m2)"/>
+  <rect x="437.0" y="244" width="48" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="461" y="260" text-anchor="middle" font-size="10.5" fill="currentColor">x …9040</text>
+  <text x="461" y="276" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">同 ①</text>
+  <line x1="461.0" y1="284.0" x2="461.0" y2="342.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-1-m1)"/>
+  <rect x="497.0" y="244" width="48" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="2"/>
+  <text x="521" y="260" text-anchor="middle" font-size="10.5" fill="currentColor">x̂ …3c00</text>
+  <text x="521" y="276" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+20 MiB</text>
+  <line x1="521.0" y1="284.0" x2="521.0" y2="342.0" style="stroke: var(--fig-hi)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-1-m3)"/>
+  <rect x="551.0" y="244" width="48" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="575" y="260" text-anchor="middle" font-size="10.5" fill="currentColor">w …1000</text>
+  <text x="575" y="276" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">参数</text>
+  <line x1="575.0" y1="284.0" x2="575.0" y2="342.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-1-m1)"/>
+  <text class="lab2" x="206" y="262" text-anchor="middle">偏导是常数 1/d</text><text class="lab2" x="206" y="277" text-anchor="middle">什么都不存</text>
+  <rect x="50.0" y="344.0" width="84" height="36" rx="6" class="op"/>
+  <text class="t" x="92" y="366.5" text-anchor="middle">① 反向</text>
+  <rect x="164.0" y="344.0" width="84" height="36" rx="6" class="op"/>
+  <text class="t" x="206" y="366.5" text-anchor="middle">② 反向</text>
+  <rect x="278.0" y="344.0" width="84" height="36" rx="6" class="op"/>
+  <text class="t" x="320" y="366.5" text-anchor="middle">③ 反向</text>
+  <rect x="392.0" y="344.0" width="84" height="36" rx="6" class="op"/>
+  <text class="t" x="434" y="366.5" text-anchor="middle">④ 反向</text>
+  <rect x="506.0" y="344.0" width="84" height="36" rx="6" class="op"/>
+  <text class="t" x="548" y="366.5" text-anchor="middle">⑤ 反向</text>
+  <line x1="164.0" y1="362.0" x2="136.0" y2="362.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m0)"/>
+  <line x1="278.0" y1="362.0" x2="250.0" y2="362.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m0)"/>
+  <line x1="392.0" y1="362.0" x2="364.0" y2="362.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m0)"/>
+  <line x1="506.0" y1="362.0" x2="478.0" y2="362.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m0)"/>
+  <text class="t" x="620" y="366">dy</text>
+  <line x1="616.0" y1="362.0" x2="592.0" y2="362.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m0)"/>
+  <line x1="50.0" y1="362.0" x2="28.0" y2="362.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m0)"/>
+  <text class="t" x="8" y="366">dx</text>
 </svg>
-<figcaption><strong>图 3-1</strong> RMSNorm（eager）：中排是打印里的 6 次 Saving，ptr 相同就是同一块内存，实线框才新占显存；反向沿虚线箭头读回它们。</figcaption>
+<figcaption><strong>图 3-1</strong> RMSNorm（eager，x 是 20 MiB）：第二排每一格是完整读或写一次 x 大小的张量；第三排是打印里的 6 次 Saving，ptr 相同就是同一块内存，实线框才新占显存，反向沿虚线箭头读回它们。</figcaption>
 </figure>
 
 时间上，RMSNorm 每个元素只算约 4 次，5 个 op 却要读写约 140 MiB 显存：①、④、⑤ 各读 20 MiB、写 20 MiB，② 读 20 MiB。$I \approx 0.14$，是 memory-bound。显存上，它为反向多存了一份 $\hat{x}$。
@@ -654,7 +662,7 @@ Loading    1 → 2 → 3（与 Saving 同序）
 反向要算 $\nabla x = r\,\big(g - \hat{x} \cdot \mathrm{mean}(g \odot \hat{x})\big)$，其中 $g = w \odot \nabla y$。式子里的 $\hat{x}$ 都在反向 kernel 里用 $x \cdot r$ 现算（[图 3-2](#fig-3-2)），前后对比见[表 3-2](#tab-3-2)。
 
 <figure id="fig-3-2" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 330" width="100%" role="img" aria-label="torch.compile 融合后的 RMSNorm：前向一个 kernel；显存只多留 r 8 KiB，x̂ 不存；反向一个 kernel，用 x 和 r 现场重算 x̂">
+<svg class="fg" viewBox="0 0 640 410" width="100%" role="img" aria-label="torch.compile 融合后的 RMSNorm：前向一个 kernel，只读 x、写 y 共 40 MiB；显存只多留 r 8 KiB，x̂ 不存；反向一个 kernel，用 x 和 r 现场重算 x̂">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -677,10 +685,12 @@ Loading    1 → 2 → 3（与 Saving 同序）
   <defs><marker id="fig-3-2-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-3-2-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-mute)"/></marker><marker id="fig-3-2-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker></defs>
   <rect class="band" x="4" y="6" width="632" height="98" rx="8"/>
   <text class="ttl" x="16" y="24">前向</text><text class="lab2" x="50" y="24">花 FLOPs</text>
-  <rect class="band" x="4" y="114" width="632" height="98" rx="8"/>
-  <text class="ttl" x="16" y="132">显存</text><text class="lab2" x="50" y="132">为反向存下：3 次 Saving</text>
-  <rect class="band" x="4" y="222" width="632" height="100" rx="8"/>
-  <text class="ttl" x="16" y="240">反向</text><text class="lab2" x="50" y="240">再花 FLOPs</text>
+  <rect class="band" x="4" y="114" width="632" height="80" rx="8"/>
+  <text class="ttl" x="16" y="132">显存读写</text><text class="lab2" x="76" y="132">每格 = 完整读（空心）或写（实心）一次 20 MiB 的 x 大小张量</text>
+  <rect class="band" x="4" y="204" width="632" height="98" rx="8"/>
+  <text class="ttl" x="16" y="222">为反向存下</text><text class="lab2" x="89" y="222">3 次 Saving</text>
+  <rect class="band" x="4" y="312" width="632" height="90" rx="8"/>
+  <text class="ttl" x="16" y="330">反向</text><text class="lab2" x="50" y="330"></text>
   <rect x="120.0" y="43.0" width="470" height="46" rx="6" class="op"/>
   <text class="tb" x="355.0" y="63" text-anchor="middle">fused forward：①–⑤ 一个 kernel</text>
   <text class="s" x="355.0" y="79" text-anchor="middle">~4 FLOPs/元素</text>
@@ -688,34 +698,34 @@ Loading    1 → 2 → 3（与 Saving 同序）
   <line x1="24.0" y1="62.0" x2="118.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-2-m0)"/>
   <line x1="590.0" y1="62.0" x2="616.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-2-m0)"/>
   <text class="t" x="622" y="66">y</text>
-  <rect x="142.0" y="154" width="96" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
-  <text x="190" y="170" text-anchor="middle" font-size="11.5" fill="currentColor">x …3c80</text>
-  <text x="190" y="186" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">输入，不新占</text>
-  <line x1="190.0" y1="89.0" x2="190.0" y2="154.0" style="stroke: var(--fig-mute)" stroke-width="1.1"/>
-  <line x1="190.0" y1="194.0" x2="190.0" y2="260.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-2-m1)"/>
-  <rect x="275.0" y="154" width="90" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-1) 14%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text x="320" y="170" text-anchor="middle" font-size="11.5" fill="currentColor">r …f9c0</text>
-  <text x="320" y="186" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+8 KiB</text>
-  <line x1="320.0" y1="89.0" x2="320.0" y2="154.0" style="stroke: var(--fig-1)" stroke-width="1.1"/>
-  <line x1="320.0" y1="194.0" x2="320.0" y2="260.0" style="stroke: var(--fig-1)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-2-m2)"/>
-  <rect x="400.0" y="154" width="104" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 8%, transparent); stroke: var(--fig-hi)" stroke-width="1.4" stroke-dasharray="5 3"/>
-  <text x="452" y="170" text-anchor="middle" font-size="11.5" fill="currentColor">x̂ 不存</text>
-  <text x="452" y="186" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">省下 20 MiB</text>
-  <line x1="406.0" y1="188" x2="498.0" y2="160" style="stroke: var(--fig-hi)" stroke-width="1.4" stroke-opacity=".8"/>
-  <rect x="516.0" y="154" width="64" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
-  <text x="548" y="170" text-anchor="middle" font-size="11.5" fill="currentColor">w …b3c0</text>
-  <text x="548" y="186" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">参数</text>
-  <line x1="548.0" y1="89.0" x2="548.0" y2="154.0" style="stroke: var(--fig-mute)" stroke-width="1.1"/>
-  <line x1="548.0" y1="194.0" x2="548.0" y2="260.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-2-m1)"/>
-  <rect x="120.0" y="266.0" width="470" height="44" rx="6" class="op"/>
-  <text class="tb" x="355.0" y="285" text-anchor="middle">fused backward：∂y/∂w、∂y/∂x 一个 kernel</text>
-  <text class="s" x="355.0" y="301" text-anchor="middle">x̂ = x · r 现场重算，每元素多 1 FLOP</text>
-  <text class="t" x="620" y="288">dy</text>
-  <line x1="616.0" y1="284.0" x2="592.0" y2="284.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-2-m0)"/>
-  <line x1="120.0" y1="284.0" x2="28.0" y2="284.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-2-m0)"/>
-  <text class="t" x="8" y="288">dx</text>
+  <g class="m"><title>读 20 MiB</title><rect x="343.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>写 20 MiB</title><rect x="356.0" y="138" width="11" height="16" rx="2" style="fill: var(--fig-hi)"/></g>
+  <text class="val" x="355.0" y="168" text-anchor="middle">2 次，40 MiB（读 x、写 y）</text>
+  <rect x="142.0" y="244" width="96" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="190" y="260" text-anchor="middle" font-size="11.5" fill="currentColor">x …3c80</text>
+  <text x="190" y="276" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">输入，不新占</text>
+  <line x1="190.0" y1="284.0" x2="190.0" y2="338.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-2-m1)"/>
+  <rect x="275.0" y="244" width="90" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-1) 14%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text x="320" y="260" text-anchor="middle" font-size="11.5" fill="currentColor">r …f9c0</text>
+  <text x="320" y="276" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+8 KiB</text>
+  <line x1="320.0" y1="284.0" x2="320.0" y2="338.0" style="stroke: var(--fig-1)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-2-m2)"/>
+  <rect x="400.0" y="244" width="104" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 8%, transparent); stroke: var(--fig-hi)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="452" y="260" text-anchor="middle" font-size="11.5" fill="currentColor">x̂ 不存</text>
+  <text x="452" y="276" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">省下 20 MiB</text>
+  <line x1="406.0" y1="278" x2="498.0" y2="250" style="stroke: var(--fig-hi)" stroke-width="1.4" stroke-opacity=".8"/>
+  <rect x="516.0" y="244" width="64" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="548" y="260" text-anchor="middle" font-size="11.5" fill="currentColor">w …b3c0</text>
+  <text x="548" y="276" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">参数</text>
+  <line x1="548.0" y1="284.0" x2="548.0" y2="338.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-3-2-m1)"/>
+  <rect x="120.0" y="344.0" width="470" height="44" rx="6" class="op"/>
+  <text class="tb" x="355.0" y="363" text-anchor="middle">fused backward：∂y/∂w、∂y/∂x 一个 kernel</text>
+  <text class="s" x="355.0" y="379" text-anchor="middle">x̂ = x · r 现场重算，每元素多 1 FLOP</text>
+  <text class="t" x="620" y="366">dy</text>
+  <line x1="616.0" y1="362.0" x2="592.0" y2="362.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-2-m0)"/>
+  <line x1="120.0" y1="362.0" x2="28.0" y2="362.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-2-m0)"/>
+  <text class="t" x="8" y="366">dx</text>
 </svg>
-<figcaption><strong>图 3-2</strong> 融合后的 RMSNorm（泳道同<a href="#fig-3-1">图 3-1</a>）：只多存 $r$（8 KiB），$\hat{x}$ 在反向用 $x$、$r$ 重算。</figcaption>
+<figcaption><strong>图 3-2</strong> 融合后的 RMSNorm（泳道同<a href="#fig-3-1">图 3-1</a>）：读写从 7 次降到 2 次；只多存 $r$（8 KiB），$\hat{x}$ 在反向用 $x$、$r$ 重算。</figcaption>
 </figure>
 
 | | eager | 融合后 |
@@ -743,7 +753,7 @@ $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 cau
 和 RMSNorm 一样，逐步看它算了多少、读写了多少显存、为反向存了什么（[图 4-1](#fig-4-1)，medium、seq 1024：b = 4，h = 16，d = 64）。一份 S 或 P 是 4 × 16 × 1024 × 1024 × 4 B = 256 MiB，而 Q、K、V、O 各只有 16 MiB。
 
 <figure id="fig-4-1" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 392" width="100%" role="img" aria-label="eager attention 一层：前向 5 步，矩阵乘的 FLOPs 最多，softmax 读写显存最多（2048 MiB）；为反向新存了 exp(S−m) 和 P 两个 256 MiB 的 seq × seq 张量，Q、K、V、mask 只是引用">
+<svg class="fg" viewBox="0 0 640 410" width="100%" role="img" aria-label="eager attention 一层：前向 5 步，矩阵乘的 FLOPs 最多，softmax 读写显存最多（2048 MiB）；为反向新存了 exp(S−m) 和 P 两个 256 MiB 的 seq × seq 张量，Q、K、V、mask 只是引用">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -766,37 +776,47 @@ $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 cau
   <defs><marker id="fig-4-1-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-4-1-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-mute)"/></marker><marker id="fig-4-1-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker></defs>
   <rect class="band" x="4" y="6" width="632" height="98" rx="8"/>
   <text class="ttl" x="16" y="24">前向</text><text class="lab2" x="50" y="24">花 FLOPs</text>
-  <rect class="band" x="4" y="114" width="632" height="62" rx="8"/>
-  <text class="ttl" x="16" y="132">显存读写</text><text class="lab2" x="76" y="132">每步读写多少（MiB）</text>
-  <rect class="band" x="4" y="186" width="632" height="98" rx="8"/>
-  <text class="ttl" x="16" y="204">为反向存下</text><text class="lab2" x="89" y="204">实测 saved tensors</text>
-  <rect class="band" x="4" y="294" width="632" height="90" rx="8"/>
-  <text class="ttl" x="16" y="312">反向</text><text class="lab2" x="50" y="312"></text>
+  <rect class="band" x="4" y="114" width="632" height="80" rx="8"/>
+  <text class="ttl" x="16" y="132">显存读写</text><text class="lab2" x="76" y="132">每格 = 完整读（空心）或写（实心）一次 256 MiB 的 S / P</text>
+  <rect class="band" x="4" y="204" width="632" height="98" rx="8"/>
+  <text class="ttl" x="16" y="222">为反向存下</text><text class="lab2" x="89" y="222">实测 saved tensors</text>
+  <rect class="band" x="4" y="312" width="632" height="90" rx="8"/>
+  <text class="ttl" x="16" y="330">反向</text><text class="lab2" x="50" y="330"></text>
   <rect x="50.0" y="43.0" width="84" height="46" rx="6" class="op"/>
   <text class="tb" x="92" y="63" text-anchor="middle">① S = QKᵀ</text>
   <text class="s" x="92" y="79" text-anchor="middle">8.6e9 FLOPs</text>
-  <g class="m"><title>① S = QKᵀ：读写显存 288 MiB</title><rect x="84.7" y="134" width="14.6" height="12" rx="2" style="fill: var(--fig-hi)"/></g>
-  <text class="val" x="92" y="160" text-anchor="middle">288</text>
+  <g class="m"><title>写 256 MiB</title><rect x="86.5" y="138" width="11" height="16" rx="2" style="fill: var(--fig-hi)"/></g>
+  <text class="val" x="92" y="168" text-anchor="middle">1 次，288 MiB</text>
   <rect x="164.0" y="43.0" width="84" height="46" rx="6" class="op"/>
   <text class="tb" x="206" y="63" text-anchor="middle">② ÷√d</text>
   <text class="s" x="206" y="79" text-anchor="middle">6.7e7 FLOPs</text>
-  <g class="m"><title>② ÷√d：读写显存 512 MiB</title><rect x="193.0" y="134" width="26.0" height="12" rx="2" style="fill: var(--fig-hi)"/></g>
-  <text class="val" x="206" y="160" text-anchor="middle">512</text>
+  <g class="m"><title>读 256 MiB</title><rect x="194.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>写 256 MiB</title><rect x="207.0" y="138" width="11" height="16" rx="2" style="fill: var(--fig-hi)"/></g>
+  <text class="val" x="206" y="168" text-anchor="middle">2 次，512 MiB</text>
   <rect x="278.0" y="43.0" width="84" height="46" rx="6" class="op"/>
   <text class="tb" x="320" y="63" text-anchor="middle">③ + mask</text>
   <text class="s" x="320" y="79" text-anchor="middle">0 FLOPs</text>
-  <g class="m"><title>③ + mask：读写显存 513 MiB</title><rect x="307.0" y="134" width="26.1" height="12" rx="2" style="fill: var(--fig-hi)"/></g>
-  <text class="val" x="320" y="160" text-anchor="middle">513</text>
-  <rect x="387.0" y="43.0" width="94" height="46" rx="6" class="op"/>
+  <g class="m"><title>读 256 MiB</title><rect x="308.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>写 256 MiB</title><rect x="321.0" y="138" width="11" height="16" rx="2" style="fill: var(--fig-hi)"/></g>
+  <text class="val" x="320" y="168" text-anchor="middle">2 次，513 MiB</text>
+  <rect x="385.0" y="43.0" width="98" height="46" rx="6" class="op"/>
   <text class="tb" x="434" y="63" text-anchor="middle">④ softmax</text>
-  <text class="s" x="434" y="79" text-anchor="middle">1.8e9 FLOPs</text>
-  <g class="m"><title>④ softmax：读写显存 2048 MiB</title><rect x="382.0" y="134" width="104.0" height="12" rx="2" style="fill: var(--fig-hi)"/></g>
-  <text class="val" x="434" y="160" text-anchor="middle">2048</text>
+  <text class="s" x="434" y="79" text-anchor="middle">1.8e9，5 个 kernel</text>
+  <g class="m"><title>读 256 MiB</title><rect x="383.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>读 256 MiB</title><rect x="396.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>写 256 MiB</title><rect x="409.0" y="138" width="11" height="16" rx="2" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>读 256 MiB</title><rect x="422.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>写 256 MiB</title><rect x="435.0" y="138" width="11" height="16" rx="2" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>读 256 MiB</title><rect x="448.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>读 256 MiB</title><rect x="461.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>写 256 MiB</title><rect x="474.0" y="138" width="11" height="16" rx="2" style="fill: var(--fig-hi)"/></g>
+  <text class="val" x="434" y="168" text-anchor="middle">8 次，2048 MiB</text>
   <rect x="506.0" y="43.0" width="84" height="46" rx="6" class="op"/>
   <text class="tb" x="548" y="63" text-anchor="middle">⑤ O = PV</text>
   <text class="s" x="548" y="79" text-anchor="middle">8.6e9 FLOPs</text>
-  <g class="m"><title>⑤ O = PV：读写显存 288 MiB</title><rect x="540.7" y="134" width="14.6" height="12" rx="2" style="fill: var(--fig-hi)"/></g>
-  <text class="val" x="548" y="160" text-anchor="middle">288</text>
+  <g class="m"><title>读 256 MiB</title><rect x="542.5" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <text class="val" x="548" y="168" text-anchor="middle">1 次，288 MiB</text>
+  <text class="lab2" x="434" y="184" text-anchor="middle">融合后只读 1 次、写 1 次</text>
   <line x1="134.0" y1="62.0" x2="162.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m0)"/>
   <line x1="248.0" y1="62.0" x2="276.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m0)"/>
   <line x1="362.0" y1="62.0" x2="385.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m0)"/>
@@ -805,142 +825,62 @@ $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 cau
   <line x1="32.0" y1="62.0" x2="48.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m0)"/>
   <line x1="590.0" y1="62.0" x2="616.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m0)"/>
   <text class="t" x="620" y="66">O</text>
-  <rect x="41.0" y="226" width="48" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
-  <text x="65" y="242" text-anchor="middle" font-size="10.5" fill="currentColor">Q</text>
-  <text x="65" y="258" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">引用</text>
-  <line x1="65.0" y1="266.0" x2="65.0" y2="324.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m1)"/>
-  <rect x="95.0" y="226" width="48" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
-  <text x="119" y="242" text-anchor="middle" font-size="10.5" fill="currentColor">K</text>
-  <text x="119" y="258" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">引用</text>
-  <line x1="119.0" y1="266.0" x2="119.0" y2="324.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m1)"/>
-  <rect x="285.0" y="226" width="70" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
-  <text x="320" y="242" text-anchor="middle" font-size="11.5" fill="currentColor">mask</text>
-  <text x="320" y="258" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">1 MiB</text>
-  <line x1="320.0" y1="266.0" x2="320.0" y2="324.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m1)"/>
-  <rect x="392.0" y="226" width="84" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="2"/>
-  <text x="434" y="242" text-anchor="middle" font-size="11.5" fill="currentColor">exp(S − m)</text>
-  <text x="434" y="258" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+256 MiB</text>
-  <line x1="434.0" y1="266.0" x2="434.0" y2="324.0" style="stroke: var(--fig-hi)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m2)"/>
-  <rect x="494.0" y="226" width="60" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="2"/>
-  <text x="524" y="242" text-anchor="middle" font-size="10.5" fill="currentColor">P</text>
-  <text x="524" y="258" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+256 MiB</text>
-  <line x1="524.0" y1="266.0" x2="524.0" y2="324.0" style="stroke: var(--fig-hi)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m2)"/>
-  <rect x="562.0" y="226" width="44" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
-  <text x="584" y="242" text-anchor="middle" font-size="10.5" fill="currentColor">V</text>
-  <text x="584" y="258" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">引用</text>
-  <line x1="584.0" y1="266.0" x2="584.0" y2="324.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m1)"/>
-  <text class="lab2" x="206" y="250" text-anchor="middle">不存</text>
-  <rect x="50.0" y="326.0" width="84" height="36" rx="6" class="op"/>
-  <text class="t" x="92" y="348.5" text-anchor="middle">① 反向</text>
-  <rect x="164.0" y="326.0" width="84" height="36" rx="6" class="op"/>
-  <text class="t" x="206" y="348.5" text-anchor="middle">② 反向</text>
-  <rect x="278.0" y="326.0" width="84" height="36" rx="6" class="op"/>
-  <text class="t" x="320" y="348.5" text-anchor="middle">③ 反向</text>
-  <rect x="392.0" y="326.0" width="84" height="36" rx="6" class="op"/>
-  <text class="t" x="434" y="348.5" text-anchor="middle">④ 反向</text>
-  <rect x="506.0" y="326.0" width="84" height="36" rx="6" class="op"/>
-  <text class="t" x="548" y="348.5" text-anchor="middle">⑤ 反向</text>
-  <line x1="164.0" y1="344.0" x2="136.0" y2="344.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m0)"/>
-  <line x1="278.0" y1="344.0" x2="250.0" y2="344.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m0)"/>
-  <line x1="392.0" y1="344.0" x2="364.0" y2="344.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m0)"/>
-  <line x1="506.0" y1="344.0" x2="478.0" y2="344.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m0)"/>
-  <text class="t" x="620" y="348">dO</text>
-  <line x1="616.0" y1="344.0" x2="592.0" y2="344.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m0)"/>
-  <line x1="50.0" y1="344.0" x2="40.0" y2="344.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m0)"/>
-  <text class="t" x="4" y="348">dQ dK</text>
+  <rect x="41.0" y="244" width="48" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="65" y="260" text-anchor="middle" font-size="10.5" fill="currentColor">Q</text>
+  <text x="65" y="276" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">引用</text>
+  <line x1="65.0" y1="284.0" x2="65.0" y2="342.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m1)"/>
+  <rect x="95.0" y="244" width="48" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="119" y="260" text-anchor="middle" font-size="10.5" fill="currentColor">K</text>
+  <text x="119" y="276" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">引用</text>
+  <line x1="119.0" y1="284.0" x2="119.0" y2="342.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m1)"/>
+  <rect x="285.0" y="244" width="70" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="320" y="260" text-anchor="middle" font-size="11.5" fill="currentColor">mask</text>
+  <text x="320" y="276" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">1 MiB</text>
+  <line x1="320.0" y1="284.0" x2="320.0" y2="342.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m1)"/>
+  <rect x="392.0" y="244" width="84" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="2"/>
+  <text x="434" y="260" text-anchor="middle" font-size="11.5" fill="currentColor">exp(S − m)</text>
+  <text x="434" y="276" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+256 MiB</text>
+  <line x1="434.0" y1="284.0" x2="434.0" y2="342.0" style="stroke: var(--fig-hi)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m2)"/>
+  <rect x="494.0" y="244" width="60" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="2"/>
+  <text x="524" y="260" text-anchor="middle" font-size="10.5" fill="currentColor">P</text>
+  <text x="524" y="276" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+256 MiB</text>
+  <line x1="524.0" y1="284.0" x2="524.0" y2="342.0" style="stroke: var(--fig-hi)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m2)"/>
+  <rect x="562.0" y="244" width="44" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="584" y="260" text-anchor="middle" font-size="10.5" fill="currentColor">V</text>
+  <text x="584" y="276" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">引用</text>
+  <line x1="584.0" y1="284.0" x2="584.0" y2="342.0" style="stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m1)"/>
+  <text class="lab2" x="206" y="268" text-anchor="middle">不存</text>
+  <rect x="50.0" y="344.0" width="84" height="36" rx="6" class="op"/>
+  <text class="t" x="92" y="366.5" text-anchor="middle">① 反向</text>
+  <rect x="164.0" y="344.0" width="84" height="36" rx="6" class="op"/>
+  <text class="t" x="206" y="366.5" text-anchor="middle">② 反向</text>
+  <rect x="278.0" y="344.0" width="84" height="36" rx="6" class="op"/>
+  <text class="t" x="320" y="366.5" text-anchor="middle">③ 反向</text>
+  <rect x="392.0" y="344.0" width="84" height="36" rx="6" class="op"/>
+  <text class="t" x="434" y="366.5" text-anchor="middle">④ 反向</text>
+  <rect x="506.0" y="344.0" width="84" height="36" rx="6" class="op"/>
+  <text class="t" x="548" y="366.5" text-anchor="middle">⑤ 反向</text>
+  <line x1="164.0" y1="362.0" x2="136.0" y2="362.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m0)"/>
+  <line x1="278.0" y1="362.0" x2="250.0" y2="362.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m0)"/>
+  <line x1="392.0" y1="362.0" x2="364.0" y2="362.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m0)"/>
+  <line x1="506.0" y1="362.0" x2="478.0" y2="362.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m0)"/>
+  <text class="t" x="620" y="366">dO</text>
+  <line x1="616.0" y1="362.0" x2="592.0" y2="362.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m0)"/>
+  <line x1="50.0" y1="362.0" x2="40.0" y2="362.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m0)"/>
+  <text class="t" x="4" y="366">dQ dK</text>
 </svg>
-<figcaption><strong>图 4-1</strong> eager attention 一层（medium，seq 1024）：中排红条是每步读写显存的量，下面是实测为反向存下的张量；实线框新占显存，虚线框只是引用。max 的下标和行和每行一个数，不到 1 MiB，没有画。</figcaption>
+<figcaption><strong>图 4-1</strong> eager attention 一层（medium，seq 1024）：中排每一格是完整读或写一次 S 大小的张量（softmax 按 max、减 max、exp、求和、除 5 个 kernel 排开），下面是实测为反向存下的张量；实线框新占显存，虚线框只是引用。max 的下标和行和每行一个数，不到 1 MiB，没有画。</figcaption>
 </figure>
 
 ### 4.1 时间：都在搬 S 和 P {#attn-time}
 
 FLOPs 集中在 ① 和 ⑤ 两个矩阵乘上，读写却集中在 ② ③ ④ 上，它们每一步都要把整个 256 MiB 的 S 读一遍、写一遍。放到 roofline 上（[图 1-1](#fig-1-1)），attention 的 op 全在斜坡上，包括 QKᵀ 和 PV 这两个矩阵乘。它们的 MBU 已经有 57–86%，kernel 本身没多少优化空间，要更快只能少搬数据。
 
-搬得最多的是 ④ softmax。它对 S 的每一行算 $P_{ij} = e^{S_{ij} - m_i} / \sum_k e^{S_{ik} - m_i}$，其中 $m_i = \max_k S_{ik}$，减掉行最大值是为了防止 exp 溢出。eager 模式下这个公式拆成 5 个 kernel：求 max、减 max、exp、求和、除。每个 kernel 都要读或写和 S 一样大的张量，5 个加起来一共读写 8 次，2048 MiB（[图 4-2](#fig-4-2)）。
+搬得最多的是 ④ softmax。它对 S 的每一行算 $P_{ij} = e^{S_{ij} - m_i} / \sum_k e^{S_{ik} - m_i}$，其中 $m_i = \max_k S_{ik}$，减掉行最大值是为了防止 exp 溢出。eager 模式下这个公式拆成 5 个 kernel：求 max、减 max、exp、求和、除。每个 kernel 都要读或写和 S 一样大的张量，5 个加起来一共读写 8 次，2048 MiB（图 4-1 中排的 8 格）。
+
+FLOPs 和耗时因此对不上：softmax 的运算量只有 PV 的 1/5，耗时却是 PV 的 6 倍（[图 4-2](#fig-4-2)）。
 
 <figure id="fig-4-2" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 262" width="100%" role="img" aria-label="eager softmax 的 5 个 kernel 共读写显存里 S 大小的张量 8 次；融合成一个 kernel 后只读 S、写 P 两次">
-  <style>
-    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
-    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
-    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
-    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
-    .fg .lab { font-size: 12px; fill: currentColor; }
-    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
-    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
-    .fg .val { font-size: 11px; fill: currentColor; }
-    .fg .t { font-size: 12.5px; fill: currentColor; }
-    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
-    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
-    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
-    .fg .band { fill: currentColor; fill-opacity: .045; }
-    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
-    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 5px; stroke-linejoin: round; }
-    .fg g.m:hover > :not(title) { opacity: .85; }
-    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: 540px; } }
-  </style>
-  <defs><marker id="fig-4-2-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker><marker id="fig-4-2-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
-  <rect class="band" x="70" y="24" width="562" height="56" rx="8"/>
-  <text class="lab" x="8" y="50">显存</text><text class="lab2" x="8" y="66">(HBM)</text>
-  <rect class="band" x="70" y="122" width="562" height="56" rx="8"/>
-  <text class="lab" x="8" y="148">kernel</text><text class="lab2" x="8" y="164">(片上算)</text>
-  <rect x="133" y="37" width="64" height="30" rx="6" style="fill: color-mix(in srgb, var(--fig-1) 14%, transparent); stroke: var(--fig-1)" stroke-width="1.5"/>
-  <text class="t" x="165" y="56" text-anchor="middle">S</text>
-  <rect x="237" y="37" width="76" height="30" rx="6" style="fill: color-mix(in srgb, var(--fig-1) 14%, transparent); stroke: var(--fig-1)" stroke-width="1.5"/>
-  <text class="t" x="275" y="56" text-anchor="middle">S − m</text>
-  <rect x="388" y="37" width="104" height="30" rx="6" style="fill: color-mix(in srgb, var(--fig-1) 14%, transparent); stroke: var(--fig-1)" stroke-width="1.5"/>
-  <text class="t" x="440" y="56" text-anchor="middle">exp(S − m)</text>
-  <rect x="562" y="37" width="56" height="30" rx="6" style="fill: color-mix(in srgb, var(--fig-1) 14%, transparent); stroke: var(--fig-1)" stroke-width="1.5"/>
-  <text class="t" x="590" y="56" text-anchor="middle">P</text>
-  <rect x="81" y="135" width="62" height="30" rx="6" class="op"/>
-  <text class="t" x="112" y="154" text-anchor="middle">max</text>
-  <rect x="183" y="135" width="70" height="30" rx="6" class="op"/>
-  <text class="t" x="218" y="154" text-anchor="middle">减 max</text>
-  <rect x="301" y="135" width="58" height="30" rx="6" class="op"/>
-  <text class="t" x="330" y="154" text-anchor="middle">exp</text>
-  <rect x="409" y="135" width="62" height="30" rx="6" class="op"/>
-  <text class="t" x="440" y="154" text-anchor="middle">求和</text>
-  <rect x="519" y="135" width="58" height="30" rx="6" class="op"/>
-  <text class="t" x="548" y="154" text-anchor="middle">除</text>
-  <line x1="152.0" y1="67.0" x2="122.0" y2="133.0" style="stroke: var(--fig-hi)" stroke-width="1.8" marker-end="url(#fig-4-2-m0)"/>
-  <text class="lab" x="99" y="104">① 读</text>
-  <line x1="178.0" y1="67.0" x2="208.0" y2="133.0" style="stroke: var(--fig-hi)" stroke-width="1.8" marker-end="url(#fig-4-2-m0)"/>
-  <text class="lab" x="199" y="104">② 读</text>
-  <line x1="232.0" y1="135.0" x2="262.0" y2="69.0" style="stroke: var(--fig-hi)" stroke-width="1.8" marker-end="url(#fig-4-2-m0)"/>
-  <text class="lab" x="255" y="108">③ 写</text>
-  <line x1="288.0" y1="67.0" x2="320.0" y2="133.0" style="stroke: var(--fig-hi)" stroke-width="1.8" marker-end="url(#fig-4-2-m0)"/>
-  <text class="lab" x="311" y="104">④ 读</text>
-  <line x1="342.0" y1="135.0" x2="412.0" y2="69.0" style="stroke: var(--fig-hi)" stroke-width="1.8" marker-end="url(#fig-4-2-m0)"/>
-  <text class="lab" x="383" y="112">⑤ 写</text>
-  <line x1="440.0" y1="67.0" x2="440.0" y2="133.0" style="stroke: var(--fig-hi)" stroke-width="1.8" marker-end="url(#fig-4-2-m0)"/>
-  <text class="lab" x="446" y="104">⑥ 读</text>
-  <line x1="468.0" y1="67.0" x2="536.0" y2="133.0" style="stroke: var(--fig-hi)" stroke-width="1.8" marker-end="url(#fig-4-2-m0)"/>
-  <text class="lab" x="510" y="104">⑦ 读</text>
-  <line x1="560.0" y1="135.0" x2="584.0" y2="69.0" style="stroke: var(--fig-hi)" stroke-width="1.8" marker-end="url(#fig-4-2-m0)"/>
-  <text class="lab" x="578" y="108">⑧ 写</text>
-  <line x1="143.0" y1="150.0" x2="181.0" y2="150.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.2" marker-end="url(#fig-4-2-m1)"/>
-  <text class="lab2" x="162" y="143" text-anchor="middle">m</text>
-  <line x1="471.0" y1="150.0" x2="517.0" y2="150.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.2" marker-end="url(#fig-4-2-m1)"/>
-  <text class="lab2" x="494" y="143" text-anchor="middle">Σ</text>
-  <text class="lab2" x="351" y="192" text-anchor="middle">eager：5 个 kernel，S 大小的张量进出显存 8 次；m、Σ 每行一个数，可忽略</text>
-  <text class="lab" x="8" y="240">融合后</text>
-  <rect x="133" y="221" width="64" height="30" rx="6" style="fill: color-mix(in srgb, var(--fig-1) 14%, transparent); stroke: var(--fig-1)" stroke-width="1.5"/>
-  <text class="t" x="165" y="240" text-anchor="middle">S</text>
-  <rect x="255" y="221" width="150" height="30" rx="6" class="op"/>
-  <text class="t" x="330" y="240" text-anchor="middle">fused softmax</text>
-  <rect x="467" y="221" width="56" height="30" rx="6" style="fill: color-mix(in srgb, var(--fig-1) 14%, transparent); stroke: var(--fig-1)" stroke-width="1.5"/>
-  <text class="t" x="495" y="240" text-anchor="middle">P</text>
-  <line x1="197.0" y1="236.0" x2="253.0" y2="236.0" style="stroke: var(--fig-hi)" stroke-width="1.8" marker-end="url(#fig-4-2-m0)"/>
-  <text class="lab" x="209" y="228">① 读</text>
-  <line x1="405.0" y1="236.0" x2="465.0" y2="236.0" style="stroke: var(--fig-hi)" stroke-width="1.8" marker-end="url(#fig-4-2-m0)"/>
-  <text class="lab" x="419" y="228">② 写</text>
-</svg>
-<figcaption><strong>图 4-2</strong> eager softmax 的显存读写：每条编号箭头是一次完整的读或写，共 8 次；融合后只剩 2 次。</figcaption>
-</figure>
-
-FLOPs 和耗时因此对不上：softmax 的运算量只有 PV 的 1/5，耗时却是 PV 的 6 倍（[图 4-3](#fig-4-3)）。
-
-<figure id="fig-4-3" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 186" width="100%" role="img" aria-label="medium、seq 1024 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间：softmax 和 ÷√d、mask 的 FLOPs 很少，时间却最多">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
@@ -989,12 +929,12 @@ FLOPs 和耗时因此对不上：softmax 的运算量只有 PV 的 1/5，耗时�
   <line class="axis" x1="112" y1="58" x2="112" y2="174"/>
   <line class="axis" x1="392" y1="58" x2="392" y2="174"/>
 </svg>
-<figcaption><strong>图 4-3</strong> 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间（medium，seq 1024）。</figcaption>
+<figcaption><strong>图 4-2</strong> 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间（medium，seq 1024）。</figcaption>
 </figure>
 
-S、P 的读写量随 seq² 增长，Linear 只随 seq 线性增长。seq 从 256 增加到 1024，attention 占前向时间的比例从 10% 涨到 46%，多出来的几乎全是 softmax、除以 √d、mask 这类只搬数据的 op（[图 4-4](#fig-4-4)）。这就是第 2 节那 40% 里随 seq 涨得最快的部分。
+S、P 的读写量随 seq² 增长，Linear 只随 seq 线性增长。seq 从 256 增加到 1024，attention 占前向时间的比例从 10% 涨到 46%，多出来的几乎全是 softmax、除以 √d、mask 这类只搬数据的 op（[图 4-3](#fig-4-3)）。这就是第 2 节那 40% 里随 seq 涨得最快的部分。
 
-<figure id="fig-4-4" class="fg-fig">
+<figure id="fig-4-3" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 262" width="100%" role="img" aria-label="attention 三段占 forward 时间随 seq 的变化：softmax 从 4% 涨到 24%，scores 从 4% 涨到 18%，PV 只从 2% 到 4%，合计从 10% 到 46%">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
@@ -1054,10 +994,10 @@ S、P 的读写量随 seq² 增长，Linear 只随 seq 线性增长。seq 从 25
   <g class="m"><title>seq 1024：PV 5.5 ms，占 4%</title><circle cx="470" cy="221.6" r="4.5" class="ring" style="fill: var(--fig-2)"/></g>
   <text class="val" x="482" y="225.6">PV 4%</text>
 </svg>
-<figcaption><strong>图 4-4</strong> attention 三段占 forward GPU 时间的比例随 seq 变化（medium）。</figcaption>
+<figcaption><strong>图 4-3</strong> attention 三段占 forward GPU 时间的比例随 seq 变化（medium）。</figcaption>
 </figure>
 
-要少搬，就得把几步合进一个 kernel，中间结果留在片上：融合的 softmax 只读一次 S、写一次 P（[图 4-2](#fig-4-2) 下）；FlashAttention 更进一步，S、P 根本不写回显存。
+要少搬，就得把几步合进一个 kernel，中间结果留在片上：融合的 softmax 只读一次 S、写一次 P；FlashAttention 更进一步，S、P 根本不写回显存。
 
 ### 4.2 显存：S、P 占了一半以上 {#attn-memory}
 
@@ -1088,9 +1028,9 @@ Saving  9  [64,1024,1024]      float32  # P
 | ⑤ $O = PV$ | $\partial O/\partial P = V$，$\partial O/\partial V = P$ | $P$、$V$ | **256 MiB** |
 {#tab-4-1 caption="**表 4-1** attention 各 op 为反向存的张量（eager，medium，seq 1024）" note="存下的张量是实测。④ 的减 max 和求和偏导是常数，不存；除法存的 e 和 exp 存的是同一块内存。"}
 
-放到一整层上也是这样。xl 的一层（`torch.compile` 已经省掉了 RMSNorm 这类中间量）一共要为反向存 3655 MiB，其中一半以上是 S 和 P（[图 4-5](#fig-4-5)）。这组测量用的是 16 头，S、P 各 1 GiB；标准 xl 是 32 头，S、P 还要再大一倍。
+放到一整层上也是这样。xl 的一层（`torch.compile` 已经省掉了 RMSNorm 这类中间量）一共要为反向存 3655 MiB，其中一半以上是 S 和 P（[图 4-4](#fig-4-4)）。这组测量用的是 16 头，S、P 各 1 GiB；标准 xl 是 32 头，S、P 还要再大一倍。
 
-<figure id="fig-4-5" class="fg-fig">
+<figure id="fig-4-4" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 246" width="100%" role="img" aria-label="xl 一层为反向存的 3655 MiB：S、P 占 56%，FFN 中间量 26%，[b, s, d] 级张量 17.5%，其他 0.2%">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
@@ -1129,14 +1069,14 @@ Saving  9  [64,1024,1024]      float32  # P
   <text class="lab" x="310" y="182">其他</text><text class="lab2" x="310" y="198">mask、RoPE、softmax 统计量</text>
   <text class="val" x="630" y="182" text-anchor="end">7 MiB · 0.2%</text>
 </svg>
-<figcaption><strong>图 4-5</strong> xl 一层为反向存的张量（batch 4，seq 2048，16 头，<code>torch.compile</code> 后用 <code>saved_tensors_hooks</code> 实测）。</figcaption>
+<figcaption><strong>图 4-4</strong> xl 一层为反向存的张量（batch 4，seq 2048，16 头，<code>torch.compile</code> 后用 <code>saved_tensors_hooks</code> 实测）。</figcaption>
 </figure>
 
 xl 有 32 层，按 16 头算加起来也有 114 GiB，是 5090 显存的三倍多。而且只有 S、P 随 seq² 增长：32 头时，同一个 `[b, h, s, s]` 张量在 seq 128 时是 8 MiB，seq 2048 时是 2 GiB，是残差流上一个 `[b, s, d]` 张量的 25 倍。
 
-[图 4-6](#fig-4-6) 是 xl 一步的显存时间线。seq 2048 只跑前向时，每层 attention 都让显存冲高约 8 GiB，算完再落回去，32 层都能跑完；加上反向后，每层的 S、P 都得留下，第 1 层就多占约 4.7 GiB，到第 2 层就 OOM 了。
+[图 4-5](#fig-4-5) 是 xl 一步的显存时间线。seq 2048 只跑前向时，每层 attention 都让显存冲高约 8 GiB，算完再落回去，32 层都能跑完；加上反向后，每层的 S、P 都得留下，第 1 层就多占约 4.7 GiB，到第 2 层就 OOM 了。
 
-<figure id="fig-4-6" class="fg-fig">
+<figure id="fig-4-5" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 420" width="100%" role="img" aria-label="xl 一步的显存时间线：seq 128 纯前向是平的；seq 2048 纯前向每层冲出一个尖峰；seq 128 full step 前向和反向一路上升，到 optimizer 时 OOM；seq 2048 带反向时第 2 层 OOM">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
@@ -1213,7 +1153,7 @@ xl 有 32 层，按 16 头算加起来也有 114 GiB，是 5090 显存的三倍�
   <text class="tick" x="614" y="389" text-anchor="end">195 次分配 / 释放</text>
   <text class="lab2" x="12" y="210" transform="rotate(-90 12 210)" text-anchor="middle">显存（GiB）</text>
 </svg>
-<figcaption><strong>图 4-6</strong> xl（batch 4，32 头）一步的显存时间线，横轴是分配 / 释放的次序。</figcaption>
+<figcaption><strong>图 4-5</strong> xl（batch 4，32 头）一步的显存时间线，横轴是分配 / 释放的次序。</figcaption>
 </figure>
 
 ---
