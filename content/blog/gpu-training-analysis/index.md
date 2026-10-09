@@ -37,7 +37,7 @@ series_order: 2
 在 log-log 坐标上它像一个屋顶（[图 1-1](#fig-1-1)）：左边是斜坡，被带宽限制；右边是平顶，被算力限制；拐角 $I^* = \pi / \beta$ 叫 **ridge point**，5090 fp32 是 58 FLOPs/B。落在拐角左边的 op 是 **memory-bound**，耗时由搬数据决定，减少 FLOPs 没有用；落在右边的是 **compute-bound**，耗时由算力决定。衡量 op 跑得好不好也分两种：compute-bound 的看 MFU（实际 FLOPS / $\pi$），memory-bound 的看 MBU（实际带宽 / $\beta$）。
 
 <figure id="fig-1-1" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 392" width="100%" role="img" aria-label="RTX 5090 fp32 的 roofline：带宽斜线和峰值平线交于 58 FLOPs/B；attention 的 op 都在斜线上，只有 Linear 在平线下">
+<svg class="fg" viewBox="0 0 640 392" width="100%" role="img" aria-label="RTX 5090 各精度的 roofline：带宽斜线 1.79e12 B/s 与 fp32、bf16、fp8、nvfp4 四条峰值平线分别交于 58、117、234、935 FLOPs/B">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -69,39 +69,45 @@ series_order: 2
   <line class="grid" x1="620.0" y1="20" x2="620.0" y2="340"/>
   <text class="tick" x="620.0" y="357" text-anchor="middle">10000</text>
   <text class="tick" x="62" y="344.0" text-anchor="end">1e11</text>
-  <line class="grid" x1="70" y1="251.1" x2="620" y2="251.1"/>
-  <text class="tick" x="62" y="255.1" text-anchor="end">1e12</text>
-  <line class="grid" x1="70" y1="162.2" x2="620" y2="162.2"/>
-  <text class="tick" x="62" y="166.2" text-anchor="end">1e13</text>
-  <line class="grid" x1="70" y1="73.3" x2="620" y2="73.3"/>
-  <text class="tick" x="62" y="77.3" text-anchor="end">1e14</text>
+  <line class="grid" x1="70" y1="268.9" x2="620" y2="268.9"/>
+  <text class="tick" x="62" y="272.9" text-anchor="end">1e12</text>
+  <line class="grid" x1="70" y1="197.8" x2="620" y2="197.8"/>
+  <text class="tick" x="62" y="201.8" text-anchor="end">1e13</text>
+  <line class="grid" x1="70" y1="126.7" x2="620" y2="126.7"/>
+  <text class="tick" x="62" y="130.7" text-anchor="end">1e14</text>
+  <line class="grid" x1="70" y1="55.6" x2="620" y2="55.6"/>
+  <text class="tick" x="62" y="59.6" text-anchor="end">1e15</text>
   <line class="axis" x1="70" y1="340" x2="620" y2="340"/><line class="axis" x1="70" y1="20" x2="70" y2="340"/>
   <text class="lab2" x="345" y="380" text-anchor="middle">算术强度 I（FLOPs/B，对数轴）</text>
   <text class="lab2" transform="translate(16 180) rotate(-90)" text-anchor="middle">可达算力（FLOPS，对数轴）</text>
-  <line x1="374.4" y1="71.5" x2="374.4" y2="340" stroke="currentColor" stroke-opacity=".25"/>
-  <line x1="374.4" y1="71.5" x2="620" y2="71.5" style="stroke: var(--fig-1)" stroke-width="2.2"/>
-  <g class="m"><title>fp32：ridge point = 1.05e14 / 1.792e12 = 58 FLOPs/B</title><circle cx="374.4" cy="71.5" r="3" style="fill: var(--fig-1)"/></g>
-  <text class="lab" x="374.4" y="61.5" text-anchor="middle">ridge point I* = 58</text>
-  <text class="lab" x="618" y="85.5" text-anchor="end">峰值 π = 1.05e14 FLOPS</text>
-  <line x1="70" y1="317.5" x2="374.4" y2="71.5" style="stroke: var(--fig-1)" stroke-width="2.2"/>
-  <text class="lab" transform="translate(230 180.2) rotate(-38.9)" text-anchor="middle">带宽 β = 1.79e12 B/s</text>
+  <line x1="374.4" y1="125.2" x2="374.4" y2="340" stroke="currentColor" stroke-opacity=".25"/>
+  <line x1="374.4" y1="125.2" x2="506.8" y2="39.6" style="stroke: var(--fig-2)" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text class="lab2" x="80" y="36">拐点旁的数字是 ridge point I*（FLOPs/B）</text>
+  <line x1="374.4" y1="125.2" x2="620" y2="125.2" style="stroke: var(--fig-1)" stroke-width="2.2"/>
+  <g class="m"><title>fp32：ridge point = 1.05e14 / 1.792e12 = 58 FLOPs/B</title><circle cx="374.4" cy="125.2" r="3" style="fill: var(--fig-1)"/></g>
+  <text class="lab2" x="367.4" y="121.2" text-anchor="end">58</text>
+  <text class="lab" x="618" y="139.2" text-anchor="end">fp32 π = 1.05e14</text>
+  <line x1="407.5" y1="103.8" x2="620" y2="103.8" style="stroke: var(--fig-2)" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <g class="m"><title>bf16：ridge point = 2.1e14 / 1.792e12 = 117 FLOPs/B</title><circle cx="407.5" cy="103.8" r="3" style="fill: var(--fig-1)"/></g>
+  <text class="lab2" x="400.5" y="99.8" text-anchor="end">117</text>
+  <text class="lab2" x="618" y="117.8" text-anchor="end">bf16 2.1e14</text>
+  <line x1="440.6" y1="82.4" x2="620" y2="82.4" style="stroke: var(--fig-2)" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <g class="m"><title>fp8：ridge point = 4.19e14 / 1.792e12 = 234 FLOPs/B</title><circle cx="440.6" cy="82.4" r="3" style="fill: var(--fig-1)"/></g>
+  <text class="lab2" x="433.6" y="78.4" text-anchor="end">234</text>
+  <text class="lab2" x="618" y="96.4" text-anchor="end">fp8 4.19e14</text>
+  <line x1="506.8" y1="39.6" x2="620" y2="39.6" style="stroke: var(--fig-2)" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <g class="m"><title>nvfp4：ridge point = 1.68e15 / 1.792e12 = 935 FLOPs/B</title><circle cx="506.8" cy="39.6" r="3" style="fill: var(--fig-1)"/></g>
+  <text class="lab2" x="499.8" y="35.6" text-anchor="end">935</text>
+  <text class="lab2" x="618" y="53.6" text-anchor="end">nvfp4 1.68e15</text>
+  <line x1="70" y1="322.0" x2="374.4" y2="125.2" style="stroke: var(--fig-1)" stroke-width="2.2"/>
+  <text class="lab" transform="translate(230 210.6) rotate(-32.9)" text-anchor="middle">带宽 β = 1.79e12 B/s</text>
   <text class="lab2" x="279" y="326" text-anchor="middle">memory-bound</text>
   <text class="lab2" x="529" y="326" text-anchor="middle">compute-bound</text>
-  <g class="m"><title>Linear（FFN w1）：I = 341 FLOPs/B，实测 6.87e13 FLOPS，MFU 64%</title><circle cx="458.6" cy="87.8" r="12" fill="transparent"/><circle cx="458.6" cy="87.8" r="5" class="ring" style="fill: var(--fig-hi)"/></g>
-  <text class="lab" x="448.6" y="105.8" text-anchor="end">Linear</text>
-  <g class="m"><title>S = QKᵀ：I = 28.4 FLOPs/B，实测 2.86e13 FLOPS，MBU 57%</title><circle cx="339.9" cy="121.6" r="12" fill="transparent"/><circle cx="339.9" cy="121.6" r="5" class="ring" style="fill: var(--fig-hi)"/></g>
-  <text class="lab" x="349.9" y="135.6" text-anchor="start">QKᵀ</text>
-  <g class="m"><title>O = PV：I = 30.1 FLOPs/B，实测 3.73e13 FLOPS，MBU 70%</title><circle cx="342.7" cy="111.4" r="12" fill="transparent"/><circle cx="342.7" cy="111.4" r="5" class="ring" style="fill: var(--fig-hi)"/></g>
-  <text class="lab" x="352.7" y="109.4" text-anchor="start">PV</text>
-  <g class="m"><title>softmax（5 个 kernel）：I = 0.844 FLOPs/B，实测 1.27e12 FLOPS，MBU 84%</title><circle cx="171.9" cy="242.0" r="12" fill="transparent"/><circle cx="171.9" cy="242.0" r="5" class="ring" style="fill: var(--fig-hi)"/></g>
-  <text class="lab" x="181.9" y="258.0" text-anchor="start">softmax</text>
-  <g class="m"><title>S / √d：I = 0.125 FLOPs/B，实测 1.92e11 FLOPS，MBU 86%</title><circle cx="80.7" cy="314.9" r="12" fill="transparent"/><circle cx="80.7" cy="314.9" r="5" class="ring" style="fill: var(--fig-hi)"/></g>
-  <text class="lab" x="90.7" y="326.9" text-anchor="start">S / √d</text>
 </svg>
-<figcaption><strong>图 1-1</strong> RTX 5090 fp32 的 roofline，以及 medium、seq 1024 时一层 attention 里实测的 op（另放一个 Linear 作对照）。causal mask 没有 FLOPs，不在图上；悬停可看数值。</figcaption>
+<figcaption><strong>图 1-1</strong> RTX 5090 各精度的 roofline：斜线是带宽，平线是峰值算力（dense，boost clock 2407 MHz，来自 NVIDIA RTX Blackwell 白皮书；Tensor core 按 fp32 累加）。</figcaption>
 </figure>
 
-一个 op 在拐角哪一边，用张量形状就能估。逐元素 op 在 fp32 下每个元素算 1 次、读写 8 字节，$I \approx 0.13$，远在拐角左边。矩阵乘的 $I$ 由 M、N、K 里最小的那个决定，fp32 下不超过它的一半。Linear 的三个维度都上千（medium、seq 1024 时 FFN 第一层是 `[4096, 1024] × [1024, 4096]`），$I \approx 340$，在拐角右边；attention 里的 QKᵀ 和 PV 都有一个维度是 d_head（64），$I$ 只有 28，在拐角左边。所以 QKᵀ 和 PV 虽然是矩阵乘，在 attention 里也是 memory-bound。[图 1-1](#fig-1-1) 里的点是实测，[第 4 节](#attention)再细看。
+一个 op 在拐角哪一边，用张量形状就能估。逐元素 op 在 fp32 下每个元素算 1 次、读写 8 字节，$I \approx 0.13$，远在拐角左边。矩阵乘的 $I$ 由 M、N、K 里最小的那个决定，fp32 下不超过它的一半。Linear 的三个维度都上千（medium、seq 1024 时 FFN 第一层是 `[4096, 1024] × [1024, 4096]`），$I \approx 340$，在拐角右边；attention 里的 QKᵀ 和 PV 都有一个维度是 d_head（64），$I$ 只有 28，在拐角左边。所以 QKᵀ 和 PV 虽然是矩阵乘，在 attention 里也是 memory-bound。[第 4 节](#attention)会把实测的 op 放到 fp32 的 roofline 上看（[图 4-2](#fig-4-2)）。
 
 ---
 
@@ -966,13 +972,78 @@ $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 cau
 
 ### 4.1 时间：都在搬 S 和 P {#attn-time}
 
-FLOPs 集中在 ① 和 ⑤ 两个矩阵乘上，读写却集中在 ② ③ ④ 上：② 和 ③ 各把整个 256 MiB 的 S 读一遍、写一遍，④ 读写得更多。放到 roofline 上（[图 1-1](#fig-1-1)），attention 的 op 全在斜坡上，包括 QKᵀ 和 PV 这两个矩阵乘。它们的 MBU 已经有 57–86%，kernel 本身没多少优化空间，要更快只能少搬数据。
+FLOPs 集中在 ① 和 ⑤ 两个矩阵乘上，读写却集中在 ② ③ ④ 上：② 和 ③ 各把整个 256 MiB 的 S 读一遍、写一遍，④ 读写得更多。放到 roofline 上（[图 4-2](#fig-4-2)），attention 的 op 全在斜坡上，包括 QKᵀ 和 PV 这两个矩阵乘。它们的 MBU 已经有 57–86%，kernel 本身没多少优化空间，要更快只能少搬数据。
+
+<figure id="fig-4-2" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 392" width="100%" role="img" aria-label="RTX 5090 fp32 的 roofline 和一层 attention 里实测的 op：attention 的 op 都在斜线上，只有作对照的 Linear 在平线下">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <text class="tick" x="70.0" y="357" text-anchor="middle">0.1</text>
+  <line class="grid" x1="180.0" y1="20" x2="180.0" y2="340"/>
+  <text class="tick" x="180.0" y="357" text-anchor="middle">1</text>
+  <line class="grid" x1="290.0" y1="20" x2="290.0" y2="340"/>
+  <text class="tick" x="290.0" y="357" text-anchor="middle">10</text>
+  <line class="grid" x1="400.0" y1="20" x2="400.0" y2="340"/>
+  <text class="tick" x="400.0" y="357" text-anchor="middle">100</text>
+  <line class="grid" x1="510.0" y1="20" x2="510.0" y2="340"/>
+  <text class="tick" x="510.0" y="357" text-anchor="middle">1000</text>
+  <line class="grid" x1="620.0" y1="20" x2="620.0" y2="340"/>
+  <text class="tick" x="620.0" y="357" text-anchor="middle">10000</text>
+  <text class="tick" x="62" y="344.0" text-anchor="end">1e11</text>
+  <line class="grid" x1="70" y1="251.1" x2="620" y2="251.1"/>
+  <text class="tick" x="62" y="255.1" text-anchor="end">1e12</text>
+  <line class="grid" x1="70" y1="162.2" x2="620" y2="162.2"/>
+  <text class="tick" x="62" y="166.2" text-anchor="end">1e13</text>
+  <line class="grid" x1="70" y1="73.3" x2="620" y2="73.3"/>
+  <text class="tick" x="62" y="77.3" text-anchor="end">1e14</text>
+  <line class="axis" x1="70" y1="340" x2="620" y2="340"/><line class="axis" x1="70" y1="20" x2="70" y2="340"/>
+  <text class="lab2" x="345" y="380" text-anchor="middle">算术强度 I（FLOPs/B，对数轴）</text>
+  <text class="lab2" transform="translate(16 180) rotate(-90)" text-anchor="middle">可达算力（FLOPS，对数轴）</text>
+  <line x1="374.4" y1="71.5" x2="374.4" y2="340" stroke="currentColor" stroke-opacity=".25"/>
+  <line x1="374.4" y1="71.5" x2="620" y2="71.5" style="stroke: var(--fig-1)" stroke-width="2.2"/>
+  <g class="m"><title>fp32：ridge point = 1.05e14 / 1.792e12 = 58 FLOPs/B</title><circle cx="374.4" cy="71.5" r="3" style="fill: var(--fig-1)"/></g>
+  <text class="lab" x="374.4" y="61.5" text-anchor="middle">ridge point I* = 58</text>
+  <text class="lab" x="618" y="85.5" text-anchor="end">峰值 π = 1.05e14 FLOPS</text>
+  <line x1="70" y1="317.5" x2="374.4" y2="71.5" style="stroke: var(--fig-1)" stroke-width="2.2"/>
+  <text class="lab" transform="translate(230 180.2) rotate(-38.9)" text-anchor="middle">带宽 β = 1.79e12 B/s</text>
+  <text class="lab2" x="279" y="326" text-anchor="middle">memory-bound</text>
+  <text class="lab2" x="529" y="326" text-anchor="middle">compute-bound</text>
+  <g class="m"><title>Linear（FFN w1）：I = 341 FLOPs/B，实测 6.87e13 FLOPS，MFU 64%</title><circle cx="458.6" cy="87.8" r="12" fill="transparent"/><circle cx="458.6" cy="87.8" r="5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <text class="lab" x="448.6" y="105.8" text-anchor="end">Linear</text>
+  <g class="m"><title>S = QKᵀ：I = 28.4 FLOPs/B，实测 2.86e13 FLOPS，MBU 57%</title><circle cx="339.9" cy="121.6" r="12" fill="transparent"/><circle cx="339.9" cy="121.6" r="5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <text class="lab" x="349.9" y="135.6" text-anchor="start">QKᵀ</text>
+  <g class="m"><title>O = PV：I = 30.1 FLOPs/B，实测 3.73e13 FLOPS，MBU 70%</title><circle cx="342.7" cy="111.4" r="12" fill="transparent"/><circle cx="342.7" cy="111.4" r="5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <text class="lab" x="352.7" y="109.4" text-anchor="start">PV</text>
+  <g class="m"><title>softmax（5 个 kernel）：I = 0.844 FLOPs/B，实测 1.27e12 FLOPS，MBU 84%</title><circle cx="171.9" cy="242.0" r="12" fill="transparent"/><circle cx="171.9" cy="242.0" r="5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <text class="lab" x="181.9" y="258.0" text-anchor="start">softmax</text>
+  <g class="m"><title>S / √d：I = 0.125 FLOPs/B，实测 1.92e11 FLOPS，MBU 86%</title><circle cx="80.7" cy="314.9" r="12" fill="transparent"/><circle cx="80.7" cy="314.9" r="5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <text class="lab" x="90.7" y="326.9" text-anchor="start">S / √d</text>
+</svg>
+<figcaption><strong>图 4-2</strong> RTX 5090 fp32 的 roofline，以及 medium、seq 1024 时一层 attention 里实测的 op（另放一个 Linear 作对照）。causal mask 没有 FLOPs，不在图上；悬停可看数值。</figcaption>
+</figure>
 
 搬得最多的是 ④ softmax。它对 S 的每一行算 $P_{ij} = e^{S_{ij} - m_i} / \sum_k e^{S_{ik} - m_i}$，其中 $m_i = \max_k S_{ik}$，减掉行最大值是为了防止 exp 溢出。eager 模式下这个公式拆成 5 个 kernel：求 max、减 max、exp、求和、除。每个 kernel 都要读或写和 S 一样大的张量，5 个加起来一共读写 8 次，2048 MiB（图 4-1 里 max 到 ÷Σ 这 5 个 kernel 进出显存的箭头）。
 
-FLOPs 和耗时因此对不上：softmax 的运算量只有 PV 的 1/5，耗时却是 PV 的 6 倍（[图 4-2](#fig-4-2)）。
+FLOPs 和耗时因此对不上：softmax 的运算量只有 PV 的 1/5，耗时却是 PV 的 6 倍（[图 4-3](#fig-4-3)）。
 
-<figure id="fig-4-2" class="fg-fig">
+<figure id="fig-4-3" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 186" width="100%" role="img" aria-label="medium、seq 1024 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间：softmax 和 ÷√d、mask 的 FLOPs 很少，时间却最多">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
@@ -1021,12 +1092,12 @@ FLOPs 和耗时因此对不上：softmax 的运算量只有 PV 的 1/5，耗时�
   <line class="axis" x1="112" y1="58" x2="112" y2="174"/>
   <line class="axis" x1="392" y1="58" x2="392" y2="174"/>
 </svg>
-<figcaption><strong>图 4-2</strong> 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间（medium，seq 1024）。</figcaption>
+<figcaption><strong>图 4-3</strong> 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间（medium，seq 1024）。</figcaption>
 </figure>
 
-S、P 的读写量随 seq² 增长，Linear 只随 seq 线性增长。seq 从 256 增加到 1024，attention 占前向时间的比例从 10% 涨到 46%，多出来的几乎全是 softmax、除以 √d、mask 这类只搬数据的 op（[图 4-3](#fig-4-3)）。这就是[第 2 节](#time)那 40% 里随 seq 涨得最快的部分。
+S、P 的读写量随 seq² 增长，Linear 只随 seq 线性增长。seq 从 256 增加到 1024，attention 占前向时间的比例从 10% 涨到 46%，多出来的几乎全是 softmax、除以 √d、mask 这类只搬数据的 op（[图 4-4](#fig-4-4)）。这就是[第 2 节](#time)那 40% 里随 seq 涨得最快的部分。
 
-<figure id="fig-4-3" class="fg-fig">
+<figure id="fig-4-4" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 262" width="100%" role="img" aria-label="attention 三段占 forward 时间随 seq 的变化：softmax 从 4% 涨到 24%，scores 从 4% 涨到 18%，PV 只从 2% 到 4%，合计从 10% 到 46%">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
@@ -1086,7 +1157,7 @@ S、P 的读写量随 seq² 增长，Linear 只随 seq 线性增长。seq 从 25
   <g class="m"><title>seq 1024：PV 5.5 ms，占 4%</title><circle cx="470" cy="221.6" r="4.5" class="ring" style="fill: var(--fig-2)"/></g>
   <text class="val" x="482" y="225.6">PV 4%</text>
 </svg>
-<figcaption><strong>图 4-3</strong> attention 三段占 forward GPU 时间的比例随 seq 变化（medium）。</figcaption>
+<figcaption><strong>图 4-4</strong> attention 三段占 forward GPU 时间的比例随 seq 变化（medium）。</figcaption>
 </figure>
 
 要少搬，就得把几步合进一个 kernel，中间结果留在片上：融合的 softmax 只读一次 S、写一次 P；FlashAttention 更进一步，S、P 根本不写回显存。
@@ -1120,9 +1191,9 @@ Saving  9  [64,1024,1024]      float32  # P
 | ⑤ $O = PV$ | $\partial O/\partial P = V$，$\partial O/\partial V = P$ | $P$、$V$ | **256 MiB** |
 {#tab-4-1 caption="**表 4-1** attention 各 op 为反向存的张量（eager，medium，seq 1024）" note="存下的张量是实测。④ 的减 max 和求和偏导是常数，不存；除法存的 e 和 exp 存的是同一块内存。"}
 
-放到一整层上也是这样，只是 `torch.compile` 之后存下的两个 seq × seq 张量换成了 S 和 P。xl 的一层（RMSNorm 这类中间量已经被省掉）一共要为反向存 3655 MiB，其中一半以上是 S 和 P（[图 4-4](#fig-4-4)）。这组测量用的是 16 头，S、P 各 1 GiB；标准 xl 是 32 头，S、P 还要再大一倍。
+放到一整层上也是这样，只是 `torch.compile` 之后存下的两个 seq × seq 张量换成了 S 和 P。xl 的一层（RMSNorm 这类中间量已经被省掉）一共要为反向存 3655 MiB，其中一半以上是 S 和 P（[图 4-5](#fig-4-5)）。这组测量用的是 16 头，S、P 各 1 GiB；标准 xl 是 32 头，S、P 还要再大一倍。
 
-<figure id="fig-4-4" class="fg-fig">
+<figure id="fig-4-5" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 246" width="100%" role="img" aria-label="xl 一层为反向存的 3655 MiB：S、P 占 56%，FFN 中间量 26%，[b, s, d] 级张量 17.5%，其他 0.2%">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
@@ -1161,14 +1232,14 @@ Saving  9  [64,1024,1024]      float32  # P
   <text class="lab" x="310" y="182">其他</text><text class="lab2" x="310" y="198">mask、RoPE、softmax 统计量</text>
   <text class="val" x="630" y="182" text-anchor="end">7 MiB · 0.2%</text>
 </svg>
-<figcaption><strong>图 4-4</strong> xl 一层为反向存的张量（batch 4，seq 2048，16 头，<code>torch.compile</code> 后用 <code>saved_tensors_hooks</code> 实测）。</figcaption>
+<figcaption><strong>图 4-5</strong> xl 一层为反向存的张量（batch 4，seq 2048，16 头，<code>torch.compile</code> 后用 <code>saved_tensors_hooks</code> 实测）。</figcaption>
 </figure>
 
 xl 有 32 层，按 16 头算加起来也有 114 GiB，是 5090 显存的三倍多。而且只有 S、P 随 seq² 增长：32 头时，同一个 `[b, h, s, s]` 张量在 seq 128 时是 8 MiB，seq 2048 时是 2 GiB，是残差流上一个 `[b, s, d]` 张量的 25 倍。
 
-[图 4-5](#fig-4-5) 是 xl 一步的显存时间线。seq 2048 只跑前向时，每层 attention 都让显存冲高约 8 GiB，算完再落回去，32 层都能跑完；加上反向后，每层的 S、P 都得留下，第 1 层就多占约 4.7 GiB，到第 2 层就 OOM 了。
+[图 4-6](#fig-4-6) 是 xl 一步的显存时间线。seq 2048 只跑前向时，每层 attention 都让显存冲高约 8 GiB，算完再落回去，32 层都能跑完；加上反向后，每层的 S、P 都得留下，第 1 层就多占约 4.7 GiB，到第 2 层就 OOM 了。
 
-<figure id="fig-4-5" class="fg-fig">
+<figure id="fig-4-6" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 420" width="100%" role="img" aria-label="xl 一步的显存时间线：seq 128 纯前向是平的；seq 2048 纯前向每层冲出一个尖峰；seq 128 full step 前向和反向一路上升，到 optimizer 时 OOM；seq 2048 带反向时第 2 层 OOM">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
@@ -1245,7 +1316,7 @@ xl 有 32 层，按 16 头算加起来也有 114 GiB，是 5090 显存的三倍�
   <text class="tick" x="614" y="389" text-anchor="end">195 次分配 / 释放</text>
   <text class="lab2" x="12" y="210" transform="rotate(-90 12 210)" text-anchor="middle">显存（GiB）</text>
 </svg>
-<figcaption><strong>图 4-5</strong> xl（batch 4，32 头）一步的显存时间线，横轴是分配 / 释放的次序。</figcaption>
+<figcaption><strong>图 4-6</strong> xl（batch 4，32 头）一步的显存时间线，横轴是分配 / 释放的次序。</figcaption>
 </figure>
 
 ---

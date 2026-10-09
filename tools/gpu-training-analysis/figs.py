@@ -166,25 +166,33 @@ def step_time():
     return f
 
 # ── 图 2-3 roofline ───────────────────────────────────────────────────────────
+ALL_ROOFS = [("fp32", 1.048e14, "fp32 π = 1.05e14", True), ("bf16", 2.095e14, "bf16 2.1e14", False),
+             ("fp8", 4.19e14, "fp8 4.19e14", False), ("nvfp4", 1.676e15, "nvfp4 1.68e15", False)]
+
 def roofline():
+    return _roofline("fig-1-1", "RTX 5090 各精度的 roofline：带宽斜线 1.79e12 B/s 与 fp32、bf16、fp8、nvfp4 四条峰值平线分别交于 58、117、234、935 FLOPs/B", ALL_ROOFS, [], 15.5)
+
+def roofline_ops():
+    return _roofline("fig-4-2", "RTX 5090 fp32 的 roofline 和一层 attention 里实测的 op：attention 的 op 都在斜线上，只有作对照的 Linear 在平线下", [("fp32", 1.048e14, "峰值 π = 1.05e14 FLOPS", True)], None, 14.6)
+
+def _roofline(fid, label, ROOFS, OPS, YHI):
     B = 1.792e12
-    ROOFS = [("fp32", 1.048e14, "峰值 π = 1.05e14 FLOPS", True)]
     MiB = 2 ** 20
-    OPS = [("Linear", "Linear（FFN w1）", 2 * 4096 * 1024 * 4096, 96 * MiB, 0.5, "MFU 64%"),
+    if OPS is None: OPS = [("Linear", "Linear（FFN w1）", 2 * 4096 * 1024 * 4096, 96 * MiB, 0.5, "MFU 64%"),
            ("QKᵀ", "S = QKᵀ", 64 * 2 * 1024 * 64 * 1024, 288 * MiB, 0.30, "MBU 57%"),
            ("PV", "O = PV", 64 * 2 * 1024 * 1024 * 64, 272 * MiB, 0.23, "MBU 70%"),
            ("softmax", "softmax（5 个 kernel）", 27 * 4 * 16 * 1024 * 1024, 2048 * MiB, 1.43, "MBU 84%"),
            ("S / √d", "S / √d", 4 * 16 * 1024 * 1024, 512 * MiB, 0.35, "MBU 86%")]
-    X0, X1, XLO, XHI, Y0, Y1, YLO, YHI = 70, 620, -1.0, 4.0, 340, 20, 11.0, 14.6
+    X0, X1, XLO, XHI, Y0, Y1, YLO = 70, 620, -1.0, 4.0, 340, 20, 11.0
     xp = lambda i: X0 + (math.log10(i) - XLO) / (XHI - XLO) * (X1 - X0)
     yp = lambda v: Y0 - (math.log10(v) - YLO) / (YHI - YLO) * (Y0 - Y1)
     fmt = lambda v: (lambda m, e: f"{float(m):.2f}".rstrip("0").rstrip(".") + "e" + str(int(e)))(*f"{v:.2e}".split("e"))
-    f = F("fig-1-1", 392, "RTX 5090 fp32 的 roofline：带宽斜线和峰值平线交于 58 FLOPs/B；attention 的 op 都在斜线上，只有 Linear 在平线下")
+    f = F(fid, 392, label)
     for k in range(-1, 5):
         x = xp(10 ** k)
         if k > -1: f.w(f'<line class="grid" x1="{x:.1f}" y1="{Y1}" x2="{x:.1f}" y2="{Y0}"/>')
         f.w(f'<text class="tick" x="{x:.1f}" y="{Y0 + 17}" text-anchor="middle">{["0.1", "1", "10", "100", "1000", "10000"][k + 1]}</text>')
-    for k in range(11, 15):
+    for k in range(11, int(YHI) + 1):
         y = yp(10 ** k)
         if k > 11: f.w(f'<line class="grid" x1="{X0}" y1="{y:.1f}" x2="{X1}" y2="{y:.1f}"/>')
         f.w(f'<text class="tick" x="{X0 - 8}" y="{y + 4:.1f}" text-anchor="end">1e{k}</text>')
@@ -193,12 +201,18 @@ def roofline():
     f.w(f'<text class="lab2" transform="translate(16 {(Y0 + Y1) / 2:.0f}) rotate(-90)" text-anchor="middle">可达算力（FLOPS，对数轴）</text>')
     r32, rmax = ROOFS[0][1] / B, ROOFS[-1][1] / B
     f.w(f'<line x1="{xp(r32):.1f}" y1="{yp(ROOFS[0][1]):.1f}" x2="{xp(r32):.1f}" y2="{Y0}" stroke="currentColor" stroke-opacity=".25"/>')
+    if len(ROOFS) > 1:
+        f.w(f'<line x1="{xp(r32):.1f}" y1="{yp(ROOFS[0][1]):.1f}" x2="{xp(rmax):.1f}" y2="{yp(ROOFS[-1][1]):.1f}" style="stroke: var(--fig-2)" stroke-width="1.5" stroke-dasharray="6 4"/>')
+        f.w(f'<text class="lab2" x="{X0 + 10}" y="{Y1 + 16}">拐点旁的数字是 ridge point I*（FLOPs/B）</text>')
     for name, peak, lab, main in ROOFS:
         r = peak / B
         st = 'style="stroke: var(--fig-1)" stroke-width="2.2"' if main else 'style="stroke: var(--fig-2)" stroke-width="1.5" stroke-dasharray="6 4"'
         f.w(f'<line x1="{xp(r):.1f}" y1="{yp(peak):.1f}" x2="{X1}" y2="{yp(peak):.1f}" {st}/>')
         f.w(f'<g class="m"><title>{name}：ridge point = {fmt(peak)} / 1.792e12 = {r:.0f} FLOPs/B</title><circle cx="{xp(r):.1f}" cy="{yp(peak):.1f}" r="3" style="fill: var(--fig-1)"/></g>')
-        f.w(f'<text class="lab" x="{xp(r):.1f}" y="{yp(peak) - 10:.1f}" text-anchor="middle">ridge point I* = {r:.0f}</text>')
+        if len(ROOFS) == 1:
+            f.w(f'<text class="lab" x="{xp(r):.1f}" y="{yp(peak) - 10:.1f}" text-anchor="middle">ridge point I* = {r:.0f}</text>')
+        else:
+            f.w(f'<text class="lab2" x="{xp(r) - 7:.1f}" y="{yp(peak) - 4:.1f}" text-anchor="end">{r:.0f}</text>')
         f.w(f'<text class="{"lab" if main else "lab2"}" x="{X1 - 2}" y="{yp(peak) + 14:.1f}" text-anchor="end">{lab}</text>')
     f.w(f'<line x1="{X0}" y1="{yp(0.1 * B):.1f}" x2="{xp(r32):.1f}" y2="{yp(ROOFS[0][1]):.1f}" style="stroke: var(--fig-1)" stroke-width="2.2"/>')
     ang = -math.degrees(math.atan((Y0 - Y1) / (YHI - YLO) / ((X1 - X0) / (XHI - XLO))))
@@ -256,7 +270,7 @@ def attn_flow():
 
 # ── 图 2-4 eager softmax 的显存读写 ───────────────────────────────────────────
 def softmax():
-    f = F("fig-4-2", 262, "eager softmax 的 5 个 kernel 共读写显存里 S 大小的张量 8 次；融合成一个 kernel 后只读 S、写 P 两次")
+    f = F("fig-4-3", 262, "eager softmax 的 5 个 kernel 共读写显存里 S 大小的张量 8 次；融合成一个 kernel 后只读 S、写 P 两次")
     TY, KY, FY = 52, 150, 236
     def box(cx, cy, wd, lab, hbm):
         st = tint("--fig-1", 14, sw=1.5) if hbm else 'class="op"'
@@ -289,7 +303,7 @@ def softmax():
 def flops_vs_time():
     rows = [("QKᵀ", "--fig-1", 8.6e9, "8.6e9", 0.30), ("÷√d + mask", "--fig-hi", 6.7e7, "6.7e7", 0.75),
             ("softmax", "--fig-hi", 1.8e9, "1.8e9", 1.43), ("PV", "--fig-1", 8.6e9, "8.6e9", 0.23)]
-    f = F("fig-4-2", 186, "medium、seq 1024 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间：softmax 和 ÷√d、mask 的 FLOPs 很少，时间却最多")
+    f = F("fig-4-3", 186, "medium、seq 1024 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间：softmax 和 ÷√d、mask 的 FLOPs 很少，时间却最多")
     legend(f, [("矩阵乘", "--fig-1", "box"), ("逐元素", "--fig-hi", "box")], 112, 20)
     P1, P2, PW = 112, 392, 200
     f.w(f'<text class="ttl" x="{P1}" y="48">FLOPs</text><text class="ttl" x="{P2}" y="48">GPU 时间（ms）</text>')
@@ -311,7 +325,7 @@ def share_vs_seq():
     seqs, X = [256, 512, 1024], {256: 110, 512: 290, 1024: 470}
     ser = [("合计", "--fig-mute", [10, 22, 46], [2.3, 10.2, 64.9], True), ("softmax", "--fig-hi", [4, 11, 24], [1.0, 5.0, 34.3], False),
            ("scores", "--fig-1", [4, 8, 18], [0.9, 3.6, 25.1], False), ("PV", "--fig-2", [2, 3, 4], [0.4, 1.6, 5.5], False)]
-    f = F("fig-4-3", 262, "attention 三段占 forward 时间随 seq 的变化：softmax 从 4% 涨到 24%，scores 从 4% 涨到 18%，PV 只从 2% 到 4%，合计从 10% 到 46%")
+    f = F("fig-4-4", 262, "attention 三段占 forward 时间随 seq 的变化：softmax 从 4% 涨到 24%，scores 从 4% 涨到 18%，PV 只从 2% 到 4%，合计从 10% 到 46%")
     legend(f, [("softmax", "--fig-hi", "line"), ("scores（QKᵀ、÷√d、mask）", "--fig-1", "line"), ("PV", "--fig-2", "line"), ("attention 合计", None, "dash")], 70, 20)
     Y0, PY = 236, 3.6
     for v in range(0, 51, 10):
@@ -570,7 +584,7 @@ def layer_donut():
     sl = [("S、P", "[b, h, s, s]", 2048, "--fig-hi"), ("FFN 中间量", "[b, s, d_ff]", 960, "--fig-1"),
           ("[b, s, d] 级张量", "x、norm 输出、Q、K、V 等", 640, "--fig-2"), ("其他", "mask、RoPE、softmax 统计量", 7, "--fig-3")]
     tot = sum(s[2] for s in sl)
-    f = F("fig-4-4", 246, "xl 一层为反向存的 3655 MiB：S、P 占 56%，FFN 中间量 26%，[b, s, d] 级张量 17.5%，其他 0.2%")
+    f = F("fig-4-5", 246, "xl 一层为反向存的 3655 MiB：S、P 占 56%，FFN 中间量 26%，[b, s, d] 级张量 17.5%，其他 0.2%")
     cx, cy, R, r, a = 150, 122, 92, 58, -math.pi / 2
     for name, shape, v, var in sl:
         a2 = a + 2 * math.pi * v / tot
@@ -595,7 +609,7 @@ def timelines():
     panels = [("seq128_forward", "seq 128 · 纯前向", None), ("seq2048_forward", "seq 2048 · 纯前向", None),
               ("seq128_full", "seq 128 · full step", "OOM"), ("seq2048_fwd_bwd", "seq 2048 · 前向 + 反向", "OOM")]
     names = {"forward": "前向", "backward": "反向", "optimizer": "optimizer"}
-    f = F("fig-4-5", 420, "xl 一步的显存时间线：seq 128 纯前向是平的；seq 2048 纯前向每层冲出一个尖峰；seq 128 full step 前向和反向一路上升，到 optimizer 时 OOM；seq 2048 带反向时第 2 层 OOM")
+    f = F("fig-4-6", 420, "xl 一步的显存时间线：seq 128 纯前向是平的；seq 2048 纯前向每层冲出一个尖峰；seq 128 full step 前向和反向一路上升，到 optimizer 时 OOM；seq 2048 带反向时第 2 层 OOM")
     YMAX = 30
     for p, (key, title, oom) in enumerate(panels):
         d = tl[key]
@@ -716,22 +730,23 @@ def sweep():
 CAPS = {
  "linear": '<strong>图 2-1</strong> 一个 Linear 的前向与反向：前向从左边往下，误差从右边传回；虚线是反向要从前向拿的东西。',
  "step_time": '<strong>图 2-2</strong> 一步训练里前向、反向、optimizer 的耗时占比（fp32，batch 4，seq 512），右侧是每步耗时和 MFU。',
- "roofline": '<strong>图 1-1</strong> RTX 5090 fp32 的 roofline，以及 medium、seq 1024 时一层 attention 里实测的 op（另放一个 Linear 作对照）。causal mask 没有 FLOPs，不在图上；悬停可看数值。',
+ "roofline": '<strong>图 1-1</strong> RTX 5090 各精度的 roofline：斜线是带宽，平线是峰值算力（dense，boost clock 2407 MHz，来自 NVIDIA RTX Blackwell 白皮书；Tensor core 按 fp32 累加）。',
+ "roofline_ops": '<strong>图 4-2</strong> RTX 5090 fp32 的 roofline，以及 medium、seq 1024 时一层 attention 里实测的 op（另放一个 Linear 作对照）。causal mask 没有 FLOPs，不在图上；悬停可看数值。',
  "attn_flow": '<strong>图 4-1</strong> eager attention 一层（medium，seq 1024，画法同<a href="#fig-3-1">图 3-1</a>）。S、S/√d、S+M、S−m、e、P 都是 [b, h, seq, seq]，各 256 MiB；Q、K、V 各 16 MiB，mask 1 MiB，m 和 Σ 每行一个数（256 KiB）。max 同时写出每行最大值的下标（int64，0.5 MiB），反向只用它，m 用完即释放。粗实线框是为反向新存下的，细实线框是本来就在、只被引用的 Q、K、V、mask，灰色虚线框是用完即释放的临时量。',
  "softmax": '<strong>图 4-2</strong> eager softmax 的显存读写：每条编号箭头是一次完整的读或写，共 8 次；融合后只剩 2 次。',
- "flops_vs_time": '<strong>图 4-2</strong> 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间（medium，seq 1024）。',
- "share_vs_seq": '<strong>图 4-3</strong> attention 三段占 forward GPU 时间的比例随 seq 变化（medium）。',
+ "flops_vs_time": '<strong>图 4-3</strong> 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间（medium，seq 1024）。',
+ "share_vs_seq": '<strong>图 4-4</strong> attention 三段占 forward GPU 时间的比例随 seq 变化（medium）。',
  "peak_memory": '<strong>图 2-3</strong> full step 的实测峰值显存（batch 4，seq 512）。A = 带梯度的前向峰值 − W，顶上 ~0.1 GiB 是 T。',
  "peak_moment": '<strong>图 2-4</strong> 一步前向 + 反向的显存（fp32）：色带按 M(j) 用实测的 W、A、G、T 堆叠，× 是逐层实测值。',
  "rms_eager": '<strong>图 3-1</strong> RMSNorm（eager，x 是 20 MiB）：中间一排是显存里的张量，框宽按实际字节数线性画（KiB 级的只剩一条细线），每块只画一次，同色是同一块内存（ptr 相同）；粗实线框新占显存，细实线框本来就在、只被引用（x 是上一层的输出，w 是参数，都会一直留着），灰色虚线框是用完即释放的临时量。前向的实线箭头指向 op 是读、指向显存是写；反向沿虚线箭头读回存下的张量。',
  "rms_fused": '<strong>图 3-2</strong> 融合后的 RMSNorm（画法同<a href="#fig-3-1">图 3-1</a>）：前向只读 x、w，写 r 和 y，x²、v、x̂ 都不进显存；反向读回 x、w、r，现场重算 x̂。',
- "layer_donut": '<strong>图 4-4</strong> xl 一层为反向存的张量（batch 4，seq 2048，16 头，<code>torch.compile</code> 后用 <code>saved_tensors_hooks</code> 实测）。',
- "timelines": '<strong>图 4-5</strong> xl（batch 4，32 头）一步的显存时间线，横轴是分配 / 释放的次序。',
+ "layer_donut": '<strong>图 4-5</strong> xl 一层为反向存的张量（batch 4，seq 2048，16 头，<code>torch.compile</code> 后用 <code>saved_tensors_hooks</code> 实测）。',
+ "timelines": '<strong>图 4-6</strong> xl（batch 4，32 头）一步的显存时间线，横轴是分配 / 释放的次序。',
  "bf16": '<strong>图 5-1</strong> bf16 autocast 相对 fp32（前向 + 反向，batch 4，seq 512）：左边是加速比，右边是峰值显存。',
  "ckpt": '<strong>图 5-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。',
  "sweep": '<strong>图 5-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。',
 }
-OUT = {k: fn().html(CAPS[k]) for k, fn in (("linear", linear), ("step_time", step_time), ("roofline", roofline), 
+OUT = {k: fn().html(CAPS[k]) for k, fn in (("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), 
        ("flops_vs_time", flops_vs_time), ("share_vs_seq", share_vs_seq), ("peak_memory", peak_memory), ("peak_moment", peak_moment),
        ("rms_eager", rms_eager), ("rms_fused", rms_fused), ("attn_flow", attn_flow), ("layer_donut", layer_donut), ("timelines", timelines),
        ("bf16", bf16), ("ckpt", ckpt), ("sweep", sweep))}
