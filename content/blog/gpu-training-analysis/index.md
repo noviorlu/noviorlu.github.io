@@ -1043,7 +1043,32 @@ S、P 的读写量随 seq² 增长，Linear 只随 seq 线性增长。seq 从 25
 
 ### 4.2 显存：S、P 占了一半以上 {#attn-memory}
 
-按 RMSNorm 那条规则看图 4-1 的下半部分：① 的偏导要用 Q、K，⑤ 要用 P、V，这四个都要存；softmax 的反向要用它自己的中间结果，eager 实现里存的是 exp(S − m)。Q、K、V 本来就在显存里，只是引用；新占显存的是 exp(S − m) 和 P，两个都是 seq × seq，各 256 MiB，比 Q、K、V、O 加起来还大 8 倍。
+用同样的 `saved_tensors_hooks` 打印 eager attention 存下的张量（medium、seq 1024，b·h = 64 合成一维）：
+
+```
+Saving  1  [64,64,1024]        float32  # K（转置后的 view）
+Saving  2  [64,1024,64]        float32  # Q
+Saving  3  [1024,1024]         bool     # mask
+Saving  4  [4,16,1024,1]       int64    # 每行 max 的下标
+Saving  5  [4,16,1024,1024]    float32  # e = exp(S − m)
+Saving  6  [4,16,1024,1]       float32  # 行和 Σ
+Saving  7  [4,16,1024,1024]    float32  # e（和第 5 条同一块内存）
+Saving  8  [64,1024,64]        float32  # V
+Saving  9  [64,1024,1024]      float32  # P
+```
+
+按 RMSNorm 那条规则逐个 op 对一遍（[表 4-1](#tab-4-1)）：9 次 Saving 里，Q、K、V、mask 本来就在显存里，只是引用；softmax 的 5 个 kernel 里，exp 的导数就是它自己的输出，除法要用分子和分母，所以存下 e 和 Σ；⑤ 要用 P 和 V。新占显存的是 e 和 P 两个 seq × seq 张量，各 256 MiB，加起来比 Q、K、V、O 的总和还大 8 倍。
+
+| op | 反向要的偏导 | 存下 | 新占显存 |
+|:--|:--|:--|--:|
+| ① $S = QK^{\top}$ | $\partial S/\partial Q = K$，$\partial S/\partial K = Q$ | $Q$、$K$ | 0 |
+| ② $\div\sqrt{d}$ | $1/\sqrt{d}$，常数 | 不存 | 0 |
+| ③ $+M$ | 被 mask 的位置梯度为 0 | mask | 0 |
+| ④ max | 只有最大值的位置有梯度 | 下标 | 0.5 MiB |
+| ④ $e = \exp(S - m)$ | $\partial e/\partial S = e$ | $e$ | **256 MiB** |
+| ④ $P = e / \Sigma$ | $\partial P/\partial e = 1/\Sigma$，$\partial P/\partial \Sigma = -e/\Sigma^2$ | $e$、$\Sigma$ | 0.2 MiB |
+| ⑤ $O = PV$ | $\partial O/\partial P = V$，$\partial O/\partial V = P$ | $P$、$V$ | **256 MiB** |
+{#tab-4-1 caption="**表 4-1** attention 各 op 为反向存的张量（eager，medium，seq 1024）" note="存下的张量是实测。④ 的减 max 和求和偏导是常数，不存；除法存的 e 和 exp 存的是同一块内存。"}
 
 放到一整层上也是这样。xl 的一层（`torch.compile` 已经省掉了 RMSNorm 这类中间量）一共要为反向存 3655 MiB，其中一半以上是 S 和 P（[图 4-5](#fig-4-5)）。这组测量用的是 16 头，S、P 各 1 GiB；标准 xl 是 32 头，S、P 还要再大一倍。
 
