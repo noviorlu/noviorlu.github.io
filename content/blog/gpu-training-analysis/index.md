@@ -561,7 +561,7 @@ Loading    5 → 6 → 2 → 4 → 3 → 1
   <rect class="band" x="4" y="6" width="632" height="98" rx="8"/>
   <text class="ttl" x="16" y="24">前向</text><text class="lab2" x="50" y="24">花 FLOPs</text>
   <rect class="band" x="4" y="114" width="632" height="80" rx="8"/>
-  <text class="ttl" x="16" y="132">显存读写</text><text class="lab2" x="76" y="132">每格 = 完整读（空心）或写（实心）一次 20 MiB 的 x 大小张量</text>
+  <text class="ttl" x="16" y="132">显存读写</text><text class="lab2" x="76" y="132">每格 = 完整读（空心）或写（实心）一次 20 MiB 的 x 大小张量，矮格是 8 KiB 的 v、r</text>
   <rect class="band" x="4" y="204" width="632" height="98" rx="8"/>
   <text class="ttl" x="16" y="222">为反向存下</text><text class="lab2" x="89" y="222">6 次 Saving，落在 4 块内存上</text>
   <rect class="band" x="4" y="312" width="632" height="90" rx="8"/>
@@ -569,29 +569,32 @@ Loading    5 → 6 → 2 → 4 → 3 → 1
   <rect x="50.0" y="43.0" width="84" height="46" rx="6" class="op"/>
   <text class="tb" x="92" y="63" text-anchor="middle">① x²</text>
   <text class="s" x="92" y="79" text-anchor="middle">1 FLOP/元素</text>
-  <g class="m"><title>读 20 MiB</title><rect x="80.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
-  <g class="m"><title>写 20 MiB</title><rect x="93.0" y="138" width="11" height="16" rx="2" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>读 20 MiB</title><rect x="80.0" y="138" width="11" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>写 20 MiB</title><rect x="93.0" y="138" width="11" height="16" rx="1.5" style="fill: var(--fig-hi)"/></g>
   <text class="val" x="92" y="168" text-anchor="middle">2 次，40 MiB</text>
   <rect x="164.0" y="43.0" width="84" height="46" rx="6" class="op"/>
   <text class="tb" x="206" y="63" text-anchor="middle">② mean</text>
   <text class="s" x="206" y="79" text-anchor="middle">1 FLOP/元素</text>
-  <g class="m"><title>读 20 MiB</title><rect x="200.5" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
-  <text class="val" x="206" y="168" text-anchor="middle">1 次，20 MiB</text>
+  <g class="m"><title>读 20 MiB</title><rect x="194.0" y="138" width="11" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>写 8 KiB（每行一个数）</title><rect x="207.0" y="149" width="11" height="5" rx="1.5" style="fill: var(--fig-hi)"/></g>
+  <text class="val" x="206" y="168" text-anchor="middle">读 20 MiB，写 8 KiB</text>
   <rect x="278.0" y="43.0" width="84" height="46" rx="6" class="op"/>
   <text class="tb" x="320" y="63" text-anchor="middle">③ rsqrt</text>
   <text class="s" x="320" y="79" text-anchor="middle">每行 2 FLOPs</text>
-  <text class="val" x="320" y="168" text-anchor="middle">每行一个数</text>
+  <g class="m"><title>读 8 KiB（每行一个数）</title><rect x="308.0" y="149" width="11" height="5" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>写 8 KiB（每行一个数）</title><rect x="321.0" y="149" width="11" height="5" rx="1.5" style="fill: var(--fig-hi)"/></g>
+  <text class="val" x="320" y="168" text-anchor="middle">读写各 8 KiB</text>
   <rect x="392.0" y="43.0" width="84" height="46" rx="6" class="op"/>
   <text class="tb" x="434" y="63" text-anchor="middle">④ x · r</text>
   <text class="s" x="434" y="79" text-anchor="middle">1 FLOP/元素</text>
-  <g class="m"><title>读 20 MiB</title><rect x="422.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
-  <g class="m"><title>写 20 MiB</title><rect x="435.0" y="138" width="11" height="16" rx="2" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>读 20 MiB</title><rect x="422.0" y="138" width="11" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>写 20 MiB</title><rect x="435.0" y="138" width="11" height="16" rx="1.5" style="fill: var(--fig-hi)"/></g>
   <text class="val" x="434" y="168" text-anchor="middle">2 次，40 MiB</text>
   <rect x="506.0" y="43.0" width="84" height="46" rx="6" class="op"/>
   <text class="tb" x="548" y="63" text-anchor="middle">⑤ w ⊙ x̂</text>
   <text class="s" x="548" y="79" text-anchor="middle">1 FLOP/元素</text>
-  <g class="m"><title>读 20 MiB</title><rect x="536.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
-  <g class="m"><title>写 20 MiB</title><rect x="549.0" y="138" width="11" height="16" rx="2" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>读 20 MiB</title><rect x="536.0" y="138" width="11" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>写 20 MiB</title><rect x="549.0" y="138" width="11" height="16" rx="1.5" style="fill: var(--fig-hi)"/></g>
   <text class="val" x="548" y="168" text-anchor="middle">2 次，40 MiB</text>
   <line x1="134.0" y1="62.0" x2="162.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m0)"/>
   <line x1="248.0" y1="62.0" x2="276.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m0)"/>
@@ -698,8 +701,8 @@ Loading    1 → 2 → 3（与 Saving 同序）
   <line x1="24.0" y1="62.0" x2="118.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-2-m0)"/>
   <line x1="590.0" y1="62.0" x2="616.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-2-m0)"/>
   <text class="t" x="622" y="66">y</text>
-  <g class="m"><title>读 20 MiB</title><rect x="343.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
-  <g class="m"><title>写 20 MiB</title><rect x="356.0" y="138" width="11" height="16" rx="2" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>读 20 MiB</title><rect x="343.0" y="138" width="11" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>写 20 MiB</title><rect x="356.0" y="138" width="11" height="16" rx="1.5" style="fill: var(--fig-hi)"/></g>
   <text class="val" x="355.0" y="168" text-anchor="middle">2 次，40 MiB（读 x、写 y）</text>
   <rect x="142.0" y="244" width="96" height="40" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
   <text x="190" y="260" text-anchor="middle" font-size="11.5" fill="currentColor">x …3c80</text>
@@ -785,36 +788,36 @@ $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 cau
   <rect x="50.0" y="43.0" width="84" height="46" rx="6" class="op"/>
   <text class="tb" x="92" y="63" text-anchor="middle">① S = QKᵀ</text>
   <text class="s" x="92" y="79" text-anchor="middle">8.6e9 FLOPs</text>
-  <g class="m"><title>写 256 MiB</title><rect x="86.5" y="138" width="11" height="16" rx="2" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>写 256 MiB</title><rect x="86.5" y="138" width="11" height="16" rx="1.5" style="fill: var(--fig-hi)"/></g>
   <text class="val" x="92" y="168" text-anchor="middle">1 次，288 MiB</text>
   <rect x="164.0" y="43.0" width="84" height="46" rx="6" class="op"/>
   <text class="tb" x="206" y="63" text-anchor="middle">② ÷√d</text>
   <text class="s" x="206" y="79" text-anchor="middle">6.7e7 FLOPs</text>
-  <g class="m"><title>读 256 MiB</title><rect x="194.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
-  <g class="m"><title>写 256 MiB</title><rect x="207.0" y="138" width="11" height="16" rx="2" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>读 256 MiB</title><rect x="194.0" y="138" width="11" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>写 256 MiB</title><rect x="207.0" y="138" width="11" height="16" rx="1.5" style="fill: var(--fig-hi)"/></g>
   <text class="val" x="206" y="168" text-anchor="middle">2 次，512 MiB</text>
   <rect x="278.0" y="43.0" width="84" height="46" rx="6" class="op"/>
   <text class="tb" x="320" y="63" text-anchor="middle">③ + mask</text>
   <text class="s" x="320" y="79" text-anchor="middle">0 FLOPs</text>
-  <g class="m"><title>读 256 MiB</title><rect x="308.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
-  <g class="m"><title>写 256 MiB</title><rect x="321.0" y="138" width="11" height="16" rx="2" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>读 256 MiB</title><rect x="308.0" y="138" width="11" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>写 256 MiB</title><rect x="321.0" y="138" width="11" height="16" rx="1.5" style="fill: var(--fig-hi)"/></g>
   <text class="val" x="320" y="168" text-anchor="middle">2 次，513 MiB</text>
   <rect x="385.0" y="43.0" width="98" height="46" rx="6" class="op"/>
   <text class="tb" x="434" y="63" text-anchor="middle">④ softmax</text>
   <text class="s" x="434" y="79" text-anchor="middle">1.8e9，5 个 kernel</text>
-  <g class="m"><title>读 256 MiB</title><rect x="383.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
-  <g class="m"><title>读 256 MiB</title><rect x="396.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
-  <g class="m"><title>写 256 MiB</title><rect x="409.0" y="138" width="11" height="16" rx="2" style="fill: var(--fig-hi)"/></g>
-  <g class="m"><title>读 256 MiB</title><rect x="422.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
-  <g class="m"><title>写 256 MiB</title><rect x="435.0" y="138" width="11" height="16" rx="2" style="fill: var(--fig-hi)"/></g>
-  <g class="m"><title>读 256 MiB</title><rect x="448.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
-  <g class="m"><title>读 256 MiB</title><rect x="461.0" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
-  <g class="m"><title>写 256 MiB</title><rect x="474.0" y="138" width="11" height="16" rx="2" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>读 256 MiB</title><rect x="383.0" y="138" width="11" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>读 256 MiB</title><rect x="396.0" y="138" width="11" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>写 256 MiB</title><rect x="409.0" y="138" width="11" height="16" rx="1.5" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>读 256 MiB</title><rect x="422.0" y="138" width="11" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>写 256 MiB</title><rect x="435.0" y="138" width="11" height="16" rx="1.5" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>读 256 MiB</title><rect x="448.0" y="138" width="11" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>读 256 MiB</title><rect x="461.0" y="138" width="11" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>写 256 MiB</title><rect x="474.0" y="138" width="11" height="16" rx="1.5" style="fill: var(--fig-hi)"/></g>
   <text class="val" x="434" y="168" text-anchor="middle">8 次，2048 MiB</text>
   <rect x="506.0" y="43.0" width="84" height="46" rx="6" class="op"/>
   <text class="tb" x="548" y="63" text-anchor="middle">⑤ O = PV</text>
   <text class="s" x="548" y="79" text-anchor="middle">8.6e9 FLOPs</text>
-  <g class="m"><title>读 256 MiB</title><rect x="542.5" y="138" width="11" height="16" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
+  <g class="m"><title>读 256 MiB</title><rect x="542.5" y="138" width="11" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 12%, transparent); stroke: var(--fig-hi)" stroke-width="1.2"/></g>
   <text class="val" x="548" y="168" text-anchor="middle">1 次，288 MiB</text>
   <text class="lab2" x="434" y="184" text-anchor="middle">融合后只读 1 次、写 1 次</text>
   <line x1="134.0" y1="62.0" x2="162.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-4-1-m0)"/>
