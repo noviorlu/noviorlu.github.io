@@ -540,7 +540,7 @@ Loading    5 → 6 → 2 → 4 → 3 → 1
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
   </style>
-  <defs><marker id="fig-3-1-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-2)"/></marker><marker id="fig-3-1-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-mute)"/></marker><marker id="fig-3-1-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker><marker id="fig-3-1-m3" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker><marker id="fig-3-1-m4" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
+  <defs><marker id="fig-3-1-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-2)"/></marker><marker id="fig-3-1-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-mute)"/></marker><marker id="fig-3-1-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker><marker id="fig-3-1-m3" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker><marker id="fig-3-1-m4" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-3)"/></marker><marker id="fig-3-1-m5" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
   <rect class="band" x="4" y="6" width="632" height="92" rx="8"/>
   <rect class="band" x="4" y="128" width="632" height="96" rx="8"/>
   <rect class="band" x="4" y="254" width="632" height="76" rx="8"/>
@@ -554,13 +554,13 @@ Loading    5 → 6 → 2 → 4 → 3 → 1
   <line x1="377.3" y1="154.0" x2="434.0" y2="78.0" style="stroke: var(--fig-1)" stroke-width="1.3" marker-end="url(#fig-3-1-m2)"/>
   <line x1="451.0" y1="76.0" x2="479.3" y2="152.0" style="stroke: var(--fig-hi)" stroke-width="1.3" marker-end="url(#fig-3-1-m3)"/>
   <line x1="502.7" y1="154.0" x2="536.7" y2="78.0" style="stroke: var(--fig-hi)" stroke-width="1.3" marker-end="url(#fig-3-1-m3)"/>
-  <line x1="600.0" y1="154.0" x2="559.3" y2="78.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-3-1-m1)"/>
+  <line x1="600.0" y1="154.0" x2="559.3" y2="78.0" style="stroke: var(--fig-3)" stroke-width="1.3" marker-end="url(#fig-3-1-m4)"/>
   <line x1="52.3" y1="208.0" x2="92.0" y2="276.0" style="stroke: var(--fig-2)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-3-1-m0)"/>
   <line x1="376.7" y1="208.0" x2="320.0" y2="276.0" style="stroke: var(--fig-1)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-3-1-m2)"/>
   <line x1="377.3" y1="208.0" x2="445.3" y2="276.0" style="stroke: var(--fig-1)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-3-1-m2)"/>
   <path d="M75.7,208 L75.7,264 L422.7,264 L422.7,276" fill="none" style="stroke: var(--fig-2)" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#fig-3-1-m0)"/>
   <line x1="491.0" y1="208.0" x2="536.7" y2="276.0" style="stroke: var(--fig-hi)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-3-1-m3)"/>
-  <line x1="600.0" y1="208.0" x2="559.3" y2="276.0" style="stroke: var(--fig-mute)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-3-1-m1)"/>
+  <line x1="600.0" y1="208.0" x2="559.3" y2="276.0" style="stroke: var(--fig-3)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-3-1-m4)"/>
   <rect x="50.0" y="40.0" width="84" height="40" rx="6" class="op"/>
   <text class="tb" x="92" y="57" text-anchor="middle">① x²</text>
   <text class="s" x="92" y="73" text-anchor="middle">1 FLOP/元素</text>
@@ -576,7 +576,7 @@ Loading    5 → 6 → 2 → 4 → 3 → 1
   <rect x="506.0" y="40.0" width="84" height="40" rx="6" class="op"/>
   <text class="tb" x="548" y="57" text-anchor="middle">⑤ w ⊙ x̂</text>
   <text class="s" x="548" y="73" text-anchor="middle">1 FLOP/元素</text>
-  <rect x="28.0" y="154" width="72.0" height="24" rx="4.0" style="fill: color-mix(in srgb, var(--fig-2) 10%, transparent); stroke: var(--fig-2)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <rect x="28.0" y="154" width="72.0" height="24" rx="4.0" style="fill: color-mix(in srgb, var(--fig-2) 10%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
   <text x="64" y="190" text-anchor="middle" font-size="11" fill="currentColor">x …9040</text>
   <text x="64" y="203" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">20 MiB，输入</text>
   <rect x="122.0" y="154" width="72.0" height="24" rx="4.0" style="fill: color-mix(in srgb, var(--fig-mute) 6%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
@@ -585,13 +585,13 @@ Loading    5 → 6 → 2 → 4 → 3 → 1
   <rect x="262.0" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-mute) 6%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
   <text x="264" y="190" text-anchor="middle" font-size="11" fill="currentColor">v</text>
   <text x="264" y="203" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">8 KiB，临时</text>
-  <rect x="375.0" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-1) 16%, transparent); stroke: var(--fig-1)" stroke-width="1.8"/>
+  <rect x="375.0" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-1) 16%, transparent); stroke: var(--fig-1)" stroke-width="2.2"/>
   <text x="377" y="190" text-anchor="middle" font-size="11" fill="currentColor">r …6b00</text>
   <text x="377" y="203" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+8 KiB</text>
-  <rect x="455.0" y="154" width="72.0" height="24" rx="4.0" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.8"/>
+  <rect x="455.0" y="154" width="72.0" height="24" rx="4.0" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="2.2"/>
   <text x="491" y="190" text-anchor="middle" font-size="11" fill="currentColor">x̂ …3c00</text>
   <text x="491" y="203" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+20 MiB</text>
-  <rect x="598.0" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-mute) 10%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <rect x="598.0" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-3) 10%, transparent); stroke: var(--fig-3)" stroke-width="1.2"/>
   <text x="600" y="190" text-anchor="middle" font-size="11" fill="currentColor">w …1000</text>
   <text x="600" y="203" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">参数</text>
   <rect x="50.0" y="278.0" width="84" height="36" rx="6" class="op"/>
@@ -604,15 +604,15 @@ Loading    5 → 6 → 2 → 4 → 3 → 1
   <text class="t" x="434" y="300.5" text-anchor="middle">④ 反向</text>
   <rect x="506.0" y="278.0" width="84" height="36" rx="6" class="op"/>
   <text class="t" x="548" y="300.5" text-anchor="middle">⑤ 反向</text>
-  <line x1="590.0" y1="56.0" x2="614.0" y2="56.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m4)"/>
+  <line x1="590.0" y1="56.0" x2="614.0" y2="56.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m5)"/>
   <text class="t" x="620" y="60">y</text>
-  <line x1="164.0" y1="296.0" x2="136.0" y2="296.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m4)"/>
-  <line x1="278.0" y1="296.0" x2="250.0" y2="296.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m4)"/>
-  <line x1="392.0" y1="296.0" x2="364.0" y2="296.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m4)"/>
-  <line x1="506.0" y1="296.0" x2="478.0" y2="296.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m4)"/>
+  <line x1="164.0" y1="296.0" x2="136.0" y2="296.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m5)"/>
+  <line x1="278.0" y1="296.0" x2="250.0" y2="296.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m5)"/>
+  <line x1="392.0" y1="296.0" x2="364.0" y2="296.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m5)"/>
+  <line x1="506.0" y1="296.0" x2="478.0" y2="296.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m5)"/>
   <text class="t" x="620" y="300">dy</text>
-  <line x1="616.0" y1="296.0" x2="592.0" y2="296.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m4)"/>
-  <line x1="50.0" y1="296.0" x2="28.0" y2="296.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m4)"/>
+  <line x1="616.0" y1="296.0" x2="592.0" y2="296.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m5)"/>
+  <line x1="50.0" y1="296.0" x2="28.0" y2="296.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-3-1-m5)"/>
   <text class="t" x="8" y="300">dx</text>
   <text class="ttl halo" x="16" y="24">前向</text><text class="lab2 halo" x="50" y="24">箭头指向 op 是读，指向显存是写</text>
   <text class="ttl " x="16" y="24">前向</text><text class="lab2 " x="50" y="24">箭头指向 op 是读，指向显存是写</text>
@@ -621,7 +621,7 @@ Loading    5 → 6 → 2 → 4 → 3 → 1
   <text class="ttl halo" x="16" y="272">反向</text><text class="lab2 halo" x="50" y="272"></text>
   <text class="ttl " x="16" y="272">反向</text><text class="lab2 " x="50" y="272"></text>
 </svg>
-<figcaption><strong>图 3-1</strong> RMSNorm（eager，x 是 20 MiB）：中间一排是显存里的张量，框宽按实际字节数线性画（KiB 级的只剩一条细线），每块只画一次，同色是同一块内存（ptr 相同）；实线框新占显存，虚线框本来就在，灰色是用完即释放的临时量。前向的实线箭头指向 op 是读、指向显存是写；反向沿虚线箭头读回存下的张量。</figcaption>
+<figcaption><strong>图 3-1</strong> RMSNorm（eager，x 是 20 MiB）：中间一排是显存里的张量，框宽按实际字节数线性画（KiB 级的只剩一条细线），每块只画一次，同色是同一块内存（ptr 相同）；粗实线框新占显存，细实线框本来就在、只被引用（x 是上一层的输出，w 是参数，都会一直留着），灰色虚线框是用完即释放的临时量。前向的实线箭头指向 op 是读、指向显存是写；反向沿虚线箭头读回存下的张量。</figcaption>
 </figure>
 
 时间上，RMSNorm 每个元素只算约 4 次，5 个 op 却要读写约 140 MiB 显存：①、④、⑤ 各读 20 MiB、写 20 MiB，② 读 20 MiB。$I \approx 0.14$，是 memory-bound。显存上，它为反向多存了一份 $\hat{x}$。
@@ -658,26 +658,26 @@ Loading    1 → 2 → 3（与 Saving 同序）
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
   </style>
-  <defs><marker id="fig-3-2-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-2)"/></marker><marker id="fig-3-2-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker><marker id="fig-3-2-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-mute)"/></marker><marker id="fig-3-2-m3" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
+  <defs><marker id="fig-3-2-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-2)"/></marker><marker id="fig-3-2-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker><marker id="fig-3-2-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-3)"/></marker><marker id="fig-3-2-m3" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
   <rect class="band" x="4" y="6" width="632" height="92" rx="8"/>
   <rect class="band" x="4" y="128" width="632" height="96" rx="8"/>
   <rect class="band" x="4" y="254" width="632" height="76" rx="8"/>
   <line x1="180.0" y1="154.0" x2="229.0" y2="78.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-3-2-m0)"/>
   <line x1="330.0" y1="76.0" x2="330.0" y2="152.0" style="stroke: var(--fig-1)" stroke-width="1.3" marker-end="url(#fig-3-2-m1)"/>
-  <line x1="480.0" y1="154.0" x2="431.0" y2="78.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-3-2-m2)"/>
+  <line x1="480.0" y1="154.0" x2="431.0" y2="78.0" style="stroke: var(--fig-3)" stroke-width="1.3" marker-end="url(#fig-3-2-m2)"/>
   <line x1="180.0" y1="208.0" x2="229.0" y2="276.0" style="stroke: var(--fig-2)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-3-2-m0)"/>
   <line x1="330.0" y1="208.0" x2="330.0" y2="276.0" style="stroke: var(--fig-1)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-3-2-m1)"/>
-  <line x1="480.0" y1="208.0" x2="431.0" y2="276.0" style="stroke: var(--fig-mute)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-3-2-m2)"/>
+  <line x1="480.0" y1="208.0" x2="431.0" y2="276.0" style="stroke: var(--fig-3)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-3-2-m2)"/>
   <rect x="120.0" y="40.0" width="420" height="40" rx="6" class="op"/>
   <text class="tb" x="330" y="57" text-anchor="middle">fused forward：①–⑤ 一个 kernel</text>
   <text class="s" x="330" y="73" text-anchor="middle">~4 FLOPs/元素</text>
-  <rect x="135.0" y="154" width="90.0" height="24" rx="4.0" style="fill: color-mix(in srgb, var(--fig-2) 10%, transparent); stroke: var(--fig-2)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <rect x="135.0" y="154" width="90.0" height="24" rx="4.0" style="fill: color-mix(in srgb, var(--fig-2) 10%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
   <text x="180" y="190" text-anchor="middle" font-size="11" fill="currentColor">x …3c80</text>
   <text x="180" y="203" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">20 MiB，输入</text>
-  <rect x="328.0" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-1) 16%, transparent); stroke: var(--fig-1)" stroke-width="1.8"/>
+  <rect x="328.0" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-1) 16%, transparent); stroke: var(--fig-1)" stroke-width="2.2"/>
   <text x="330" y="190" text-anchor="middle" font-size="11" fill="currentColor">r …f9c0</text>
   <text x="330" y="203" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+8 KiB</text>
-  <rect x="478.0" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-mute) 10%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <rect x="478.0" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-3) 10%, transparent); stroke: var(--fig-3)" stroke-width="1.2"/>
   <text x="480" y="190" text-anchor="middle" font-size="11" fill="currentColor">w …b3c0</text>
   <text x="480" y="203" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">参数</text>
   <rect x="120.0" y="278.0" width="420" height="36" rx="6" class="op"/>
@@ -755,7 +755,7 @@ $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 cau
   <line x1="182.2" y1="154.0" x2="199.7" y2="78.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
   <line x1="214.3" y1="76.0" x2="231.8" y2="152.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
   <line x1="249.2" y1="154.0" x2="274.0" y2="78.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
-  <line x1="124.0" y1="154.0" x2="263.0" y2="78.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
+  <line x1="124.0" y1="154.0" x2="263.0" y2="78.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-4-1-m0)"/>
   <line x1="285.0" y1="76.0" x2="294.5" y2="152.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
   <line x1="307.5" y1="154.0" x2="330.0" y2="78.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
   <line x1="341.0" y1="76.0" x2="361.2" y2="152.0" style="stroke: var(--fig-mute)" stroke-width="1.3" marker-end="url(#fig-4-1-m1)"/>
@@ -774,7 +774,7 @@ $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 cau
   <line x1="774.0" y1="154.0" x2="717.3" y2="78.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-4-1-m0)"/>
   <line x1="32.0" y1="208.0" x2="132.7" y2="276.0" style="stroke: var(--fig-2)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m0)"/>
   <line x1="80.0" y1="208.0" x2="147.3" y2="276.0" style="stroke: var(--fig-2)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m0)"/>
-  <path d="M124.0,208 L124.0,264 L274.0,264 L274.0,276" fill="none" style="stroke: var(--fig-mute)" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#fig-4-1-m1)"/>
+  <path d="M124.0,208 L124.0,264 L274.0,264 L274.0,276" fill="none" style="stroke: var(--fig-2)" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#fig-4-1-m0)"/>
   <line x1="414.0" y1="208.0" x2="341.0" y2="276.0" style="stroke: var(--fig-3)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m2)"/>
   <line x1="533.8" y1="208.0" x2="509.0" y2="276.0" style="stroke: var(--fig-hi)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m3)"/>
   <line x1="551.2" y1="208.0" x2="635.7" y2="276.0" style="stroke: var(--fig-hi)" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#fig-4-1-m3)"/>
@@ -799,13 +799,13 @@ $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 cau
   <text class="tb" x="643" y="57" text-anchor="middle">÷ Σ</text>
   <rect x="680.0" y="40.0" width="60" height="40" rx="6" class="op"/>
   <text class="tb" x="710" y="57" text-anchor="middle">⑤ PV</text>
-  <rect x="30.0" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-2) 10%, transparent); stroke: var(--fig-2)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <rect x="30.0" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-2) 10%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
   <text x="32" y="190" text-anchor="middle" font-size="11" fill="currentColor">Q</text>
   <text x="32" y="203" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">引用</text>
-  <rect x="78.0" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-2) 10%, transparent); stroke: var(--fig-2)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <rect x="78.0" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-2) 10%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
   <text x="80" y="190" text-anchor="middle" font-size="11" fill="currentColor">K</text>
   <text x="80" y="203" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">引用</text>
-  <rect x="122.0" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-mute) 10%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <rect x="122.0" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-2) 10%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
   <text x="124" y="190" text-anchor="middle" font-size="11" fill="currentColor">M</text>
   <text x="124" y="203" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">引用</text>
   <rect x="146.5" y="154" width="54.0" height="24" rx="4.0" style="fill: color-mix(in srgb, var(--fig-mute) 6%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
@@ -820,22 +820,22 @@ $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 cau
   <rect x="359.5" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-mute) 6%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
   <text x="361.5" y="190" text-anchor="middle" font-size="11" fill="currentColor">m</text>
   <text x="361.5" y="203" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">临时</text>
-  <rect x="412.0" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-3) 16%, transparent); stroke: var(--fig-3)" stroke-width="1.8"/>
+  <rect x="412.0" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-3) 16%, transparent); stroke: var(--fig-3)" stroke-width="2.2"/>
   <text x="414" y="190" text-anchor="middle" font-size="11" fill="currentColor">下标</text>
   <text x="414" y="203" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+0.5 MiB</text>
   <rect x="448.5" y="154" width="54.0" height="24" rx="4.0" style="fill: color-mix(in srgb, var(--fig-mute) 6%, transparent); stroke: var(--fig-mute)" stroke-width="1.4" stroke-dasharray="5 3"/>
   <text x="475.5" y="190" text-anchor="middle" font-size="11" fill="currentColor">S−m</text>
   <text x="475.5" y="203" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">临时</text>
-  <rect x="515.5" y="154" width="54.0" height="24" rx="4.0" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.8"/>
+  <rect x="515.5" y="154" width="54.0" height="24" rx="4.0" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="2.2"/>
   <text x="542.5" y="190" text-anchor="middle" font-size="11" fill="currentColor">e</text>
   <text x="542.5" y="203" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+256 MiB</text>
-  <rect x="607.5" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-3) 16%, transparent); stroke: var(--fig-3)" stroke-width="1.8"/>
+  <rect x="607.5" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-3) 16%, transparent); stroke: var(--fig-3)" stroke-width="2.2"/>
   <text x="609.5" y="190" text-anchor="middle" font-size="11" fill="currentColor">Σ</text>
   <text x="609.5" y="203" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">每行 1 个</text>
-  <rect x="649.5" y="154" width="54.0" height="24" rx="4.0" style="fill: color-mix(in srgb, var(--fig-1) 16%, transparent); stroke: var(--fig-1)" stroke-width="1.8"/>
+  <rect x="649.5" y="154" width="54.0" height="24" rx="4.0" style="fill: color-mix(in srgb, var(--fig-1) 16%, transparent); stroke: var(--fig-1)" stroke-width="2.2"/>
   <text x="676.5" y="190" text-anchor="middle" font-size="11" fill="currentColor">P</text>
   <text x="676.5" y="203" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">+256 MiB</text>
-  <rect x="772.0" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-2) 10%, transparent); stroke: var(--fig-2)" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <rect x="772.0" y="154" width="4.0" height="24" rx="2.0" style="fill: color-mix(in srgb, var(--fig-2) 10%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
   <text x="774" y="190" text-anchor="middle" font-size="11" fill="currentColor">V</text>
   <text x="774" y="203" text-anchor="middle" font-size="10.5" opacity=".7" fill="currentColor">引用</text>
   <rect x="110.0" y="278.0" width="60" height="36" rx="6" class="op"/>
@@ -879,7 +879,7 @@ $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 cau
   <text class="ttl halo" x="16" y="272">反向</text><text class="lab2 halo" x="50" y="272"></text>
   <text class="ttl " x="16" y="272">反向</text><text class="lab2 " x="50" y="272"></text>
 </svg>
-<figcaption><strong>图 4-1</strong> eager attention 一层（medium，seq 1024，画法同<a href="#fig-3-1">图 3-1</a>）。S、S/√d、S+M、S−m、e、P 都是 [b, h, seq, seq]，各 256 MiB；Q、K、V 各 16 MiB，mask 1 MiB，m 和 Σ 每行一个数（256 KiB）。max 同时写出每行最大值的下标（int64，0.5 MiB），反向只用它，m 用完即释放。灰色虚线框是用完即释放的临时量，实线框是为反向新存下的，Q、K、V、mask 只是引用。</figcaption>
+<figcaption><strong>图 4-1</strong> eager attention 一层（medium，seq 1024，画法同<a href="#fig-3-1">图 3-1</a>）。S、S/√d、S+M、S−m、e、P 都是 [b, h, seq, seq]，各 256 MiB；Q、K、V 各 16 MiB，mask 1 MiB，m 和 Σ 每行一个数（256 KiB）。max 同时写出每行最大值的下标（int64，0.5 MiB），反向只用它，m 用完即释放。粗实线框是为反向新存下的，细实线框是本来就在、只被引用的 Q、K、V、mask，灰色虚线框是用完即释放的临时量。</figcaption>
 </figure>
 
 ### 4.1 时间：都在搬 S 和 P {#attn-time}

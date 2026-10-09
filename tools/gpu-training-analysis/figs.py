@@ -226,9 +226,9 @@ def attn_flow():
     ops_f = [(x, 60, n, None) for x, n in zip(X, names)]
     ops_b = [(x, 60, n) for x, n in zip(X, names)]
     mid = [(X[k] + X[k + 1]) / 2 for k in range(8)]
-    REF2, REFM, TMP = blk("--fig-2", "ref"), blk("--fig-mute", "ref"), blk(None, "tmp")
+    REF2, TMP = blk("--fig-2", "ref"), blk(None, "tmp")
     blocks = {"Q": (32, 44, "Q", "引用", REF2, "--fig-2"), "K": (80, 44, "K", "引用", REF2, "--fig-2"),
-              "M": (124, 36, "M", "引用", REFM, "--fig-mute"),
+              "M": (124, 36, "M", "引用", REF2, "--fig-2"),
               "S": (mid[0], 54, "S", "临时", TMP, "--fig-mute"), "S2": (mid[1], 54, "S/√d", "临时", TMP, "--fig-mute"),
               "S3": (mid[2], 54, "S+M", "临时", TMP, "--fig-mute"), "m": (X[3] + 20.5, 38, "m", "临时", TMP, "--fig-mute"),
               "idx": (X[4] - 28, 52, "下标", "+0.5 MiB", blk("--fig-3", "new"), "--fig-3"),
@@ -498,10 +498,10 @@ def flow(f, ops_f, ops_b, blocks, fe, be, YF=56, YM=176, YB=296, route=170, size
         bbox(f, cx, YB, w, 36, t)
 
 def blk(var, kind):
-    """kind: new (solid, new memory), ref (dashed, already there), tmp (dashed neutral, freed after use)."""
+    """kind: new (thick solid, new memory), ref (thin solid, already there), tmp (gray dashed, freed after use)."""
     if kind == "tmp":
         return tint("--fig-mute", 6, dash=True)
-    return tint(var, 16 if kind == "new" else 10, sw=1.8 if kind == "new" else 1.4, dash=(kind == "ref"))
+    return tint(var, 16 if kind == "new" else 10, sw=2.2 if kind == "new" else 1.2)
 
 def rms_eager():
     f = F("fig-3-1", 336, "RMSNorm eager：中间一排是显存里的每一块张量，前向箭头表示读写，反向虚线箭头表示读回存下的张量；x 被 ① 和 ④ 共用，r 被 ③ 和 ④ 共用")
@@ -516,7 +516,7 @@ def rms_eager():
               "v": (264, 72, "v", "8 KiB，临时", blk(None, "tmp"), "--fig-mute"),
               "r": (377, 70, "r …6b00", "+8 KiB", blk("--fig-1", "new"), "--fig-1"),
               "xh": (491, 70, "x̂ …3c00", "+20 MiB", blk("--fig-hi", "new"), "--fig-hi"),
-              "w": (600, 60, "w …1000", "参数", blk("--fig-mute", "ref"), "--fig-mute")}
+              "w": (600, 60, "w …1000", "参数", blk("--fig-3", "ref"), "--fig-3")}
     fe = [(0, "x", "R"), (0, "x2", "W"), (1, "x2", "R"), (1, "v", "W"), (2, "v", "R"), (2, "r", "W"),
           (3, "x", "R"), (3, "r", "R"), (3, "xh", "W"), (4, "xh", "R"), (4, "w", "R")]
     be = [(0, "x"), (2, "r"), (3, "r"), (3, "x"), (4, "xh"), (4, "w")]
@@ -538,7 +538,7 @@ def rms_fused():
     ops_b = [(330, 420, "fused backward：x̂ = x · r 现场重算")]
     blocks = {"x": (180, 90, "x …3c80", "20 MiB，输入", blk("--fig-2", "ref"), "--fig-2"),
               "r": (330, 80, "r …f9c0", "+8 KiB", blk("--fig-1", "new"), "--fig-1"),
-              "w": (480, 70, "w …b3c0", "参数", blk("--fig-mute", "ref"), "--fig-mute")}
+              "w": (480, 70, "w …b3c0", "参数", blk("--fig-3", "ref"), "--fig-3")}
     fe = [(0, "x", "R"), (0, "r", "W"), (0, "w", "R")]
     be = [(0, "x"), (0, "r"), (0, "w")]
     flow(f, ops_f, ops_b, blocks, fe, be, cap=90, sizes={"x": 20 << 20, "r": 8 << 10, "w": 10 << 10})
@@ -701,13 +701,13 @@ CAPS = {
  "linear": '<strong>图 2-1</strong> 一个 Linear 的前向与反向：前向从左边往下，误差从右边传回；虚线是反向要从前向拿的东西。',
  "step_time": '<strong>图 2-2</strong> 一步训练里前向、反向、optimizer 的耗时占比（fp32，batch 4，seq 512），右侧是每步耗时和 MFU。',
  "roofline": '<strong>图 1-1</strong> RTX 5090 fp32 的 roofline，以及 medium、seq 1024 时一层 attention 里实测的 op（另放一个 Linear 作对照）。causal mask 没有 FLOPs，不在图上；悬停可看数值。',
- "attn_flow": '<strong>图 4-1</strong> eager attention 一层（medium，seq 1024，画法同<a href="#fig-3-1">图 3-1</a>）。S、S/√d、S+M、S−m、e、P 都是 [b, h, seq, seq]，各 256 MiB；Q、K、V 各 16 MiB，mask 1 MiB，m 和 Σ 每行一个数（256 KiB）。max 同时写出每行最大值的下标（int64，0.5 MiB），反向只用它，m 用完即释放。灰色虚线框是用完即释放的临时量，实线框是为反向新存下的，Q、K、V、mask 只是引用。',
+ "attn_flow": '<strong>图 4-1</strong> eager attention 一层（medium，seq 1024，画法同<a href="#fig-3-1">图 3-1</a>）。S、S/√d、S+M、S−m、e、P 都是 [b, h, seq, seq]，各 256 MiB；Q、K、V 各 16 MiB，mask 1 MiB，m 和 Σ 每行一个数（256 KiB）。max 同时写出每行最大值的下标（int64，0.5 MiB），反向只用它，m 用完即释放。粗实线框是为反向新存下的，细实线框是本来就在、只被引用的 Q、K、V、mask，灰色虚线框是用完即释放的临时量。',
  "softmax": '<strong>图 4-2</strong> eager softmax 的显存读写：每条编号箭头是一次完整的读或写，共 8 次；融合后只剩 2 次。',
  "flops_vs_time": '<strong>图 4-2</strong> 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间（medium，seq 1024）。',
  "share_vs_seq": '<strong>图 4-3</strong> attention 三段占 forward GPU 时间的比例随 seq 变化（medium）。',
  "peak_memory": '<strong>图 2-3</strong> full step 的实测峰值显存（batch 4，seq 512）。A = 带梯度的前向峰值 − W，顶上 ~0.1 GiB 是 T。',
  "peak_moment": '<strong>图 2-4</strong> 一步前向 + 反向的显存（fp32）：色带按 M(j) 用实测的 W、A、G、T 堆叠，× 是逐层实测值。',
- "rms_eager": '<strong>图 3-1</strong> RMSNorm（eager，x 是 20 MiB）：中间一排是显存里的张量，框宽按实际字节数线性画（KiB 级的只剩一条细线），每块只画一次，同色是同一块内存（ptr 相同）；实线框新占显存，虚线框本来就在，灰色是用完即释放的临时量。前向的实线箭头指向 op 是读、指向显存是写；反向沿虚线箭头读回存下的张量。',
+ "rms_eager": '<strong>图 3-1</strong> RMSNorm（eager，x 是 20 MiB）：中间一排是显存里的张量，框宽按实际字节数线性画（KiB 级的只剩一条细线），每块只画一次，同色是同一块内存（ptr 相同）；粗实线框新占显存，细实线框本来就在、只被引用（x 是上一层的输出，w 是参数，都会一直留着），灰色虚线框是用完即释放的临时量。前向的实线箭头指向 op 是读、指向显存是写；反向沿虚线箭头读回存下的张量。',
  "rms_fused": '<strong>图 3-2</strong> 融合后的 RMSNorm（画法同<a href="#fig-3-1">图 3-1</a>）：前向只读 x、w，写 r 和 y，x²、v、x̂ 都不进显存；反向读回 x、w、r，现场重算 x̂。',
  "layer_donut": '<strong>图 4-4</strong> xl 一层为反向存的张量（batch 4，seq 2048，16 头，<code>torch.compile</code> 后用 <code>saved_tensors_hooks</code> 实测）。',
  "timelines": '<strong>图 4-5</strong> xl（batch 4，32 头）一步的显存时间线，横轴是分配 / 释放的次序。',
