@@ -506,10 +506,12 @@ y = weight * x_hat                                         # ⑤
 
 用 PyTorch 的 `saved_tensors_hooks` 可以直接看到 autograd 为反向存了哪些张量，用法、代码和打印放在下面的折叠栏里。
 
-<details class="fold">
+<details class="fold doc">
 <summary>用 saved_tensors_hooks 看 autograd 存了什么（代码和打印）</summary>
 
 `torch.autograd.graph.saved_tensors_hooks(pack, unpack)` 是一个上下文管理器。在它里面跑前向时，autograd 每存下一个张量就调用一次 `pack(t)`，保存的是 `pack` 的返回值；反向每用到一个存下的张量就调用一次 `unpack`，收到的就是当初 `pack` 的返回值。两个函数都原样返回张量、只打印，就能看到存了什么、什么时候被读回。下面用 `data_ptr()` 给每块内存编号，编号相同就是同一块内存。
+
+第一段是 hook 本身：
 
 ```python
 blocks, count = {}, [0]  # data_ptr -> 块编号：编号相同就是同一块内存
@@ -532,6 +534,8 @@ def show(fn, *inputs):
         out = fn(*inputs)  # 前向：触发 pack
     out.sum().backward()   # 反向：触发 unpack
 ```
+
+第二段是要看的两个函数（和正文一样都是 eager 写法）以及调用：
 
 ```python
 def rmsnorm(x, w, eps=1e-5):

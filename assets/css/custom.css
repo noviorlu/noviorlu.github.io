@@ -614,6 +614,13 @@ html.dark {
 .article-content details.fold[open] > summary::after { content: "收起"; }
 .article-content details.fold[open] > summary { border-bottom: 1px solid var(--nv-border); }
 .article-content details.fold .highlight-wrapper, .article-content details.fold pre { margin: 0; border: 0; border-radius: 0; }
+/* .fold.doc: a fold that mixes prose and several code blocks */
+.article-content details.fold.doc { padding-bottom: 6px; }
+.article-content details.fold.doc > :not(summary) { margin: 14px 18px; }
+.article-content details.fold.doc > .highlight-wrapper { border: 1px solid var(--nv-border); border-radius: 10px; background: var(--nv-bg); overflow: hidden; }
+.article-content details.fold.doc > .highlight-wrapper pre, .article-content details.fold.doc > pre { background: var(--nv-bg) !important; }
+.article-content details.fold.doc > pre { border: 1px solid var(--nv-border); border-radius: 10px; }
+.article-content details.fold.doc > p { font-size: 15px; }
 
 .nv-article__after { margin-top: 56px; display: flex; flex-direction: column; gap: 20px; }
 /* Series (Blowfish details + the site's series_base partial) */
