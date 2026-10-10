@@ -1,6 +1,6 @@
 {{- /* Wires every nv/share.html instance on the page: native share sheet, copy link,
-       anonymous reactions (Abacus counters; no undo, so a reaction is remembered in this
-       browser and can't be repeated), and the comment count from giscus's public API. */ -}}
+       anonymous reactions (Abacus counters, clicking again undoes), and the comment count
+       from giscus's public API. */ -}}
 <script>
   (() => {
     const url = {{ .Permalink }};
@@ -23,7 +23,10 @@
       });
     });
 
-    // Reactions: one Abacus counter per (page, reaction), e.g. noviorlu.github.io/blog.some-post.doge
+    // Reactions. Abacus counters only go up, so each reaction has two:
+    //   <slug>.<key>       clicks      e.g. noviorlu.github.io/blog.some-post.doge
+    //   <slug>.<key>.undo  undos
+    // and the shown count is clicks − undos. This browser remembers what it reacted to.
     const abacus = "https://abacus.jasoncameron.dev";
     const ns = "noviorlu.github.io";
     const slug = (() => {
@@ -36,31 +39,48 @@
     const storeKey = "nv-reacted:" + slug;
     const reacted = new Set();
     try { JSON.parse(localStorage.getItem(storeKey) || "[]").forEach((k) => reacted.add(k)); } catch {}
-    const paint = (key, value) => {
+    const save = () => { try { localStorage.setItem(storeKey, JSON.stringify([...reacted])); } catch {} };
+    const counter = (key, undo) => `${ns}/${slug}.${key}${undo ? ".undo" : ""}`;
+    const get = (key, undo) => fetch(`${abacus}/get/${counter(key, undo)}`).then((r) => (r.ok ? r.json() : { value: 0 })).then((d) => d.value);
+    const hit = (key, undo) => fetch(`${abacus}/hit/${counter(key, undo)}`).then((r) => r.json()).then((d) => d.value);
+
+    const counts = {}; // key -> { add, undo }, undefined until loaded
+    const paint = (key) => {
+      const c = counts[key];
+      const n = c ? Math.max(c.add - c.undo, 0) : "";
       document.querySelectorAll(`[data-nv-react="${key}"]`).forEach((btn) => {
-        if (value !== undefined) btn.querySelector("[data-nv-react-count]").textContent = value || "";
+        btn.querySelector("[data-nv-react-count]").textContent = n || "";
         btn.setAttribute("aria-pressed", reacted.has(key));
       });
     };
     const keys = [...new Set([...document.querySelectorAll("[data-nv-react]")].map((b) => b.dataset.nvReact))];
-    keys.forEach((key) => {
+    keys.forEach(async (key) => {
       paint(key);
-      fetch(`${abacus}/get/${ns}/${slug}.${key}`)
-        .then((r) => (r.ok ? r.json() : { value: 0 }))
-        .then((d) => paint(key, d.value))
-        .catch(() => {});
-    });
-    document.querySelectorAll("[data-nv-react]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const key = btn.dataset.nvReact;
-        if (reacted.has(key)) return;
-        reacted.add(key);
-        try { localStorage.setItem(storeKey, JSON.stringify([...reacted])); } catch {}
+      try {
+        const add = await get(key, false);
+        // Undo counters can only be non-zero where there were clicks; skip the rest to stay under the rate limit.
+        counts[key] = { add, undo: add ? await get(key, true) : 0 };
         paint(key);
-        fetch(`${abacus}/hit/${ns}/${slug}.${key}`)
-          .then((r) => r.json())
-          .then((d) => paint(key, d.value))
-          .catch(() => {});
+      } catch {}
+    });
+
+    const busy = new Set();
+    document.querySelectorAll("[data-nv-react]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const key = btn.dataset.nvReact;
+        if (busy.has(key)) return;
+        busy.add(key);
+        const undo = reacted.has(key);
+        undo ? reacted.delete(key) : reacted.add(key);
+        save();
+        if (counts[key]) undo ? counts[key].undo++ : counts[key].add++;
+        paint(key);
+        try {
+          const value = await hit(key, undo);
+          if (counts[key]) counts[key][undo ? "undo" : "add"] = value;
+          paint(key);
+        } catch {}
+        busy.delete(key);
       });
     });
 

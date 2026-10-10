@@ -665,7 +665,7 @@ html.dark {
   transition: border-color .15s, background-color .15s, transform .15s;
 }
 .nv-react__btn:hover { border-color: var(--nv-accent-line); transform: translateY(-1px); }
-.nv-react__btn[aria-pressed="true"] { border-color: var(--nv-accent-line); background: var(--nv-accent-soft); cursor: default; transform: none; }
+.nv-react__btn[aria-pressed="true"] { border-color: var(--nv-accent-line); background: var(--nv-accent-soft); }
 .nv-react__glyph { display: inline-flex; font-size: 17px; line-height: 1; }
 .nv-react__glyph svg { width: 1.2em; height: 1.2em; }
 .nv-react__btn b { font-weight: 600; color: var(--nv-text-3); font-variant-numeric: tabular-nums; }
