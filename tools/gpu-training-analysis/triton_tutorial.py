@@ -14,7 +14,7 @@ def gelu_kernel(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
     pid = tl.program_id(axis=0)               # 第几个 program（≈ CUDA 的 blockIdx.x）
     offsets = pid * BLOCK + tl.arange(0, BLOCK)  # 这个 program 负责的 BLOCK 个下标
     mask = offsets < n                        # 最后一个 program 可能越界
-    x = tl.load(x_ptr + offsets, mask=mask)   # 从显存读到寄存器
+    x = tl.load(x_ptr + offsets, mask=mask)   # 从显存读到 register
     # tanh 近似：0.5·x·(1 + tanh(√(2/π)·(x + 0.044715·x³)))，tanh(a) = (e^{2a} − 1)/(e^{2a} + 1)
     a = 0.79788456 * (x + 0.044715 * x * x * x)
     e = tl.exp(2 * a)
@@ -49,7 +49,7 @@ def softmax_kernel(x_ptr, y_ptr, stride, N, BLOCK: tl.constexpr):
     row = tl.program_id(0)                    # 一个 program 处理一整行
     cols = tl.arange(0, BLOCK)                # BLOCK ≥ N，一次装下整行
     x = tl.load(x_ptr + row * stride + cols, mask=cols < N, other=float("-inf"))
-    x = x - tl.max(x, axis=0)                 # 以下全在寄存器里
+    x = x - tl.max(x, axis=0)                 # 以下全在 register 里
     e = tl.exp(x)
     y = e / tl.sum(e, axis=0)
     tl.store(y_ptr + row * stride + cols, y, mask=cols < N)
@@ -98,7 +98,7 @@ def matmul_relu_kernel(a_ptr, b_ptr, c_ptr, M, N, K,
         acc += tl.dot(a, b, input_precision="ieee")  # fp32 默认会走 tf32，这里要求精确的 fp32
         a_ptrs += BK * sak
         b_ptrs += BK * sbk
-    acc = tl.maximum(acc, 0.0)                # ReLU 在寄存器里做完，不多一次读写
+    acc = tl.maximum(acc, 0.0)                # ReLU 在 register 里做完，不多一次读写
     c_ptrs = c_ptr + rm[:, None] * scm + rn[None, :] * scn
     tl.store(c_ptrs, acc, mask=(rm[:, None] < M) & (rn[None, :] < N))
 

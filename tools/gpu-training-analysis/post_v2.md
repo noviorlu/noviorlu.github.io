@@ -165,7 +165,7 @@ Loading    1 → 2 → 3（与 Saving 同序）
 
 {{fig-3-3}}
 
-融合版也可以手写成 Triton（下面折叠的代码，eager 版就是本节开头那三行；Triton 的基本写法见上一篇 [GPU 与 Triton 入门](/blog/gpu-triton-intro/#triton)），思路和 `torch.compile` 一样：前向一个 kernel，一个 program 算一行，①–⑤ 都在寄存器里做完，只写出 y 和 r。反向比 `torch.compile` 少两个 kernel：dx 是按行归约，dw 却要把所有行加起来，`torch.compile` 为 dw 单独拆了两段归约；手写版让每个 program 读回 x、w、r，现场重算 x̂，算完自己这一行的 dx，再用 `atomic_add` 把这一行对 dw 的贡献直接累加上去，反向就只有一个 kernel。
+融合版也可以手写成 Triton（下面折叠的代码，eager 版就是本节开头那三行；Triton 的基本写法见上一篇 [GPU 与 Triton 入门](/blog/gpu-triton-intro/#triton)），思路和 `torch.compile` 一样：前向一个 kernel，一个 program 算一行，①–⑤ 都在 register 里做完，只写出 y 和 r。反向比 `torch.compile` 少两个 kernel：dx 是按行归约，dw 却要把所有行加起来，`torch.compile` 为 dw 单独拆了两段归约；手写版让每个 program 读回 x、w、r，现场重算 x̂，算完自己这一行的 dx，再用 `atomic_add` 把这一行对 dw 的贡献直接累加上去，反向就只有一个 kernel。
 
 <details class="fold">
 <summary>Triton 融合：前向 1 个 kernel，反向 1 个 kernel</summary>
@@ -291,3 +291,21 @@ checkpoint 和 [3.1 节](#rmsnorm)里融合 RMSNorm 的做法一样，只是从�
 时间和显存的问题最后都落在 S、P 上。时间上，它们让 attention 成了 memory-bound，seq 1024 时占前向将近一半的时间；显存上，它们占一层 saved tensors 的一半以上，xl 在 seq 2048 时第 2 层就 OOM。bf16 只能把它们存小一点，checkpoint 只能推迟它们出现，都没能让它们离开显存。
 
 要解决，得把 RMSNorm 的做法用到 attention 上：把 QKᵀ、softmax、PV 合进一个 kernel，分块在片上算完，S、P 不写回显存，反向需要时再重算。下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 讲的就是这个。
+
+---
+
+## References {#references}
+
+1. Williams, Waterman, Patterson. [Roofline: An Insightful Visual Performance Model for Multicore Architectures](https://doi.org/10.1145/1498765.1498785). Communications of the ACM, 2009. 第 1 节的 roofline 模型。
+2. NVIDIA. [NVIDIA RTX Blackwell GPU Architecture](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)（白皮书）。RTX 5090 的峰值算力和显存带宽。
+3. Chowdhery et al. [PaLM: Scaling Language Modeling with Pathways](https://arxiv.org/abs/2204.02311). arXiv:2204.02311, 2022. MFU 的定义。
+4. Databricks. [LLM Inference Performance Engineering: Best Practices](https://www.databricks.com/blog/llm-inference-performance-engineering-best-practices), 2023. MBU 的定义。
+5. Kaplan et al. [Scaling Laws for Neural Language Models](https://arxiv.org/abs/2001.08361). arXiv:2001.08361, 2020. 每 token 训练 FLOPs ≈ 6N 的估算。
+6. Vaswani et al. [Attention Is All You Need](https://arxiv.org/abs/1706.03762). NeurIPS 2017.
+7. Zhang, Sennrich. [Root Mean Square Layer Normalization](https://arxiv.org/abs/1910.07467). NeurIPS 2019.
+8. Loshchilov, Hutter. [Decoupled Weight Decay Regularization](https://arxiv.org/abs/1711.05101). ICLR 2019. AdamW。
+9. Micikevicius et al. [Mixed Precision Training](https://arxiv.org/abs/1710.03740). ICLR 2018. 第 4.1 节的混合精度。
+10. Chen, Xu, Zhang, Guestrin. [Training Deep Nets with Sublinear Memory Cost](https://arxiv.org/abs/1604.06174). arXiv:1604.06174, 2016. 第 4.2 节的 activation checkpoint。
+11. PyTorch 文档：[Hooks for saved tensors](https://docs.pytorch.org/docs/stable/notes/autograd.html)（`saved_tensors_hooks`）、[torch.profiler](https://docs.pytorch.org/docs/stable/profiler.html)、[torch.compile](https://docs.pytorch.org/docs/stable/torch.compiler.html)、[Automatic Mixed Precision](https://docs.pytorch.org/docs/stable/amp.html)、[torch.utils.checkpoint](https://docs.pytorch.org/docs/stable/checkpoint.html)。
+12. Stanford CS336. [Assignment 2: Systems](https://github.com/stanford-cs336/assignment2-systems), 2025. 计时和显存实验的设置。
+13. Dao, Fu, Ermon, Rudra, Ré. [FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness](https://arxiv.org/abs/2205.14135). NeurIPS 2022. 下一篇的主题。

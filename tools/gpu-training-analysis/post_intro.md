@@ -31,7 +31,7 @@ series_order: 1
 <figcaption><strong>图 1-1</strong> 峰值算力与 DRAM、互联带宽 20 年来的增长，纵轴是相对 1997 年的倍数（对数轴）。图来自 Gholami 等人的 <a href="https://arxiv.org/abs/2403.14123">AI and Memory Wall</a>（IEEE Micro，2024）。</figcaption>
 </figure>
 
-数据离计算单元越近，读写越快，容量也越小（[图 1-2](#fig-h-1)）。每个 SM 里有寄存器和 L1 / shared memory，所有 SM 共享芯片上的 L2，显存在芯片外面。写 kernel 时，L1 和 L2 由硬件当作 cache 自动管理；能自己安排的只有 shared memory（以及寄存器）。所以 kernel 优化的套路都是一样的：把一块数据从显存读进 shared memory 或寄存器，在片上尽量多算几次，再写回去。[第 2 节](#triton)的分块矩阵乘、[下一篇](/blog/gpu-training-analysis/)里的算子融合和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 都是这个思路。
+数据离计算单元越近，读写越快，容量也越小（[图 1-2](#fig-h-1)）。每个 SM 里有 register 和 L1 / shared memory，所有 SM 共享芯片上的 L2，显存在芯片外面。写 kernel 时，L1 和 L2 由硬件当作 cache 自动管理；能自己安排的只有 shared memory（以及 register）。所以 kernel 优化的套路都是一样的：把一块数据从显存读进 shared memory 或 register，在片上尽量多算几次，再写回去。[第 2 节](#triton)的分块矩阵乘、[下一篇](/blog/gpu-training-analysis/)里的算子融合和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 都是这个思路。
 
 {{fig-h-1}}
 
@@ -39,7 +39,7 @@ series_order: 1
 
 ### 1.2 一个 SM 里有什么 {#hw-sm}
 
-每个 SM 分成 4 个 SMSP（SM sub-partition），每个 SMSP 有自己的 warp 调度器、寄存器、32 个 CUDA core（FP32 运算单元）和一个 Tensor core，4 个 SMSP 共享一块 L1 / shared memory（[图 1-3](#fig-h-2)）。几代 GPU 的规格对比见[表 1-1](#tab-1-1)。
+每个 SM 分成 4 个 SMSP（SM sub-partition），每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core（FP32 运算单元）和一个 Tensor core，4 个 SMSP 共享一块 L1 / shared memory（[图 1-3](#fig-h-2)）。几代 GPU 的规格对比见[表 1-1](#tab-1-1)。
 
 {{fig-h-2}}
 
@@ -52,24 +52,26 @@ series_order: 1
 | 每 SM 的 CUDA core（FP32） | 64 | 128 | 128 | 128 |
 | 每 SM 的 Tensor core | 4 | 4 | 4 | 4 |
 | 每 SM 的 L1 + shared | 192 KB | 256 KB | 256 KB | 128 KB |
-| 每 SM 的寄存器 | 256 KB | 256 KB | 256 KB | 256 KB |
+| 每 SM 的 register | 256 KB | 256 KB | 256 KB | 256 KB |
 | 每 SM 的 SMSP（warp 调度器） | 4 | 4 | 4 | 4 |
 | 每 SMSP 最多驻留 warp | 16 | 16 | 16 | 12 |
 | 每 SM 最多驻留 warp | 64 | 64 | 64 | 48 |
 {#tab-1-1 caption="**表 1-1** 几代 NVIDIA GPU 的规格" note="来自 NVIDIA 各代架构白皮书和产品规格（A100 80GB SXM，H100 SXM）。B200 的 L2 没有找到可靠的公开数字，暂缺。"}
 
-GPU 靠同时驻留很多 warp 来掩盖访存延迟：一个 warp 等显存数据（几百个周期）时，调度器切到另一个已经就绪的 warp 去算。切换几乎没有代价，因为驻留的 warp 的寄存器同时都在寄存器堆里，不需要换进换出。每个 SM 能驻留多少 warp，硬件有上限（5090 是 48，A100、H100 是 64）；一个 kernel 实际能驻留多少，还要看它每个线程用多少寄存器、每个 block 用多少 shared memory。驻留 warp 数占上限的比例叫 occupancy。例如每个 block 128 个线程、每个线程用 160 个寄存器：
+一个 warp 等显存数据要几百个周期。这段时间里调度器改发另一个就绪的 warp；所有驻留 warp 的 register 一直留在 register file 里，换一个 warp 不用保存或恢复状态。所以一个 SM 上驻留的 warp 越多，访存延迟越容易被藏住。硬件上限见[表 1-1](#tab-1-1) 最后一行，一个 kernel 实际能驻留多少，还取决于每个线程用多少 register、每个 block 用多少 shared memory。驻留 warp 数与上限之比叫 occupancy。以每个 block 128 个线程、每个线程 160 个 register 为例：
 
 ```python
-regs_per_sm     = 256 * 1024 // 4               # 65536 个 32 位寄存器
+regs_per_sm     = 256 * 1024 // 4               # 65536 个 32 位 register
 regs_per_block  = 128 * 160                     # 20480
-blocks_per_sm   = regs_per_sm // regs_per_block # 3，受寄存器限制
+blocks_per_sm   = regs_per_sm // regs_per_block # 3，受 register 限制
 warps_per_sm    = blocks_per_sm * 128 // 32     # 12
 occupancy_h100  = warps_per_sm / 64             # 0.1875
 occupancy_5090  = warps_per_sm / 48             # 0.25
 ```
 
-这 12 个 warp 按编号分到 4 个 SMSP，每个 SMSP 驻留 3 个（[图 1-3](#fig-h-2)）。驻留不等于在跑：每个调度器每个周期最多发射一个 warp，其余的要么就绪等着被选中，要么在等显存数据；某一拍如果 3 个都在等数据，这个调度器就空转。这里算的是理论 occupancy，运行时驻留数也会变：block 是动态分到 SM 上的，跑完一个才进来下一个，grid 的最后一批常常填不满所有 SM。用 Nsight Compute 测到的平均值叫 achieved occupancy，一般比理论值低。occupancy 不需要占满。只要驻留的 warp 足够把访存延迟藏起来，再多也不会更快；矩阵乘这类 kernel 常常故意让每个线程用很多寄存器，换取更高的数据复用。
+3 个 block 共 12 个 warp，按编号轮流分到 4 个 SMSP，每个 SMSP 3 个（[图 1-3](#fig-h-2)）。调度器每个周期只发射其中一个；3 个都在等数据时，这一拍就空转。
+
+上面算的是理论 occupancy。block 跑完一个才换下一个，grid 的最后一批也填不满所有 SM，所以 Nsight Compute 测到的 achieved occupancy 一般更低。occupancy 也不必追求占满：延迟藏住以后，多驻留的 warp 不会让 kernel 更快。矩阵乘这类 kernel 常让每个线程多用 register，用 occupancy 换数据复用。
 
 ### 1.3 编程模型：thread、warp、block、grid {#hw-model}
 
@@ -95,7 +97,7 @@ TPU 的思路是把控制逻辑做轻，把矩阵乘单元做大：没有 warp�
 | warp 调度器 | VPU | SIMD 向量运算的调度 | 528 | 8 |
 | CUDA core | VPU ALU | 普通的 SIMD 运算单元 | — | — |
 | L1 / shared memory | VMEM | 片上的快速存储 | 33 MB | 128 MB |
-| 寄存器 | VREG | 向量寄存器 | 33 MB | 256 KB |
+| register | VREG | vector register | 33 MB | 256 KB |
 | Tensor core | MXU | 矩阵乘单元 | 528 | 8 |
 | 显存（HBM） | HBM | 大容量主存 | 80 GB | 95 GB |
 {#tab-1-3 caption="**表 1-3** GPU 与 TPU 的术语对照" note="H100 的片上存储是 132 个 SM 加起来的总量。TPU 一列参考 Google 的 <a href=\"https://jax-ml.github.io/scaling-book/gpus/\">How to Scale Your Model</a>。"}
@@ -152,7 +154,7 @@ ex2.approx.f32 %r72, %r71;                    // tl.exp 编成以 2 为底的指
 {{code:triton_tutorial.py:softmax_naive}}
 ```
 
-如果一个 program 处理一整行，max、exp、求和、除都可以在寄存器里做完，只读 MN、写 MN，读写量是原来的 1/4：
+如果一个 program 处理一整行，max、exp、求和、除都可以在 register 里做完，只读 MN、写 MN，读写量是原来的 1/4：
 
 ```python
 {{code:triton_tutorial.py:softmax_kernel}}
@@ -174,10 +176,25 @@ softmax 不能直接这样分块：要先知道整行的最大值才能算 exp�
 
 ### 2.4 Matmul：分块乘加，顺手融合 ReLU {#triton-matmul}
 
-矩阵乘按输出 C 分块，一个 program 负责 C 的一个 BM × BN 块，grid 是二维的。program 沿 K 方向每次读 A 的一个 BM × BK 块和 B 的一个 BK × BN 块，用 `tl.dot` 乘加到累加器上。写回之前在寄存器里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
+矩阵乘按输出 C 分块，一个 program 负责 C 的一个 BM × BN 块，grid 是二维的。program 沿 K 方向每次读 A 的一个 BM × BK 块和 B 的一个 BK × BN 块，用 `tl.dot` 乘加到累加器上。写回之前在 register 里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
 
 ```python
 {{code:triton_tutorial.py:matmul}}
 ```
 
 fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 的矩阵乘差 0.1 左右；要和 PyTorch（关掉 tf32）对上，需要 `input_precision="ieee"`。
+
+---
+
+## References {#references}
+
+1. Gholami, Yao, Kim, Hooper, Mahoney, Keutzer. [AI and Memory Wall](https://arxiv.org/abs/2403.14123). IEEE Micro, 2024. 图 1-1。
+2. NVIDIA. [NVIDIA RTX Blackwell GPU Architecture](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)（白皮书）。RTX 5090 的存储层级和 SM 结构，图 1-2、图 1-3。
+3. NVIDIA. [NVIDIA A100 Tensor Core GPU Architecture](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)、[NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)、[NVIDIA Blackwell Architecture](https://resources.nvidia.com/en-us-blackwell-architecture)。表 1-1 的 A100、H100、B200 一列。
+4. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、register 和 shared memory 上限，CUDA 执行层级。
+5. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 调度状态和 theoretical / achieved occupancy。
+6. Austin et al. [How to Scale Your Model](https://jax-ml.github.io/scaling-book/gpus/), Google DeepMind, 2025. 表 1-3 的 GPU 与 TPU 对照。
+7. Tillet, Kung, Cox. [Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations](https://doi.org/10.1145/3315508.3329973). MAPL 2019.
+8. [Triton tutorials](https://triton-lang.org/main/getting-started/tutorials/index.html)。第 2 节 softmax 和 matmul 例子的写法。
+9. Hendrycks, Gimpel. [Gaussian Error Linear Units (GELUs)](https://arxiv.org/abs/1606.08415). arXiv:1606.08415, 2016. 第 2.1 节的 tanh 近似。
+10. Milakov, Gimelshein. [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867). arXiv:1805.02867, 2018. 第 2.3 节提到的 online softmax。

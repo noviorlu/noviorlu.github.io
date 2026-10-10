@@ -854,7 +854,7 @@ It's worth being explicit about what *didn't* change, because that's the part th
 | FlashAttention-3 | 2024 | Hopper (H100) | Warp-specialized async pipeline (TMA + WGMMA); GEMM/softmax overlap; FP8 with block quantization + incoherent processing | 1.5–2.0× over v2; up to 85% of H100 peak (840 TFLOPs/s); 1.3 PFLOPs/s FP8 |
 | FlashAttention-4 | 2026 | Blackwell (B200/GB200); code also runs on Hopper | Async MMA + larger tiles; software-emulated exp + conditional rescaling; TMEM + 2-CTA MMA; CuTe-DSL | 71% of B200 peak (1613 TFLOPs/s); up to 1.3× over cuDNN 9.13, 2.7× over Triton |
 
-## Sources and further reading
+## References {#references}
 
 - Dao, Fu, Ermon, Rudra, Ré. ["FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness"](https://arxiv.org/abs/2205.14135), NeurIPS 2022. Figures 1 and 2 of this paper are the basis for the time-breakdown, tiling and FLOPs-vs-traffic diagrams above.
 - Dao. ["FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning"](https://arxiv.org/abs/2307.08691), ICLR 2024; see also the [Stanford Hazy Research write-up](https://hazyresearch.stanford.edu/blog/2023-07-17-flash2).

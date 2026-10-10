@@ -740,14 +740,14 @@ def sweep():
 
 # ── 图 A-1 / A-2 GPU 硬件示意（RTX 5090，数据来自 NVIDIA RTX Blackwell 白皮书） ─────
 def hw_hierarchy():
-    f = F("fig-h-1", 300, "RTX 5090 的存储层级：每个 SM 里有 256 KB 寄存器和 128 KB L1/shared memory，170 个 SM 共享芯片上的 96 MB L2，芯片外是 32 GB GDDR7 显存，带宽 1.79e12 B/s")
+    f = F("fig-h-1", 300, "RTX 5090 的存储层级：每个 SM 里有 256 KB register 和 128 KB L1/shared memory，170 个 SM 共享芯片上的 96 MB L2，芯片外是 32 GB GDDR7 显存，带宽 1.79e12 B/s")
     f.w('<rect x="10" y="22" width="452" height="250" rx="12" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="6 4"/>')
     f.w('<text class="lab2" x="22" y="40">GPU 芯片（die），共 170 个 SM</text>')
     def sm(x):
         f.w(f'<rect x="{x}" y="52" width="92" height="108" rx="8" {tint("--fig-1", 10, sw=1.4)}/>')
         f.w(f'<text class="tb" x="{x + 46}" y="70" text-anchor="middle">SM</text>')
         f.w(f'<rect x="{x + 8}" y="80" width="76" height="32" rx="5" {tint("--fig-hi", 16)}/>')
-        f.w(f'<text class="s" x="{x + 46}" y="94" text-anchor="middle">寄存器</text><text class="s" x="{x + 46}" y="107" text-anchor="middle">256 KB</text>')
+        f.w(f'<text class="s" x="{x + 46}" y="94" text-anchor="middle">register</text><text class="s" x="{x + 46}" y="107" text-anchor="middle">256 KB</text>')
         f.w(f'<rect x="{x + 8}" y="118" width="76" height="34" rx="5" {tint("--fig-2", 22)}/>')
         f.w(f'<text class="s" x="{x + 46}" y="132" text-anchor="middle">L1 / shared</text><text class="s" x="{x + 46}" y="146" text-anchor="middle">128 KB</text>')
         f.arrow(x + 46, 160, x + 46, 194, None, width=1.2, head=False)
@@ -762,11 +762,11 @@ def hw_hierarchy():
     f.w('<text class="tb" x="566" y="124" text-anchor="middle">GDDR7 显存</text><text class="t" x="566" y="144" text-anchor="middle">32 GB</text><text class="s" x="566" y="168" text-anchor="middle">带宽 β</text><text class="s" x="566" y="182" text-anchor="middle">1.79e12 B/s</text>')
     f.w('<text class="lab2" x="566" y="238" text-anchor="middle">片外</text>')
     f.arrow(452, 214, 500, 214, "--fig-mute", width=1.8); f.arrow(500, 200, 452, 200, "--fig-mute", width=1.8, head=True)
-    f.w('<text class="lab2" x="10" y="292">越靠近 SM 越快、越小：寄存器 > L1 / shared > L2 > 显存</text>')
+    f.w('<text class="lab2" x="10" y="292">越靠近 SM 越快、越小：register > L1 / shared > L2 > 显存</text>')
     return f
 
 def hw_sm():
-    f = F("fig-h-2", 322, "RTX 5090 的一个 SM：4 个 SMSP，每个有 1 个 warp 调度器、12 个 warp 槽位、64 KB 寄存器、32 个 CUDA core 和 1 个 Tensor core；4 个 SMSP 共享 128 KB 的 L1/shared memory")
+    f = F("fig-h-2", 322, "RTX 5090 的一个 SM：4 个 SMSP，每个有 1 个 warp 调度器、12 个 warp 槽位、64 KB register、32 个 CUDA core 和 1 个 Tensor core；4 个 SMSP 共享 128 KB 的 L1/shared memory")
     f.w(f'<rect x="10" y="10" width="620" height="282" rx="12" {tint("--fig-1", 6, sw=1.4)}/>')
     f.w('<text class="tb" x="24" y="32">SM（每颗 5090 有 170 个）</text>')
     for k in range(4):
@@ -785,7 +785,7 @@ def hw_sm():
             f.w(f'<rect x="{sx}" y="{sy}" width="17" height="10" rx="2" {st}/>')
         if k == 2:
             f.w(f'<text class="s" x="{x + 104}" y="62" style="fill: var(--fig-hi)">空转</text>')
-        rows = [("寄存器 64 KB", "--fig-hi", 16), ("CUDA core ×32", "--fig-2", 22), ("Tensor core ×1", "--fig-1", 22)]
+        rows = [("register 64 KB", "--fig-hi", 16), ("CUDA core ×32", "--fig-2", 22), ("Tensor core ×1", "--fig-1", 22)]
         for j, (t, var, pct) in enumerate(rows):
             y = 146 + j * 27
             f.w(f'<rect x="{x + 10}" y="{y}" width="121" height="22" rx="4" {tint(var, pct)}/>')

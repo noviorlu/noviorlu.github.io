@@ -27,7 +27,7 @@ def rmsnorm_fwd(X, W, Y, R, D, eps, BLOCK: tl.constexpr):
     mask = cols < D
     x = tl.load(X + row * D + cols, mask=mask, other=0.0)
     w = tl.load(W + cols, mask=mask, other=0.0)
-    r = tl.rsqrt(tl.sum(x * x, axis=0) / D + eps)  # ①②③ 在寄存器里做完
+    r = tl.rsqrt(tl.sum(x * x, axis=0) / D + eps)  # ①②③ 在 register 里做完
     tl.store(R + row, r)                           # 只存 r：每行 4 B
     tl.store(Y + row * D + cols, w * (x * r), mask=mask)  # ④⑤，x̂ 不落显存
 
