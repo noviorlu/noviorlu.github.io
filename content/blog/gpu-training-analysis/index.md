@@ -20,7 +20,7 @@ series_order: 2
 
 ---
 
-## 1 一把尺子：roofline {#basics}
+## 1 Roofline：一把尺子 {#basics}
 
 一个 op 跑多快，取决于它要算多少和要搬多少。
 
@@ -111,7 +111,7 @@ series_order: 2
 
 ---
 
-## 2 一步训练的总账 {#step}
+## 2 总账：时间和显存花在哪 {#step}
 
 ### 2.1 时间：矩阵乘没在偷懒 {#time}
 
@@ -492,7 +492,7 @@ A 在前向一层层攒起来，反向再一层层释放；G 正好相反，前�
 
 ---
 
-## 3 逐个 op 拆开 {#ops}
+## 3 拆解：逐个 op 看 {#ops}
 
 这一节对每个 op 问三件事：算了多少 FLOPs，读写了多少字节显存，为反向存了哪些张量。前两件看张量形状就能算出来；第三件由 autograd 决定，要实测。
 
@@ -522,7 +522,7 @@ def show(fn, *inputs):
 
 [3.1 节](#rmsnorm)拿最简单的 RMSNorm 把这套方法走一遍，[3.2 节](#attention)再用到 attention 上。
 
-### 3.1 RMSNorm {#rmsnorm}
+### 3.1 RMSNorm：融合省掉 x̂ {#rmsnorm}
 
 RMSNorm 算的是 $y = w \odot (x \cdot r)$，其中 $r = (\tfrac{1}{d}\sum_j x_j^2 + \epsilon)^{-1/2}$ 每行一个数。eager 模式下它拆成 5 个 op（fp32，`x: [4, 512, 2560]`，一份 x 是 20 MiB）：
 
@@ -883,7 +883,7 @@ class RMSNorm(torch.autograd.Function):
 
 > 融合解决了两件事：几个 op 合成一个 kernel，中间结果不再进出显存；能重算的张量不存，反向时再算。[3.2 节](#attention)的 attention 和 [4.2 节](#checkpoint)的 checkpoint 都会再遇到这两件事。
 
-### 3.2 attention {#attention}
+### 3.2 Attention：都在搬 S 和 P {#attention}
 
 一层 attention 的完整公式是
 
@@ -1419,11 +1419,11 @@ xl 有 32 层，按 16 头算加起来也有 114 GiB，是 5090 显存的三倍�
 
 ---
 
-## 4 能省吗：bf16 和 checkpoint 都差一口气 {#savings}
+## 4 优化：bf16 和 checkpoint 都差一口气 {#savings}
 
 要减小 A 有两种办法：把每个张量存得小一点（bf16），或者少存一些、反向时重算（checkpoint）。
 
-### 4.1 bf16 autocast {#bf16}
+### 4.1 bf16：快了，省得不多 {#bf16}
 
 autocast 只把矩阵乘的输入换成 bf16，权重、梯度和 Adam 状态还是 fp32。速度提升很明显，前向快了 1.9–2.3 倍（[图 4-1](#fig-4-1)）：矩阵乘换到 bf16 的 Tensor core 上，峰值从 1.05e14 翻倍到 2.1e14，要搬的字节也少了一半。显存只省了 18–21%：W、G 和 Adam 状态大小不变；A 也没有减半，因为 norm、softmax、残差和 loss 还在 fp32 下算（这些累加在 bf16 下不准，bf16 只有 7 位尾数，把 0.01 累加 1000 次只能得到 4.0），反向还要多存一份 bf16 的权重副本。存下的张量还是那些，只是一部分从 4 字节变成了 2 字节。
 
@@ -1492,7 +1492,7 @@ autocast 只把矩阵乘的输入换成 bf16，权重、梯度和 Adam 状态还
 <figcaption><strong>图 4-1</strong> bf16 autocast 相对 fp32（前向 + 反向，batch 4，seq 512）：左边是加速比，右边是峰值显存。</figcaption>
 </figure>
 
-### 4.2 activation checkpoint {#checkpoint}
+### 4.2 Checkpoint：省显存，多一遍前向 {#checkpoint}
 
 checkpoint 和 [3.1 节](#rmsnorm)里融合 RMSNorm 的做法一样，只是从一个 op 扩大到几层：前向只存每段的入口（entry，xl、seq 2048 时 80 MiB），反向走到这一段时，用入口把这段的前向重跑一遍，用完就释放。4 层 xl block 每 2 层设一个 checkpoint，峰值就从 4 × 3655 MiB = 14.6 GiB 降到「2 个 entry 加一段」的 7.5 GiB（[图 4-2](#fig-4-2)）。
 
@@ -1676,7 +1676,7 @@ checkpoint 和 [3.1 节](#rmsnorm)里融合 RMSNorm 的做法一样，只是从�
 
 ---
 
-## 5 小结 {#conclusion}
+## 5 小结：问题都在 S、P {#conclusion}
 
 时间和显存的问题最后都落在 S、P 上。时间上，它们让 attention 成了 memory-bound，seq 1024 时占前向将近一半的时间；显存上，它们占一层 saved tensors 的一半以上，xl 在 seq 2048 时第 2 层就 OOM。bf16 只能把它们存小一点，checkpoint 只能推迟它们出现，都没能让它们离开显存。
 
