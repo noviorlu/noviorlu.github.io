@@ -776,24 +776,24 @@ def hw_sm():
         f.w(f'<rect x="{x + 10}" y="70" width="121" height="22" rx="4" {tint("--fig-1", 10)}/>')
         f.w(f'<text class="s" x="{x + 70}" y="85" text-anchor="middle">warp 调度器</text>')
         f.w(f'<text class="s" x="{x + 70}" y="108" text-anchor="middle">最多驻留 12 个 warp</text>')
-        state = ["IWWW", "IWW", "WWW", "IW"][k]   # 这一拍：I 正在发射，W 驻留但在等数据，其余空槽
+        state = ["IRW", "IWW", "WWW", "IRR"][k]   # 这一拍：I 正在发射，R 就绪但没被选中，W 在等数据，其余空槽
         for q in range(12):
             sx, sy = x + 11 + (q % 6) * 20, 114 + (q // 6) * 14
             c = state[q] if q < len(state) else "-"
-            st = {"I": 'style="fill: var(--fig-hi)"', "W": 'style="fill: var(--fig-1)" fill-opacity=".55"',
+            st = {"I": 'style="fill: var(--fig-hi)"', "R": 'style="fill: var(--fig-2)"', "W": 'style="fill: var(--fig-1)" fill-opacity=".55"',
                   "-": 'style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"'}[c]
             f.w(f'<rect x="{sx}" y="{sy}" width="17" height="10" rx="2" {st}/>')
         if k == 2:
             f.w(f'<text class="s" x="{x + 104}" y="62" style="fill: var(--fig-hi)">空转</text>')
-        rows = [("寄存器 64 KB", "--fig-hi", 16), ("CUDA core ×32（FP32）", "--fig-2", 22), ("Tensor core ×1", "--fig-1", 22)]
+        rows = [("寄存器 64 KB", "--fig-hi", 16), ("CUDA core ×32", "--fig-2", 22), ("Tensor core ×1", "--fig-1", 22)]
         for j, (t, var, pct) in enumerate(rows):
             y = 146 + j * 27
             f.w(f'<rect x="{x + 10}" y="{y}" width="121" height="22" rx="4" {tint(var, pct)}/>')
             f.w(f'<text class="s" x="{x + 70}" y="{y + 15}" text-anchor="middle">{t}</text>')
     f.w(f'<rect x="24" y="242" width="594" height="38" rx="8" {tint("--fig-2", 22)}/>')
     f.w('<text class="t" x="321" y="266" text-anchor="middle">L1 cache / shared memory 128 KB（4 个 SMSP 共享，shared memory 的大小由 kernel 申请）</text>')
-    lx = 150
-    for st, lab in (('style="fill: var(--fig-hi)"', "正在发射"), ('style="fill: var(--fig-1)" fill-opacity=".55"', "驻留，等数据"),
+    lx = 96
+    for st, lab in (('style="fill: var(--fig-hi)"', "正在发射"), ('style="fill: var(--fig-2)"', "就绪，没被选中"), ('style="fill: var(--fig-1)" fill-opacity=".55"', "等数据"),
                     ('style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"', "空槽")):
         f.w(f'<rect x="{lx}" y="298" width="17" height="10" rx="2" {st}/><text class="lab2" x="{lx + 24}" y="307">{lab}</text>')
         lx += 24 + 13 * len(lab) + 28
@@ -801,7 +801,7 @@ def hw_sm():
 
 CAPS = {
  "hw_hierarchy": '<strong>图 1-2</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。',
- "hw_sm": '<strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每一格是一个 warp（32 个线程）的槽位，每个 SMSP 最多驻留 12 个 warp，整个 SM 共 48 个。槽位是某一时刻的示意：4 个 SMSP 分别驻留 4、3、3、2 个 warp，合起来是 1.2 节例子里的 12 个；每个调度器每个周期最多发射一个 warp，SMSP 2 这一拍的 warp 都在等数据，调度器空转。',
+ "hw_sm": '<strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每一格是一个 warp（32 个线程）的槽位，每个 SMSP 最多驻留 12 个 warp，整个 SM 共 48 个。槽位是 1.2 节例子某一时刻的示意：3 个 block 各 4 个 warp，按编号分到 4 个 SMSP，每个 SMSP 驻留 3 个。每个调度器每个周期最多发射一个 warp，各 SMSP 这一拍能跑的数量不同；SMSP 2 的 3 个 warp 都在等数据，调度器空转。',
  "linear": '<strong>图 2-1</strong> 一个 Linear 的前向与反向：前向从左边往下，误差从右边传回；虚线是反向要从前向拿的东西。',
  "step_time": '<strong>图 2-2</strong> 一步训练里前向、反向、optimizer 的耗时占比（fp32，batch 4，seq 512），右侧是每步耗时和 MFU。',
  "roofline": '<strong>图 1-1</strong> RTX 5090 各精度的 roofline：斜线是带宽，平线是峰值算力（dense，boost clock 2407 MHz，来自 NVIDIA RTX Blackwell 白皮书；Tensor core 按 fp32 累加）。',

@@ -134,9 +134,9 @@ series_order: 1
   <text class="s" x="94" y="85" text-anchor="middle">warp 调度器</text>
   <text class="s" x="94" y="108" text-anchor="middle">最多驻留 12 个 warp</text>
   <rect x="35" y="114" width="17" height="10" rx="2" style="fill: var(--fig-hi)"/>
-  <rect x="55" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <rect x="55" y="114" width="17" height="10" rx="2" style="fill: var(--fig-2)"/>
   <rect x="75" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <rect x="95" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <rect x="95" y="114" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
   <rect x="115" y="114" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
   <rect x="135" y="114" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
   <rect x="35" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
@@ -148,7 +148,7 @@ series_order: 1
   <rect x="34" y="146" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
   <text class="s" x="94" y="161" text-anchor="middle">寄存器 64 KB</text>
   <rect x="34" y="173" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="94" y="188" text-anchor="middle">CUDA core ×32（FP32）</text>
+  <text class="s" x="94" y="188" text-anchor="middle">CUDA core ×32</text>
   <rect x="34" y="200" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <text class="s" x="94" y="215" text-anchor="middle">Tensor core ×1</text>
   <rect x="175" y="44" width="141" height="188" rx="8" class="op"/>
@@ -171,7 +171,7 @@ series_order: 1
   <rect x="185" y="146" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
   <text class="s" x="245" y="161" text-anchor="middle">寄存器 64 KB</text>
   <rect x="185" y="173" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="245" y="188" text-anchor="middle">CUDA core ×32（FP32）</text>
+  <text class="s" x="245" y="188" text-anchor="middle">CUDA core ×32</text>
   <rect x="185" y="200" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <text class="s" x="245" y="215" text-anchor="middle">Tensor core ×1</text>
   <rect x="326" y="44" width="141" height="188" rx="8" class="op"/>
@@ -195,7 +195,7 @@ series_order: 1
   <rect x="336" y="146" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
   <text class="s" x="396" y="161" text-anchor="middle">寄存器 64 KB</text>
   <rect x="336" y="173" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="396" y="188" text-anchor="middle">CUDA core ×32（FP32）</text>
+  <text class="s" x="396" y="188" text-anchor="middle">CUDA core ×32</text>
   <rect x="336" y="200" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <text class="s" x="396" y="215" text-anchor="middle">Tensor core ×1</text>
   <rect x="477" y="44" width="141" height="188" rx="8" class="op"/>
@@ -204,8 +204,8 @@ series_order: 1
   <text class="s" x="547" y="85" text-anchor="middle">warp 调度器</text>
   <text class="s" x="547" y="108" text-anchor="middle">最多驻留 12 个 warp</text>
   <rect x="488" y="114" width="17" height="10" rx="2" style="fill: var(--fig-hi)"/>
-  <rect x="508" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <rect x="528" y="114" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="508" y="114" width="17" height="10" rx="2" style="fill: var(--fig-2)"/>
+  <rect x="528" y="114" width="17" height="10" rx="2" style="fill: var(--fig-2)"/>
   <rect x="548" y="114" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
   <rect x="568" y="114" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
   <rect x="588" y="114" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
@@ -218,16 +218,17 @@ series_order: 1
   <rect x="487" y="146" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
   <text class="s" x="547" y="161" text-anchor="middle">寄存器 64 KB</text>
   <rect x="487" y="173" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="547" y="188" text-anchor="middle">CUDA core ×32（FP32）</text>
+  <text class="s" x="547" y="188" text-anchor="middle">CUDA core ×32</text>
   <rect x="487" y="200" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <text class="s" x="547" y="215" text-anchor="middle">Tensor core ×1</text>
   <rect x="24" y="242" width="594" height="38" rx="8" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
   <text class="t" x="321" y="266" text-anchor="middle">L1 cache / shared memory 128 KB（4 个 SMSP 共享，shared memory 的大小由 kernel 申请）</text>
-  <rect x="150" y="298" width="17" height="10" rx="2" style="fill: var(--fig-hi)"/><text class="lab2" x="174" y="307">正在发射</text>
-  <rect x="254" y="298" width="17" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity=".55"/><text class="lab2" x="278" y="307">驻留，等数据</text>
-  <rect x="384" y="298" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/><text class="lab2" x="408" y="307">空槽</text>
+  <rect x="96" y="298" width="17" height="10" rx="2" style="fill: var(--fig-hi)"/><text class="lab2" x="120" y="307">正在发射</text>
+  <rect x="200" y="298" width="17" height="10" rx="2" style="fill: var(--fig-2)"/><text class="lab2" x="224" y="307">就绪，没被选中</text>
+  <rect x="343" y="298" width="17" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity=".55"/><text class="lab2" x="367" y="307">等数据</text>
+  <rect x="434" y="298" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/><text class="lab2" x="458" y="307">空槽</text>
 </svg>
-<figcaption><strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每一格是一个 warp（32 个线程）的槽位，每个 SMSP 最多驻留 12 个 warp，整个 SM 共 48 个。槽位是某一时刻的示意：4 个 SMSP 分别驻留 4、3、3、2 个 warp，合起来是 1.2 节例子里的 12 个；每个调度器每个周期最多发射一个 warp，SMSP 2 这一拍的 warp 都在等数据，调度器空转。</figcaption>
+<figcaption><strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每一格是一个 warp（32 个线程）的槽位，每个 SMSP 最多驻留 12 个 warp，整个 SM 共 48 个。槽位是 1.2 节例子某一时刻的示意：3 个 block 各 4 个 warp，按编号分到 4 个 SMSP，每个 SMSP 驻留 3 个。每个调度器每个周期最多发射一个 warp，各 SMSP 这一拍能跑的数量不同；SMSP 2 的 3 个 warp 都在等数据，调度器空转。</figcaption>
 </figure>
 
 | | A100 | H100 | B200 | RTX 5090 |
@@ -254,7 +255,7 @@ occupancy_h100  = warps_per_sm / 64             # 0.1875
 occupancy_5090  = warps_per_sm / 48             # 0.25
 ```
 
-这里算的是理论 occupancy。运行时各 SMSP、各 SM 驻留的 warp 数并不一样（[图 1-3](#fig-h-2)）：block 是动态分到 SM 上的，跑完一个才进来下一个，grid 的最后一批常常填不满所有 SM；驻留的 warp 里，每个周期也只有就绪的那些能被发射。用 Nsight Compute 测到的平均值叫 achieved occupancy，一般比理论值低。occupancy 不需要占满。只要驻留的 warp 足够把访存延迟藏起来，再多也不会更快；矩阵乘这类 kernel 常常故意让每个线程用很多寄存器，换取更高的数据复用。
+这 12 个 warp 按编号分到 4 个 SMSP，每个 SMSP 驻留 3 个（[图 1-3](#fig-h-2)）。驻留不等于在跑：每个调度器每个周期最多发射一个 warp，其余的要么就绪等着被选中，要么在等显存数据；某一拍如果 3 个都在等数据，这个调度器就空转。这里算的是理论 occupancy，运行时驻留数也会变：block 是动态分到 SM 上的，跑完一个才进来下一个，grid 的最后一批常常填不满所有 SM。用 Nsight Compute 测到的平均值叫 achieved occupancy，一般比理论值低。occupancy 不需要占满。只要驻留的 warp 足够把访存延迟藏起来，再多也不会更快；矩阵乘这类 kernel 常常故意让每个线程用很多寄存器，换取更高的数据复用。
 
 ### 1.3 编程模型：thread、warp、block、grid {#hw-model}
 
