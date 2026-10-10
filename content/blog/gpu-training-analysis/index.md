@@ -12,7 +12,7 @@ series_order: 2
 
 我在一张 RTX 5090 上把一步 Transformer 训练拆开，分别量了时间和显存。结果和预想的不太一样：拖慢速度的不是矩阵乘，占显存最多的也不是权重。两边查到最后，都落在 attention 里的两个 seq × seq 矩阵上，一个是分数矩阵 S = QKᵀ（每个 query 对每个 key 的打分），一个是 S 按行过 softmax 之后的注意力权重 P，最后输出是 PV。
 
-文章分四步走：[第 1 节](#basics)准备工具 roofline；[第 2 节](#step)算一步训练的总账，找出时间和显存的大头；[第 3 节](#ops)逐个 op 拆开，看每一步算了多少、读写了多少显存、为反向存了什么，先拿最简单的 RMSNorm 走一遍，再用同样的方法拆 attention；[第 4 节](#savings)试 bf16 和 activation checkpoint 能省多少。怎么把 S、P 彻底去掉，留给下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/)。
+文章分四步走：[第 1 节](#basics)准备工具 roofline；[第 2 节](#step)算一步训练的总账，找出时间和显存的大头；[第 3 节](#ops)逐个 op 拆开，看每一步算了多少、读写了多少显存、为反向存了什么，先拿最简单的 RMSNorm 走一遍，再用同样的方法拆 attention；[第 4 节](#savings)试 bf16 和 activation checkpoint 能省多少。怎么把 S、P 彻底去掉，留给下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/)。文中的 Triton 代码如果读起来吃力，可以先看[附录 A](#triton) 的 Triton 入门。
 
 模型是我自己写的 Transformer LM（RMSNorm、RoPE、SwiGLU，pre-norm），一共五档：small 0.13B、medium 0.42B、large 0.97B、xl 3.41B，以及 10B（实际 12.83B 参数）。
 
@@ -815,7 +815,7 @@ Loading    1 → 2 → 3（与 Saving 同序）
 <figcaption><strong>图 3-3</strong> RMSNorm 融合前后在 fp32 roofline 上的位置（前向，<code>x: [32, 512, 2560]</code>，160 MiB，比 L2 大，避免数据留在缓存里）。读写字节按 eager 每元素 28 B、融合后 8 B 算，悬停可看数值。</figcaption>
 </figure>
 
-融合版也可以手写成 Triton（下面折叠的代码，eager 版就是本节开头那三行），思路和 `torch.compile` 一样：前向一个 kernel，一个 program 算一行，①–⑤ 都在寄存器里做完，只写出 y 和 r。反向比 `torch.compile` 少两个 kernel：dx 是按行归约，dw 却要把所有行加起来，`torch.compile` 为 dw 单独拆了两段归约；手写版让每个 program 读回 x、w、r，现场重算 x̂，算完自己这一行的 dx，再用 `atomic_add` 把这一行对 dw 的贡献直接累加上去，反向就只有一个 kernel。
+融合版也可以手写成 Triton（下面折叠的代码，eager 版就是本节开头那三行；Triton 的基本写法见[附录 A](#triton)），思路和 `torch.compile` 一样：前向一个 kernel，一个 program 算一行，①–⑤ 都在寄存器里做完，只写出 y 和 r。反向比 `torch.compile` 少两个 kernel：dx 是按行归约，dw 却要把所有行加起来，`torch.compile` 为 dw 单独拆了两段归约；手写版让每个 program 读回 x、w、r，现场重算 x̂，算完自己这一行的 dx，再用 `atomic_add` 把这一行对 dw 的贡献直接累加上去，反向就只有一个 kernel。
 
 <details class="fold">
 <summary>Triton 融合：前向 1 个 kernel，反向 1 个 kernel</summary>
@@ -1681,3 +1681,159 @@ checkpoint 和 [3.1 节](#rmsnorm)里融合 RMSNorm 的做法一样，只是从�
 时间和显存的问题最后都落在 S、P 上。时间上，它们让 attention 成了 memory-bound，seq 1024 时占前向将近一半的时间；显存上，它们占一层 saved tensors 的一半以上，xl 在 seq 2048 时第 2 层就 OOM。bf16 只能把它们存小一点，checkpoint 只能推迟它们出现，都没能让它们离开显存。
 
 要解决，得把 RMSNorm 的做法用到 attention 上：把 QKᵀ、softmax、PV 合进一个 kernel，分块在片上算完，S、P 不写回显存，反向需要时再重算。下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 讲的就是这个。
+
+---
+
+## 附录 A Triton：按 block 写 kernel {#triton}
+
+[3.1 节](#rmsnorm)手写的融合 RMSNorm 和下一篇的 FlashAttention 都用 Triton 写。这个附录用四个例子介绍它：逐元素的 GELU，一行一个 program 的 softmax，行太长时分块累加的 row sum，以及分块乘加的矩阵乘。代码都在 RTX 5090 上和 PyTorch 对照过。
+
+CUDA 要写清楚每个线程做什么，控制最细，但 shared memory、线程同步这些都要自己管。Triton 只要写清楚每个线程块做什么：把一块数据读进来，在片上算完，再写回显存，块内怎么分给线程、要不要经过 shared memory 由编译器决定。Triton 把一个线程块叫作一个 program，概念对应见[表 A-1](#tab-a-1)。
+
+| CUDA | Triton | 写法 | 能否直接控制 |
+|:--|:--|:--|:--|
+| thread | 不暴露 | 写不到 `threadIdx` | 不能 |
+| warp | 只给数量 | 启动时传 `num_warps=N`，默认 4 | 只能调数量 |
+| block（CTA） | program | `@triton.jit` 函数体就是一个 program 的代码；`tl.program_id(axis)` ≈ `blockIdx`，`tl.num_programs(axis)` ≈ `gridDim` | 主要的编程层 |
+| grid | grid | `kernel[grid](...)`，例如 `grid = (triton.cdiv(n, BLOCK),)` | 自己定 |
+| shared memory | 由编译器分配 | 没有对应语句 | 不能 |
+{#tab-a-1 caption="**表 A-1** CUDA 概念在 Triton 里的对应"}
+
+### A.1 GELU：逐元素 kernel {#triton-gelu}
+
+逐元素 op 最简单：把 n 个元素切成每段 BLOCK 个，一段交给一个 program。kernel 里先用 `tl.program_id` 算出自己负责的下标，读进来，算完写回：
+
+```python
+@triton.jit
+def gelu_kernel(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
+    pid = tl.program_id(axis=0)               # 第几个 program（≈ CUDA 的 blockIdx.x）
+    offsets = pid * BLOCK + tl.arange(0, BLOCK)  # 这个 program 负责的 BLOCK 个下标
+    mask = offsets < n                        # 最后一个 program 可能越界
+    x = tl.load(x_ptr + offsets, mask=mask)   # 从显存读到寄存器
+    # tanh 近似：0.5·x·(1 + tanh(√(2/π)·(x + 0.044715·x³)))，tanh(a) = (e^{2a} − 1)/(e^{2a} + 1)
+    a = 0.79788456 * (x + 0.044715 * x * x * x)
+    e = tl.exp(2 * a)
+    y = 0.5 * x * (1 + (e - 1) / (e + 1))
+    tl.store(y_ptr + offsets, y, mask=mask)   # 写回显存
+```
+
+启动时只要定 grid，也就是 program 的个数。program 个数和 SM 个数无关：5090 有 170 个 SM，program 多于 SM 时，GPU 会一批一批地调度。
+
+```python
+def gelu(x):
+    y = torch.empty_like(x)
+    n, BLOCK = x.numel(), 1024                # 每个 program 处理 1024 个元素
+    grid = (triton.cdiv(n, BLOCK),)           # program 个数，不是 SM 个数
+    gelu_kernel[grid](x, y, n, BLOCK=BLOCK)
+    return y
+```
+
+Triton 会把 kernel 编译成 PTX，PTX 描述的是单个线程的指令。下面是 GELU 的 PTX 节选：
+
+```
+mov.u32        %r17, %ctaid.x;                // program 编号，即 blockIdx.x
+mov.u32        %r20, %tid.x;                  // 线程编号
+@%p1 ld.global.b32 { %r1 }, [ %rd1 + 0 ];     // 读显存，%p1 是 mask 算出的谓词
+...                                           // 一共 8 条 ld.global
+ex2.approx.f32 %r72, %r71;                    // tl.exp 编成以 2 为底的指数
+@%p1 st.global.b32 [ %rd9 + 0 ], { %r9 };     // 写回显存
+```
+
+一个 program 处理 1024 个元素，默认 4 个 warp 共 128 个线程，所以每个线程分到 8 个元素，PTX 里正好是 8 条 `ld.global` 和 8 条 `st.global`。
+
+### A.2 Softmax：一行一个 program {#triton-softmax}
+
+按行做的 softmax 在 eager 下要 5 个 kernel，和 [3.2 节](#attention)里 attention 的 softmax 一样。对 `[M, N]` 的输入，一共读 5MN + 2M 个数，写 3MN + 2M 个：
+
+```python
+def softmax_naive(x):                         # x: [M, N]，按行
+    m = x.max(dim=1, keepdim=True).values     # 读 MN，写 M
+    z = x - m                                 # 读 MN + M，写 MN
+    e = torch.exp(z)                          # 读 MN，写 MN
+    s = e.sum(dim=1, keepdim=True)            # 读 MN，写 M
+    return e / s                              # 读 MN + M，写 MN
+```
+
+如果一个 program 处理一整行，max、exp、求和、除都可以在寄存器里做完，只读 MN、写 MN，读写量是原来的 1/4：
+
+```python
+@triton.jit
+def softmax_kernel(x_ptr, y_ptr, stride, N, BLOCK: tl.constexpr):
+    row = tl.program_id(0)                    # 一个 program 处理一整行
+    cols = tl.arange(0, BLOCK)                # BLOCK ≥ N，一次装下整行
+    x = tl.load(x_ptr + row * stride + cols, mask=cols < N, other=float("-inf"))
+    x = x - tl.max(x, axis=0)                 # 以下全在寄存器里
+    e = tl.exp(x)
+    y = e / tl.sum(e, axis=0)
+    tl.store(y_ptr + row * stride + cols, y, mask=cols < N)
+
+def softmax(x):
+    M, N = x.shape
+    y = torch.empty_like(x)
+    softmax_kernel[(M,)](x, y, x.stride(0), N, BLOCK=triton.next_power_of_2(N))
+    return y
+```
+
+在 5090 上对 4096 × 4096 的 fp32 输入实测，eager 版 249 µs，Triton 版 80 µs，快了 3.1 倍，和 `torch.softmax`（79 µs）相当。
+
+这个写法要求 BLOCK ≥ N，也就是一行能一次装进一个 program。行再长就要像下一节那样分块读。
+
+### A.3 Row sum：行太长时分块累加 {#triton-rowsum}
+
+求和可以分块：program 沿着行一块一块读，每块 TILE 个数加到一个长度为 TILE 的部分和向量上，最后再把这个向量加成一个数。循环里每个位置各加各的，不需要线程之间通信；只有最后的 `tl.sum` 做一次跨线程归约。
+
+```python
+@triton.jit
+def row_sum_kernel(x_ptr, out_ptr, N, TILE: tl.constexpr):
+    row = tl.program_id(0)
+    acc = tl.zeros([TILE], dtype=tl.float32)  # TILE 路部分和，不是一个标量
+    for start in range(0, N, TILE):           # 行比 TILE 长：一块一块串行读
+        cols = start + tl.arange(0, TILE)
+        acc += tl.load(x_ptr + row * N + cols, mask=cols < N, other=0.0)
+    tl.store(out_ptr + row, tl.sum(acc, axis=0))  # 最后只做一次跨线程归约
+
+def row_sum(x, TILE=1024):
+    M, N = x.shape
+    out = torch.empty(M, device=x.device, dtype=x.dtype)
+    row_sum_kernel[(M,)](x, out, N, TILE=TILE)
+    return out
+```
+
+softmax 不能直接这样分块：要先知道整行的最大值才能算 exp，而最大值要读完整行才知道。边读边更新最大值、同时修正已经算好的部分和，就是 online softmax，下一篇 FlashAttention 会讲。
+
+### A.4 Matmul：分块乘加，顺手融合 ReLU {#triton-matmul}
+
+矩阵乘按输出 C 分块，一个 program 负责 C 的一个 BM × BN 块，grid 是二维的。program 沿 K 方向每次读 A 的一个 BM × BK 块和 B 的一个 BK × BN 块，用 `tl.dot` 乘加到累加器上。写回之前在寄存器里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
+
+```python
+@triton.jit
+def matmul_relu_kernel(a_ptr, b_ptr, c_ptr, M, N, K,
+                       sam, sak, sbk, sbn, scm, scn,
+                       BM: tl.constexpr, BN: tl.constexpr, BK: tl.constexpr):
+    pid_m, pid_n = tl.program_id(0), tl.program_id(1)   # 负责 C 的第 (pid_m, pid_n) 块
+    rm = pid_m * BM + tl.arange(0, BM)
+    rn = pid_n * BN + tl.arange(0, BN)
+    rk = tl.arange(0, BK)
+    a_ptrs = a_ptr + rm[:, None] * sam + rk[None, :] * sak  # [BM, BK] 的指针
+    b_ptrs = b_ptr + rk[:, None] * sbk + rn[None, :] * sbn  # [BK, BN] 的指针
+    acc = tl.zeros([BM, BN], dtype=tl.float32)
+    for k in range(0, K, BK):                 # 沿 K 一块一块乘加
+        a = tl.load(a_ptrs, mask=(rm[:, None] < M) & (rk[None, :] + k < K), other=0.0)
+        b = tl.load(b_ptrs, mask=(rk[:, None] + k < K) & (rn[None, :] < N), other=0.0)
+        acc += tl.dot(a, b, input_precision="ieee")  # fp32 默认会走 tf32，这里要求精确的 fp32
+        a_ptrs += BK * sak
+        b_ptrs += BK * sbk
+    acc = tl.maximum(acc, 0.0)                # ReLU 在寄存器里做完，不多一次读写
+    c_ptrs = c_ptr + rm[:, None] * scm + rn[None, :] * scn
+    tl.store(c_ptrs, acc, mask=(rm[:, None] < M) & (rn[None, :] < N))
+
+def matmul_relu(a, b, BM=64, BN=64, BK=32):
+    M, K = a.shape
+    _, N = b.shape
+    c = torch.empty((M, N), device=a.device, dtype=torch.float32)
+    grid = (triton.cdiv(M, BM), triton.cdiv(N, BN))
+    matmul_relu_kernel[grid](a, b, c, M, N, K, *a.stride(), *b.stride(), *c.stride(), BM=BM, BN=BN, BK=BK)
+    return c
+```
+
+fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 的矩阵乘差 0.1 左右；要和 PyTorch（关掉 tf32）对上，需要 `input_precision="ieee"`。
