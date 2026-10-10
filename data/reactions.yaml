@@ -1,0 +1,10 @@
+# Post reactions (layouts/partials/nv/share.html). `key` is part of the Abacus counter
+# key, so renaming one resets its count. `svg` names a partial drawn instead of `emoji`.
+- { key: like,      emoji: "👍", label: "赞" }
+- { key: heart,     emoji: "❤️", label: "喜欢" }
+- { key: doge,      svg: "nv/doge.svg.html", label: "狗头" }
+- { key: lol,       emoji: "😂", label: "笑死" }
+- { key: mindblown, emoji: "🤯", label: "震惊" }
+- { key: party,     emoji: "🎉", label: "庆祝" }
+- { key: eyes,      emoji: "👀", label: "围观" }
+- { key: think,     emoji: "🤔", label: "思考" }

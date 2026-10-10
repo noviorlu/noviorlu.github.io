@@ -1,0 +1,83 @@
+{{- /* Wires every nv/share.html instance on the page: native share sheet, copy link,
+       anonymous reactions (Abacus counters; no undo, so a reaction is remembered in this
+       browser and can't be repeated), and the comment count from giscus's public API. */ -}}
+<script>
+  (() => {
+    const url = {{ .Permalink }};
+    const title = {{ .Title }};
+    document.querySelectorAll('[data-nv-share="native"]').forEach((btn) => {
+      if (!navigator.share) return;
+      btn.hidden = false;
+      btn.addEventListener("click", () => navigator.share({ title, url }).catch(() => {}));
+    });
+    document.querySelectorAll('[data-nv-share="copy"]').forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const label = btn.querySelector("span");
+        try {
+          await navigator.clipboard.writeText(url);
+          label.textContent = "已复制";
+        } catch {
+          label.textContent = "复制失败";
+        }
+        setTimeout(() => (label.textContent = "复制链接"), 1600);
+      });
+    });
+
+    // Reactions: one Abacus counter per (page, reaction), e.g. noviorlu.github.io/blog.some-post.doge
+    const abacus = "https://abacus.jasoncameron.dev";
+    const ns = "noviorlu.github.io";
+    const slug = (() => {
+      const s = location.pathname.replace(/^\/+|\/+$/g, "").replace(/\//g, ".").toLowerCase() || "home";
+      if (/^[a-z0-9._-]{1,50}$/.test(s)) return s;
+      let h = 0;
+      for (const c of s) h = (Math.imul(h, 31) + c.codePointAt(0)) | 0;
+      return s.replace(/[^a-z0-9._-]/g, "").slice(0, 40) + "." + (h >>> 0).toString(36);
+    })();
+    const storeKey = "nv-reacted:" + slug;
+    const reacted = new Set();
+    try { JSON.parse(localStorage.getItem(storeKey) || "[]").forEach((k) => reacted.add(k)); } catch {}
+    const paint = (key, value) => {
+      document.querySelectorAll(`[data-nv-react="${key}"]`).forEach((btn) => {
+        if (value !== undefined) btn.querySelector("[data-nv-react-count]").textContent = value || "";
+        btn.setAttribute("aria-pressed", reacted.has(key));
+      });
+    };
+    const keys = [...new Set([...document.querySelectorAll("[data-nv-react]")].map((b) => b.dataset.nvReact))];
+    keys.forEach((key) => {
+      paint(key);
+      fetch(`${abacus}/get/${ns}/${slug}.${key}`)
+        .then((r) => (r.ok ? r.json() : { value: 0 }))
+        .then((d) => paint(key, d.value))
+        .catch(() => {});
+    });
+    document.querySelectorAll("[data-nv-react]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const key = btn.dataset.nvReact;
+        if (reacted.has(key)) return;
+        reacted.add(key);
+        try { localStorage.setItem(storeKey, JSON.stringify([...reacted])); } catch {}
+        paint(key);
+        fetch(`${abacus}/hit/${ns}/${slug}.${key}`)
+          .then((r) => r.json())
+          .then((d) => paint(key, d.value))
+          .catch(() => {});
+      });
+    });
+
+    {{ with site.Params.giscus }}
+    if (!document.querySelector("[data-nv-count]")) return;
+    const term = location.pathname.length < 2 ? "index" : location.pathname.substring(1).replace(/\.\w+$/, "");
+    const api = "https://giscus.app/api/discussions?" + new URLSearchParams({
+      repo: {{ .repo }}, term, category: {{ .category }}, number: "0", strict: "true", last: "1",
+    });
+    const show = (comments) =>
+      document.querySelectorAll('[data-nv-count="comments"]').forEach((el) => (el.textContent = comments));
+    fetch(api)
+      .then((r) => r.json())
+      .then((d) => d.discussion
+        ? show(d.discussion.totalCommentCount + d.discussion.totalReplyCount)
+        : d.error === "Discussion not found" && show(0))
+      .catch(() => {});
+    {{ end }}
+  })();
+</script>

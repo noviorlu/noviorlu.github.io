@@ -1,11 +1,11 @@
-{{- /* giscus: comments + reactions (the post's "likes") stored in this repo's GitHub
-       Discussions. Settings live under [giscus] in params.toml; nothing renders until
+{{- /* giscus: comments stored in this repo's GitHub Discussions (reactions are
+       separate, see nv/share.html). Settings live under [giscus] in params.toml; nothing renders until
        repoId/categoryId are filled in. */ -}}
 {{ with site.Params.giscus }}
   {{ if and .repoId .categoryId }}
     <section id="comments" class="nv-comments" aria-label="留言">
-      <h2 class="nv-comments__title">{{ $.Params.commentsTitle | default "点赞 · 留言" }}</h2>
-      <p class="nv-comments__hint">用 GitHub 账号登录后可以点表情、留言。</p>
+      <h2 class="nv-comments__title">{{ $.Params.commentsTitle | default "留言" }}</h2>
+      <p class="nv-comments__hint">用 GitHub 账号登录后可以留言。</p>
       <div class="giscus"></div>
     </section>
     <script>
@@ -22,7 +22,7 @@
           categoryId: {{ .categoryId }},
           mapping: "pathname",
           strict: "1",
-          reactionsEnabled: "1",
+          reactionsEnabled: "0",
           emitMetadata: "0",
           inputPosition: "top",
           theme: giscusTheme(),

@@ -1,42 +1,31 @@
-{{- /* Like / comment / share row under a post. "点赞" and "留言" jump to the giscus
-       widget (#comments), whose reaction bar is the like count. */ -}}
-{{ $url := .Permalink | urlquery }}
-{{ $title := .Title | urlquery }}
-{{ $hasComments := and (.Params.showComments | default (site.Params.article.showComments | default false)) site.Params.giscus.repoId }}
-<section class="nv-share" aria-label="点赞与分享">
-  {{ if $hasComments }}
-    <a class="nv-btn nv-btn--sm" href="#comments">{{ partial "icon.html" "heart" }}<span>点赞</span></a>
-    <a class="nv-btn nv-btn--sm" href="#comments">{{ partial "icon.html" "comment" }}<span>留言</span></a>
-    <span class="nv-share__sep" aria-hidden="true"></span>
-  {{ end }}
-  <button type="button" class="nv-btn nv-btn--sm nv-share__native" hidden
-    data-url="{{ .Permalink }}" data-title="{{ .Title }}">{{ partial "icon.html" "link" }}<span>分享</span></button>
-  <button type="button" class="nv-btn nv-btn--sm nv-share__copy" data-url="{{ .Permalink }}">{{ partial "icon.html" "link" }}<span>复制链接</span></button>
-  <a class="nv-btn nv-btn--sm" target="_blank" rel="noopener" title="分享到微博"
-    href="https://service.weibo.com/share/share.php?url={{ $url }}&title={{ $title }}">微博</a>
-  <a class="nv-btn nv-btn--sm" target="_blank" rel="noopener" title="分享到 X" aria-label="分享到 X"
-    href="https://x.com/intent/tweet/?url={{ $url }}&text={{ $title }}">{{ partial "icon.html" "x-twitter" }}</a>
-  <a class="nv-btn nv-btn--sm" title="通过邮件分享" aria-label="通过邮件分享"
-    href="mailto:?subject={{ $title }}&body={{ $url }}">{{ partial "icon.html" "email" }}</a>
+{{- /* Reactions / comment / share actions. Rendered twice by single.html: under the TOC
+       (variant "side", sticky) and under the post (variant "bar", for narrow screens and
+       posts without a TOC). Behaviour lives in nv/share-js.html. Reactions are anonymous Abacus
+       counters (data/reactions.yaml); "留言" jumps to the giscus widget (#comments). */ -}}
+{{ $page := .page }}
+{{ $variant := .variant }}
+{{ $url := $page.Permalink | urlquery }}
+{{ $title := $page.Title | urlquery }}
+{{ $hasComments := and ($page.Params.showComments | default (site.Params.article.showComments | default false)) site.Params.giscus.repoId }}
+<section class="nv-share nv-share--{{ $variant }}" aria-label="表情与分享">
+  <div class="nv-react" role="group" aria-label="表情">
+    {{ range site.Data.reactions }}
+      <button type="button" class="nv-react__btn" data-nv-react="{{ .key }}" title="{{ .label }}" aria-label="{{ .label }}" aria-pressed="false">
+        <span class="nv-react__glyph">{{ with .svg }}{{ partial . }}{{ else }}{{ .emoji }}{{ end }}</span><b data-nv-react-count></b>
+      </button>
+    {{ end }}
+  </div>
+  <div class="nv-share__group">
+    {{ if $hasComments }}
+      <a class="nv-share__btn nv-share__btn--comment" href="#comments" title="留言">{{ partial "icon.html" "comment" }}<span>留言</span><b data-nv-count="comments"></b></a>
+    {{ end }}
+    <button type="button" class="nv-share__btn" data-nv-share="native" hidden>{{ partial "icon.html" "link" }}<span>分享</span></button>
+    <button type="button" class="nv-share__btn" data-nv-share="copy">{{ partial "icon.html" "link" }}<span>复制链接</span></button>
+    <a class="nv-share__btn" target="_blank" rel="noopener" title="分享到微博"
+      href="https://service.weibo.com/share/share.php?url={{ $url }}&title={{ $title }}"><span>微博</span></a>
+    <a class="nv-share__btn nv-share__btn--icon" target="_blank" rel="noopener" title="分享到 X" aria-label="分享到 X"
+      href="https://x.com/intent/tweet/?url={{ $url }}&text={{ $title }}">{{ partial "icon.html" "x-twitter" }}</a>
+    <a class="nv-share__btn nv-share__btn--icon" title="通过邮件分享" aria-label="通过邮件分享"
+      href="mailto:?subject={{ $title }}&body={{ $url }}">{{ partial "icon.html" "email" }}</a>
+  </div>
 </section>
-<script>
-  (() => {
-    const native = document.querySelector(".nv-share__native");
-    if (navigator.share) {
-      native.hidden = false;
-      native.addEventListener("click", () =>
-        navigator.share({ title: native.dataset.title, url: native.dataset.url }).catch(() => {}));
-    }
-    const copy = document.querySelector(".nv-share__copy");
-    copy.addEventListener("click", async () => {
-      const label = copy.querySelector("span");
-      try {
-        await navigator.clipboard.writeText(copy.dataset.url);
-        label.textContent = "已复制";
-      } catch {
-        label.textContent = "复制失败";
-      }
-      setTimeout(() => (label.textContent = "复制链接"), 1600);
-    });
-  })();
-</script>
