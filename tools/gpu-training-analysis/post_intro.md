@@ -24,9 +24,14 @@ series_order: 1
 
 ### 1.1 存储层级：越近越快，也越小 {#hw-memory}
 
-处理器的频率早就不怎么涨了，算力的增长主要来自并行：更多的 SM、更宽的 Tensor core。显存带宽的增长比算力慢得多，所以越来越多的 op 落在 roofline 的斜坡上，这是 memory-bound 越来越常见的原因。
+处理器的频率早就不怎么涨了，算力的增长主要来自并行：更多的 SM、更宽的 Tensor core。显存带宽的增长比算力慢得多：过去 20 年，峰值算力涨了约 6 万倍（每两年 3.0 倍），DRAM 带宽只涨了约 100 倍（每两年 1.6 倍），芯片之间的互联带宽约 30 倍（[图 1-1](#fig-memwall)）。所以越来越多的 op 落在 roofline 的斜坡上，这是 memory-bound 越来越常见的原因。
 
-数据离计算单元越近，读写越快，容量也越小（[图 1-1](#fig-h-1)）。每个 SM 里有寄存器和 L1 / shared memory，所有 SM 共享芯片上的 L2，显存在芯片外面。写 kernel 时，L1 和 L2 由硬件当作 cache 自动管理；能自己安排的只有 shared memory（以及寄存器）。所以 kernel 优化的套路都是一样的：把一块数据从显存读进 shared memory 或寄存器，在片上尽量多算几次，再写回去。[第 2 节](#triton)的分块矩阵乘、[下一篇](/blog/gpu-training-analysis/)里的算子融合和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 都是这个思路。
+<figure id="fig-memwall" class="fg-fig">
+<img src="memory-wall.webp" alt="1997 到 2023 年峰值算力、DRAM 带宽和互联带宽的增长：算力每两年 3.0 倍，DRAM 带宽每两年 1.6 倍，互联带宽每两年 1.4 倍" loading="lazy" style="width: 100%; height: auto; border-radius: 8px; background: #fff;">
+<figcaption><strong>图 1-1</strong> 峰值算力与 DRAM、互联带宽 20 年来的增长，纵轴是相对 1997 年的倍数（对数轴）。图来自 Gholami 等人的 <a href="https://arxiv.org/abs/2403.14123">AI and Memory Wall</a>（IEEE Micro，2024）。</figcaption>
+</figure>
+
+数据离计算单元越近，读写越快，容量也越小（[图 1-2](#fig-h-1)）。每个 SM 里有寄存器和 L1 / shared memory，所有 SM 共享芯片上的 L2，显存在芯片外面。写 kernel 时，L1 和 L2 由硬件当作 cache 自动管理；能自己安排的只有 shared memory（以及寄存器）。所以 kernel 优化的套路都是一样的：把一块数据从显存读进 shared memory 或寄存器，在片上尽量多算几次，再写回去。[第 2 节](#triton)的分块矩阵乘、[下一篇](/blog/gpu-training-analysis/)里的算子融合和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 都是这个思路。
 
 {{fig-h-1}}
 
@@ -34,7 +39,7 @@ series_order: 1
 
 ### 1.2 一个 SM 里有什么 {#hw-sm}
 
-每个 SM 分成 4 个 SMSP（SM sub-partition），每个 SMSP 有自己的 warp 调度器、寄存器、FP32 运算单元和一个 Tensor core，4 个 SMSP 共享一块 L1 / shared memory（[图 1-2](#fig-h-2)）。几代 GPU 的规格对比见[表 1-1](#tab-1-1)。
+每个 SM 分成 4 个 SMSP（SM sub-partition），每个 SMSP 有自己的 warp 调度器、寄存器、FP32 运算单元和一个 Tensor core，4 个 SMSP 共享一块 L1 / shared memory（[图 1-3](#fig-h-2)）。几代 GPU 的规格对比见[表 1-1](#tab-1-1)。
 
 {{fig-h-2}}
 
