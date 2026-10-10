@@ -737,7 +737,54 @@ def sweep():
         f.w(f'<text class="lab2" x="{(X0 + X1) / 2:.0f}" y="{Y0 + 32}" text-anchor="middle">每段几层（对数轴）</text>')
     return f
 
+
+# ── 图 A-1 / A-2 GPU 硬件示意（RTX 5090，数据来自 NVIDIA RTX Blackwell 白皮书） ─────
+def hw_hierarchy():
+    f = F("fig-a-1", 300, "RTX 5090 的存储层级：每个 SM 里有 256 KB 寄存器和 128 KB L1/shared memory，170 个 SM 共享芯片上的 96 MB L2，芯片外是 32 GB GDDR7 显存，带宽 1.79e12 B/s")
+    f.w('<rect x="10" y="22" width="452" height="250" rx="12" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="6 4"/>')
+    f.w('<text class="lab2" x="22" y="40">GPU 芯片（die），共 170 个 SM</text>')
+    def sm(x):
+        f.w(f'<rect x="{x}" y="52" width="92" height="108" rx="8" {tint("--fig-1", 10, sw=1.4)}/>')
+        f.w(f'<text class="tb" x="{x + 46}" y="70" text-anchor="middle">SM</text>')
+        f.w(f'<rect x="{x + 8}" y="80" width="76" height="32" rx="5" {tint("--fig-hi", 16)}/>')
+        f.w(f'<text class="s" x="{x + 46}" y="94" text-anchor="middle">寄存器</text><text class="s" x="{x + 46}" y="107" text-anchor="middle">256 KB</text>')
+        f.w(f'<rect x="{x + 8}" y="118" width="76" height="34" rx="5" {tint("--fig-2", 22)}/>')
+        f.w(f'<text class="s" x="{x + 46}" y="132" text-anchor="middle">L1 / shared</text><text class="s" x="{x + 46}" y="146" text-anchor="middle">128 KB</text>')
+        f.arrow(x + 46, 160, x + 46, 194, None, width=1.2, head=False)
+    for x in (22, 122, 222):
+        sm(x - 2)
+    f.w('<text class="t" x="339" y="110" text-anchor="middle">⋯</text>')
+    sm(360)
+    f.w(f'<rect x="24" y="194" width="426" height="40" rx="8" {tint("--fig-3", 45, stroke="--fig-2")}/>')
+    f.w('<text class="t" x="237" y="219" text-anchor="middle">L2 cache 96 MB，所有 SM 共享</text>')
+    f.w('<text class="lab2" x="237" y="258" text-anchor="middle">片上</text>')
+    f.w(f'<rect x="504" y="70" width="124" height="150" rx="10" {tint("--fig-mute", 14, sw=1.4)}/>')
+    f.w('<text class="tb" x="566" y="124" text-anchor="middle">GDDR7 显存</text><text class="t" x="566" y="144" text-anchor="middle">32 GB</text><text class="s" x="566" y="168" text-anchor="middle">带宽 β</text><text class="s" x="566" y="182" text-anchor="middle">1.79e12 B/s</text>')
+    f.w('<text class="lab2" x="566" y="238" text-anchor="middle">片外</text>')
+    f.arrow(452, 214, 500, 214, "--fig-mute", width=1.8); f.arrow(500, 200, 452, 200, "--fig-mute", width=1.8, head=True)
+    f.w('<text class="lab2" x="10" y="292">越靠近 SM 越快、越小：寄存器 > L1 / shared > L2 > 显存</text>')
+    return f
+
+def hw_sm():
+    f = F("fig-a-2", 250, "RTX 5090 的一个 SM：4 个 SMSP，每个有 1 个 warp 调度器、64 KB 寄存器、32 条 FP32 lane 和 1 个 Tensor core；4 个 SMSP 共享 128 KB 的 L1/shared memory")
+    f.w(f'<rect x="10" y="10" width="620" height="232" rx="12" {tint("--fig-1", 6, sw=1.4)}/>')
+    f.w('<text class="tb" x="24" y="32">SM（每颗 5090 有 170 个）</text>')
+    for k in range(4):
+        x = 24 + k * 151
+        f.w(f'<rect x="{x}" y="44" width="141" height="138" rx="8" class="op"/>')
+        f.w(f'<text class="tb" x="{x + 70}" y="62" text-anchor="middle">SMSP {k}</text>')
+        rows = [("warp 调度器", "--fig-1", 10), ("寄存器 64 KB", "--fig-hi", 16), ("32 条 FP32 lane", "--fig-2", 22), ("Tensor core ×1", "--fig-1", 22)]
+        for j, (t, var, pct) in enumerate(rows):
+            y = 70 + j * 27
+            f.w(f'<rect x="{x + 10}" y="{y}" width="121" height="22" rx="4" {tint(var, pct)}/>')
+            f.w(f'<text class="s" x="{x + 70}" y="{y + 15}" text-anchor="middle">{t}</text>')
+    f.w(f'<rect x="24" y="192" width="594" height="38" rx="8" {tint("--fig-2", 22)}/>')
+    f.w('<text class="t" x="321" y="216" text-anchor="middle">L1 cache / shared memory 128 KB（4 个 SMSP 共享，shared memory 的大小由 kernel 申请）</text>')
+    return f
+
 CAPS = {
+ "hw_hierarchy": '<strong>图 A-1</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。',
+ "hw_sm": '<strong>图 A-2</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。',
  "linear": '<strong>图 2-1</strong> 一个 Linear 的前向与反向：前向从左边往下，误差从右边传回；虚线是反向要从前向拿的东西。',
  "step_time": '<strong>图 2-2</strong> 一步训练里前向、反向、optimizer 的耗时占比（fp32，batch 4，seq 512），右侧是每步耗时和 MFU。',
  "roofline": '<strong>图 1-1</strong> RTX 5090 各精度的 roofline：斜线是带宽，平线是峰值算力（dense，boost clock 2407 MHz，来自 NVIDIA RTX Blackwell 白皮书；Tensor core 按 fp32 累加）。',
@@ -757,7 +804,7 @@ CAPS = {
  "ckpt": '<strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。',
  "sweep": '<strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。',
 }
-OUT = {k: fn().html(CAPS[k]) for k, fn in (("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
+OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
        ("flops_vs_time", flops_vs_time), ("share_vs_seq", share_vs_seq), ("peak_memory", peak_memory), ("peak_moment", peak_moment),
        ("rms_eager", rms_eager), ("rms_fused", rms_fused), ("attn_flow", attn_flow), ("layer_donut", layer_donut), ("timelines", timelines),
        ("bf16", bf16), ("ckpt", ckpt), ("sweep", sweep))}

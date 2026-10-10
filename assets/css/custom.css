@@ -63,8 +63,8 @@
   --nv-shadow-lg: 0 2px 6px rgba(15, 18, 25, 0.05), 0 24px 48px -16px rgba(15, 18, 25, 0.18);
   --nv-radius: 14px;
   --nv-radius-sm: 9px;
-  --nv-max: 1120px;
-  --nv-measure: 44rem;
+  --nv-max: 1280px;
+  --nv-measure: 54rem;
   --nv-gutter: 28px;
   --nv-header-h: 60px;
   color-scheme: light;
@@ -501,7 +501,7 @@ ul.flex.flex-row.mt-8.justify-center a.bg-primary-200 { background: var(--nv-acc
 .nv-hero figcaption { margin-top: 8px; text-align: center; font-size: 13px; color: var(--nv-text-3); }
 
 .nv-article__layout {
-  display: grid; grid-template-columns: minmax(0, var(--nv-measure)); gap: 56px;
+  display: grid; grid-template-columns: minmax(0, var(--nv-measure)); gap: 40px;
   margin-top: 36px;
 }
 .nv-article.has-toc .nv-article__layout { grid-template-columns: minmax(0, var(--nv-measure)) minmax(200px, 240px); justify-content: space-between; }
