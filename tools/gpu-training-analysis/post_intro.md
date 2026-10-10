@@ -53,6 +53,8 @@ series_order: 1
 | 每 SM 的 Tensor core | 4 | 4 | 4 | 4 |
 | 每 SM 的 L1 + shared | 192 KB | 256 KB | 256 KB | 128 KB |
 | 每 SM 的寄存器 | 256 KB | 256 KB | 256 KB | 256 KB |
+| 每 SM 的 SMSP（warp 调度器） | 4 | 4 | 4 | 4 |
+| 每 SMSP 最多驻留 warp | 16 | 16 | 16 | 12 |
 | 每 SM 最多驻留 warp | 64 | 64 | 64 | 48 |
 {#tab-1-1 caption="**表 1-1** 几代 NVIDIA GPU 的规格" note="来自 NVIDIA 各代架构白皮书和产品规格（A100 80GB SXM，H100 SXM）。B200 的 L2 没有找到可靠的公开数字，暂缺。"}
 
