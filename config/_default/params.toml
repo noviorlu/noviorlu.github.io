@@ -47,7 +47,7 @@ smartTOCHideUnfocusedChildren = false
   showAuthorsBadges = false
   showWordCount = true
   showSummary = true
-  sharingLinks = ["x-twitter", "linkedin", "email"]
+  showComments = true             # giscus, see [giscus] below
 
 [list]
   showHero = false
@@ -79,3 +79,11 @@ smartTOCHideUnfocusedChildren = false
   groupByYear = true
   cardView = false
   cardViewScreenWidth = false
+
+# Comments + reactions via giscus (GitHub Discussions of this repo). IDs come from
+# https://giscus.app; comments stay hidden while repoId/categoryId are empty.
+[giscus]
+  repo = "noviorlu/noviorlu.github.io"
+  repoId = ""
+  category = "Announcements"
+  categoryId = ""

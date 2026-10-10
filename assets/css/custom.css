@@ -642,12 +642,12 @@ html.dark {
 }
 .nv-article__after details > div a { color: var(--nv-text-2); text-decoration: none; }
 .nv-article__after details > div a:hover { color: var(--nv-accent); }
-/* Sharing links */
-.nv-article__after section.flex.flex-row.flex-wrap.justify-center { justify-content: flex-start; padding: 0; gap: 8px; font-size: 16px; }
-.nv-article__after section.flex.flex-row.flex-wrap.justify-center a {
-  margin: 0; padding: 9px; border-radius: 9px; background: var(--nv-surface); border: 1px solid var(--nv-border); color: var(--nv-text-2);
-}
-.nv-article__after section.flex.flex-row.flex-wrap.justify-center a:hover { color: var(--nv-accent); border-color: var(--nv-accent-line); background: var(--nv-accent-soft); }
+/* Like / comment / share row (layouts/partials/nv/share.html) */
+.nv-share { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.nv-share .nv-btn { color: var(--nv-text-2); font-weight: 500; }
+.nv-share .nv-btn svg { width: 1em; height: 1em; }
+.nv-share button.nv-btn { cursor: pointer; font-family: inherit; }
+.nv-share__sep { width: 1px; height: 20px; margin: 0 4px; background: var(--nv-border); }
 
 .nv-author {
   display: flex; gap: 16px; align-items: flex-start; padding: 20px;
@@ -677,6 +677,11 @@ html.dark {
 .nv-pager__title { color: var(--nv-text); font-weight: 600; font-size: 15px; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nv-pager__date { color: var(--nv-text-3); font-size: 12.5px; }
 .nv-reply { margin-top: 24px; }
+
+/* giscus comments (layouts/partials/comments.html) */
+.nv-comments { margin-top: 40px; scroll-margin-top: 80px; }
+.nv-comments__title { margin: 0 0 4px; font-size: 20px; font-weight: 650; color: var(--nv-text); }
+.nv-comments__hint { margin: 0 0 16px; font-size: 13.5px; color: var(--nv-text-3); }
 
 /* ── 8. Projects ───────────────────────────────────────────── */
 .nv-group__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 18px; }

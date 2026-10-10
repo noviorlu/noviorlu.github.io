@@ -62,7 +62,7 @@
           {{ if .Params.showAuthor | default (site.Params.article.showAuthor | default true) }}
             {{ partial "nv/author-card.html" . }}
           {{ end }}
-          {{ partial "sharing-links.html" . }}
+          {{ if .Params.showShare | default true }}{{ partial "nv/share.html" . }}{{ end }}
           {{ partial "related.html" . }}
         </div>
       </div>
@@ -73,7 +73,7 @@
       {{ partial "article-pagination.html" . }}
       {{ if .Params.showComments | default (site.Params.article.showComments | default false) }}
         {{ if templates.Exists "partials/comments.html" }}
-          <div class="pt-3">{{ partial "comments.html" . }}</div>
+          {{ partial "comments.html" . }}
         {{ else }}
           {{ warnf "[BLOWFISH] Comments are enabled for %s but no comments partial exists." .File.Path }}
         {{ end }}

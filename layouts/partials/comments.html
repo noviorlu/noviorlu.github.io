@@ -1,0 +1,42 @@
+{{- /* giscus: comments + reactions (the post's "likes") stored in this repo's GitHub
+       Discussions. Settings live under [giscus] in params.toml; nothing renders until
+       repoId/categoryId are filled in. */ -}}
+{{ with site.Params.giscus }}
+  {{ if and .repoId .categoryId }}
+    <section id="comments" class="nv-comments" aria-label="留言">
+      <h2 class="nv-comments__title">{{ $.Params.commentsTitle | default "点赞 · 留言" }}</h2>
+      <p class="nv-comments__hint">用 GitHub 账号登录后可以点表情、留言。</p>
+      <div class="giscus"></div>
+    </section>
+    <script>
+      (() => {
+        const giscusTheme = () => document.documentElement.classList.contains("dark") ? "dark_dimmed" : "light";
+        const s = document.createElement("script");
+        s.src = "https://giscus.app/client.js";
+        s.async = true;
+        s.crossOrigin = "anonymous";
+        Object.entries({
+          repo: {{ .repo }},
+          repoId: {{ .repoId }},
+          category: {{ .category }},
+          categoryId: {{ .categoryId }},
+          mapping: "pathname",
+          strict: "1",
+          reactionsEnabled: "1",
+          emitMetadata: "0",
+          inputPosition: "top",
+          theme: giscusTheme(),
+          lang: "zh-CN",
+          loading: "lazy",
+        }).forEach(([k, v]) => s.setAttribute("data-" + k.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase()), v));
+        document.querySelector(".nv-comments .giscus").after(s);
+
+        // Follow the site's light/dark toggle.
+        new MutationObserver(() => {
+          const frame = document.querySelector("iframe.giscus-frame");
+          frame?.contentWindow.postMessage({ giscus: { setConfig: { theme: giscusTheme() } } }, "https://giscus.app");
+        }).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+      })();
+    </script>
+  {{ end }}
+{{ end }}
