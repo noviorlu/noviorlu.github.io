@@ -1,0 +1,25 @@
+{{- /* window.nvAbacus: this page's anonymous counters on Abacus (free, no account).
+       Keys are <slug>.<name>, e.g. noviorlu.github.io/blog.some-post.views.
+       Used by nv/share-js.html (reactions) and nv/views-js.html (view count). */ -}}
+<script>
+  window.nvAbacus = (() => {
+    const base = "https://abacus.jasoncameron.dev";
+    const ns = "noviorlu.github.io";
+    const slug = (() => {
+      const s = location.pathname.replace(/^\/+|\/+$/g, "").replace(/\//g, ".").toLowerCase() || "home";
+      if (/^[a-z0-9._-]{1,50}$/.test(s)) return s;
+      let h = 0;
+      for (const c of s) h = (Math.imul(h, 31) + c.codePointAt(0)) | 0;
+      return s.replace(/[^a-z0-9._-]/g, "").slice(0, 40) + "." + (h >>> 0).toString(36);
+    })();
+    const url = (op, name) => `${base}/${op}/${ns}/${slug}.${name}`;
+    const read = (r) => (r.ok ? r.json() : Promise.reject(new Error(`abacus ${r.status}`)));
+    return {
+      slug,
+      // A counter that was never hit (404) reads as 0; anything else that isn't OK
+      // (e.g. 429, the limit is 30 requests / 10 s per IP) rejects, so callers never show a wrong number.
+      get: (name) => fetch(url("get", name)).then((r) => (r.status === 404 ? { value: 0 } : read(r))).then((d) => d.value),
+      hit: (name) => fetch(url("hit", name)).then(read).then((d) => d.value),
+    };
+  })();
+</script>

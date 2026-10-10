@@ -1,0 +1,18 @@
+{{- /* Fills the view count in nv/meta.html. One view per browser session per page. */ -}}
+<script>
+  (() => {
+    const el = document.querySelector("[data-nv-views]");
+    if (!el || !window.nvAbacus) return;
+    const seenKey = "nv-viewed:" + nvAbacus.slug;
+    let seen = false;
+    try { seen = sessionStorage.getItem(seenKey) === "1"; } catch {}
+    (seen ? nvAbacus.get("views") : nvAbacus.hit("views"))
+      .then((n) => {
+        try { sessionStorage.setItem(seenKey, "1"); } catch {}
+        if (!n) return;
+        el.querySelector("[data-nv-views-count]").textContent = n.toLocaleString("zh-CN");
+        el.hidden = false;
+      })
+      .catch(() => {});
+  })();
+</script>

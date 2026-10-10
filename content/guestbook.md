@@ -8,6 +8,7 @@ showTableOfContents: false
 showTaxonomies: false
 showAuthor: false
 showComments: true
+showViewCount: false
 showShare: false
 commentsTitle: "留言"
 ---

@@ -438,6 +438,7 @@ html.dark .nv-g-e--hot, html.dark .nv-g-e--rt { stroke: var(--nv-hot); }
 .nv-post__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 10px 0 0; font-size: 13px; color: var(--nv-text-3); }
 .nv-meta { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0 8px; }
 .nv-meta__sep { color: var(--nv-border-strong); }
+.nv-meta__views:not([hidden]) { display: contents; }
 .nv-post__tag { color: var(--nv-text-3); }
 .nv-post__thumb {
   width: 176px; aspect-ratio: 16 / 10; overflow: hidden; border-radius: 10px;

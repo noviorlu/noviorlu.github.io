@@ -72,6 +72,8 @@
       </div>
     </div>
 
+    {{ partial "nv/abacus-js.html" . }}
+    {{ partial "nv/views-js.html" . }}
     {{ if $showShare }}{{ partial "nv/share-js.html" . }}{{ end }}
 
     {{/* Footer */}}

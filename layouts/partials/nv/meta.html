@@ -1,4 +1,4 @@
-{{- /* Date · words · reading time. Context: dict "page" P "scope" "single"|"list". */ -}}
+{{- /* Date · words · reading time · views (single only, filled by nv/views-js.html). Context: dict "page" P "scope" "single"|"list". */ -}}
 {{- $p := .page -}}
 {{- $single := eq .scope "single" -}}
 {{- $items := slice -}}
@@ -17,4 +17,9 @@
 {{- if and $single $p.Draft site.Params.article.showDraftLabel -}}
   {{- $items = $items | append `<span class="nv-badge">草稿</span>` -}}
 {{- end -}}
-<span class="nv-meta">{{ delimit $items `<span class="nv-meta__sep" aria-hidden="true">·</span>` | safeHTML }}</span>
+{{- $sep := `<span class="nv-meta__sep" aria-hidden="true">·</span>` -}}
+<span class="nv-meta">{{ delimit $items $sep | safeHTML }}
+  {{- if and $single ($p.Params.showViewCount | default true) -}}
+    <span class="nv-meta__views" data-nv-views hidden>{{ $sep | safeHTML }}<span><span data-nv-views-count></span> 次浏览</span></span>
+  {{- end -}}
+</span>
