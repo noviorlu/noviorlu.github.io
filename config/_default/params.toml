@@ -84,6 +84,6 @@ smartTOCHideUnfocusedChildren = false
 # https://giscus.app; comments stay hidden while repoId/categoryId are empty.
 [giscus]
   repo = "noviorlu/noviorlu.github.io"
-  repoId = ""
+  repoId = "R_kgDORR8IiQ"
   category = "Announcements"
-  categoryId = ""
+  categoryId = "DIC_kwDORR8Iic4DHhts"
