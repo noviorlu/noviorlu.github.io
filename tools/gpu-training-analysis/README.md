@@ -13,3 +13,13 @@ python3 assemble.py post_v2.md figs.json ../../content/blog/gpu-training-analysi
 ```
 
 不要直接改 index.md，下次 assemble 会覆盖。
+
+## 系列第一篇（GPU 与 Triton 入门）
+
+`post_intro.md` 是 `content/blog/gpu-triton-intro/index.md` 的模板，和主文章共用 `figs.py` / `figs.json`（图 1-1、1-2 的 id 是 `fig-h-1`、`fig-h-2`）：
+
+```bash
+python3 assemble.py post_intro.md figs.json ../../content/blog/gpu-triton-intro/index.md
+```
+
+Triton 例子的代码在 `triton_tutorial.py`，直接运行是和 PyTorch 对照的自检和计时。

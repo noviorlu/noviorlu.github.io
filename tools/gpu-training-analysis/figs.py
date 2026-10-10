@@ -740,7 +740,7 @@ def sweep():
 
 # ── 图 A-1 / A-2 GPU 硬件示意（RTX 5090，数据来自 NVIDIA RTX Blackwell 白皮书） ─────
 def hw_hierarchy():
-    f = F("fig-a-1", 300, "RTX 5090 的存储层级：每个 SM 里有 256 KB 寄存器和 128 KB L1/shared memory，170 个 SM 共享芯片上的 96 MB L2，芯片外是 32 GB GDDR7 显存，带宽 1.79e12 B/s")
+    f = F("fig-h-1", 300, "RTX 5090 的存储层级：每个 SM 里有 256 KB 寄存器和 128 KB L1/shared memory，170 个 SM 共享芯片上的 96 MB L2，芯片外是 32 GB GDDR7 显存，带宽 1.79e12 B/s")
     f.w('<rect x="10" y="22" width="452" height="250" rx="12" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="6 4"/>')
     f.w('<text class="lab2" x="22" y="40">GPU 芯片（die），共 170 个 SM</text>')
     def sm(x):
@@ -766,7 +766,7 @@ def hw_hierarchy():
     return f
 
 def hw_sm():
-    f = F("fig-a-2", 250, "RTX 5090 的一个 SM：4 个 SMSP，每个有 1 个 warp 调度器、64 KB 寄存器、32 条 FP32 lane 和 1 个 Tensor core；4 个 SMSP 共享 128 KB 的 L1/shared memory")
+    f = F("fig-h-2", 250, "RTX 5090 的一个 SM：4 个 SMSP，每个有 1 个 warp 调度器、64 KB 寄存器、32 条 FP32 lane 和 1 个 Tensor core；4 个 SMSP 共享 128 KB 的 L1/shared memory")
     f.w(f'<rect x="10" y="10" width="620" height="232" rx="12" {tint("--fig-1", 6, sw=1.4)}/>')
     f.w('<text class="tb" x="24" y="32">SM（每颗 5090 有 170 个）</text>')
     for k in range(4):
@@ -783,8 +783,8 @@ def hw_sm():
     return f
 
 CAPS = {
- "hw_hierarchy": '<strong>图 A-1</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。',
- "hw_sm": '<strong>图 A-2</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。',
+ "hw_hierarchy": '<strong>图 1-1</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。',
+ "hw_sm": '<strong>图 1-2</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。',
  "linear": '<strong>图 2-1</strong> 一个 Linear 的前向与反向：前向从左边往下，误差从右边传回；虚线是反向要从前向拿的东西。',
  "step_time": '<strong>图 2-2</strong> 一步训练里前向、反向、optimizer 的耗时占比（fp32，batch 4，seq 512），右侧是每步耗时和 MFU。',
  "roofline": '<strong>图 1-1</strong> RTX 5090 各精度的 roofline：斜线是带宽，平线是峰值算力（dense，boost clock 2407 MHz，来自 NVIDIA RTX Blackwell 白皮书；Tensor core 按 fp32 累加）。',
