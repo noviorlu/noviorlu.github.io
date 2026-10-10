@@ -132,7 +132,7 @@ series_order: 1
   <text class="tb" x="94" y="62" text-anchor="middle">SMSP 0</text>
   <rect x="34" y="70" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <text class="s" x="94" y="85" text-anchor="middle">warp 调度器</text>
-  <text class="s" x="94" y="108" text-anchor="middle">warp 槽位 ×12</text>
+  <text class="s" x="94" y="108" text-anchor="middle">最多驻留 12 个 warp</text>
   <rect x="35" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)"/>
   <rect x="55" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)"/>
   <rect x="75" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)"/>
@@ -155,7 +155,7 @@ series_order: 1
   <text class="tb" x="245" y="62" text-anchor="middle">SMSP 1</text>
   <rect x="185" y="70" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <text class="s" x="245" y="85" text-anchor="middle">warp 调度器</text>
-  <text class="s" x="245" y="108" text-anchor="middle">warp 槽位 ×12</text>
+  <text class="s" x="245" y="108" text-anchor="middle">最多驻留 12 个 warp</text>
   <rect x="186" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)"/>
   <rect x="206" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)"/>
   <rect x="226" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)"/>
@@ -178,7 +178,7 @@ series_order: 1
   <text class="tb" x="396" y="62" text-anchor="middle">SMSP 2</text>
   <rect x="336" y="70" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <text class="s" x="396" y="85" text-anchor="middle">warp 调度器</text>
-  <text class="s" x="396" y="108" text-anchor="middle">warp 槽位 ×12</text>
+  <text class="s" x="396" y="108" text-anchor="middle">最多驻留 12 个 warp</text>
   <rect x="337" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)"/>
   <rect x="357" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)"/>
   <rect x="377" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)"/>
@@ -201,7 +201,7 @@ series_order: 1
   <text class="tb" x="547" y="62" text-anchor="middle">SMSP 3</text>
   <rect x="487" y="70" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <text class="s" x="547" y="85" text-anchor="middle">warp 调度器</text>
-  <text class="s" x="547" y="108" text-anchor="middle">warp 槽位 ×12</text>
+  <text class="s" x="547" y="108" text-anchor="middle">最多驻留 12 个 warp</text>
   <rect x="488" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)"/>
   <rect x="508" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)"/>
   <rect x="528" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)"/>
@@ -223,7 +223,7 @@ series_order: 1
   <rect x="24" y="242" width="594" height="38" rx="8" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
   <text class="t" x="321" y="266" text-anchor="middle">L1 cache / shared memory 128 KB（4 个 SMSP 共享，shared memory 的大小由 kernel 申请）</text>
 </svg>
-<figcaption><strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有 12 个 warp 槽位，整个 SM 共 48 个；实心的 3 个对应 1.2 节 occupancy 25% 的例子。</figcaption>
+<figcaption><strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每一格是一个 warp（32 个线程）的槽位：每个 SMSP 的调度器最多管 12 个 warp，整个 SM 共 48 个；实心的 3 格对应 1.2 节 occupancy 25% 的例子。</figcaption>
 </figure>
 
 | | A100 | H100 | B200 | RTX 5090 |
