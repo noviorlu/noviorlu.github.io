@@ -67,7 +67,7 @@ occupancy_h100  = warps_per_sm / 64             # 0.1875
 occupancy_5090  = warps_per_sm / 48             # 0.25
 ```
 
-[图 1-3](#fig-h-2) 里每个 SMSP 的 12 个槽位只占了 3 个，就是这个例子。occupancy 不需要占满。只要驻留的 warp 足够把访存延迟藏起来，再多也不会更快；矩阵乘这类 kernel 常常故意让每个线程用很多寄存器，换取更高的数据复用。
+这里算的是理论 occupancy。运行时各 SMSP、各 SM 驻留的 warp 数并不一样（[图 1-3](#fig-h-2)）：block 是动态分到 SM 上的，跑完一个才进来下一个，grid 的最后一批常常填不满所有 SM；驻留的 warp 里，每个周期也只有就绪的那些能被发射。用 Nsight Compute 测到的平均值叫 achieved occupancy，一般比理论值低。occupancy 不需要占满。只要驻留的 warp 足够把访存延迟藏起来，再多也不会更快；矩阵乘这类 kernel 常常故意让每个线程用很多寄存器，换取更高的数据复用。
 
 ### 1.3 编程模型：thread、warp、block、grid {#hw-model}
 
