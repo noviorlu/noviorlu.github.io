@@ -103,10 +103,10 @@ series_order: 1
 
 ### 1.2 一个 SM 里有什么 {#hw-sm}
 
-每个 SM 分成 4 个 SMSP（SM sub-partition），每个 SMSP 有自己的 warp 调度器、寄存器、FP32 运算单元和一个 Tensor core，4 个 SMSP 共享一块 L1 / shared memory（[图 1-3](#fig-h-2)）。几代 GPU 的规格对比见[表 1-1](#tab-1-1)。
+每个 SM 分成 4 个 SMSP（SM sub-partition），每个 SMSP 有自己的 warp 调度器、寄存器、32 个 CUDA core（FP32 运算单元）和一个 Tensor core，4 个 SMSP 共享一块 L1 / shared memory（[图 1-3](#fig-h-2)）。几代 GPU 的规格对比见[表 1-1](#tab-1-1)。
 
 <figure id="fig-h-2" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 322" width="100%" role="img" aria-label="RTX 5090 的一个 SM：4 个 SMSP，每个有 1 个 warp 调度器、12 个 warp 槽位、64 KB 寄存器、32 条 FP32 lane 和 1 个 Tensor core；4 个 SMSP 共享 128 KB 的 L1/shared memory">
+<svg class="fg" viewBox="0 0 640 322" width="100%" role="img" aria-label="RTX 5090 的一个 SM：4 个 SMSP，每个有 1 个 warp 调度器、12 个 warp 槽位、64 KB 寄存器、32 个 CUDA core 和 1 个 Tensor core；4 个 SMSP 共享 128 KB 的 L1/shared memory">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -148,7 +148,7 @@ series_order: 1
   <rect x="34" y="146" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
   <text class="s" x="94" y="161" text-anchor="middle">寄存器 64 KB</text>
   <rect x="34" y="173" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="94" y="188" text-anchor="middle">32 条 FP32 lane</text>
+  <text class="s" x="94" y="188" text-anchor="middle">CUDA core ×32（FP32）</text>
   <rect x="34" y="200" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <text class="s" x="94" y="215" text-anchor="middle">Tensor core ×1</text>
   <rect x="175" y="44" width="141" height="188" rx="8" class="op"/>
@@ -171,7 +171,7 @@ series_order: 1
   <rect x="185" y="146" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
   <text class="s" x="245" y="161" text-anchor="middle">寄存器 64 KB</text>
   <rect x="185" y="173" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="245" y="188" text-anchor="middle">32 条 FP32 lane</text>
+  <text class="s" x="245" y="188" text-anchor="middle">CUDA core ×32（FP32）</text>
   <rect x="185" y="200" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <text class="s" x="245" y="215" text-anchor="middle">Tensor core ×1</text>
   <rect x="326" y="44" width="141" height="188" rx="8" class="op"/>
@@ -195,7 +195,7 @@ series_order: 1
   <rect x="336" y="146" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
   <text class="s" x="396" y="161" text-anchor="middle">寄存器 64 KB</text>
   <rect x="336" y="173" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="396" y="188" text-anchor="middle">32 条 FP32 lane</text>
+  <text class="s" x="396" y="188" text-anchor="middle">CUDA core ×32（FP32）</text>
   <rect x="336" y="200" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <text class="s" x="396" y="215" text-anchor="middle">Tensor core ×1</text>
   <rect x="477" y="44" width="141" height="188" rx="8" class="op"/>
@@ -218,7 +218,7 @@ series_order: 1
   <rect x="487" y="146" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
   <text class="s" x="547" y="161" text-anchor="middle">寄存器 64 KB</text>
   <rect x="487" y="173" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="547" y="188" text-anchor="middle">32 条 FP32 lane</text>
+  <text class="s" x="547" y="188" text-anchor="middle">CUDA core ×32（FP32）</text>
   <rect x="487" y="200" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <text class="s" x="547" y="215" text-anchor="middle">Tensor core ×1</text>
   <rect x="24" y="242" width="594" height="38" rx="8" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
@@ -236,7 +236,7 @@ series_order: 1
 | L2 | 40 MB | 50 MB | — | 96 MB |
 | 显存 | 80 GB HBM2e | 80 GB HBM3 | 192 GB HBM3e | 32 GB GDDR7 |
 | 显存带宽 | 2.0e12 B/s | 3.35e12 B/s | 8e12 B/s | 1.79e12 B/s |
-| 每 SM 的 FP32 单元 | 64 | 128 | 128 | 128 |
+| 每 SM 的 CUDA core（FP32） | 64 | 128 | 128 | 128 |
 | 每 SM 的 Tensor core | 4 | 4 | 4 | 4 |
 | 每 SM 的 L1 + shared | 192 KB | 256 KB | 256 KB | 128 KB |
 | 每 SM 的寄存器 | 256 KB | 256 KB | 256 KB | 256 KB |

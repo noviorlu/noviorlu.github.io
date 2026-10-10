@@ -766,7 +766,7 @@ def hw_hierarchy():
     return f
 
 def hw_sm():
-    f = F("fig-h-2", 322, "RTX 5090 的一个 SM：4 个 SMSP，每个有 1 个 warp 调度器、12 个 warp 槽位、64 KB 寄存器、32 条 FP32 lane 和 1 个 Tensor core；4 个 SMSP 共享 128 KB 的 L1/shared memory")
+    f = F("fig-h-2", 322, "RTX 5090 的一个 SM：4 个 SMSP，每个有 1 个 warp 调度器、12 个 warp 槽位、64 KB 寄存器、32 个 CUDA core 和 1 个 Tensor core；4 个 SMSP 共享 128 KB 的 L1/shared memory")
     f.w(f'<rect x="10" y="10" width="620" height="282" rx="12" {tint("--fig-1", 6, sw=1.4)}/>')
     f.w('<text class="tb" x="24" y="32">SM（每颗 5090 有 170 个）</text>')
     for k in range(4):
@@ -785,7 +785,7 @@ def hw_sm():
             f.w(f'<rect x="{sx}" y="{sy}" width="17" height="10" rx="2" {st}/>')
         if k == 2:
             f.w(f'<text class="s" x="{x + 104}" y="62" style="fill: var(--fig-hi)">空转</text>')
-        rows = [("寄存器 64 KB", "--fig-hi", 16), ("32 条 FP32 lane", "--fig-2", 22), ("Tensor core ×1", "--fig-1", 22)]
+        rows = [("寄存器 64 KB", "--fig-hi", 16), ("CUDA core ×32（FP32）", "--fig-2", 22), ("Tensor core ×1", "--fig-1", 22)]
         for j, (t, var, pct) in enumerate(rows):
             y = 146 + j * 27
             f.w(f'<rect x="{x + 10}" y="{y}" width="121" height="22" rx="4" {tint(var, pct)}/>')
