@@ -766,25 +766,32 @@ def hw_hierarchy():
     return f
 
 def hw_sm():
-    f = F("fig-h-2", 250, "RTX 5090 的一个 SM：4 个 SMSP，每个有 1 个 warp 调度器、64 KB 寄存器、32 条 FP32 lane 和 1 个 Tensor core；4 个 SMSP 共享 128 KB 的 L1/shared memory")
-    f.w(f'<rect x="10" y="10" width="620" height="232" rx="12" {tint("--fig-1", 6, sw=1.4)}/>')
+    f = F("fig-h-2", 300, "RTX 5090 的一个 SM：4 个 SMSP，每个有 1 个 warp 调度器、12 个 warp 槽位、64 KB 寄存器、32 条 FP32 lane 和 1 个 Tensor core；4 个 SMSP 共享 128 KB 的 L1/shared memory")
+    f.w(f'<rect x="10" y="10" width="620" height="282" rx="12" {tint("--fig-1", 6, sw=1.4)}/>')
     f.w('<text class="tb" x="24" y="32">SM（每颗 5090 有 170 个）</text>')
     for k in range(4):
         x = 24 + k * 151
-        f.w(f'<rect x="{x}" y="44" width="141" height="138" rx="8" class="op"/>')
+        f.w(f'<rect x="{x}" y="44" width="141" height="188" rx="8" class="op"/>')
         f.w(f'<text class="tb" x="{x + 70}" y="62" text-anchor="middle">SMSP {k}</text>')
-        rows = [("warp 调度器", "--fig-1", 10), ("寄存器 64 KB", "--fig-hi", 16), ("32 条 FP32 lane", "--fig-2", 22), ("Tensor core ×1", "--fig-1", 22)]
+        f.w(f'<rect x="{x + 10}" y="70" width="121" height="22" rx="4" {tint("--fig-1", 10)}/>')
+        f.w(f'<text class="s" x="{x + 70}" y="85" text-anchor="middle">warp 调度器</text>')
+        f.w(f'<text class="s" x="{x + 70}" y="108" text-anchor="middle">warp 槽位 ×12</text>')
+        for q in range(12):
+            sx, sy = x + 11 + (q % 6) * 20, 114 + (q // 6) * 14
+            st = 'style="fill: var(--fig-1)"' if q < 3 else 'style="fill: none; stroke: var(--fig-1)" stroke-opacity=".55"'
+            f.w(f'<rect x="{sx}" y="{sy}" width="17" height="10" rx="2" {st}/>')
+        rows = [("寄存器 64 KB", "--fig-hi", 16), ("32 条 FP32 lane", "--fig-2", 22), ("Tensor core ×1", "--fig-1", 22)]
         for j, (t, var, pct) in enumerate(rows):
-            y = 70 + j * 27
+            y = 146 + j * 27
             f.w(f'<rect x="{x + 10}" y="{y}" width="121" height="22" rx="4" {tint(var, pct)}/>')
             f.w(f'<text class="s" x="{x + 70}" y="{y + 15}" text-anchor="middle">{t}</text>')
-    f.w(f'<rect x="24" y="192" width="594" height="38" rx="8" {tint("--fig-2", 22)}/>')
-    f.w('<text class="t" x="321" y="216" text-anchor="middle">L1 cache / shared memory 128 KB（4 个 SMSP 共享，shared memory 的大小由 kernel 申请）</text>')
+    f.w(f'<rect x="24" y="242" width="594" height="38" rx="8" {tint("--fig-2", 22)}/>')
+    f.w('<text class="t" x="321" y="266" text-anchor="middle">L1 cache / shared memory 128 KB（4 个 SMSP 共享，shared memory 的大小由 kernel 申请）</text>')
     return f
 
 CAPS = {
  "hw_hierarchy": '<strong>图 1-2</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。',
- "hw_sm": '<strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。',
+ "hw_sm": '<strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有 12 个 warp 槽位，整个 SM 共 48 个；实心的 3 个对应 1.2 节 occupancy 25% 的例子。',
  "linear": '<strong>图 2-1</strong> 一个 Linear 的前向与反向：前向从左边往下，误差从右边传回；虚线是反向要从前向拿的东西。',
  "step_time": '<strong>图 2-2</strong> 一步训练里前向、反向、optimizer 的耗时占比（fp32，batch 4，seq 512），右侧是每步耗时和 MFU。',
  "roofline": '<strong>图 1-1</strong> RTX 5090 各精度的 roofline：斜线是带宽，平线是峰值算力（dense，boost clock 2407 MHz，来自 NVIDIA RTX Blackwell 白皮书；Tensor core 按 fp32 累加）。',
