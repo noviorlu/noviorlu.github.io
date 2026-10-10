@@ -79,11 +79,21 @@ A 在前向一层层攒起来，反向再一层层释放；G 正好相反，前�
 
 {{fig-2-4}}
 
-总账算下来有两条线索：时间上，40% 花在逐元素 kernel 上；显存上，峰值主要由 <span class="sw" style="background: var(--fig-2)"></span>A 决定，而且四项里只有 A 随 seq 变大。下面把单个 op 拆开，同时看这两件事：每一步算了多少、读写了多少显存、为反向存了什么。先拿最简单的 RMSNorm 把方法走一遍，再用到 attention 上。
+总账算下来有两条线索：时间上，40% 花在逐元素 kernel 上；显存上，峰值主要由 <span class="sw" style="background: var(--fig-2)"></span>A 决定，而且四项里只有 A 随 seq 变大。下面把单个 op 拆开来看。
 
 ---
 
 ## 3 逐个 op 拆开 {#ops}
+
+这一节对每个 op 问三件事：算了多少 FLOPs，读写了多少字节显存，为反向存了哪些张量。前两件看张量形状就能算出来；第三件由 autograd 决定，要实测。
+
+PyTorch 的 `torch.autograd.graph.saved_tensors_hooks(pack, unpack)` 就是用来看第三件事的。它是一个上下文管理器：在它里面跑前向时，autograd 每存下一个张量就调用一次 `pack(t)`，保存的是 `pack` 的返回值；反向每用到一个存下的张量就调用一次 `unpack`，收到的就是当初 `pack` 的返回值。下面的两个函数都原样返回张量，只是打印出来，并用 `data_ptr()` 给每块内存编号，编号相同就是同一块内存：
+
+```python
+{{code:saved_hooks_demo.py:hooks}}
+```
+
+[3.1 节](#rmsnorm)拿最简单的 RMSNorm 把这套方法走一遍，[3.2 节](#attention)再用到 attention 上。
 
 ### 3.1 RMSNorm {#rmsnorm}
 
@@ -95,26 +105,7 @@ x_hat = x * rms                                            # ④
 y = weight * x_hat                                         # ⑤
 ```
 
-用 PyTorch 的 `saved_tensors_hooks` 可以直接看到 autograd 为反向存了哪些张量，用法、代码和打印放在下面的折叠栏里。
-
-<details class="fold doc">
-<summary>用 saved_tensors_hooks 看 autograd 存了什么（代码和打印）</summary>
-
-`torch.autograd.graph.saved_tensors_hooks(pack, unpack)` 是一个上下文管理器。在它里面跑前向时，autograd 每存下一个张量就调用一次 `pack(t)`，保存的是 `pack` 的返回值；反向每用到一个存下的张量就调用一次 `unpack`，收到的就是当初 `pack` 的返回值。两个函数都原样返回张量、只打印，就能看到存了什么、什么时候被读回。下面用 `data_ptr()` 给每块内存编号，编号相同就是同一块内存。
-
-第一段是 hook 本身：
-
-```python
-{{code:saved_hooks_demo.py:hooks}}
-```
-
-第二段是要看的两个函数（和正文一样都是 eager 写法）以及调用：
-
-```python
-{{code:saved_hooks_demo.py:models}}
-```
-
-RMSNorm 的打印。块 A 是 x，B 是 r，C 是 $\hat{x}$，D 是 w：
+把上面三行包成函数 `rmsnorm(x, w)`，用 `show(rmsnorm, x, w)` 跑一遍，打印如下。块 A 是 x，B 是 r，C 是 $\hat{x}$，D 是 w：
 
 ```
 Saving  1  [4, 512, 2560]  float32  块 A
@@ -130,31 +121,6 @@ Loading    块 A
 Loading    块 B
 Loading    块 A
 ```
-
-attention 的打印。块 A 是 K（转置后的 view），B 是 Q，C 是 mask，D 是每行 max 的下标，E 是 e = exp(S − m)，F 是行和 Σ，G 是 V，H 是 P：
-
-```
-Saving  1  [64, 64, 1024]  float32  块 A
-Saving  2  [64, 1024, 64]  float32  块 B
-Saving  3  [1024, 1024]  bool  块 C
-Saving  4  [4, 16, 1024, 1]  int64  块 D
-Saving  5  [4, 16, 1024, 1024]  float32  块 E
-Saving  6  [4, 16, 1024, 1]  float32  块 F
-Saving  7  [4, 16, 1024, 1024]  float32  块 E
-Saving  8  [64, 1024, 64]  float32  块 G
-Saving  9  [64, 1024, 1024]  float32  块 H
-Loading    块 G
-Loading    块 H
-Loading    块 F
-Loading    块 E
-Loading    块 E
-Loading    块 D
-Loading    块 C
-Loading    块 A
-Loading    块 B
-```
-
-</details>
 
 打印的结果说明了 autograd 存张量的规则：**一个 op 的局部偏导里用到谁，前向就存谁；偏导是常数就什么都不存**。存的是引用，不是拷贝，所以本来就在显存里的输入 `x` 和参数 `w` 不额外占显存。6 次 Saving 只落在 4 块内存上，新占显存的只有 $r$（8 KiB）和 $\hat{x}$（20 MiB），见[表 3-1](#tab-3-1) 和[图 3-1](#fig-3-1)。
 
@@ -222,7 +188,36 @@ $Q$、$K$、$V$ 的形状都是 `[b, h, seq, d]`（d 是 d_head），$M$ 是 cau
 
 和 RMSNorm 一样，逐步看它算了多少、读写了多少显存、为反向存了什么（[图 3-4](#fig-3-4)，medium、seq 1024：b = 4，h = 16，d = 64）。一份 S 或 P 是 4 × 16 × 1024 × 1024 × 4 B = 256 MiB，而 Q、K、V、O 各只有 16 MiB。
 
-用同样的方法打印 eager attention 存下的张量（打印在 [3.1 节](#rmsnorm)的折叠栏里），再按 RMSNorm 那条规则逐个 op 对一遍（[表 3-3](#tab-3-3)）：9 次 Saving 里，Q、K、V、mask 本来就在显存里，只是引用；softmax 的 5 个 kernel 里，max 只把梯度传给最大值所在的位置，存下每行最大值的下标；exp 的导数就是它自己的输出，除法要用分子和分母，所以存下 e 和 Σ；⑤ 要用 P 和 V。新占显存的是 e 和 P 两个 seq × seq 张量，各 256 MiB，加起来是 Q、K、V、O 总和的 8 倍。
+eager 的写法如下，softmax 按公式拆成 5 个 kernel：
+
+```python
+{{code:saved_hooks_demo.py:attention}}
+```
+
+用 `show` 跑一遍，打印如下。块 A 是 K（转置后的 view），B 是 Q，C 是 mask，D 是每行 max 的下标，E 是 e = exp(S − m)，F 是行和 Σ，G 是 V，H 是 P：
+
+```
+Saving  1  [64, 64, 1024]  float32  块 A
+Saving  2  [64, 1024, 64]  float32  块 B
+Saving  3  [1024, 1024]  bool  块 C
+Saving  4  [4, 16, 1024, 1]  int64  块 D
+Saving  5  [4, 16, 1024, 1024]  float32  块 E
+Saving  6  [4, 16, 1024, 1]  float32  块 F
+Saving  7  [4, 16, 1024, 1024]  float32  块 E
+Saving  8  [64, 1024, 64]  float32  块 G
+Saving  9  [64, 1024, 1024]  float32  块 H
+Loading    块 G
+Loading    块 H
+Loading    块 F
+Loading    块 E
+Loading    块 E
+Loading    块 D
+Loading    块 C
+Loading    块 A
+Loading    块 B
+```
+
+按 RMSNorm 那条规则逐个 op 对一遍（[表 3-3](#tab-3-3)）：9 次 Saving 里，Q、K、V、mask 本来就在显存里，只是引用；softmax 的 5 个 kernel 里，max 只把梯度传给最大值所在的位置，存下每行最大值的下标；exp 的导数就是它自己的输出，除法要用分子和分母，所以存下 e 和 Σ；⑤ 要用 P 和 V。新占显存的是 e 和 P 两个 seq × seq 张量，各 256 MiB，加起来是 Q、K、V、O 总和的 8 倍。
 
 | op | 反向要的偏导 | 存下 | 新占显存 |
 |:--|:--|:--|--:|

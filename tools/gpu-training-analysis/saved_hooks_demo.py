@@ -29,11 +29,11 @@ def show(fn, *inputs):
 # post:end
 
 
-# post:models
 def rmsnorm(x, w, eps=1e-5):
     r = torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + eps)  # ① ② ③
     return w * (x * r)                                       # ④ ⑤
 
+# post:attention
 def attention(q, k, v, mask):
     s = q @ k.transpose(-2, -1) / math.sqrt(q.shape[-1])     # ① ②
     s = s.masked_fill(mask, float("-inf"))                    # ③
@@ -41,6 +41,7 @@ def attention(q, k, v, mask):
     e = torch.exp(s - m)
     p = e / e.sum(dim=-1, keepdim=True)
     return p @ v                                              # ⑤
+# post:end
 
 dev = "cuda"
 x = torch.randn(4, 512, 2560, device=dev, requires_grad=True)
@@ -50,4 +51,3 @@ show(rmsnorm, x, w)
 q, k, v = (torch.randn(4, 16, 1024, 64, device=dev, requires_grad=True) for _ in range(3))
 mask = torch.triu(torch.ones(1024, 1024, dtype=torch.bool, device=dev), diagonal=1)
 show(attention, q, k, v, mask)
-# post:end
