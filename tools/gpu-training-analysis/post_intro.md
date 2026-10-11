@@ -58,20 +58,9 @@ series_order: 1
 | 每 SM 最多驻留 warp | 64 | 64 | 64 | 48 |
 {#tab-1-1 caption="**表 1-1** 几代 NVIDIA GPU 的规格" note="来自 NVIDIA 各代架构白皮书和产品规格（A100 80GB SXM，H100 SXM）。B200 的 L2 没有找到可靠的公开数字，暂缺。"}
 
-一个 warp 等显存数据要几百个周期。这段时间里调度器改发另一个就绪的 warp；所有驻留 warp 的 register 一直留在 register file 里，换一个 warp 不用保存或恢复状态。所以一个 SM 上驻留的 warp 越多，访存延迟越容易被藏住。硬件上限见[表 1-1](#tab-1-1) 最后一行，一个 kernel 实际能驻留多少，还取决于每个线程用多少 register、每个 block 用多少 shared memory。驻留 warp 数与上限之比叫 occupancy。以每个 block 128 个线程、每个线程 160 个 register 为例：
+一个 warp 等显存数据要几百个周期。这段时间里调度器改发另一个就绪的 warp；所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态。所以一个 SM 上同时驻留的 warp 越多，访存延迟越容易藏住。[图 1-3](#fig-h-2) 画的是某一拍：每个 SMSP 驻留 3 个 warp，调度器每个周期只发射其中一个；SMSP 2 的 3 个都在等数据，这一拍就空转。
 
-```python
-regs_per_sm     = 256 * 1024 // 4               # 65536 个 32 位 register
-regs_per_block  = 128 * 160                     # 20480
-blocks_per_sm   = regs_per_sm // regs_per_block # 3，受 register 限制
-warps_per_sm    = blocks_per_sm * 128 // 32     # 12
-occupancy_h100  = warps_per_sm / 64             # 0.1875
-occupancy_5090  = warps_per_sm / 48             # 0.25
-```
-
-3 个 block 共 12 个 warp，按编号轮流分到 4 个 SMSP，每个 SMSP 3 个（[图 1-3](#fig-h-2)）。调度器每个周期只发射其中一个；3 个都在等数据时，这一拍就空转。
-
-上面算的是理论 occupancy。block 跑完一个才换下一个，grid 的最后一批也填不满所有 SM，所以 Nsight Compute 测到的 achieved occupancy 一般更低。occupancy 也不必追求占满：延迟藏住以后，多驻留的 warp 不会让 kernel 更快。矩阵乘这类 kernel 常让每个线程多用 register，用 occupancy 换数据复用。
+每个 SMSP 能驻留的 warp 有上限（[表 1-1](#tab-1-1) 最后两行）。kernel 每个线程用的 register、每个 block 用的 shared memory 越多，一个 SM 上能同时放下的 block 就越少。驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。它不必占满：延迟藏住以后，多驻留的 warp 不会让 kernel 更快，矩阵乘这类 kernel 常让每个线程多用 register，换更多的数据复用。
 
 ### 1.3 编程模型：thread、warp、block、grid {#hw-model}
 
@@ -192,7 +181,7 @@ fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 的矩�
 2. NVIDIA. [NVIDIA RTX Blackwell GPU Architecture](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)（白皮书）。RTX 5090 的存储层级和 SM 结构，图 1-2、图 1-3。
 3. NVIDIA. [NVIDIA A100 Tensor Core GPU Architecture](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)、[NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)、[NVIDIA Blackwell Architecture](https://resources.nvidia.com/en-us-blackwell-architecture)。表 1-1 的 A100、H100、B200 一列。
 4. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、register 和 shared memory 上限，CUDA 执行层级。
-5. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 调度状态和 theoretical / achieved occupancy。
+5. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 调度状态和 occupancy。
 6. Austin et al. [How to Scale Your Model](https://jax-ml.github.io/scaling-book/gpus/), Google DeepMind, 2025. 表 1-3 的 GPU 与 TPU 对照。
 7. Tillet, Kung, Cox. [Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations](https://doi.org/10.1145/3315508.3329973). MAPL 2019.
 8. [Triton tutorials](https://triton-lang.org/main/getting-started/tutorials/index.html)。第 2 节 softmax 和 matmul 例子的写法。
