@@ -84,11 +84,9 @@ block 放到 SM 上以后就一直驻留，直到它的线程全部跑完。一�
 
 {{fig-h-7}}
 
-先看 256 MiB（<span class="sw" style="background: var(--fig-1)"></span>），数组比 96 MB 的 L2 大得多，读写都走显存。每个 SMSP 只有 1 个 warp 时带宽是 4.7e11 B/s，只有 β 的 26%：这个 warp 发出一次读就停下来等，等的几百个周期里调度器没有别的 warp 可发。加到 2 个、3 个，带宽几乎按比例上涨；到 5、6 个时是 1.4e12 B/s（β 的 78%），之后不再涨，多出来的 warp 只是在后面排队。
+三条实线都是 warp 越多带宽越高，直到跑满为止：256 MiB 走显存，从 1 个 warp 的 4.7e11 B/s 涨到 5、6 个 warp 的 1.4e12 B/s；16 MiB 在 L2 里，上限更高，要 7 个 warp 以上才持平。
 
-数组变小，数据开始留在 L2 里，曲线跟着变。16 MiB（<span class="sw" style="background: var(--fig-hi)"></span>）读写一共 32 MiB，全部在 L2 里，带宽的上限变成 4.8e12 B/s，是显存的 2.7 倍，要 7 个 warp 以上才持平。L2 比显存近，等待短一些，但带宽高得多，要同时在路上的读也更多，所以要更多 warp。64 MiB（<span class="sw" style="background: var(--fig-2)"></span>）读写一共 128 MiB，一部分能留在 L2，前 6 个 warp 和 256 MiB 重合，之后还在慢慢涨，12 个 warp 时是 1.71e12 B/s。
-
-需要几个 warp，还取决于每个 warp 一次发出多少读。256 MiB 的数组改成每个线程每轮读 4 个数（虚线，一条 16 B 的 load），每个 SMSP 1 个 warp 就有 1.31e12 B/s，2 个就基本持平：warp 少了，但每个 warp 在路上的数据多了 4 倍。
+虚线是反例：同样 256 MiB，每个线程每轮改读 4 个数，1 个 warp 就有 1.31e12 B/s，2 个以后不再涨。因为掩盖延迟靠的是同时在路上的读，warp 多是一种办法，每个 warp 一次多发几条读也是一种办法。
 
 驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。kernel 每个线程用的 register、每个 block 用的 shared memory 越多，一个 SM 上能同时放下的 block 就越少，occupancy 就越低。它不必占满：上面的 kernel 读写显存时 5、6 个 warp 就够，占满 12 个也不会更快。矩阵乘这类 kernel 常让每个线程多用 register，用 occupancy 换更多的数据复用。
 
