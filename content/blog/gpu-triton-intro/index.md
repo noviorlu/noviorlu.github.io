@@ -429,7 +429,17 @@ block 放到 SM 上以后就一直驻留，直到它的线程全部跑完。一�
 <figcaption><strong>图 1-5</strong> 一个 SM 上驻留 3 个 block（B0、B1、B2）时的某一拍。格子里写的是这个 warp 属于哪个 block，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。</figcaption>
 </figure>
 
-驻留多少个 warp 才够？我用一组逐元素 kernel 实测了一遍（[图 1-6](#fig-h-7)）：256 MiB 的 fp32 数组，每个元素读进来，串 K 次 FMA，再写回。FMA（fused multiply-add）是一条指令算 a × b + c，记作 2 次浮点运算；一个 CUDA core 每拍做一次，5090 的 fp32 峰值就是 21760 个 CUDA core × 2 × 2.41e9 Hz ≈ 1.05e14 FLOPS。K 从 1 加到 512，arithmetic intensity 从 0.25 加到 128，跨过了 ridge point 58，最后一个是 compute-bound。kernel 写成固定个数的 program 循环走完整个数组，每个 program 4 个 warp，grid 取 170 × m 个 program，每个 SMSP 就正好驻留 m 个 warp。
+驻留几个 warp 才够，取决于每个 warp 要等多久。以 FMA（fused multiply-add，一条指令算 a × b + c，记 2 次浮点运算）为例：一条 FMA 大约 4 拍后才出结果，如果下一条要用这个结果，就得等它出来才能发。一个 SMSP 上只有 1 个 warp（A）时，4 拍里只有 1 拍在发指令；有 4 个 warp（A、B、C、D）时，A 等待的 3 拍由 B、C、D 填上，每一拍都有指令可发：
+
+```
+拍：          1  2  3  4  5  6  7  8
+只有 A：      A  .  .  .  A  .  .  .     用了 1/4 的拍
+A、B、C、D：  A  B  C  D  A  B  C  D     每拍都在发
+```
+
+所以要几个 warp，就看等待有几拍，要让别的 warp 把这几拍填满。
+
+[图 1-6](#fig-h-7) 在 5090 上验证了这一点。kernel 把 256 MiB 数组的每个元素读进来，连做 K 次 FMA（每次都用上一次的结果），再写回。K 越大，每个元素算得越多，intensity 越高；我取了四个 K，让 intensity 从 0.25 到 128，最后一个超过了 ridge point 58，是 compute-bound。横轴是每个 SMSP 驻留的 warp 数，纵轴是速度占这条线最快值的比例。
 
 <figure id="fig-h-7" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 320" width="100%" role="img" aria-label="每个 SMSP 驻留 1 到 12 个 warp 时，arithmetic intensity 从 0.25 到 128 的四个 kernel 的速度（占各自最快值的比例）：四条线形状几乎一样，都要 4 到 6 个 warp 才接近 100%">
@@ -532,11 +542,16 @@ block 放到 SM 上以后就一直驻留，直到它的线程全部跑完。一�
 <figcaption><strong>图 1-6</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。</figcaption>
 </figure>
 
-四条线都是 warp 越多越快，到 4 到 6 个 warp 时接近各自的上限，之后持平。只有 1 个 warp 时都只有上限的 20% 到 33%。memory-bound 的三条线等的是显存，一次读要几百个周期；compute-bound 的那条等的是上一次 FMA 的结果，K 次 FMA 一环扣一环，一个 warp 发出一条，要等几拍才能发下一条。等的东西不同，办法一样：调度器在这个 warp 等的时候去发别的 warp。所以要几个 warp 和 intensity 关系不大。
+compute-bound 的那条线（I = 128）和上面的推算一致：1 个 warp 时是 25%，正好 1/4；4 个 warp 时到 92%。memory-bound 的三条线等的是显存，一次读要几百拍，按说要更多 warp 才能填满；但显存每秒能送的数据有上限，warp 多到把显存喂满以后，再加也没用，实测在 5、6 个 warp 时持平。
 
-反例是 [2.4 节](#triton-matmul)的矩阵乘。它的 register 和 shared memory 用得多，每个 SM 只放得下 3 个 block，每个 SMSP 3 个 warp，照样跑到 5.2e13 FLOPS，是 fp32 峰值的一半。原因是每个线程负责很多个输出，这些乘加互不依赖，一个 warp 自己就能连着发，不用等别的 warp 来填空档。决定要几个 warp 的是每个 warp 自己有多少条互不依赖的指令：越多，需要的 warp 越少。
+反例是 [2.4 节](#triton-matmul)的矩阵乘。每个 SMSP 只驻留 3 个 warp，它照样跑到 5.2e13 FLOPS，是 fp32 峰值的一半。因为一个线程负责很多个输出，这些 FMA 互不依赖，第 2 条不用等第 1 条的结果，一个 warp 自己就能每拍发一条，不需要别的 warp 来填空档：
 
-驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。kernel 每个线程用的 register、每个 block 用的 shared memory 越多，一个 SM 上能同时放下的 block 就越少，occupancy 就越低。它不必占满：上面四个 kernel 4 到 6 个 warp 就够，占满 12 个也不会更快；矩阵乘用 25% 的 occupancy 换来了更多的数据复用。
+```
+拍：          1  2  3  4  5  6  7  8
+矩阵乘的 A：  A  A  A  A  A  A  A  A     每条 FMA 互不依赖
+```
+
+驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。每个线程用的 register、每个 block 用的 shared memory 越多，一个 SM 能同时放下的 block 就越少，occupancy 就越低。它不必占满，够填满等待的拍数就行：图 1-6 的 kernel 4 到 6 个 warp 就够；矩阵乘用 25% 的 occupancy，换来每个线程更多的 register，存下更多互不依赖的累加值。
 
 block 之间不能直接共享数据，只能通过显存交换，而这正是最慢的一层。所以要尽量把会重复读的数据放进同一个 block 里处理，这就是分块（tiling）。在 CUDA 里分块要自己管 shared memory 和线程同步，[第 2 节](#triton)的 Triton 把这部分交给编译器。
 
