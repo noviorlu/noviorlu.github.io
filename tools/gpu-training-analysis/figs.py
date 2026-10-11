@@ -937,12 +937,91 @@ def occ_sweep():
         f.w(f'<line x1="{LX}" y1="{ly - 4}" x2="{LX + 22}" y2="{ly - 4}" style="stroke: var({var})" stroke-width="2"/><text class="lab" x="{LX + 30}" y="{ly}">{lab}</text>')
     return f
 
+# ── 图 2-1 到 2-4 Triton kernel 示意：左边是 grid 怎么切，右边是一个 program 做什么 ─────
+def tri_fig(fid, label, steps, prog_note, grid_note, items=None, tiles=None, loop=None):
+    T = 18                                          # 顶上留给「grid」「一个 program」两个标题
+    PY0, PH = T + 14, (118 if loop else 88)         # program 虚线框
+    rows = len(items) if items else tiles[0]
+    f = F(fid, max(PY0 + PH + 30, PY0 + rows * 32 + 8 + 15 * len(grid_note)), label)
+    f.w(f'<text class="ttl" x="10" y="{T}">grid</text>')
+    f.w(f'<text class="ttl" x="162" y="{T}">一个 program 做的事</text>')
+    if tiles:                                       # 二维 grid：C 的分块
+        R, Cn, hr, hc = tiles
+        for r in range(R):
+            for c in range(Cn):
+                x, y = 10 + c * 40, PY0 + r * 32
+                hi = (r, c) == (hr, hc)
+                f.w(f'<rect x="{x}" y="{y}" width="34" height="26" rx="4" {tint("--fig-1" if hi else "--fig-mute", 30 if hi else 12)}/>')
+                if hi:
+                    f.w(f'<text class="s" x="{x + 17}" y="{y + 17}" text-anchor="middle">({r},{c})</text>')
+        cy, ax, gy = PY0 + hr * 32 + 13, 10 + Cn * 40 - 6, PY0 + R * 32 + 12
+    else:
+        for i, (t, hi) in enumerate(items):
+            y = PY0 + i * 32
+            f.w(f'<rect x="10" y="{y}" width="118" height="26" rx="5" {tint("--fig-1" if hi else "--fig-mute", 30 if hi else 12)}/>')
+            f.w(f'<text class="t" x="69" y="{y + 18}" text-anchor="middle">{t}</text>')
+        cy = PY0 + [k for k, (_, hi) in enumerate(items) if hi][0] * 32 + 13
+        ax, gy = 128, PY0 + len(items) * 32 + 8
+    for k, line in enumerate(grid_note):
+        f.w(f'<text class="lab2" x="10" y="{gy + k * 15}">{line}</text>')
+    f.w(f'<rect x="150" y="{PY0}" width="480" height="{PH}" rx="10" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="6 4"/>')
+    f.w(f'<text class="lab2" x="390" y="{PY0 + PH + 18}" text-anchor="middle">{prog_note}</text>')
+    n = len(steps); BW = (456 - (n - 1) * 22) / n
+    sy = cy - 25
+    f.arrow(ax + 2, cy, 160, cy, None, width=1.5)
+    vars_ = ["--fig-1", "--fig-2", "--fig-3", "--fig-mute"]
+    xs = []
+    for k, (t1, t2) in enumerate(steps):
+        x = 162 + k * (BW + 22); xs.append(x)
+        f.w(f'<rect x="{x:.1f}" y="{sy}" width="{BW:.1f}" height="50" rx="7" {tint(vars_[k % 4], 22 if k % 4 != 2 else 45, stroke="--fig-2" if k % 4 == 2 else None)}/>')
+        f.w(f'<text class="tb" x="{x + BW / 2:.1f}" y="{sy + 21}" text-anchor="middle">{t1}</text><text class="s" x="{x + BW / 2:.1f}" y="{sy + 38}" text-anchor="middle">{t2}</text>')
+        if k:
+            f.arrow(xs[k - 1] + BW + 2, cy, x - 2, cy, None, width=1.5)
+    if loop:
+        a, b, txt = loop
+        x1, x2, yb = xs[b] + BW / 2, xs[a] + BW / 2, sy + 50
+        f.path(f"M{x1:.1f},{yb + 2} L{x1:.1f},{yb + 22} L{x2:.1f},{yb + 22} L{x2:.1f},{yb + 3}", "--fig-hi", width=1.5)
+        f.w(f'<text class="s" x="{(x1 + x2) / 2:.1f}" y="{yb + 36}" text-anchor="middle" style="fill: var(--fig-hi)">{txt}</text>')
+    return f
+
+def tri_gelu():
+    return tri_fig("fig-t-1", "GELU kernel：grid 把 n 个元素切成每段 BLOCK 个，一段一个 program；一个 program 算下标、读、算 GELU、写回",
+                   [("算下标", "offsets"), ("读", "tl.load(mask)"), ("GELU", "tanh 近似"), ("写回", "tl.store(mask)")],
+                   "一个 program（pid = 1）：处理第 1 段的 1024 个元素",
+                   ["grid = (cdiv(n, BLOCK),)", "一段一个 program"],
+                   items=[("段 0", False), ("段 1 ← pid=1", True), ("段 2", False), ("⋯", False)])
+
+def tri_softmax():
+    return tri_fig("fig-t-2", "softmax kernel：grid 是 M 个 program，一行一个；一个 program 读一整行，减最大值、exp、求和、归一化都在 register 里做完，再写回",
+                   [("读一行", "tl.load"), ("减最大值", "x − tl.max(x)"), ("exp、求和", "tl.exp, tl.sum"), ("归一化写回", "tl.store")],
+                   "一个 program（pid = 1）：处理第 1 行，中间结果都在 register 里",
+                   ["grid = (M,)", "一行一个 program"],
+                   items=[("行 0", False), ("行 1 ← pid=1", True), ("行 2", False), ("⋯", False)])
+
+def tri_rowsum():
+    return tri_fig("fig-t-3", "row sum kernel：grid 是 M 个 program，一行一个；一个 program 沿行循环，每次读 TILE 个数加到部分和向量上，最后归约成一个数写回",
+                   [("初始化", "acc = tl.zeros"), ("读一块", "tl.load"), ("累加", "acc += x"), ("归约写回", "tl.sum, tl.store")],
+                   "一个 program（pid = 1）：沿第 1 行一块一块地读",
+                   ["grid = (M,)", "一行一个 program"],
+                   items=[("行 0", False), ("行 1 ← pid=1", True), ("行 2", False), ("⋯", False)], loop=(1, 2, "沿行循环，每次 TILE 个"))
+
+def tri_matmul():
+    return tri_fig("fig-t-4", "matmul kernel：grid 是二维的，一个 program 负责 C 的一个 BM × BN 块；沿 K 循环读 A、B 的块用 tl.dot 累加，最后做 ReLU 写回",
+                   [("初始化", "acc [BM, BN] = 0"), ("读 A、B 的块", "两次 tl.load"), ("乘加", "acc += tl.dot"), ("ReLU 写回", "tl.store")],
+                   "一个 program（pid_m = 1，pid_n = 2）：算出 C 的 (1, 2) 块",
+                   ["C 的分块，每块 BM × BN", "grid = (cdiv(M, BM),", "  cdiv(N, BN))"],
+                   tiles=(3, 3, 1, 2), loop=(1, 2, "沿 K 循环，每次 BK"))
+
 CAPS = {
  "hw_hierarchy": '<strong>图 1-2</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。',
  "hw_sm": '<strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core 和 1 个 Tensor core，4 个 SMSP 共享 L1 / shared memory。',
  "warp_slots": '<strong>图 1-5</strong> 一个 SM 上驻留 3 个 block（B0、B1、B2）时的某一拍。格子里写的是这个 warp 属于哪个 block，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。',
  "cuda_model": '<strong>图 1-4</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。',
- "occ_sweep": '<strong>图 2-1</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。',
+ "tri_gelu": '<strong>图 2-1</strong> GELU kernel。左边是 grid：n 个元素按 BLOCK 切段，一段一个 program；右边虚线框是其中一个 program 做的事。',
+ "tri_softmax": '<strong>图 2-2</strong> softmax kernel，画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，整行读进来以后，中间结果不回显存。',
+ "tri_rowsum": '<strong>图 2-3</strong> row sum kernel，画法同<a href="#fig-t-1">图 2-1</a>。一个 program 装不下整行，沿行循环读（红线），每次 TILE 个。',
+ "tri_matmul": '<strong>图 2-4</strong> matmul kernel，画法同<a href="#fig-t-1">图 2-1</a>。grid 是二维的，一个 program 负责 C 的一块，沿 K 循环（红线）读 A、B 的块累加。',
+ "occ_sweep": '<strong>图 2-5</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。',
  "tpu_core": '<strong>图 A-1</strong> TPU v5p 一个 TensorCore 的结构示意，画法对应<a href="#fig-h-1">图 1-2</a>。规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>，原书也有一张 TensorCore 的结构图。',
  "systolic": '<strong>图 A-2</strong> 乘加单元怎么拿到数据。左边是 GPU 的 CUDA core，右边是 TPU 的 MXU；x 按行错开一拍进入，y 是每列的输出。动画演示见 <a href="https://jax-ml.github.io/scaling-book/tpus/#appendix-b-how-does-a-systolic-array-work">How to Scale Your Model 附录 B</a>。',
  "linear": '<strong>图 2-1</strong> 一个 Linear 的前向与反向：前向从左边往下，误差从右边传回；虚线是反向要从前向拿的东西。',
@@ -964,7 +1043,7 @@ CAPS = {
  "ckpt": '<strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。',
  "sweep": '<strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。',
 }
-OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
+OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
        ("flops_vs_time", flops_vs_time), ("share_vs_seq", share_vs_seq), ("peak_memory", peak_memory), ("peak_moment", peak_moment),
        ("rms_eager", rms_eager), ("rms_fused", rms_fused), ("attn_flow", attn_flow), ("layer_donut", layer_donut), ("timelines", timelines),
        ("bf16", bf16), ("ckpt", ckpt), ("sweep", sweep))}

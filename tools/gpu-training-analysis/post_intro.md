@@ -103,7 +103,9 @@ Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的分块。CU
 
 ### 2.1 GELU：逐元素 kernel {#triton-gelu}
 
-逐元素 op 最简单，每个元素各算各的，program 之间不需要配合。把 n 个元素切成每段 BLOCK 个，一段交给一个 program。kernel 里先用 `tl.program_id` 算出自己负责的下标，读进来，算完写回：
+{{fig-t-1}}
+
+逐元素 op 最简单，每个元素各算各的，program 之间不需要配合。把 n 个元素切成每段 BLOCK 个，一段交给一个 program（[图 2-1](#fig-t-1)）。kernel 里先用 `tl.program_id` 算出自己负责的下标，读进来，算完写回：
 
 ```python
 {{code:triton_tutorial.py:gelu_kernel}}
@@ -138,7 +140,9 @@ softmax 在 eager 下要 5 个 kernel，和[下一篇](/blog/gpu-training-analys
 {{code:triton_tutorial.py:softmax_naive}}
 ```
 
-如果一个 program 处理一整行，max、exp、求和、除都可以在 register 里做完，只读 MN、写 MN，读写量是原来的 1/4：
+{{fig-t-2}}
+
+如果一个 program 处理一整行（[图 2-2](#fig-t-2)），max、exp、求和、除都可以在 register 里做完，只读 MN、写 MN，读写量是原来的 1/4：
 
 ```python
 {{code:triton_tutorial.py:softmax_kernel}}
@@ -150,7 +154,9 @@ softmax 在 eager 下要 5 个 kernel，和[下一篇](/blog/gpu-training-analys
 
 ### 2.3 Row sum：行太长时分块累加 {#triton-rowsum}
 
-先看最简单的按行归约：求和。program 沿着行一块一块读，每块 TILE 个数加到一个长度为 TILE 的部分和向量上，最后再把这个向量加成一个数。循环里每个位置各加各的，不需要线程之间通信；只有最后的 `tl.sum` 做一次跨线程归约。
+{{fig-t-3}}
+
+先看最简单的按行归约：求和。program 沿着行一块一块读（[图 2-3](#fig-t-3)），每块 TILE 个数加到一个长度为 TILE 的部分和向量上，最后再把这个向量加成一个数。循环里每个位置各加各的，不需要线程之间通信；只有最后的 `tl.sum` 做一次跨线程归约。
 
 ```python
 {{code:triton_tutorial.py:row_sum}}
@@ -162,7 +168,9 @@ softmax 不能直接这样分块：要先知道整行的最大值才能算 exp�
 
 ### 2.4 Matmul：分块乘加，顺手融合 ReLU {#triton-matmul}
 
-矩阵乘按输出 C 分块，一个 program 负责 C 的一个 BM × BN 块，grid 是二维的。program 沿 K 方向每次读 A 的一个 BM × BK 块和 B 的一个 BK × BN 块，用 `tl.dot` 乘加到累加器上。写回之前在 register 里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
+{{fig-t-4}}
+
+矩阵乘按输出 C 分块，一个 program 负责 C 的一个 BM × BN 块，grid 是二维的（[图 2-4](#fig-t-4)）。program 沿 K 方向每次读 A 的一个 BM × BK 块和 B 的一个 BK × BN 块，用 `tl.dot` 乘加到累加器上。写回之前在 register 里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
 
 ```python
 {{code:triton_tutorial.py:matmul}}
@@ -182,7 +190,7 @@ fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 的矩�
 A、B、C、D：  A  B  C  D  A  B  C  D     每拍都在发
 ```
 
-所以要几个 warp，就看等待有几拍，要让别的 warp 把这几拍填满。[图 2-1](#fig-h-7) 在 5090 上验证了这一点。kernel 把 256 MiB 数组的每个元素读进来，连做 K 次 FMA（每次都用上一次的结果），再写回。K 越大 intensity 越高，四个 K 让 intensity 从 0.25 到 128，最后一个超过了 ridge point 58，是 compute-bound。grid 固定为 170 × m 个 program，每个 SMSP 就正好驻留 m 个 warp。
+所以要几个 warp，就看等待有几拍，要让别的 warp 把这几拍填满。[图 2-5](#fig-h-7) 在 5090 上验证了这一点。kernel 把 256 MiB 数组的每个元素读进来，连做 K 次 FMA（每次都用上一次的结果），再写回。K 越大 intensity 越高，四个 K 让 intensity 从 0.25 到 128，最后一个超过了 ridge point 58，是 compute-bound。grid 固定为 170 × m 个 program，每个 SMSP 就正好驻留 m 个 warp。
 
 {{fig-h-7}}
 
@@ -207,7 +215,7 @@ compute-bound 的那条线（I = 128）和上面的推算一致：1 个 warp 时
 
 `num_warps` 还决定每个线程要存多少数据：program 一次要存的数据平分给它的线程。[2.2 节](#triton-softmax)的 softmax 把一整行放在 register 里，行长 32768 时，`num_warps=1` 每个线程要存 1024 个数，远超每个线程 255 个 register 的上限，溢出到显存，耗时 705 µs；`num_warps=8` 每个线程存 128 个，不溢出，183 µs。
 
-驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。它不必占满，够把等待的拍数填满就行：图 2-1 的 kernel 4 到 6 个 warp 就够，矩阵乘 25% 的 occupancy 也够。调 `num_warps` 的顺序是：先看 program 比 SM 多多少，program 少时把 `num_warps` 调大；再看 register 会不会溢出；最后用 `triton.autotune` 微调。
+驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。它不必占满，够把等待的拍数填满就行：图 2-5 的 kernel 4 到 6 个 warp 就够，矩阵乘 25% 的 occupancy 也够。调 `num_warps` 的顺序是：先看 program 比 SM 多多少，program 少时把 `num_warps` 调大；再看 register 会不会溢出；最后用 `triton.autotune` 微调。
 
 第 2 节的四个例子是同一个模式：program 把一块数据读进 register，在片上做完能做的计算，再写回显存。[下一篇](/blog/gpu-training-analysis/)在 5090 上拆解一步训练的时间和显存，用的就是这个模式：把 RMSNorm 的几个 kernel 融合成一个，少读写一遍中间结果。
 

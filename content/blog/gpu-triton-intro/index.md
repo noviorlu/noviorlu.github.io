@@ -452,7 +452,59 @@ Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的分块。CU
 
 ### 2.1 GELU：逐元素 kernel {#triton-gelu}
 
-逐元素 op 最简单，每个元素各算各的，program 之间不需要配合。把 n 个元素切成每段 BLOCK 个，一段交给一个 program。kernel 里先用 `tl.program_id` 算出自己负责的下标，读进来，算完写回：
+<figure id="fig-t-1" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 198" width="100%" role="img" aria-label="GELU kernel：grid 把 n 个元素切成每段 BLOCK 个，一段一个 program；一个 program 算下标、读、算 GELU、写回">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <defs><marker id="fig-t-1-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
+  <text class="ttl" x="10" y="18">grid</text>
+  <text class="ttl" x="162" y="18">一个 program 做的事</text>
+  <rect x="10" y="32" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="t" x="69" y="50" text-anchor="middle">段 0</text>
+  <rect x="10" y="64" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-1) 30%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="t" x="69" y="82" text-anchor="middle">段 1 ← pid=1</text>
+  <rect x="10" y="96" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="t" x="69" y="114" text-anchor="middle">段 2</text>
+  <rect x="10" y="128" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="t" x="69" y="146" text-anchor="middle">⋯</text>
+  <text class="lab2" x="10" y="168">grid = (cdiv(n, BLOCK),)</text>
+  <text class="lab2" x="10" y="183">一段一个 program</text>
+  <rect x="150" y="32" width="480" height="88" rx="10" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="6 4"/>
+  <text class="lab2" x="390" y="138" text-anchor="middle">一个 program（pid = 1）：处理第 1 段的 1024 个元素</text>
+  <line x1="130.0" y1="77.0" x2="160.0" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-1-m0)"/>
+  <rect x="162.0" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="tb" x="210.8" y="73" text-anchor="middle">算下标</text><text class="s" x="210.8" y="90" text-anchor="middle">offsets</text>
+  <rect x="281.5" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="tb" x="330.2" y="73" text-anchor="middle">读</text><text class="s" x="330.2" y="90" text-anchor="middle">tl.load(mask)</text>
+  <line x1="261.5" y1="77.0" x2="279.5" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-1-m0)"/>
+  <rect x="401.0" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="tb" x="449.8" y="73" text-anchor="middle">GELU</text><text class="s" x="449.8" y="90" text-anchor="middle">tanh 近似</text>
+  <line x1="381.0" y1="77.0" x2="399.0" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-1-m0)"/>
+  <rect x="520.5" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-mute) 22%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="tb" x="569.2" y="73" text-anchor="middle">写回</text><text class="s" x="569.2" y="90" text-anchor="middle">tl.store(mask)</text>
+  <line x1="500.5" y1="77.0" x2="518.5" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-1-m0)"/>
+</svg>
+<figcaption><strong>图 2-1</strong> GELU kernel。左边是 grid：n 个元素按 BLOCK 切段，一段一个 program；右边虚线框是其中一个 program 做的事。</figcaption>
+</figure>
+
+逐元素 op 最简单，每个元素各算各的，program 之间不需要配合。把 n 个元素切成每段 BLOCK 个，一段交给一个 program（[图 2-1](#fig-t-1)）。kernel 里先用 `tl.program_id` 算出自己负责的下标，读进来，算完写回：
 
 ```python
 @triton.jit
@@ -507,7 +559,59 @@ def softmax_naive(x):                         # x: [M, N]，按行
     return e / s                              # 读 MN + M，写 MN
 ```
 
-如果一个 program 处理一整行，max、exp、求和、除都可以在 register 里做完，只读 MN、写 MN，读写量是原来的 1/4：
+<figure id="fig-t-2" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 198" width="100%" role="img" aria-label="softmax kernel：grid 是 M 个 program，一行一个；一个 program 读一整行，减最大值、exp、求和、归一化都在 register 里做完，再写回">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <defs><marker id="fig-t-2-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
+  <text class="ttl" x="10" y="18">grid</text>
+  <text class="ttl" x="162" y="18">一个 program 做的事</text>
+  <rect x="10" y="32" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="t" x="69" y="50" text-anchor="middle">行 0</text>
+  <rect x="10" y="64" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-1) 30%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="t" x="69" y="82" text-anchor="middle">行 1 ← pid=1</text>
+  <rect x="10" y="96" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="t" x="69" y="114" text-anchor="middle">行 2</text>
+  <rect x="10" y="128" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="t" x="69" y="146" text-anchor="middle">⋯</text>
+  <text class="lab2" x="10" y="168">grid = (M,)</text>
+  <text class="lab2" x="10" y="183">一行一个 program</text>
+  <rect x="150" y="32" width="480" height="88" rx="10" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="6 4"/>
+  <text class="lab2" x="390" y="138" text-anchor="middle">一个 program（pid = 1）：处理第 1 行，中间结果都在 register 里</text>
+  <line x1="130.0" y1="77.0" x2="160.0" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-2-m0)"/>
+  <rect x="162.0" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="tb" x="210.8" y="73" text-anchor="middle">读一行</text><text class="s" x="210.8" y="90" text-anchor="middle">tl.load</text>
+  <rect x="281.5" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="tb" x="330.2" y="73" text-anchor="middle">减最大值</text><text class="s" x="330.2" y="90" text-anchor="middle">x − tl.max(x)</text>
+  <line x1="261.5" y1="77.0" x2="279.5" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-2-m0)"/>
+  <rect x="401.0" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="tb" x="449.8" y="73" text-anchor="middle">exp、求和</text><text class="s" x="449.8" y="90" text-anchor="middle">tl.exp, tl.sum</text>
+  <line x1="381.0" y1="77.0" x2="399.0" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-2-m0)"/>
+  <rect x="520.5" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-mute) 22%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="tb" x="569.2" y="73" text-anchor="middle">归一化写回</text><text class="s" x="569.2" y="90" text-anchor="middle">tl.store</text>
+  <line x1="500.5" y1="77.0" x2="518.5" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-2-m0)"/>
+</svg>
+<figcaption><strong>图 2-2</strong> softmax kernel，画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，整行读进来以后，中间结果不回显存。</figcaption>
+</figure>
+
+如果一个 program 处理一整行（[图 2-2](#fig-t-2)），max、exp、求和、除都可以在 register 里做完，只读 MN、写 MN，读写量是原来的 1/4：
 
 ```python
 @triton.jit
@@ -533,7 +637,61 @@ def softmax(x):
 
 ### 2.3 Row sum：行太长时分块累加 {#triton-rowsum}
 
-先看最简单的按行归约：求和。program 沿着行一块一块读，每块 TILE 个数加到一个长度为 TILE 的部分和向量上，最后再把这个向量加成一个数。循环里每个位置各加各的，不需要线程之间通信；只有最后的 `tl.sum` 做一次跨线程归约。
+<figure id="fig-t-3" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 198" width="100%" role="img" aria-label="row sum kernel：grid 是 M 个 program，一行一个；一个 program 沿行循环，每次读 TILE 个数加到部分和向量上，最后归约成一个数写回">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <defs><marker id="fig-t-3-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-t-3-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker></defs>
+  <text class="ttl" x="10" y="18">grid</text>
+  <text class="ttl" x="162" y="18">一个 program 做的事</text>
+  <rect x="10" y="32" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="t" x="69" y="50" text-anchor="middle">行 0</text>
+  <rect x="10" y="64" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-1) 30%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="t" x="69" y="82" text-anchor="middle">行 1 ← pid=1</text>
+  <rect x="10" y="96" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="t" x="69" y="114" text-anchor="middle">行 2</text>
+  <rect x="10" y="128" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="t" x="69" y="146" text-anchor="middle">⋯</text>
+  <text class="lab2" x="10" y="168">grid = (M,)</text>
+  <text class="lab2" x="10" y="183">一行一个 program</text>
+  <rect x="150" y="32" width="480" height="118" rx="10" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="6 4"/>
+  <text class="lab2" x="390" y="168" text-anchor="middle">一个 program（pid = 1）：沿第 1 行一块一块地读</text>
+  <line x1="130.0" y1="77.0" x2="160.0" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-3-m0)"/>
+  <rect x="162.0" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="tb" x="210.8" y="73" text-anchor="middle">初始化</text><text class="s" x="210.8" y="90" text-anchor="middle">acc = tl.zeros</text>
+  <rect x="281.5" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="tb" x="330.2" y="73" text-anchor="middle">读一块</text><text class="s" x="330.2" y="90" text-anchor="middle">tl.load</text>
+  <line x1="261.5" y1="77.0" x2="279.5" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-3-m0)"/>
+  <rect x="401.0" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="tb" x="449.8" y="73" text-anchor="middle">累加</text><text class="s" x="449.8" y="90" text-anchor="middle">acc += x</text>
+  <line x1="381.0" y1="77.0" x2="399.0" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-3-m0)"/>
+  <rect x="520.5" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-mute) 22%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="tb" x="569.2" y="73" text-anchor="middle">归约写回</text><text class="s" x="569.2" y="90" text-anchor="middle">tl.sum, tl.store</text>
+  <line x1="500.5" y1="77.0" x2="518.5" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-3-m0)"/>
+  <path d="M449.8,104 L449.8,124 L330.2,124 L330.2,105" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-3-m1)"/>
+  <text class="s" x="390.0" y="138" text-anchor="middle" style="fill: var(--fig-hi)">沿行循环，每次 TILE 个</text>
+</svg>
+<figcaption><strong>图 2-3</strong> row sum kernel，画法同<a href="#fig-t-1">图 2-1</a>。一个 program 装不下整行，沿行循环读（红线），每次 TILE 个。</figcaption>
+</figure>
+
+先看最简单的按行归约：求和。program 沿着行一块一块读（[图 2-3](#fig-t-3)），每块 TILE 个数加到一个长度为 TILE 的部分和向量上，最后再把这个向量加成一个数。循环里每个位置各加各的，不需要线程之间通信；只有最后的 `tl.sum` 做一次跨线程归约。
 
 ```python
 @triton.jit
@@ -558,7 +716,64 @@ softmax 不能直接这样分块：要先知道整行的最大值才能算 exp�
 
 ### 2.4 Matmul：分块乘加，顺手融合 ReLU {#triton-matmul}
 
-矩阵乘按输出 C 分块，一个 program 负责 C 的一个 BM × BN 块，grid 是二维的。program 沿 K 方向每次读 A 的一个 BM × BK 块和 B 的一个 BK × BN 块，用 `tl.dot` 乘加到累加器上。写回之前在 register 里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
+<figure id="fig-t-4" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 181" width="100%" role="img" aria-label="matmul kernel：grid 是二维的，一个 program 负责 C 的一个 BM × BN 块；沿 K 循环读 A、B 的块用 tl.dot 累加，最后做 ReLU 写回">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <defs><marker id="fig-t-4-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-t-4-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker></defs>
+  <text class="ttl" x="10" y="18">grid</text>
+  <text class="ttl" x="162" y="18">一个 program 做的事</text>
+  <rect x="10" y="32" width="34" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="50" y="32" width="34" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="90" y="32" width="34" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="10" y="64" width="34" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="50" y="64" width="34" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="90" y="64" width="34" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 30%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="s" x="107" y="81" text-anchor="middle">(1,2)</text>
+  <rect x="10" y="96" width="34" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="50" y="96" width="34" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="90" y="96" width="34" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="lab2" x="10" y="140">C 的分块，每块 BM × BN</text>
+  <text class="lab2" x="10" y="155">grid = (cdiv(M, BM),</text>
+  <text class="lab2" x="10" y="170">  cdiv(N, BN))</text>
+  <rect x="150" y="32" width="480" height="118" rx="10" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="6 4"/>
+  <text class="lab2" x="390" y="168" text-anchor="middle">一个 program（pid_m = 1，pid_n = 2）：算出 C 的 (1, 2) 块</text>
+  <line x1="126.0" y1="77.0" x2="160.0" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-4-m0)"/>
+  <rect x="162.0" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="tb" x="210.8" y="73" text-anchor="middle">初始化</text><text class="s" x="210.8" y="90" text-anchor="middle">acc [BM, BN] = 0</text>
+  <rect x="281.5" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="tb" x="330.2" y="73" text-anchor="middle">读 A、B 的块</text><text class="s" x="330.2" y="90" text-anchor="middle">两次 tl.load</text>
+  <line x1="261.5" y1="77.0" x2="279.5" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-4-m0)"/>
+  <rect x="401.0" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="tb" x="449.8" y="73" text-anchor="middle">乘加</text><text class="s" x="449.8" y="90" text-anchor="middle">acc += tl.dot</text>
+  <line x1="381.0" y1="77.0" x2="399.0" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-4-m0)"/>
+  <rect x="520.5" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-mute) 22%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="tb" x="569.2" y="73" text-anchor="middle">ReLU 写回</text><text class="s" x="569.2" y="90" text-anchor="middle">tl.store</text>
+  <line x1="500.5" y1="77.0" x2="518.5" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-4-m0)"/>
+  <path d="M449.8,104 L449.8,124 L330.2,124 L330.2,105" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-4-m1)"/>
+  <text class="s" x="390.0" y="138" text-anchor="middle" style="fill: var(--fig-hi)">沿 K 循环，每次 BK</text>
+</svg>
+<figcaption><strong>图 2-4</strong> matmul kernel，画法同<a href="#fig-t-1">图 2-1</a>。grid 是二维的，一个 program 负责 C 的一块，沿 K 循环（红线）读 A、B 的块累加。</figcaption>
+</figure>
+
+矩阵乘按输出 C 分块，一个 program 负责 C 的一个 BM × BN 块，grid 是二维的（[图 2-4](#fig-t-4)）。program 沿 K 方向每次读 A 的一个 BM × BK 块和 B 的一个 BK × BN 块，用 `tl.dot` 乘加到累加器上。写回之前在 register 里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
 
 ```python
 @triton.jit
@@ -605,7 +820,7 @@ fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 的矩�
 A、B、C、D：  A  B  C  D  A  B  C  D     每拍都在发
 ```
 
-所以要几个 warp，就看等待有几拍，要让别的 warp 把这几拍填满。[图 2-1](#fig-h-7) 在 5090 上验证了这一点。kernel 把 256 MiB 数组的每个元素读进来，连做 K 次 FMA（每次都用上一次的结果），再写回。K 越大 intensity 越高，四个 K 让 intensity 从 0.25 到 128，最后一个超过了 ridge point 58，是 compute-bound。grid 固定为 170 × m 个 program，每个 SMSP 就正好驻留 m 个 warp。
+所以要几个 warp，就看等待有几拍，要让别的 warp 把这几拍填满。[图 2-5](#fig-h-7) 在 5090 上验证了这一点。kernel 把 256 MiB 数组的每个元素读进来，连做 K 次 FMA（每次都用上一次的结果），再写回。K 越大 intensity 越高，四个 K 让 intensity 从 0.25 到 128，最后一个超过了 ridge point 58，是 compute-bound。grid 固定为 170 × m 个 program，每个 SMSP 就正好驻留 m 个 warp。
 
 <figure id="fig-h-7" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 320" width="100%" role="img" aria-label="每个 SMSP 驻留 1 到 12 个 warp 时，arithmetic intensity 从 0.25 到 128 的四个 kernel 的速度（占各自最快值的比例）：四条线形状几乎一样，都要 4 到 6 个 warp 才接近 100%">
@@ -705,7 +920,7 @@ A、B、C、D：  A  B  C  D  A  B  C  D     每拍都在发
   <g class="m"><title>I = 128，算力瓶颈，每 SMSP 12 个 warp：828.0 µs，8.30e+13 FLOPS，最快值的 98%</title><circle cx="610.0" cy="45.4" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
   <line x1="360" y1="242" x2="382" y2="242" style="stroke: var(--fig-hi)" stroke-width="2"/><text class="lab" x="390" y="246">I = 128，算力瓶颈</text>
 </svg>
-<figcaption><strong>图 2-1</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。</figcaption>
+<figcaption><strong>图 2-5</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。</figcaption>
 </figure>
 
 compute-bound 的那条线（I = 128）和上面的推算一致：1 个 warp 时是 25%，正好 1/4；4 个 warp 时到 92%。memory-bound 的三条线等的是显存，一次读要几百拍，按说要更多 warp 才能填满；但显存每秒能送的数据有上限，warp 多到把显存喂满以后，再加也没用，实测在 5、6 个 warp 时持平。
@@ -729,7 +944,7 @@ compute-bound 的那条线（I = 128）和上面的推算一致：1 个 warp 时
 
 `num_warps` 还决定每个线程要存多少数据：program 一次要存的数据平分给它的线程。[2.2 节](#triton-softmax)的 softmax 把一整行放在 register 里，行长 32768 时，`num_warps=1` 每个线程要存 1024 个数，远超每个线程 255 个 register 的上限，溢出到显存，耗时 705 µs；`num_warps=8` 每个线程存 128 个，不溢出，183 µs。
 
-驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。它不必占满，够把等待的拍数填满就行：图 2-1 的 kernel 4 到 6 个 warp 就够，矩阵乘 25% 的 occupancy 也够。调 `num_warps` 的顺序是：先看 program 比 SM 多多少，program 少时把 `num_warps` 调大；再看 register 会不会溢出；最后用 `triton.autotune` 微调。
+驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。它不必占满，够把等待的拍数填满就行：图 2-5 的 kernel 4 到 6 个 warp 就够，矩阵乘 25% 的 occupancy 也够。调 `num_warps` 的顺序是：先看 program 比 SM 多多少，program 少时把 `num_warps` 调大；再看 register 会不会溢出；最后用 `triton.autotune` 微调。
 
 第 2 节的四个例子是同一个模式：program 把一块数据读进 register，在片上做完能做的计算，再写回显存。[下一篇](/blog/gpu-training-analysis/)在 5090 上拆解一步训练的时间和显存，用的就是这个模式：把 RMSNorm 的几个 kernel 融合成一个，少读写一遍中间结果。
 
