@@ -858,11 +858,51 @@ def systolic():
         f.w(f'<text class="t" x="{x}" y="{Y0 + 3 * ST + P + 40}" text-anchor="middle">y<tspan baseline-shift="sub" font-size="9">{j}</tspan></text>')
     return f
 
+def cuda_model():
+    f = F("fig-h-5", 352, "CUDA 的执行层级：grid 由 block 组成，block 由 warp 组成，warp 由 32 个 thread 组成；分别跑在整张 GPU、一个 SM、一个 SMSP 和一条 lane 上")
+    f.w('<text class="ttl" x="20" y="18">软件：一次 kernel 启动</text><text class="ttl" x="432" y="18">硬件：跑在哪里（RTX 5090）</text>')
+    rows = [(30, 66, "--fig-mute", 12), (126, 66, "--fig-1", 12), (222, 50, "--fig-2", 16), (302, 42, "--fig-hi", 14)]
+    hw = [("整张 GPU", "block 由硬件分到 170 个 SM"), ("一个 SM", "block 整个驻留，不跨 SM"),
+          ("一个 SMSP", "调度器每拍发一条指令"), ("一条 lane", "CUDA core，自己的 register")]
+    for (y, h, var, pct), (t1, t2) in zip(rows, hw):
+        f.w(f'<rect x="20" y="{y}" width="350" height="{h}" rx="8" {tint(var, pct)}/>')
+        f.w(f'<rect x="432" y="{y}" width="196" height="{h}" rx="8" {tint(var, pct)}/>')
+        f.w(f'<text class="tb" x="530" y="{y + h / 2 - 3}" text-anchor="middle">{t1}</text><text class="s" x="530" y="{y + h / 2 + 12}" text-anchor="middle">{t2}</text>')
+        f.arrow(374, y + h / 2, 428, y + h / 2, None, width=1.5)
+    # grid
+    f.w('<text class="lab" x="32" y="47">grid：所有 block，互相独立</text>')
+    for k in range(7):
+        x = 32 + k * 42
+        f.w(f'<rect x="{x}" y="58" width="34" height="28" rx="4" {tint("--fig-1", 40 if k == 1 else 14)}/>')
+        f.w(f'<text class="s" x="{x + 17}" y="76" text-anchor="middle">B{k}</text>')
+    f.w('<text class="t" x="340" y="77">⋯</text>')
+    zoom = 'stroke="currentColor" stroke-opacity=".3" stroke-dasharray="3 3" fill="none"'
+    f.w(f'<path d="M74 86 L20 126 M108 86 L370 126" {zoom}/>')
+    # block
+    f.w('<text class="lab" x="32" y="143">block（Triton 的 program）</text>')
+    f.w(f'<rect x="32" y="150" width="326" height="16" rx="3" {tint("--fig-3", 45, stroke="--fig-2")}/>')
+    f.w('<text class="s" x="195" y="162" text-anchor="middle">shared memory：块内共享，可以同步</text>')
+    for k in range(4):
+        x = 32 + k * 83
+        f.w(f'<rect x="{x}" y="172" width="76" height="16" rx="3" {tint("--fig-2", 45 if k == 0 else 18)}/>')
+        f.w(f'<text class="s" x="{x + 38}" y="184" text-anchor="middle">warp {k}</text>')
+    f.w(f'<path d="M32 188 L20 222 M108 188 L370 222" {zoom}/>')
+    # warp
+    f.w('<text class="lab" x="32" y="239">warp：32 个 thread，同一时刻执行同一条指令</text>')
+    for k in range(32):
+        x = 32 + k * 10
+        f.w(f'<rect x="{x}" y="248" width="8" height="16" rx="1.5" {tint("--fig-hi", 60 if k == 0 else 20)}/>')
+    f.w(f'<path d="M32 264 L20 302 M40 264 L370 302" {zoom}/>')
+    # thread
+    f.w('<text class="lab" x="32" y="328">thread：自己的 register 和下标</text>')
+    return f
+
 CAPS = {
  "hw_hierarchy": '<strong>图 1-2</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。',
  "hw_sm": '<strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每一格是一个 warp（32 个线程）的槽位，每个 SMSP 最多驻留 12 个 warp，整个 SM 共 48 个。图中是某一拍：3 个 block 各 4 个 warp，按编号轮流分到 4 个 SMSP，每个 SMSP 驻留 3 个。',
- "tpu_core": '<strong>图 1-4</strong> TPU v5p 一个 TensorCore 的结构示意，画法对应<a href="#fig-h-1">图 1-2</a>。规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>，原书也有一张 TensorCore 的结构图。',
- "systolic": '<strong>图 1-5</strong> 乘加单元怎么拿到数据。左边是 GPU 的 CUDA core，右边是 TPU 的 MXU；x 按行错开一拍进入，y 是每列的输出。动画演示见 <a href="https://jax-ml.github.io/scaling-book/tpus/#appendix-b-how-does-a-systolic-array-work">How to Scale Your Model 附录 B</a>。',
+ "cuda_model": '<strong>图 1-4</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。',
+ "tpu_core": '<strong>图 1-5</strong> TPU v5p 一个 TensorCore 的结构示意，画法对应<a href="#fig-h-1">图 1-2</a>。规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>，原书也有一张 TensorCore 的结构图。',
+ "systolic": '<strong>图 1-6</strong> 乘加单元怎么拿到数据。左边是 GPU 的 CUDA core，右边是 TPU 的 MXU；x 按行错开一拍进入，y 是每列的输出。动画演示见 <a href="https://jax-ml.github.io/scaling-book/tpus/#appendix-b-how-does-a-systolic-array-work">How to Scale Your Model 附录 B</a>。',
  "linear": '<strong>图 2-1</strong> 一个 Linear 的前向与反向：前向从左边往下，误差从右边传回；虚线是反向要从前向拿的东西。',
  "step_time": '<strong>图 2-2</strong> 一步训练里前向、反向、optimizer 的耗时占比（fp32，batch 4，seq 512），右侧是每步耗时和 MFU。',
  "roofline": '<strong>图 1-1</strong> RTX 5090 各精度的 roofline：斜线是带宽，平线是峰值算力（dense，boost clock 2407 MHz，来自 NVIDIA RTX Blackwell 白皮书；Tensor core 按 fp32 累加）。',
@@ -882,7 +922,7 @@ CAPS = {
  "ckpt": '<strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。',
  "sweep": '<strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。',
 }
-OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
+OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
        ("flops_vs_time", flops_vs_time), ("share_vs_seq", share_vs_seq), ("peak_memory", peak_memory), ("peak_moment", peak_moment),
        ("rms_eager", rms_eager), ("rms_fused", rms_fused), ("attn_flow", attn_flow), ("layer_donut", layer_donut), ("timelines", timelines),
        ("bf16", bf16), ("ckpt", ckpt), ("sweep", sweep))}
