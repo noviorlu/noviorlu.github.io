@@ -20,7 +20,7 @@ series_order: 1
 
 ## 1 GPU：越靠近计算单元越快 {#hardware}
 
-做性能分析时最常用的两个数是峰值算力和显存带宽。一个 kernel 受哪个限制，取决于它要搬多少数据、数据在哪一层被读写。这一节按这个顺序看 5090 的硬件：先看数据存在哪几层（[1.1](#hw-memory)），再看负责计算的 SM 里有什么、它在等数据时怎么不让计算单元闲着（[1.2](#hw-sm)），最后看 CUDA 的 thread、warp、block 怎么落到这些硬件上（[1.3](#hw-model)）。
+做性能分析时最常用的两个数是峰值算力和显存带宽。一个 kernel 受哪个限制，取决于它要搬多少数据、数据在哪一层被读写。这一节按这个顺序看 5090 的硬件：先看数据存在哪几层（[1.1](#hw-memory)），再看负责计算的 SM 里有什么（[1.2](#hw-sm)）。这两节只讲硬件。最后看软件：CUDA 的 thread、warp、block 怎么落到这些硬件上，一个 SM 上同时驻留多少 warp，怎么在等数据时不让计算单元闲着（[1.3](#hw-model)）。
 
 ### 1.1 存储层级：越近越快，也越小 {#hw-memory}
 
@@ -56,16 +56,9 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 | 每 SM 的 L1 + shared | 192 KB | 256 KB | 256 KB | 128 KB |
 | 每 SM 的 register | 256 KB | 256 KB | 256 KB | 256 KB |
 | 每 SM 的 SMSP（warp 调度器） | 4 | 4 | 4 | 4 |
-| 每 SMSP 最多驻留 warp | 16 | 16 | 16 | 12 |
-| 每 SM 最多驻留 warp | 64 | 64 | 64 | 48 |
-| 每 SM 最多驻留 block | 32 | 32 | 32 | 24 |
-{#tab-1-1 caption="**表 1-1** 几代 NVIDIA GPU 的规格" note="来自 NVIDIA 各代架构白皮书和产品规格（A100 80GB SXM，H100 SXM）。最多驻留的 warp 和 block 来自 CUDA Programming Guide 的 compute capability 表（8.0、9.0、10.0、12.0）。B200 的 L2 没有找到可靠的公开数字，暂缺。"}
+{#tab-1-1 caption="**表 1-1** 几代 NVIDIA GPU 的规格" note="来自 NVIDIA 各代架构白皮书和产品规格（A100 80GB SXM，H100 SXM）。B200 的 L2 没有找到可靠的公开数字，暂缺。"}
 
-一个 warp 等显存数据要几百个周期。这段时间里调度器改发另一个就绪的 warp；所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态。所以一个 SM 上同时驻留的 warp 越多，访存延迟越容易藏住。[图 1-3](#fig-h-2) 画的是某一拍：每个 SMSP 驻留 3 个 warp，调度器每个周期只发射其中一个；SMSP 2 的 3 个都在等数据，这一拍就空转。
-
-一个 SM 能驻留的 warp 和 block 都有上限（[表 1-1](#tab-1-1) 最后三行）。warp 的上限分摊到每个 SMSP 的调度器；block 的上限记在整个 SM 上，因为一个 block 的 shared memory 和同步由 4 个 SMSP 共用。kernel 每个线程用的 register、每个 block 用的 shared memory 越多，一个 SM 上能同时放下的 block 就越少。驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。它不必占满：延迟藏住以后，多驻留的 warp 不会让 kernel 更快，矩阵乘这类 kernel 常让每个线程多用 register，换更多的数据复用。
-
-register 按 thread 分配，shared memory 按 block 分配。要知道一个 kernel 占多少资源、能放下几个 block，得先看 CUDA 怎么把线程组织起来。
+这些是硬件提供的资源。register 按 thread 分配，shared memory 按 block 分配，要知道一个 kernel 怎么用这些资源，得先看 CUDA 怎么把线程组织起来。
 
 ### 1.3 编程模型：thread、warp、block、grid {#hw-model}
 
@@ -80,6 +73,22 @@ CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：同一�
 {#tab-1-2 caption="**表 1-2** CUDA 的执行层级"}
 
 {{fig-h-5}}
+
+block 放到 SM 上以后就一直驻留，直到它的线程全部跑完。一个 SM 能同时驻留多少，有几条硬件上限（[表 1-3](#tab-1-3)）。warp 的上限分摊到每个 SMSP 的调度器；block 的上限记在整个 SM 上，因为一个 block 的 shared memory 和同步由 4 个 SMSP 共用。
+
+| | A100 | H100 | B200 | RTX 5090 |
+|:--|--:|--:|--:|--:|
+| 每 SMSP 最多驻留 warp | 16 | 16 | 16 | 12 |
+| 每 SM 最多驻留 warp | 64 | 64 | 64 | 48 |
+| 每 SM 最多驻留 block | 32 | 32 | 32 | 24 |
+| 每 thread 最多 register | 255 | 255 | 255 | 255 |
+{#tab-1-3 caption="**表 1-3** 一个 SM 的驻留上限" note="来自 CUDA Programming Guide 的 compute capability 表（8.0、9.0、10.0、12.0）。"}
+
+一个 block 的 warp 按编号轮流分到 4 个 SMSP：warp 0 到 SMSP 0，warp 1 到 SMSP 1，依此类推。驻留不等于在跑。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp；所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态。所以一个 SM 上同时驻留的 warp 越多，访存延迟越容易藏住。[图 1-5](#fig-h-6) 画的是驻留 3 个 block、每个 4 个 warp 时的某一拍：每个 SMSP 有 3 个 warp，分别来自 3 个 block，调度器每个周期只发射其中一个；SMSP 2 的 3 个都在等数据，这一拍就空转。
+
+{{fig-h-6}}
+
+kernel 每个线程用的 register、每个 block 用的 shared memory 越多，一个 SM 上能同时放下的 block 就越少。驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。它不必占满：延迟藏住以后，多驻留的 warp 不会让 kernel 更快，矩阵乘这类 kernel 常让每个线程多用 register，换更多的数据复用。
 
 block 之间不能直接共享数据，只能通过显存交换，而这正是最慢的一层。所以要尽量把会重复读的数据放进同一个 block 里处理，这就是分块（tiling）。在 CUDA 里分块要自己管 shared memory 和线程同步，[第 2 节](#triton)的 Triton 把这部分交给编译器。
 
@@ -203,7 +212,7 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 A-2](#fig-h-
 1. Gholami, Yao, Kim, Hooper, Mahoney, Keutzer. [AI and Memory Wall](https://arxiv.org/abs/2403.14123). IEEE Micro, 2024. 图 1-1。
 2. NVIDIA. [NVIDIA RTX Blackwell GPU Architecture](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)（白皮书）。RTX 5090 的存储层级和 SM 结构，图 1-2、图 1-3。
 3. NVIDIA. [NVIDIA A100 Tensor Core GPU Architecture](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)、[NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)、[NVIDIA Blackwell Architecture](https://resources.nvidia.com/en-us-blackwell-architecture)。表 1-1 的 A100、H100、B200 一列。
-4. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、block、register 和 shared memory 上限，表 1-1 最后三行，CUDA 执行层级。
+4. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、block、register 和 shared memory 上限，表 1-3，CUDA 执行层级。
 5. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 调度状态和 occupancy。
 6. Austin et al. [How to Scale Your Model](https://jax-ml.github.io/scaling-book/gpus/), Google DeepMind, 2025. 附录 A 的 TPU v5p 规格、systolic array 的数据流和表 A-1。
 7. Jouppi et al. [In-Datacenter Performance Analysis of a Tensor Processing Unit](https://arxiv.org/abs/1704.04760). ISCA 2017. 第一代 TPU 和它的 systolic array。

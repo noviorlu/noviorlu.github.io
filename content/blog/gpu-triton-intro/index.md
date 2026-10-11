@@ -20,7 +20,7 @@ series_order: 1
 
 ## 1 GPU：越靠近计算单元越快 {#hardware}
 
-做性能分析时最常用的两个数是峰值算力和显存带宽。一个 kernel 受哪个限制，取决于它要搬多少数据、数据在哪一层被读写。这一节按这个顺序看 5090 的硬件：先看数据存在哪几层（[1.1](#hw-memory)），再看负责计算的 SM 里有什么、它在等数据时怎么不让计算单元闲着（[1.2](#hw-sm)），最后看 CUDA 的 thread、warp、block 怎么落到这些硬件上（[1.3](#hw-model)）。
+做性能分析时最常用的两个数是峰值算力和显存带宽。一个 kernel 受哪个限制，取决于它要搬多少数据、数据在哪一层被读写。这一节按这个顺序看 5090 的硬件：先看数据存在哪几层（[1.1](#hw-memory)），再看负责计算的 SM 里有什么（[1.2](#hw-sm)）。这两节只讲硬件。最后看软件：CUDA 的 thread、warp、block 怎么落到这些硬件上，一个 SM 上同时驻留多少 warp，怎么在等数据时不让计算单元闲着（[1.3](#hw-model)）。
 
 ### 1.1 存储层级：越近越快，也越小 {#hw-memory}
 
@@ -108,7 +108,7 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 每个 SM 分成 4 个 SMSP（SM sub-partition），每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core（FP32 运算单元）和一个 Tensor core，4 个 SMSP 共享一块 L1 / shared memory（[图 1-3](#fig-h-2)）。几代 GPU 的规格对比见[表 1-1](#tab-1-1)。
 
 <figure id="fig-h-2" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 322" width="100%" role="img" aria-label="RTX 5090 的一个 SM：4 个 SMSP，每个有 1 个 warp 调度器、12 个 warp 槽位、64 KB register、32 个 CUDA core 和 1 个 Tensor core；4 个 SMSP 共享 128 KB 的 L1/shared memory">
+<svg class="fg" viewBox="0 0 640 236" width="100%" role="img" aria-label="RTX 5090 的一个 SM：4 个 SMSP，每个有 1 个 warp 调度器、64 KB register、32 个 CUDA core 和 1 个 Tensor core；4 个 SMSP 共享 128 KB 的 L1/shared memory">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -128,110 +128,52 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
   </style>
-  <rect x="10" y="10" width="620" height="282" rx="12" style="fill: color-mix(in srgb, var(--fig-1) 6%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <rect x="10" y="10" width="620" height="216" rx="12" style="fill: color-mix(in srgb, var(--fig-1) 6%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <text class="tb" x="24" y="32">SM（每颗 5090 有 170 个）</text>
-  <text class="lab2" x="616" y="32" text-anchor="end">整个 SM 最多驻留 24 个 block、48 个 warp</text>
-  <rect x="24" y="44" width="141" height="188" rx="8" class="op"/>
+  <rect x="24" y="44" width="141" height="124" rx="8" class="op"/>
   <text class="tb" x="94" y="62" text-anchor="middle">SMSP 0</text>
-  <rect x="34" y="70" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="s" x="94" y="85" text-anchor="middle">warp 调度器</text>
-  <text class="s" x="94" y="108" text-anchor="middle">最多驻留 12 个 warp</text>
-  <rect x="35" y="114" width="17" height="10" rx="2" style="fill: var(--fig-hi)"/>
-  <rect x="55" y="114" width="17" height="10" rx="2" style="fill: var(--fig-2)"/>
-  <rect x="75" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <rect x="95" y="114" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="115" y="114" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="135" y="114" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="35" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="55" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="75" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="95" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="115" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="135" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="34" y="146" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
-  <text class="s" x="94" y="161" text-anchor="middle">register 64 KB</text>
-  <rect x="34" y="173" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="94" y="188" text-anchor="middle">CUDA core ×32</text>
-  <rect x="34" y="200" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="s" x="94" y="215" text-anchor="middle">Tensor core ×1</text>
-  <rect x="175" y="44" width="141" height="188" rx="8" class="op"/>
+  <rect x="34" y="70" width="121" height="20" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="s" x="94" y="84" text-anchor="middle">warp 调度器</text>
+  <rect x="34" y="94" width="121" height="20" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <text class="s" x="94" y="108" text-anchor="middle">register 64 KB</text>
+  <rect x="34" y="118" width="121" height="20" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="94" y="132" text-anchor="middle">CUDA core ×32</text>
+  <rect x="34" y="142" width="121" height="20" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="s" x="94" y="156" text-anchor="middle">Tensor core ×1</text>
+  <rect x="175" y="44" width="141" height="124" rx="8" class="op"/>
   <text class="tb" x="245" y="62" text-anchor="middle">SMSP 1</text>
-  <rect x="185" y="70" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="s" x="245" y="85" text-anchor="middle">warp 调度器</text>
-  <text class="s" x="245" y="108" text-anchor="middle">最多驻留 12 个 warp</text>
-  <rect x="186" y="114" width="17" height="10" rx="2" style="fill: var(--fig-hi)"/>
-  <rect x="206" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <rect x="226" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <rect x="246" y="114" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="266" y="114" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="286" y="114" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="186" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="206" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="226" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="246" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="266" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="286" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="185" y="146" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
-  <text class="s" x="245" y="161" text-anchor="middle">register 64 KB</text>
-  <rect x="185" y="173" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="245" y="188" text-anchor="middle">CUDA core ×32</text>
-  <rect x="185" y="200" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="s" x="245" y="215" text-anchor="middle">Tensor core ×1</text>
-  <rect x="326" y="44" width="141" height="188" rx="8" class="op"/>
-  <text class="tb" x="384" y="62" text-anchor="middle">SMSP 2</text>
-  <rect x="336" y="70" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="s" x="396" y="85" text-anchor="middle">warp 调度器</text>
-  <text class="s" x="396" y="108" text-anchor="middle">最多驻留 12 个 warp</text>
-  <rect x="337" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <rect x="357" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <rect x="377" y="114" width="17" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <rect x="397" y="114" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="417" y="114" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="437" y="114" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="337" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="357" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="377" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="397" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="417" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="437" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <text class="s" x="430" y="62" style="fill: var(--fig-hi)">空转</text>
-  <rect x="336" y="146" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
-  <text class="s" x="396" y="161" text-anchor="middle">register 64 KB</text>
-  <rect x="336" y="173" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="396" y="188" text-anchor="middle">CUDA core ×32</text>
-  <rect x="336" y="200" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="s" x="396" y="215" text-anchor="middle">Tensor core ×1</text>
-  <rect x="477" y="44" width="141" height="188" rx="8" class="op"/>
+  <rect x="185" y="70" width="121" height="20" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="s" x="245" y="84" text-anchor="middle">warp 调度器</text>
+  <rect x="185" y="94" width="121" height="20" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <text class="s" x="245" y="108" text-anchor="middle">register 64 KB</text>
+  <rect x="185" y="118" width="121" height="20" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="245" y="132" text-anchor="middle">CUDA core ×32</text>
+  <rect x="185" y="142" width="121" height="20" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="s" x="245" y="156" text-anchor="middle">Tensor core ×1</text>
+  <rect x="326" y="44" width="141" height="124" rx="8" class="op"/>
+  <text class="tb" x="396" y="62" text-anchor="middle">SMSP 2</text>
+  <rect x="336" y="70" width="121" height="20" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="s" x="396" y="84" text-anchor="middle">warp 调度器</text>
+  <rect x="336" y="94" width="121" height="20" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <text class="s" x="396" y="108" text-anchor="middle">register 64 KB</text>
+  <rect x="336" y="118" width="121" height="20" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="396" y="132" text-anchor="middle">CUDA core ×32</text>
+  <rect x="336" y="142" width="121" height="20" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="s" x="396" y="156" text-anchor="middle">Tensor core ×1</text>
+  <rect x="477" y="44" width="141" height="124" rx="8" class="op"/>
   <text class="tb" x="547" y="62" text-anchor="middle">SMSP 3</text>
-  <rect x="487" y="70" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="s" x="547" y="85" text-anchor="middle">warp 调度器</text>
-  <text class="s" x="547" y="108" text-anchor="middle">最多驻留 12 个 warp</text>
-  <rect x="488" y="114" width="17" height="10" rx="2" style="fill: var(--fig-hi)"/>
-  <rect x="508" y="114" width="17" height="10" rx="2" style="fill: var(--fig-2)"/>
-  <rect x="528" y="114" width="17" height="10" rx="2" style="fill: var(--fig-2)"/>
-  <rect x="548" y="114" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="568" y="114" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="588" y="114" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="488" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="508" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="528" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="548" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="568" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="588" y="128" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
-  <rect x="487" y="146" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
-  <text class="s" x="547" y="161" text-anchor="middle">register 64 KB</text>
-  <rect x="487" y="173" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="547" y="188" text-anchor="middle">CUDA core ×32</text>
-  <rect x="487" y="200" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="s" x="547" y="215" text-anchor="middle">Tensor core ×1</text>
-  <rect x="24" y="242" width="594" height="38" rx="8" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="t" x="321" y="266" text-anchor="middle">L1 cache / shared memory 128 KB（4 个 SMSP 共享，shared memory 的大小由 kernel 申请）</text>
-  <rect x="96" y="298" width="17" height="10" rx="2" style="fill: var(--fig-hi)"/><text class="lab2" x="120" y="307">正在发射</text>
-  <rect x="200" y="298" width="17" height="10" rx="2" style="fill: var(--fig-2)"/><text class="lab2" x="224" y="307">就绪，没被选中</text>
-  <rect x="343" y="298" width="17" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity=".55"/><text class="lab2" x="367" y="307">等数据</text>
-  <rect x="434" y="298" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/><text class="lab2" x="458" y="307">空槽</text>
+  <rect x="487" y="70" width="121" height="20" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="s" x="547" y="84" text-anchor="middle">warp 调度器</text>
+  <rect x="487" y="94" width="121" height="20" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <text class="s" x="547" y="108" text-anchor="middle">register 64 KB</text>
+  <rect x="487" y="118" width="121" height="20" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="547" y="132" text-anchor="middle">CUDA core ×32</text>
+  <rect x="487" y="142" width="121" height="20" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="s" x="547" y="156" text-anchor="middle">Tensor core ×1</text>
+  <rect x="24" y="178" width="594" height="38" rx="8" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="t" x="321" y="202" text-anchor="middle">L1 cache / shared memory 128 KB（4 个 SMSP 共享）</text>
 </svg>
-<figcaption><strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每一格是一个 warp（32 个线程）的槽位，每个 SMSP 最多驻留 12 个 warp，整个 SM 共 48 个；block 的上限记在整个 SM 上，最多 24 个。图中是某一拍：3 个 block 各 4 个 warp，按编号轮流分到 4 个 SMSP，每个 SMSP 驻留 3 个。</figcaption>
+<figcaption><strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core 和 1 个 Tensor core，4 个 SMSP 共享 L1 / shared memory。</figcaption>
 </figure>
 
 | | A100 | H100 | B200 | RTX 5090 |
@@ -245,16 +187,9 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 | 每 SM 的 L1 + shared | 192 KB | 256 KB | 256 KB | 128 KB |
 | 每 SM 的 register | 256 KB | 256 KB | 256 KB | 256 KB |
 | 每 SM 的 SMSP（warp 调度器） | 4 | 4 | 4 | 4 |
-| 每 SMSP 最多驻留 warp | 16 | 16 | 16 | 12 |
-| 每 SM 最多驻留 warp | 64 | 64 | 64 | 48 |
-| 每 SM 最多驻留 block | 32 | 32 | 32 | 24 |
-{#tab-1-1 caption="**表 1-1** 几代 NVIDIA GPU 的规格" note="来自 NVIDIA 各代架构白皮书和产品规格（A100 80GB SXM，H100 SXM）。最多驻留的 warp 和 block 来自 CUDA Programming Guide 的 compute capability 表（8.0、9.0、10.0、12.0）。B200 的 L2 没有找到可靠的公开数字，暂缺。"}
+{#tab-1-1 caption="**表 1-1** 几代 NVIDIA GPU 的规格" note="来自 NVIDIA 各代架构白皮书和产品规格（A100 80GB SXM，H100 SXM）。B200 的 L2 没有找到可靠的公开数字，暂缺。"}
 
-一个 warp 等显存数据要几百个周期。这段时间里调度器改发另一个就绪的 warp；所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态。所以一个 SM 上同时驻留的 warp 越多，访存延迟越容易藏住。[图 1-3](#fig-h-2) 画的是某一拍：每个 SMSP 驻留 3 个 warp，调度器每个周期只发射其中一个；SMSP 2 的 3 个都在等数据，这一拍就空转。
-
-一个 SM 能驻留的 warp 和 block 都有上限（[表 1-1](#tab-1-1) 最后三行）。warp 的上限分摊到每个 SMSP 的调度器；block 的上限记在整个 SM 上，因为一个 block 的 shared memory 和同步由 4 个 SMSP 共用。kernel 每个线程用的 register、每个 block 用的 shared memory 越多，一个 SM 上能同时放下的 block 就越少。驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。它不必占满：延迟藏住以后，多驻留的 warp 不会让 kernel 更快，矩阵乘这类 kernel 常让每个线程多用 register，换更多的数据复用。
-
-register 按 thread 分配，shared memory 按 block 分配。要知道一个 kernel 占多少资源、能放下几个 block，得先看 CUDA 怎么把线程组织起来。
+这些是硬件提供的资源。register 按 thread 分配，shared memory 按 block 分配，要知道一个 kernel 怎么用这些资源，得先看 CUDA 怎么把线程组织起来。
 
 ### 1.3 编程模型：thread、warp、block、grid {#hw-model}
 
@@ -374,6 +309,135 @@ CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：同一�
 </svg>
 <figcaption><strong>图 1-4</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。</figcaption>
 </figure>
+
+block 放到 SM 上以后就一直驻留，直到它的线程全部跑完。一个 SM 能同时驻留多少，有几条硬件上限（[表 1-3](#tab-1-3)）。warp 的上限分摊到每个 SMSP 的调度器；block 的上限记在整个 SM 上，因为一个 block 的 shared memory 和同步由 4 个 SMSP 共用。
+
+| | A100 | H100 | B200 | RTX 5090 |
+|:--|--:|--:|--:|--:|
+| 每 SMSP 最多驻留 warp | 16 | 16 | 16 | 12 |
+| 每 SM 最多驻留 warp | 64 | 64 | 64 | 48 |
+| 每 SM 最多驻留 block | 32 | 32 | 32 | 24 |
+| 每 thread 最多 register | 255 | 255 | 255 | 255 |
+{#tab-1-3 caption="**表 1-3** 一个 SM 的驻留上限" note="来自 CUDA Programming Guide 的 compute capability 表（8.0、9.0、10.0、12.0）。"}
+
+一个 block 的 warp 按编号轮流分到 4 个 SMSP：warp 0 到 SMSP 0，warp 1 到 SMSP 1，依此类推。驻留不等于在跑。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp；所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态。所以一个 SM 上同时驻留的 warp 越多，访存延迟越容易藏住。[图 1-5](#fig-h-6) 画的是驻留 3 个 block、每个 4 个 warp 时的某一拍：每个 SMSP 有 3 个 warp，分别来自 3 个 block，调度器每个周期只发射其中一个；SMSP 2 的 3 个都在等数据，这一拍就空转。
+
+<figure id="fig-h-6" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="一个 SM 上驻留 3 个 block、每个 4 个 warp 时的某一拍：每个 SMSP 有 3 个 warp，分别来自 3 个 block；每个调度器这一拍最多发射一个，SMSP 2 的 3 个都在等数据，调度器空转">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <rect x="10" y="10" width="620" height="246" rx="12" style="fill: color-mix(in srgb, var(--fig-1) 6%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="tb" x="24" y="32">一个 SM 的驻留情况</text>
+  <text class="lab2" x="616" y="32" text-anchor="end">整个 SM 最多驻留 24 个 block、48 个 warp</text>
+  <rect x="24" y="44" width="141" height="164" rx="8" class="op"/>
+  <text class="tb" x="94" y="62" text-anchor="middle">SMSP 0</text>
+  <rect x="34" y="70" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="s" x="94" y="85" text-anchor="middle">warp 调度器</text>
+  <text class="s" x="94" y="110" text-anchor="middle">最多驻留 12 个 warp</text>
+  <rect x="31" y="118" width="28" height="22" rx="3" style="fill: var(--fig-hi)"/>
+  <text class="s" x="45" y="133" text-anchor="middle">B0</text>
+  <rect x="64" y="118" width="28" height="22" rx="3" style="fill: var(--fig-2)"/>
+  <text class="s" x="78" y="133" text-anchor="middle">B1</text>
+  <rect x="97" y="118" width="28" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <text class="s" x="111" y="133" text-anchor="middle">B2</text>
+  <rect x="130" y="118" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="31" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="64" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="97" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="130" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="31" y="174" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="64" y="174" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="97" y="174" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="130" y="174" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="175" y="44" width="141" height="164" rx="8" class="op"/>
+  <text class="tb" x="245" y="62" text-anchor="middle">SMSP 1</text>
+  <rect x="185" y="70" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="s" x="245" y="85" text-anchor="middle">warp 调度器</text>
+  <text class="s" x="245" y="110" text-anchor="middle">最多驻留 12 个 warp</text>
+  <rect x="182" y="118" width="28" height="22" rx="3" style="fill: var(--fig-hi)"/>
+  <text class="s" x="196" y="133" text-anchor="middle">B0</text>
+  <rect x="215" y="118" width="28" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <text class="s" x="229" y="133" text-anchor="middle">B1</text>
+  <rect x="248" y="118" width="28" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <text class="s" x="262" y="133" text-anchor="middle">B2</text>
+  <rect x="281" y="118" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="182" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="215" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="248" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="281" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="182" y="174" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="215" y="174" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="248" y="174" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="281" y="174" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="326" y="44" width="141" height="164" rx="8" class="op"/>
+  <text class="tb" x="384" y="62" text-anchor="middle">SMSP 2</text>
+  <text class="s" x="430" y="62" style="fill: var(--fig-hi)">空转</text>
+  <rect x="336" y="70" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="s" x="396" y="85" text-anchor="middle">warp 调度器</text>
+  <text class="s" x="396" y="110" text-anchor="middle">最多驻留 12 个 warp</text>
+  <rect x="333" y="118" width="28" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <text class="s" x="347" y="133" text-anchor="middle">B0</text>
+  <rect x="366" y="118" width="28" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <text class="s" x="380" y="133" text-anchor="middle">B1</text>
+  <rect x="399" y="118" width="28" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <text class="s" x="413" y="133" text-anchor="middle">B2</text>
+  <rect x="432" y="118" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="333" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="366" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="399" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="432" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="333" y="174" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="366" y="174" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="399" y="174" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="432" y="174" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="477" y="44" width="141" height="164" rx="8" class="op"/>
+  <text class="tb" x="547" y="62" text-anchor="middle">SMSP 3</text>
+  <rect x="487" y="70" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="s" x="547" y="85" text-anchor="middle">warp 调度器</text>
+  <text class="s" x="547" y="110" text-anchor="middle">最多驻留 12 个 warp</text>
+  <rect x="484" y="118" width="28" height="22" rx="3" style="fill: var(--fig-hi)"/>
+  <text class="s" x="498" y="133" text-anchor="middle">B0</text>
+  <rect x="517" y="118" width="28" height="22" rx="3" style="fill: var(--fig-2)"/>
+  <text class="s" x="531" y="133" text-anchor="middle">B1</text>
+  <rect x="550" y="118" width="28" height="22" rx="3" style="fill: var(--fig-2)"/>
+  <text class="s" x="564" y="133" text-anchor="middle">B2</text>
+  <rect x="583" y="118" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="484" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="517" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="550" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="583" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="484" y="174" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="517" y="174" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="550" y="174" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="583" y="174" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
+  <rect x="24" y="218" width="594" height="28" rx="6" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="321" y="236" text-anchor="middle">B0、B1、B2 各有 4 个 warp：warp 0 到 3 依次分到 SMSP 0 到 3</text>
+  <rect x="96" y="272" width="17" height="10" rx="2" style="fill: var(--fig-hi)"/><text class="lab2" x="120" y="281">正在发射</text>
+  <rect x="200" y="272" width="17" height="10" rx="2" style="fill: var(--fig-2)"/><text class="lab2" x="224" y="281">就绪，没被选中</text>
+  <rect x="343" y="272" width="17" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity=".55"/><text class="lab2" x="367" y="281">等数据</text>
+  <rect x="434" y="272" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/><text class="lab2" x="458" y="281">空槽</text>
+</svg>
+<figcaption><strong>图 1-5</strong> 一个 SM 上驻留 3 个 block（B0、B1、B2）时的某一拍。格子里写的是这个 warp 属于哪个 block，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。</figcaption>
+</figure>
+
+kernel 每个线程用的 register、每个 block 用的 shared memory 越多，一个 SM 上能同时放下的 block 就越少。驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。它不必占满：延迟藏住以后，多驻留的 warp 不会让 kernel 更快，矩阵乘这类 kernel 常让每个线程多用 register，换更多的数据复用。
 
 block 之间不能直接共享数据，只能通过显存交换，而这正是最慢的一层。所以要尽量把会重复读的数据放进同一个 block 里处理，这就是分块（tiling）。在 CUDA 里分块要自己管 shared memory 和线程同步，[第 2 节](#triton)的 Triton 把这部分交给编译器。
 
@@ -749,7 +813,7 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 A-2](#fig-h-
 1. Gholami, Yao, Kim, Hooper, Mahoney, Keutzer. [AI and Memory Wall](https://arxiv.org/abs/2403.14123). IEEE Micro, 2024. 图 1-1。
 2. NVIDIA. [NVIDIA RTX Blackwell GPU Architecture](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)（白皮书）。RTX 5090 的存储层级和 SM 结构，图 1-2、图 1-3。
 3. NVIDIA. [NVIDIA A100 Tensor Core GPU Architecture](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)、[NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)、[NVIDIA Blackwell Architecture](https://resources.nvidia.com/en-us-blackwell-architecture)。表 1-1 的 A100、H100、B200 一列。
-4. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、block、register 和 shared memory 上限，表 1-1 最后三行，CUDA 执行层级。
+4. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、block、register 和 shared memory 上限，表 1-3，CUDA 执行层级。
 5. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 调度状态和 occupancy。
 6. Austin et al. [How to Scale Your Model](https://jax-ml.github.io/scaling-book/gpus/), Google DeepMind, 2025. 附录 A 的 TPU v5p 规格、systolic array 的数据流和表 A-1。
 7. Jouppi et al. [In-Datacenter Performance Analysis of a Tensor Processing Unit](https://arxiv.org/abs/1704.04760). ISCA 2017. 第一代 TPU 和它的 systolic array。
