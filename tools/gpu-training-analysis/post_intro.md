@@ -80,15 +80,15 @@ block 放到 SM 上以后就一直驻留，直到它的线程全部跑完。一�
 
 {{fig-h-6}}
 
-驻留多少个 warp 才够？我用一个逐元素 kernel 实测了一遍（[图 1-6](#fig-h-7)）：fp32 数组每个元素乘 2 写回。kernel 写成固定个数的 program 循环走完整个数组，每个 program 4 个 warp，每个线程每轮只读一个数；grid 取 170 × m 个 program，这 m 个 block 能同时驻留在每个 SM 上，每个 SMSP 就正好驻留 m 个 warp。m 从 1 加到 12，每个 SM 驻留的 warp 从 4 个加到 48 个。每条线换一个数组大小。
+驻留多少个 warp 才够？我用一组逐元素 kernel 实测了一遍（[图 1-6](#fig-h-7)）：256 MiB 的 fp32 数组，每个元素读进来，串 K 次 FMA，再写回。K 从 1 加到 512，arithmetic intensity 从 0.25 加到 128，跨过了 ridge point 58，最后一个是 compute-bound。kernel 写成固定个数的 program 循环走完整个数组，每个 program 4 个 warp，grid 取 170 × m 个 program，每个 SMSP 就正好驻留 m 个 warp。
 
 {{fig-h-7}}
 
-三条实线都是 warp 越多带宽越高，直到跑满为止：256 MiB 走显存，从 1 个 warp 的 4.7e11 B/s 涨到 5、6 个 warp 的 1.4e12 B/s；16 MiB 在 L2 里，上限更高，要 7 个 warp 以上才持平。
+四条线都是 warp 越多越快，到 4 到 6 个 warp 时接近各自的上限，之后持平。只有 1 个 warp 时都只有上限的 20% 到 33%。memory-bound 的三条线等的是显存，一次读要几百个周期；compute-bound 的那条等的是上一次 FMA 的结果，K 次 FMA 一环扣一环，一个 warp 发出一条，要等几拍才能发下一条。等的东西不同，办法一样：调度器在这个 warp 等的时候去发别的 warp。所以要几个 warp 和 intensity 关系不大。
 
-虚线是反例：同样 256 MiB，每个线程每轮改读 4 个数，1 个 warp 就有 1.31e12 B/s，2 个以后不再涨。因为掩盖延迟靠的是同时在路上的读，warp 多是一种办法，每个 warp 一次多发几条读也是一种办法。
+反例是 [2.4 节](#triton-matmul)的矩阵乘。它的 register 和 shared memory 用得多，每个 SM 只放得下 3 个 block，每个 SMSP 3 个 warp，照样跑到 5.2e13 FLOPS，是 fp32 峰值的一半。原因是每个线程负责很多个输出，这些乘加互不依赖，一个 warp 自己就能连着发，不用等别的 warp 来填空档。决定要几个 warp 的是每个 warp 自己有多少条互不依赖的指令：越多，需要的 warp 越少。
 
-驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。kernel 每个线程用的 register、每个 block 用的 shared memory 越多，一个 SM 上能同时放下的 block 就越少，occupancy 就越低。它不必占满：上面的 kernel 读写显存时 5、6 个 warp 就够，占满 12 个也不会更快。矩阵乘这类 kernel 常让每个线程多用 register，用 occupancy 换更多的数据复用。
+驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。kernel 每个线程用的 register、每个 block 用的 shared memory 越多，一个 SM 上能同时放下的 block 就越少，occupancy 就越低。它不必占满：上面四个 kernel 4 到 6 个 warp 就够，占满 12 个也不会更快；矩阵乘用 25% 的 occupancy 换来了更多的数据复用。
 
 block 之间不能直接共享数据，只能通过显存交换，而这正是最慢的一层。所以要尽量把会重复读的数据放进同一个 block 里处理，这就是分块（tiling）。在 CUDA 里分块要自己管 shared memory 和线程同步，[第 2 节](#triton)的 Triton 把这部分交给编译器。
 
