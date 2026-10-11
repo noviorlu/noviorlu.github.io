@@ -429,129 +429,7 @@ block 放到 SM 上以后就一直驻留，直到它的线程全部跑完。一�
 <figcaption><strong>图 1-5</strong> 一个 SM 上驻留 3 个 block（B0、B1、B2）时的某一拍。格子里写的是这个 warp 属于哪个 block，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。</figcaption>
 </figure>
 
-驻留几个 warp 才够，取决于每个 warp 要等多久。以 FMA（fused multiply-add，一条指令算 a × b + c，记 2 次浮点运算）为例：一条 FMA 大约 4 拍后才出结果，如果下一条要用这个结果，就得等它出来才能发。一个 SMSP 上只有 1 个 warp（A）时，4 拍里只有 1 拍在发指令；有 4 个 warp（A、B、C、D）时，A 等待的 3 拍由 B、C、D 填上，每一拍都有指令可发：
-
-```
-拍：          1  2  3  4  5  6  7  8
-只有 A：      A  .  .  .  A  .  .  .     用了 1/4 的拍
-A、B、C、D：  A  B  C  D  A  B  C  D     每拍都在发
-```
-
-所以要几个 warp，就看等待有几拍，要让别的 warp 把这几拍填满。
-
-[图 1-6](#fig-h-7) 在 5090 上验证了这一点。kernel 把 256 MiB 数组的每个元素读进来，连做 K 次 FMA（每次都用上一次的结果），再写回。K 越大，每个元素算得越多，intensity 越高；我取了四个 K，让 intensity 从 0.25 到 128，最后一个超过了 ridge point 58，是 compute-bound。横轴是每个 SMSP 驻留的 warp 数，纵轴是速度占这条线最快值的比例。
-
-<figure id="fig-h-7" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 320" width="100%" role="img" aria-label="每个 SMSP 驻留 1 到 12 个 warp 时，arithmetic intensity 从 0.25 到 128 的四个 kernel 的速度（占各自最快值的比例）：四条线形状几乎一样，都要 4 到 6 个 warp 才接近 100%">
-  <style>
-    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
-    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
-    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
-    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
-    .fg .lab { font-size: 12px; fill: currentColor; }
-    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
-    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
-    .fg .val { font-size: 11px; fill: currentColor; }
-    .fg .t { font-size: 12.5px; fill: currentColor; }
-    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
-    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
-    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
-    .fg .band { fill: currentColor; fill-opacity: .045; }
-    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
-    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
-    .fg g.m:hover > :not(title) { opacity: .85; }
-    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
-  </style>
-  <line class="grid" x1="80" y1="270.0" x2="610" y2="270.0"/><text class="tick" x="72" y="274.0" text-anchor="end">0%</text>
-  <line class="grid" x1="80" y1="224.0" x2="610" y2="224.0"/><text class="tick" x="72" y="228.0" text-anchor="end">20%</text>
-  <line class="grid" x1="80" y1="178.0" x2="610" y2="178.0"/><text class="tick" x="72" y="182.0" text-anchor="end">40%</text>
-  <line class="grid" x1="80" y1="132.0" x2="610" y2="132.0"/><text class="tick" x="72" y="136.0" text-anchor="end">60%</text>
-  <line class="grid" x1="80" y1="86.0" x2="610" y2="86.0"/><text class="tick" x="72" y="90.0" text-anchor="end">80%</text>
-  <line class="grid" x1="80" y1="40.0" x2="610" y2="40.0"/><text class="tick" x="72" y="44.0" text-anchor="end">100%</text>
-  <text class="tick" x="80.0" y="286" text-anchor="middle">1</text><text class="tick" x="80.0" y="300" text-anchor="middle" opacity=".7">4</text>
-  <text class="tick" x="128.2" y="286" text-anchor="middle">2</text><text class="tick" x="128.2" y="300" text-anchor="middle" opacity=".7">8</text>
-  <text class="tick" x="176.4" y="286" text-anchor="middle">3</text><text class="tick" x="176.4" y="300" text-anchor="middle" opacity=".7">12</text>
-  <text class="tick" x="224.5" y="286" text-anchor="middle">4</text><text class="tick" x="224.5" y="300" text-anchor="middle" opacity=".7">16</text>
-  <text class="tick" x="272.7" y="286" text-anchor="middle">5</text><text class="tick" x="272.7" y="300" text-anchor="middle" opacity=".7">20</text>
-  <text class="tick" x="320.9" y="286" text-anchor="middle">6</text><text class="tick" x="320.9" y="300" text-anchor="middle" opacity=".7">24</text>
-  <text class="tick" x="369.1" y="286" text-anchor="middle">7</text><text class="tick" x="369.1" y="300" text-anchor="middle" opacity=".7">28</text>
-  <text class="tick" x="417.3" y="286" text-anchor="middle">8</text><text class="tick" x="417.3" y="300" text-anchor="middle" opacity=".7">32</text>
-  <text class="tick" x="465.5" y="286" text-anchor="middle">9</text><text class="tick" x="465.5" y="300" text-anchor="middle" opacity=".7">36</text>
-  <text class="tick" x="513.6" y="286" text-anchor="middle">10</text><text class="tick" x="513.6" y="300" text-anchor="middle" opacity=".7">40</text>
-  <text class="tick" x="561.8" y="286" text-anchor="middle">11</text><text class="tick" x="561.8" y="300" text-anchor="middle" opacity=".7">44</text>
-  <text class="tick" x="610.0" y="286" text-anchor="middle">12</text><text class="tick" x="610.0" y="300" text-anchor="middle" opacity=".7">48</text>
-  <text class="lab2" x="72" y="286" text-anchor="end">每 SMSP</text><text class="lab2" x="72" y="300" text-anchor="end">每 SM</text>
-  <text class="lab2" x="80" y="24">速度，占这条线最快值的比例；横轴是驻留的 warp 数</text>
-  <polyline points="80.0,193.9 128.2,135.1 176.4,86.7 224.5,59.9 272.7,41.2 320.9,40.0 369.1,40.8 417.3,53.2 465.5,49.8 513.6,61.4 561.8,52.7 610.0,52.1" fill="none" style="stroke: var(--fig-3)" stroke-width="2" stroke-linejoin="round"/>
-  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 1 个 warp：1129.0 µs，4.76e+11 B/s，最快值的 33%</title><circle cx="80.0" cy="193.9" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
-  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 2 个 warp：636.8 µs，8.43e+11 B/s，最快值的 59%</title><circle cx="128.2" cy="135.1" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
-  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 3 个 warp：468.9 µs，1.14e+12 B/s，最快值的 80%</title><circle cx="176.4" cy="86.7" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
-  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 4 个 warp：409.0 µs，1.31e+12 B/s，最快值的 91%</title><circle cx="224.5" cy="59.9" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
-  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 5 个 warp：375.6 µs，1.43e+12 B/s，最快值的 99%</title><circle cx="272.7" cy="41.2" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
-  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 6 个 warp：373.6 µs，1.44e+12 B/s，最快值的 100%</title><circle cx="320.9" cy="40.0" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
-  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 7 个 warp：374.9 µs，1.43e+12 B/s，最快值的 100%</title><circle cx="369.1" cy="40.8" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
-  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 8 个 warp：396.4 µs，1.35e+12 B/s，最快值的 94%</title><circle cx="417.3" cy="53.2" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
-  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 9 个 warp：390.2 µs，1.38e+12 B/s，最快值的 96%</title><circle cx="465.5" cy="49.8" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
-  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 10 个 warp：412.0 µs，1.30e+12 B/s，最快值的 91%</title><circle cx="513.6" cy="61.4" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
-  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 11 个 warp：395.4 µs，1.36e+12 B/s，最快值的 94%</title><circle cx="561.8" cy="52.7" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
-  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 12 个 warp：394.4 µs，1.36e+12 B/s，最快值的 95%</title><circle cx="610.0" cy="52.1" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
-  <line x1="360" y1="182" x2="382" y2="182" style="stroke: var(--fig-3)" stroke-width="2"/><text class="lab" x="390" y="186">I = 0.25，显存瓶颈</text>
-  <polyline points="80.0,201.9 128.2,151.2 176.4,101.4 224.5,63.4 272.7,47.3 320.9,40.0 369.1,43.1 417.3,45.4 465.5,44.3 513.6,45.1 561.8,44.3 610.0,42.9" fill="none" style="stroke: var(--fig-2)" stroke-width="2" stroke-linejoin="round"/>
-  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 1 个 warp：1245.6 µs，4.31e+11 B/s，最快值的 30%</title><circle cx="80.0" cy="201.9" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
-  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 2 个 warp：714.3 µs，7.52e+11 B/s，最快值的 52%</title><circle cx="128.2" cy="151.2" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
-  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 3 个 warp：503.2 µs，1.07e+12 B/s，最快值的 73%</title><circle cx="176.4" cy="101.4" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
-  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 4 个 warp：410.6 µs，1.31e+12 B/s，最快值的 90%</title><circle cx="224.5" cy="63.4" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
-  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 5 个 warp：381.0 µs，1.41e+12 B/s，最快值的 97%</title><circle cx="272.7" cy="47.3" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
-  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 6 个 warp：368.9 µs，1.46e+12 B/s，最快值的 100%</title><circle cx="320.9" cy="40.0" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
-  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 7 个 warp：373.9 µs，1.44e+12 B/s，最快值的 99%</title><circle cx="369.1" cy="43.1" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
-  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 8 个 warp：377.8 µs，1.42e+12 B/s，最快值的 98%</title><circle cx="417.3" cy="45.4" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
-  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 9 个 warp：375.9 µs，1.43e+12 B/s，最快值的 98%</title><circle cx="465.5" cy="44.3" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
-  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 10 个 warp：377.3 µs，1.42e+12 B/s，最快值的 98%</title><circle cx="513.6" cy="45.1" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
-  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 11 个 warp：376.0 µs，1.43e+12 B/s，最快值的 98%</title><circle cx="561.8" cy="44.3" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
-  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 12 个 warp：373.6 µs，1.44e+12 B/s，最快值的 99%</title><circle cx="610.0" cy="42.9" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
-  <line x1="360" y1="202" x2="382" y2="202" style="stroke: var(--fig-2)" stroke-width="2"/><text class="lab" x="390" y="206">I = 8，显存瓶颈</text>
-  <polyline points="80.0,218.8 128.2,177.3 176.4,135.6 224.5,103.2 272.7,64.1 320.9,47.2 369.1,40.0 417.3,41.9 465.5,42.0 513.6,47.1 561.8,47.2 610.0,47.0" fill="none" style="stroke: var(--fig-1)" stroke-width="2" stroke-linejoin="round"/>
-  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 1 个 warp：1670.6 µs，3.21e+11 B/s，最快值的 22%</title><circle cx="80.0" cy="218.8" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
-  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 2 个 warp：922.2 µs，5.82e+11 B/s，最快值的 40%</title><circle cx="128.2" cy="177.3" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
-  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 3 个 warp：636.1 µs，8.44e+11 B/s，最快值的 58%</title><circle cx="176.4" cy="135.6" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
-  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 4 个 warp：512.7 µs，1.05e+12 B/s，最快值的 73%</title><circle cx="224.5" cy="103.2" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
-  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 5 个 warp：415.3 µs，1.29e+12 B/s，最快值的 90%</title><circle cx="272.7" cy="64.1" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
-  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 6 个 warp：383.8 µs，1.40e+12 B/s，最快值的 97%</title><circle cx="320.9" cy="47.2" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
-  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 7 个 warp：371.8 µs，1.44e+12 B/s，最快值的 100%</title><circle cx="369.1" cy="40.0" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
-  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 8 个 warp：374.9 µs，1.43e+12 B/s，最快值的 99%</title><circle cx="417.3" cy="41.9" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
-  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 9 个 warp：375.0 µs，1.43e+12 B/s，最快值的 99%</title><circle cx="465.5" cy="42.0" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
-  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 10 个 warp：383.6 µs，1.40e+12 B/s，最快值的 97%</title><circle cx="513.6" cy="47.1" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
-  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 11 个 warp：383.8 µs，1.40e+12 B/s，最快值的 97%</title><circle cx="561.8" cy="47.2" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
-  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 12 个 warp：383.4 µs，1.40e+12 B/s，最快值的 97%</title><circle cx="610.0" cy="47.0" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
-  <line x1="360" y1="222" x2="382" y2="222" style="stroke: var(--fig-1)" stroke-width="2"/><text class="lab" x="390" y="226">I = 32，显存瓶颈</text>
-  <polyline points="80.0,212.9 128.2,157.9 176.4,107.9 224.5,58.0 272.7,66.7 320.9,58.1 369.1,58.0 417.3,55.0 465.5,41.7 513.6,40.0 561.8,55.2 610.0,45.4" fill="none" style="stroke: var(--fig-hi)" stroke-width="2" stroke-linejoin="round"/>
-  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 1 个 warp：3255.4 µs，2.11e+13 FLOPS，最快值的 25%</title><circle cx="80.0" cy="212.9" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
-  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 2 个 warp：1658.7 µs，4.14e+13 FLOPS，最快值的 49%</title><circle cx="128.2" cy="157.9" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
-  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 3 个 warp：1147.0 µs，5.99e+13 FLOPS，最快值的 70%</title><circle cx="176.4" cy="107.9" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
-  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 4 个 warp：877.2 µs，7.83e+13 FLOPS，最快值的 92%</title><circle cx="224.5" cy="58.0" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
-  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 5 个 warp：914.5 µs，7.51e+13 FLOPS，最快值的 88%</title><circle cx="272.7" cy="66.7" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
-  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 6 个 warp：877.4 µs，7.83e+13 FLOPS，最快值的 92%</title><circle cx="320.9" cy="58.1" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
-  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 7 个 warp：877.1 µs，7.83e+13 FLOPS，最快值的 92%</title><circle cx="369.1" cy="58.0" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
-  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 8 个 warp：865.1 µs，7.94e+13 FLOPS，最快值的 93%</title><circle cx="417.3" cy="55.0" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
-  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 9 个 warp：814.5 µs，8.44e+13 FLOPS，最快值的 99%</title><circle cx="465.5" cy="41.7" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
-  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 10 个 warp：808.5 µs，8.50e+13 FLOPS，最快值的 100%</title><circle cx="513.6" cy="40.0" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
-  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 11 个 warp：865.7 µs，7.94e+13 FLOPS，最快值的 93%</title><circle cx="561.8" cy="55.2" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
-  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 12 个 warp：828.0 µs，8.30e+13 FLOPS，最快值的 98%</title><circle cx="610.0" cy="45.4" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
-  <line x1="360" y1="242" x2="382" y2="242" style="stroke: var(--fig-hi)" stroke-width="2"/><text class="lab" x="390" y="246">I = 128，算力瓶颈</text>
-</svg>
-<figcaption><strong>图 1-6</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。</figcaption>
-</figure>
-
-compute-bound 的那条线（I = 128）和上面的推算一致：1 个 warp 时是 25%，正好 1/4；4 个 warp 时到 92%。memory-bound 的三条线等的是显存，一次读要几百拍，按说要更多 warp 才能填满；但显存每秒能送的数据有上限，warp 多到把显存喂满以后，再加也没用，实测在 5、6 个 warp 时持平。
-
-反例是 [2.4 节](#triton-matmul)的矩阵乘。每个 SMSP 只驻留 3 个 warp，它照样跑到 5.2e13 FLOPS，是 fp32 峰值的一半。因为一个线程负责很多个输出，这些 FMA 互不依赖，第 2 条不用等第 1 条的结果，一个 warp 自己就能每拍发一条，不需要别的 warp 来填空档：
-
-```
-拍：          1  2  3  4  5  6  7  8
-矩阵乘的 A：  A  A  A  A  A  A  A  A     每条 FMA 互不依赖
-```
-
-驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。每个线程用的 register、每个 block 用的 shared memory 越多，一个 SM 能同时放下的 block 就越少，occupancy 就越低。它不必占满，够填满等待的拍数就行：图 1-6 的 kernel 4 到 6 个 warp 就够；矩阵乘用 25% 的 occupancy，换来每个线程更多的 register，存下更多互不依赖的累加值。
+驻留几个 warp 才够、在 Triton 里怎么调，放到 [2.5 节](#triton-warps) 写 kernel 时再看。
 
 block 之间不能直接共享数据，只能通过显存交换，而这正是最慢的一层。所以要尽量把会重复读的数据放进同一个 block 里处理，这就是分块（tiling）。在 CUDA 里分块要自己管 shared memory 和线程同步，[第 2 节](#triton)的 Triton 把这部分交给编译器。
 
@@ -570,7 +448,7 @@ Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的分块。CU
 | shared memory | 由编译器分配 | 没有对应语句 | 不能 |
 {#tab-2-1 caption="**表 2-1** CUDA 概念在 Triton 里的对应"}
 
-下面四个例子由浅入深：逐元素的 GELU，一行一个 program 的 softmax，行太长时分块累加的 row sum，以及分块乘加的矩阵乘。代码都在 RTX 5090 上和 PyTorch 对照过。[下一篇](/blog/gpu-training-analysis/#rmsnorm)手写的融合 RMSNorm 和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 也都用 Triton 写。
+下面四个例子由浅入深：逐元素的 GELU，一行一个 program 的 softmax，行太长时分块累加的 row sum，以及分块乘加的矩阵乘；最后一节看每个 program 该用几个 warp。代码都在 RTX 5090 上和 PyTorch 对照过。[下一篇](/blog/gpu-training-analysis/#rmsnorm)手写的融合 RMSNorm 和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 也都用 Triton 写。
 
 ### 2.1 GELU：逐元素 kernel {#triton-gelu}
 
@@ -715,7 +593,145 @@ def matmul_relu(a, b, BM=64, BN=64, BK=32):
 
 fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 的矩阵乘差 0.1 左右；要和 PyTorch（关掉 tf32）对上，需要 `input_precision="ieee"`。
 
-四个例子是同一个模式：program 把一块数据读进 register，在片上做完能做的计算，再写回显存。[下一篇](/blog/gpu-training-analysis/)在 5090 上拆解一步训练的时间和显存，用的就是这个模式：把 RMSNorm 的几个 kernel 融合成一个，少读写一遍中间结果。
+### 2.5 num_warps：结合 grid 和 op 一起看 {#triton-warps}
+
+四个例子都用了默认的 `num_warps=4`，即每个 program 4 个 warp。每个 SMSP 实际驻留几个 warp，还要看一个 SM 上同时放了几个 program：每个 SMSP 的 warp 数 = 每个 SM 驻留的 program 数 × `num_warps` ÷ 4。一个 SM 能驻留几个 program，取决于 grid 够不够分（program 总数 ÷ 170），以及[表 1-2](#tab-1-2) 的几条上限。需要驻留几个 warp，则由 op 决定。下面先看 op 需要几个 warp，再看 grid 和 `num_warps` 怎么凑出这个数。
+
+需要几个 warp，取决于每个 warp 要等多久。以 FMA（fused multiply-add，一条指令算 a × b + c，记 2 次浮点运算）为例：一条 FMA 大约 4 拍后才出结果，如果下一条要用这个结果，就得等它出来才能发。一个 SMSP 上只有 1 个 warp（A）时，4 拍里只有 1 拍在发指令；有 4 个 warp（A、B、C、D）时，A 等待的 3 拍由 B、C、D 填上，每一拍都有指令可发：
+
+```
+拍：          1  2  3  4  5  6  7  8
+只有 A：      A  .  .  .  A  .  .  .     用了 1/4 的拍
+A、B、C、D：  A  B  C  D  A  B  C  D     每拍都在发
+```
+
+所以要几个 warp，就看等待有几拍，要让别的 warp 把这几拍填满。[图 2-1](#fig-h-7) 在 5090 上验证了这一点。kernel 把 256 MiB 数组的每个元素读进来，连做 K 次 FMA（每次都用上一次的结果），再写回。K 越大 intensity 越高，四个 K 让 intensity 从 0.25 到 128，最后一个超过了 ridge point 58，是 compute-bound。grid 固定为 170 × m 个 program，每个 SMSP 就正好驻留 m 个 warp。
+
+<figure id="fig-h-7" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 320" width="100%" role="img" aria-label="每个 SMSP 驻留 1 到 12 个 warp 时，arithmetic intensity 从 0.25 到 128 的四个 kernel 的速度（占各自最快值的比例）：四条线形状几乎一样，都要 4 到 6 个 warp 才接近 100%">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <line class="grid" x1="80" y1="270.0" x2="610" y2="270.0"/><text class="tick" x="72" y="274.0" text-anchor="end">0%</text>
+  <line class="grid" x1="80" y1="224.0" x2="610" y2="224.0"/><text class="tick" x="72" y="228.0" text-anchor="end">20%</text>
+  <line class="grid" x1="80" y1="178.0" x2="610" y2="178.0"/><text class="tick" x="72" y="182.0" text-anchor="end">40%</text>
+  <line class="grid" x1="80" y1="132.0" x2="610" y2="132.0"/><text class="tick" x="72" y="136.0" text-anchor="end">60%</text>
+  <line class="grid" x1="80" y1="86.0" x2="610" y2="86.0"/><text class="tick" x="72" y="90.0" text-anchor="end">80%</text>
+  <line class="grid" x1="80" y1="40.0" x2="610" y2="40.0"/><text class="tick" x="72" y="44.0" text-anchor="end">100%</text>
+  <text class="tick" x="80.0" y="286" text-anchor="middle">1</text><text class="tick" x="80.0" y="300" text-anchor="middle" opacity=".7">4</text>
+  <text class="tick" x="128.2" y="286" text-anchor="middle">2</text><text class="tick" x="128.2" y="300" text-anchor="middle" opacity=".7">8</text>
+  <text class="tick" x="176.4" y="286" text-anchor="middle">3</text><text class="tick" x="176.4" y="300" text-anchor="middle" opacity=".7">12</text>
+  <text class="tick" x="224.5" y="286" text-anchor="middle">4</text><text class="tick" x="224.5" y="300" text-anchor="middle" opacity=".7">16</text>
+  <text class="tick" x="272.7" y="286" text-anchor="middle">5</text><text class="tick" x="272.7" y="300" text-anchor="middle" opacity=".7">20</text>
+  <text class="tick" x="320.9" y="286" text-anchor="middle">6</text><text class="tick" x="320.9" y="300" text-anchor="middle" opacity=".7">24</text>
+  <text class="tick" x="369.1" y="286" text-anchor="middle">7</text><text class="tick" x="369.1" y="300" text-anchor="middle" opacity=".7">28</text>
+  <text class="tick" x="417.3" y="286" text-anchor="middle">8</text><text class="tick" x="417.3" y="300" text-anchor="middle" opacity=".7">32</text>
+  <text class="tick" x="465.5" y="286" text-anchor="middle">9</text><text class="tick" x="465.5" y="300" text-anchor="middle" opacity=".7">36</text>
+  <text class="tick" x="513.6" y="286" text-anchor="middle">10</text><text class="tick" x="513.6" y="300" text-anchor="middle" opacity=".7">40</text>
+  <text class="tick" x="561.8" y="286" text-anchor="middle">11</text><text class="tick" x="561.8" y="300" text-anchor="middle" opacity=".7">44</text>
+  <text class="tick" x="610.0" y="286" text-anchor="middle">12</text><text class="tick" x="610.0" y="300" text-anchor="middle" opacity=".7">48</text>
+  <text class="lab2" x="72" y="286" text-anchor="end">每 SMSP</text><text class="lab2" x="72" y="300" text-anchor="end">每 SM</text>
+  <text class="lab2" x="80" y="24">速度，占这条线最快值的比例；横轴是驻留的 warp 数</text>
+  <polyline points="80.0,193.9 128.2,135.1 176.4,86.7 224.5,59.9 272.7,41.2 320.9,40.0 369.1,40.8 417.3,53.2 465.5,49.8 513.6,61.4 561.8,52.7 610.0,52.1" fill="none" style="stroke: var(--fig-3)" stroke-width="2" stroke-linejoin="round"/>
+  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 1 个 warp：1129.0 µs，4.76e+11 B/s，最快值的 33%</title><circle cx="80.0" cy="193.9" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
+  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 2 个 warp：636.8 µs，8.43e+11 B/s，最快值的 59%</title><circle cx="128.2" cy="135.1" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
+  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 3 个 warp：468.9 µs，1.14e+12 B/s，最快值的 80%</title><circle cx="176.4" cy="86.7" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
+  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 4 个 warp：409.0 µs，1.31e+12 B/s，最快值的 91%</title><circle cx="224.5" cy="59.9" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
+  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 5 个 warp：375.6 µs，1.43e+12 B/s，最快值的 99%</title><circle cx="272.7" cy="41.2" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
+  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 6 个 warp：373.6 µs，1.44e+12 B/s，最快值的 100%</title><circle cx="320.9" cy="40.0" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
+  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 7 个 warp：374.9 µs，1.43e+12 B/s，最快值的 100%</title><circle cx="369.1" cy="40.8" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
+  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 8 个 warp：396.4 µs，1.35e+12 B/s，最快值的 94%</title><circle cx="417.3" cy="53.2" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
+  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 9 个 warp：390.2 µs，1.38e+12 B/s，最快值的 96%</title><circle cx="465.5" cy="49.8" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
+  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 10 个 warp：412.0 µs，1.30e+12 B/s，最快值的 91%</title><circle cx="513.6" cy="61.4" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
+  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 11 个 warp：395.4 µs，1.36e+12 B/s，最快值的 94%</title><circle cx="561.8" cy="52.7" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
+  <g class="m"><title>I = 0.25，显存瓶颈，每 SMSP 12 个 warp：394.4 µs，1.36e+12 B/s，最快值的 95%</title><circle cx="610.0" cy="52.1" r="3.5" class="ring" style="fill: var(--fig-3)"/></g>
+  <line x1="360" y1="182" x2="382" y2="182" style="stroke: var(--fig-3)" stroke-width="2"/><text class="lab" x="390" y="186">I = 0.25，显存瓶颈</text>
+  <polyline points="80.0,201.9 128.2,151.2 176.4,101.4 224.5,63.4 272.7,47.3 320.9,40.0 369.1,43.1 417.3,45.4 465.5,44.3 513.6,45.1 561.8,44.3 610.0,42.9" fill="none" style="stroke: var(--fig-2)" stroke-width="2" stroke-linejoin="round"/>
+  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 1 个 warp：1245.6 µs，4.31e+11 B/s，最快值的 30%</title><circle cx="80.0" cy="201.9" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
+  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 2 个 warp：714.3 µs，7.52e+11 B/s，最快值的 52%</title><circle cx="128.2" cy="151.2" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
+  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 3 个 warp：503.2 µs，1.07e+12 B/s，最快值的 73%</title><circle cx="176.4" cy="101.4" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
+  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 4 个 warp：410.6 µs，1.31e+12 B/s，最快值的 90%</title><circle cx="224.5" cy="63.4" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
+  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 5 个 warp：381.0 µs，1.41e+12 B/s，最快值的 97%</title><circle cx="272.7" cy="47.3" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
+  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 6 个 warp：368.9 µs，1.46e+12 B/s，最快值的 100%</title><circle cx="320.9" cy="40.0" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
+  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 7 个 warp：373.9 µs，1.44e+12 B/s，最快值的 99%</title><circle cx="369.1" cy="43.1" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
+  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 8 个 warp：377.8 µs，1.42e+12 B/s，最快值的 98%</title><circle cx="417.3" cy="45.4" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
+  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 9 个 warp：375.9 µs，1.43e+12 B/s，最快值的 98%</title><circle cx="465.5" cy="44.3" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
+  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 10 个 warp：377.3 µs，1.42e+12 B/s，最快值的 98%</title><circle cx="513.6" cy="45.1" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
+  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 11 个 warp：376.0 µs，1.43e+12 B/s，最快值的 98%</title><circle cx="561.8" cy="44.3" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
+  <g class="m"><title>I = 8，显存瓶颈，每 SMSP 12 个 warp：373.6 µs，1.44e+12 B/s，最快值的 99%</title><circle cx="610.0" cy="42.9" r="3.5" class="ring" style="fill: var(--fig-2)"/></g>
+  <line x1="360" y1="202" x2="382" y2="202" style="stroke: var(--fig-2)" stroke-width="2"/><text class="lab" x="390" y="206">I = 8，显存瓶颈</text>
+  <polyline points="80.0,218.8 128.2,177.3 176.4,135.6 224.5,103.2 272.7,64.1 320.9,47.2 369.1,40.0 417.3,41.9 465.5,42.0 513.6,47.1 561.8,47.2 610.0,47.0" fill="none" style="stroke: var(--fig-1)" stroke-width="2" stroke-linejoin="round"/>
+  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 1 个 warp：1670.6 µs，3.21e+11 B/s，最快值的 22%</title><circle cx="80.0" cy="218.8" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 2 个 warp：922.2 µs，5.82e+11 B/s，最快值的 40%</title><circle cx="128.2" cy="177.3" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 3 个 warp：636.1 µs，8.44e+11 B/s，最快值的 58%</title><circle cx="176.4" cy="135.6" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 4 个 warp：512.7 µs，1.05e+12 B/s，最快值的 73%</title><circle cx="224.5" cy="103.2" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 5 个 warp：415.3 µs，1.29e+12 B/s，最快值的 90%</title><circle cx="272.7" cy="64.1" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 6 个 warp：383.8 µs，1.40e+12 B/s，最快值的 97%</title><circle cx="320.9" cy="47.2" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 7 个 warp：371.8 µs，1.44e+12 B/s，最快值的 100%</title><circle cx="369.1" cy="40.0" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 8 个 warp：374.9 µs，1.43e+12 B/s，最快值的 99%</title><circle cx="417.3" cy="41.9" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 9 个 warp：375.0 µs，1.43e+12 B/s，最快值的 99%</title><circle cx="465.5" cy="42.0" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 10 个 warp：383.6 µs，1.40e+12 B/s，最快值的 97%</title><circle cx="513.6" cy="47.1" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 11 个 warp：383.8 µs，1.40e+12 B/s，最快值的 97%</title><circle cx="561.8" cy="47.2" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>I = 32，显存瓶颈，每 SMSP 12 个 warp：383.4 µs，1.40e+12 B/s，最快值的 97%</title><circle cx="610.0" cy="47.0" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <line x1="360" y1="222" x2="382" y2="222" style="stroke: var(--fig-1)" stroke-width="2"/><text class="lab" x="390" y="226">I = 32，显存瓶颈</text>
+  <polyline points="80.0,212.9 128.2,157.9 176.4,107.9 224.5,58.0 272.7,66.7 320.9,58.1 369.1,58.0 417.3,55.0 465.5,41.7 513.6,40.0 561.8,55.2 610.0,45.4" fill="none" style="stroke: var(--fig-hi)" stroke-width="2" stroke-linejoin="round"/>
+  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 1 个 warp：3255.4 µs，2.11e+13 FLOPS，最快值的 25%</title><circle cx="80.0" cy="212.9" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 2 个 warp：1658.7 µs，4.14e+13 FLOPS，最快值的 49%</title><circle cx="128.2" cy="157.9" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 3 个 warp：1147.0 µs，5.99e+13 FLOPS，最快值的 70%</title><circle cx="176.4" cy="107.9" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 4 个 warp：877.2 µs，7.83e+13 FLOPS，最快值的 92%</title><circle cx="224.5" cy="58.0" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 5 个 warp：914.5 µs，7.51e+13 FLOPS，最快值的 88%</title><circle cx="272.7" cy="66.7" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 6 个 warp：877.4 µs，7.83e+13 FLOPS，最快值的 92%</title><circle cx="320.9" cy="58.1" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 7 个 warp：877.1 µs，7.83e+13 FLOPS，最快值的 92%</title><circle cx="369.1" cy="58.0" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 8 个 warp：865.1 µs，7.94e+13 FLOPS，最快值的 93%</title><circle cx="417.3" cy="55.0" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 9 个 warp：814.5 µs，8.44e+13 FLOPS，最快值的 99%</title><circle cx="465.5" cy="41.7" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 10 个 warp：808.5 µs，8.50e+13 FLOPS，最快值的 100%</title><circle cx="513.6" cy="40.0" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 11 个 warp：865.7 µs，7.94e+13 FLOPS，最快值的 93%</title><circle cx="561.8" cy="55.2" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>I = 128，算力瓶颈，每 SMSP 12 个 warp：828.0 µs，8.30e+13 FLOPS，最快值的 98%</title><circle cx="610.0" cy="45.4" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <line x1="360" y1="242" x2="382" y2="242" style="stroke: var(--fig-hi)" stroke-width="2"/><text class="lab" x="390" y="246">I = 128，算力瓶颈</text>
+</svg>
+<figcaption><strong>图 2-1</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。</figcaption>
+</figure>
+
+compute-bound 的那条线（I = 128）和上面的推算一致：1 个 warp 时是 25%，正好 1/4；4 个 warp 时到 92%。memory-bound 的三条线等的是显存，一次读要几百拍，按说要更多 warp 才能填满；但显存每秒能送的数据有上限，warp 多到把显存喂满以后，再加也没用，实测在 5、6 个 warp 时持平。
+
+反例是 [2.4 节](#triton-matmul)的矩阵乘。它每个 SM 只放得下 3 个 block（shared memory 先到上限），每个 SMSP 只有 3 个 warp，照样跑到 5.2e13 FLOPS，是 fp32 峰值的一半。因为一个线程负责很多个输出，这些 FMA 互不依赖，第 2 条不用等第 1 条的结果，一个 warp 自己就能每拍发一条：
+
+```
+拍：          1  2  3  4  5  6  7  8
+矩阵乘的 A：  A  A  A  A  A  A  A  A     每条 FMA 互不依赖
+```
+
+知道了要几个 warp，再看 grid 和 `num_warps` 能不能凑出来。拿 [2.3 节](#triton-rowsum)的 row sum 试两种形状，元素总数一样（都是 340 MiB），每个线程每轮都读 4 个数，只改 `num_warps`：
+
+| 形状 | 每个 SM 分到的 program | 1 | 2 | 4 | 8 | 16 | 32 |
+|:--|--:|--:|--:|--:|--:|--:|--:|
+| 170 × 524288 | 1 | 439 µs | 232 µs | 214 µs | 213 µs | 212 µs | 211 µs |
+| 10880 × 8192 | 64 | 212 µs | 212 µs | 211 µs | 211 µs | 211 µs | 217 µs |
+{#tab-2-2 caption="**表 2-2** row sum 在不同 `num_warps` 下的耗时" note="表头的 1 到 32 是 num_warps。TILE = 128 × num_warps，每个线程每轮读 4 个 fp32。"}
+
+170 行时 grid 只有 170 个 program，每个 SM 只分到 1 个，每个 SMSP 的 warp 数就是 `num_warps` ÷ 4：取 1 时 4 个 SMSP 里只有 1 个有活，439 µs；取 4 以上每个 SMSP 都有 warp，降到 214 µs，带宽 1.67e12 B/s。10880 行时 program 远多于 SM，每个 SM 都塞到上限，`num_warps` 只改变同样多的 warp 怎么分组，6 种取值都是 211 到 217 µs。
+
+`num_warps` 还决定每个线程要存多少数据：program 一次要存的数据平分给它的线程。[2.2 节](#triton-softmax)的 softmax 把一整行放在 register 里，行长 32768 时，`num_warps=1` 每个线程要存 1024 个数，远超每个线程 255 个 register 的上限，溢出到显存，耗时 705 µs；`num_warps=8` 每个线程存 128 个，不溢出，183 µs。
+
+驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。它不必占满，够把等待的拍数填满就行：图 2-1 的 kernel 4 到 6 个 warp 就够，矩阵乘 25% 的 occupancy 也够。调 `num_warps` 的顺序是：先看 program 比 SM 多多少，program 少时把 `num_warps` 调大；再看 register 会不会溢出；最后用 `triton.autotune` 微调。
+
+第 2 节的四个例子是同一个模式：program 把一块数据读进 register，在片上做完能做的计算，再写回显存。[下一篇](/blog/gpu-training-analysis/)在 5090 上拆解一步训练的时间和显存，用的就是这个模式：把 RMSNorm 的几个 kernel 融合成一个，少读写一遍中间结果。
 
 ---
 
