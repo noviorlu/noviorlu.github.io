@@ -911,11 +911,34 @@ def cuda_model():
     f.w('<text class="lab" x="32" y="328">thread：自己的 register 和下标</text>')
     return f
 
+def occ_sweep():
+    rows = json.load(open(os.path.join(HERE, "occupancy_sweep.json")))
+    f = F("fig-h-7", 300, "每个 SMSP 驻留 1 到 12 个 warp 时逐元素 kernel 的实测带宽：每线程每轮读 1 个数时，带宽从 1 个 warp 的 4.7e11 B/s 涨到 5 个 warp 的 1.43e12 B/s 后持平；每线程读 4 个数时，1 个 warp 就有 1.30e12 B/s")
+    X0, X1, Y0, Y1, BMAX = 80, 600, 250, 40, 2.0e12
+    px = lambda m: X0 + (m - 1) * (X1 - X0) / 11
+    py = lambda b: Y0 - b / BMAX * (Y0 - Y1)
+    for v, t in ((0, "0"), (0.5e12, "5e11"), (1.0e12, "1e12"), (1.5e12, "1.5e12"), (2.0e12, "2e12")):
+        f.w(f'<line class="grid" x1="{X0}" y1="{py(v):.1f}" x2="{X1}" y2="{py(v):.1f}"/><text class="tick" x="{X0 - 8}" y="{py(v) + 4:.1f}" text-anchor="end">{t}</text>')
+    for m in range(1, 13):
+        f.w(f'<text class="tick" x="{px(m):.1f}" y="{Y0 + 16}" text-anchor="middle">{m}</text><text class="tick" x="{px(m):.1f}" y="{Y0 + 30}" text-anchor="middle" opacity=".7">{4 * m}</text>')
+    f.w(f'<text class="lab2" x="{X0 - 8}" y="{Y0 + 16}" text-anchor="end">每 SMSP</text><text class="lab2" x="{X0 - 8}" y="{Y0 + 30}" text-anchor="end">每 SM</text>')
+    f.w(f'<text class="lab2" x="{X0}" y="{Y1 - 16}">实测带宽（读 + 写，B/s），横轴是驻留的 warp 数</text>')
+    f.w(f'<line class="ref" x1="{X0}" y1="{py(1.79e12):.1f}" x2="{X1}" y2="{py(1.79e12):.1f}"/><text class="lab2" x="{X1}" y="{py(1.79e12) - 6:.1f}" text-anchor="end">β = 1.79e12 B/s</text>')
+    for E, var, lab in ((1, "--fig-hi", "每线程每轮读 1 个数"), (4, "--fig-1", "每线程每轮读 4 个数")):
+        r = [x for x in rows if x["E"] == E]
+        pts = " ".join(f"{px(x['warps_per_smsp']):.1f},{py(x['bw']):.1f}" for x in r)
+        f.w(f'<polyline points="{pts}" fill="none" style="stroke: var({var})" stroke-width="2" stroke-linejoin="round"/>')
+        for x in r:
+            f.w(f'<g class="m"><title>{lab}，每 SMSP {x["warps_per_smsp"]} 个 warp：{x["us"]} µs，{x["bw"]:.2e} B/s</title><circle cx="{px(x["warps_per_smsp"]):.1f}" cy="{py(x["bw"]):.1f}" r="4" class="ring" style="fill: var({var})"/></g>')
+    legend(f, [("每线程每轮读 1 个数", "--fig-hi", "line"), ("每线程每轮读 4 个数", "--fig-1", "line")], 300, 186)
+    return f
+
 CAPS = {
  "hw_hierarchy": '<strong>图 1-2</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。',
  "hw_sm": '<strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core 和 1 个 Tensor core，4 个 SMSP 共享 L1 / shared memory。',
  "warp_slots": '<strong>图 1-5</strong> 一个 SM 上驻留 3 个 block（B0、B1、B2）时的某一拍。格子里写的是这个 warp 属于哪个 block，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。',
  "cuda_model": '<strong>图 1-4</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。',
+ "occ_sweep": '<strong>图 1-6</strong> 驻留的 warp 数和实测带宽（RTX 5090，256 MiB 的 fp32 数组每个元素乘 2 写回）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。脚本是 <code>tools/gpu-training-analysis/occupancy_sweep.py</code>，悬停可看数值。',
  "tpu_core": '<strong>图 A-1</strong> TPU v5p 一个 TensorCore 的结构示意，画法对应<a href="#fig-h-1">图 1-2</a>。规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>，原书也有一张 TensorCore 的结构图。',
  "systolic": '<strong>图 A-2</strong> 乘加单元怎么拿到数据。左边是 GPU 的 CUDA core，右边是 TPU 的 MXU；x 按行错开一拍进入，y 是每列的输出。动画演示见 <a href="https://jax-ml.github.io/scaling-book/tpus/#appendix-b-how-does-a-systolic-array-work">How to Scale Your Model 附录 B</a>。',
  "linear": '<strong>图 2-1</strong> 一个 Linear 的前向与反向：前向从左边往下，误差从右边传回；虚线是反向要从前向拿的东西。',
@@ -937,7 +960,7 @@ CAPS = {
  "ckpt": '<strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。',
  "sweep": '<strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。',
 }
-OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("warp_slots", warp_slots), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
+OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
        ("flops_vs_time", flops_vs_time), ("share_vs_seq", share_vs_seq), ("peak_memory", peak_memory), ("peak_moment", peak_moment),
        ("rms_eager", rms_eager), ("rms_fused", rms_fused), ("attn_flow", attn_flow), ("layer_donut", layer_donut), ("timelines", timelines),
        ("bf16", bf16), ("ckpt", ckpt), ("sweep", sweep))}

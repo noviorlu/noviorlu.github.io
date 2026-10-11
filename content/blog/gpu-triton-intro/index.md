@@ -429,16 +429,88 @@ block 放到 SM 上以后就一直驻留，直到它的线程全部跑完。一�
 <figcaption><strong>图 1-5</strong> 一个 SM 上驻留 3 个 block（B0、B1、B2）时的某一拍。格子里写的是这个 warp 属于哪个 block，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。</figcaption>
 </figure>
 
-kernel 每个线程用的 register、每个 block 用的 shared memory 越多，一个 SM 上能同时放下的 block 就越少。驻留 warp 数与上限之比叫 occupancy。拿[第 2 节](#triton)的三个 Triton kernel 实际算一下（[表 1-3](#tab-1-3)）：它们都是每个 block 4 个 warp（128 个线程），register 和 shared memory 的用量取自编译结果，一个 SM 能放几个 block 用 CUDA 的 `cuOccupancyMaxActiveBlocksPerMultiprocessor` 查得。
+驻留多少个 warp 才够？我用一个逐元素 kernel 实测了一遍（[图 1-6](#fig-h-7)）：256 MiB 的 fp32 数组，每个元素乘 2 写回，数组比 96 MB 的 L2 大得多，读写都要走显存。kernel 写成固定个数的 program 循环走完整个数组，每个 program 4 个 warp，grid 取 170 × m 个 program。这 m 个 block 能同时驻留在每个 SM 上，每个 SMSP 就正好驻留 m 个 warp。m 从 1 加到 12，每个 SM 驻留的 warp 从 4 个加到 48 个。
 
-| kernel | 每线程 register | 每 block shared memory | 按 warp 算 | 按 register 算 | 按 shared memory 算 | 每 SM 驻留 block | 每 SMSP 驻留 warp | occupancy |
-|:--|--:|--:|--:|--:|--:|--:|--:|--:|
-| GELU | 35 | 0 | 12 | 12 | 不限 | 12 | 12 | 100% |
-| softmax | 55 | 16 B | 12 | 9 | 不限 | 9 | 9 | 75% |
-| matmul | 96 | 32 KB | 12 | 5 | 3 | 3 | 3 | 25% |
-{#tab-1-3 caption="**表 1-3** 三个 Triton kernel 在 5090 上的驻留情况" note="register 按每线程 8 个一组分配（35 实际占 40），每 SM 共 65536 个。shared memory 每 SM 最多 100 KB，每个 block 另外保留 1 KB。block 数的上限 24 三个 kernel 都碰不到。"}
+<figure id="fig-h-7" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="每个 SMSP 驻留 1 到 12 个 warp 时逐元素 kernel 的实测带宽：每线程每轮读 1 个数时，带宽从 1 个 warp 的 4.7e11 B/s 涨到 5 个 warp 的 1.43e12 B/s 后持平；每线程读 4 个数时，1 个 warp 就有 1.30e12 B/s">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <line class="grid" x1="80" y1="250.0" x2="600" y2="250.0"/><text class="tick" x="72" y="254.0" text-anchor="end">0</text>
+  <line class="grid" x1="80" y1="197.5" x2="600" y2="197.5"/><text class="tick" x="72" y="201.5" text-anchor="end">5e11</text>
+  <line class="grid" x1="80" y1="145.0" x2="600" y2="145.0"/><text class="tick" x="72" y="149.0" text-anchor="end">1e12</text>
+  <line class="grid" x1="80" y1="92.5" x2="600" y2="92.5"/><text class="tick" x="72" y="96.5" text-anchor="end">1.5e12</text>
+  <line class="grid" x1="80" y1="40.0" x2="600" y2="40.0"/><text class="tick" x="72" y="44.0" text-anchor="end">2e12</text>
+  <text class="tick" x="80.0" y="266" text-anchor="middle">1</text><text class="tick" x="80.0" y="280" text-anchor="middle" opacity=".7">4</text>
+  <text class="tick" x="127.3" y="266" text-anchor="middle">2</text><text class="tick" x="127.3" y="280" text-anchor="middle" opacity=".7">8</text>
+  <text class="tick" x="174.5" y="266" text-anchor="middle">3</text><text class="tick" x="174.5" y="280" text-anchor="middle" opacity=".7">12</text>
+  <text class="tick" x="221.8" y="266" text-anchor="middle">4</text><text class="tick" x="221.8" y="280" text-anchor="middle" opacity=".7">16</text>
+  <text class="tick" x="269.1" y="266" text-anchor="middle">5</text><text class="tick" x="269.1" y="280" text-anchor="middle" opacity=".7">20</text>
+  <text class="tick" x="316.4" y="266" text-anchor="middle">6</text><text class="tick" x="316.4" y="280" text-anchor="middle" opacity=".7">24</text>
+  <text class="tick" x="363.6" y="266" text-anchor="middle">7</text><text class="tick" x="363.6" y="280" text-anchor="middle" opacity=".7">28</text>
+  <text class="tick" x="410.9" y="266" text-anchor="middle">8</text><text class="tick" x="410.9" y="280" text-anchor="middle" opacity=".7">32</text>
+  <text class="tick" x="458.2" y="266" text-anchor="middle">9</text><text class="tick" x="458.2" y="280" text-anchor="middle" opacity=".7">36</text>
+  <text class="tick" x="505.5" y="266" text-anchor="middle">10</text><text class="tick" x="505.5" y="280" text-anchor="middle" opacity=".7">40</text>
+  <text class="tick" x="552.7" y="266" text-anchor="middle">11</text><text class="tick" x="552.7" y="280" text-anchor="middle" opacity=".7">44</text>
+  <text class="tick" x="600.0" y="266" text-anchor="middle">12</text><text class="tick" x="600.0" y="280" text-anchor="middle" opacity=".7">48</text>
+  <text class="lab2" x="72" y="266" text-anchor="end">每 SMSP</text><text class="lab2" x="72" y="280" text-anchor="end">每 SM</text>
+  <text class="lab2" x="80" y="24">实测带宽（读 + 写，B/s），横轴是驻留的 warp 数</text>
+  <line class="ref" x1="80" y1="62.0" x2="600" y2="62.0"/><text class="lab2" x="600" y="56.0" text-anchor="end">β = 1.79e12 B/s</text>
+  <polyline points="80.0,201.2 127.3,163.5 174.5,129.6 221.8,110.3 269.1,99.9 316.4,104.5 363.6,102.0 410.9,109.1 458.2,110.0 505.5,99.4 552.7,101.8 600.0,102.8" fill="none" style="stroke: var(--fig-hi)" stroke-width="2" stroke-linejoin="round"/>
+  <g class="m"><title>每线程每轮读 1 个数，每 SMSP 1 个 warp：1155.2 µs，4.65e+11 B/s</title><circle cx="80.0" cy="201.2" r="4" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>每线程每轮读 1 个数，每 SMSP 2 个 warp：651.6 µs，8.24e+11 B/s</title><circle cx="127.3" cy="163.5" r="4" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>每线程每轮读 1 个数，每 SMSP 3 个 warp：468.3 µs，1.15e+12 B/s</title><circle cx="174.5" cy="129.6" r="4" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>每线程每轮读 1 个数，每 SMSP 4 个 warp：403.6 µs，1.33e+12 B/s</title><circle cx="221.8" cy="110.3" r="4" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>每线程每轮读 1 个数，每 SMSP 5 个 warp：375.6 µs，1.43e+12 B/s</title><circle cx="269.1" cy="99.9" r="4" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>每线程每轮读 1 个数，每 SMSP 6 个 warp：387.4 µs，1.39e+12 B/s</title><circle cx="316.4" cy="104.5" r="4" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>每线程每轮读 1 个数，每 SMSP 7 个 warp：380.8 µs，1.41e+12 B/s</title><circle cx="363.6" cy="102.0" r="4" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>每线程每轮读 1 个数，每 SMSP 8 个 warp：400.2 µs，1.34e+12 B/s</title><circle cx="410.9" cy="109.1" r="4" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>每线程每轮读 1 个数，每 SMSP 9 个 warp：402.6 µs，1.33e+12 B/s</title><circle cx="458.2" cy="110.0" r="4" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>每线程每轮读 1 个数，每 SMSP 10 个 warp：374.4 µs，1.43e+12 B/s</title><circle cx="505.5" cy="99.4" r="4" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>每线程每轮读 1 个数，每 SMSP 11 个 warp：380.5 µs，1.41e+12 B/s</title><circle cx="552.7" cy="101.8" r="4" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>每线程每轮读 1 个数，每 SMSP 12 个 warp：383.0 µs，1.40e+12 B/s</title><circle cx="600.0" cy="102.8" r="4" class="ring" style="fill: var(--fig-hi)"/></g>
+  <polyline points="80.0,113.8 127.3,102.9 174.5,98.2 221.8,95.8 269.1,99.0 316.4,95.0 363.6,101.6 410.9,92.6 458.2,96.9 505.5,95.0 552.7,97.7 600.0,95.3" fill="none" style="stroke: var(--fig-1)" stroke-width="2" stroke-linejoin="round"/>
+  <g class="m"><title>每线程每轮读 4 个数，每 SMSP 1 个 warp：413.8 µs，1.30e+12 B/s</title><circle cx="80.0" cy="113.8" r="4" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>每线程每轮读 4 个数，每 SMSP 2 个 warp：383.2 µs，1.40e+12 B/s</title><circle cx="127.3" cy="102.9" r="4" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>每线程每轮读 4 个数，每 SMSP 3 个 warp：371.4 µs，1.45e+12 B/s</title><circle cx="174.5" cy="98.2" r="4" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>每线程每轮读 4 个数，每 SMSP 4 个 warp：365.7 µs，1.47e+12 B/s</title><circle cx="221.8" cy="95.8" r="4" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>每线程每轮读 4 个数，每 SMSP 5 个 warp：373.3 µs，1.44e+12 B/s</title><circle cx="269.1" cy="99.0" r="4" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>每线程每轮读 4 个数，每 SMSP 6 个 warp：363.7 µs，1.48e+12 B/s</title><circle cx="316.4" cy="95.0" r="4" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>每线程每轮读 4 个数，每 SMSP 7 个 warp：379.8 µs，1.41e+12 B/s</title><circle cx="363.6" cy="101.6" r="4" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>每线程每轮读 4 个数，每 SMSP 8 个 warp：358.2 µs，1.50e+12 B/s</title><circle cx="410.9" cy="92.6" r="4" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>每线程每轮读 4 个数，每 SMSP 9 个 warp：368.3 µs，1.46e+12 B/s</title><circle cx="458.2" cy="96.9" r="4" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>每线程每轮读 4 个数，每 SMSP 10 个 warp：363.7 µs，1.48e+12 B/s</title><circle cx="505.5" cy="95.0" r="4" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>每线程每轮读 4 个数，每 SMSP 11 个 warp：370.1 µs，1.45e+12 B/s</title><circle cx="552.7" cy="97.7" r="4" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>每线程每轮读 4 个数，每 SMSP 12 个 warp：364.5 µs，1.47e+12 B/s</title><circle cx="600.0" cy="95.3" r="4" class="ring" style="fill: var(--fig-1)"/></g>
+  <line x1="300" y1="182" x2="312" y2="182" style="stroke: var(--fig-hi)" stroke-width="2"/>
+  <text class="lab" x="316" y="186">每线程每轮读 1 个数</text>
+  <line x1="453.8" y1="182" x2="465.8" y2="182" style="stroke: var(--fig-1)" stroke-width="2"/>
+  <text class="lab" x="469.8" y="186">每线程每轮读 4 个数</text>
+</svg>
+<figcaption><strong>图 1-6</strong> 驻留的 warp 数和实测带宽（RTX 5090，256 MiB 的 fp32 数组每个元素乘 2 写回）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。脚本是 <code>tools/gpu-training-analysis/occupancy_sweep.py</code>，悬停可看数值。</figcaption>
+</figure>
 
-三个 kernel 各被一条不同的上限卡住：GELU 卡在 warp 数，softmax 卡在 register，matmul 卡在 shared memory。matmul 每个 SM 只放得下 3 个 block，每个 SMSP 3 个 warp，就是[图 1-5](#fig-h-6) 画的情形。occupancy 只有 25%，但它不慢：在 4096 × 4096 的 fp32 矩阵乘上实测 5.2e13 FLOPS，是 fp32 峰值的一半。它用 32 KB shared memory 和较多的 register 把 A、B 的块留在片上反复使用，每个 warp 读一次数据能做很多次乘加，用不着靠大量 warp 轮流来掩盖等待。所以 occupancy 不必占满：延迟藏住以后，多驻留的 warp 不会让 kernel 更快。Nsight Compute 会直接报出一个 kernel 的 occupancy 和卡住它的是哪条上限。
+每个线程每轮只读一个数时（<span class="sw" style="background: var(--fig-hi)"></span>），每个 SMSP 只有 1 个 warp 的带宽是 4.7e11 B/s，只有 β 的 26%：这个 warp 发出一次读就停下来等，等的几百个周期里调度器没有别的 warp 可发。加到 2 个、3 个，带宽几乎按比例上涨；到 5 个时是 1.43e12 B/s（β 的 80%），之后不再涨，多出来的 warp 只是在后面排队。这个 kernel 每个 SMSP 有 5 个 warp 就把延迟藏住了。
+
+需要几个 warp，还取决于每个 warp 一次发出多少读。同一个 kernel 改成每个线程每轮读 4 个数（<span class="sw" style="background: var(--fig-1)"></span>，一条 16 B 的 load），每个 SMSP 1 个 warp 就有 1.30e12 B/s，2 个就基本持平：warp 少了，但每个 warp 在路上的数据多了 4 倍。
+
+驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。kernel 每个线程用的 register、每个 block 用的 shared memory 越多，一个 SM 上能同时放下的 block 就越少，occupancy 就越低。它不必占满：上面的 kernel 5 个 warp 就够，占满 12 个也不会更快。矩阵乘这类 kernel 常让每个线程多用 register，用 occupancy 换更多的数据复用。
 
 block 之间不能直接共享数据，只能通过显存交换，而这正是最慢的一层。所以要尽量把会重复读的数据放进同一个 block 里处理，这就是分块（tiling）。在 CUDA 里分块要自己管 shared memory 和线程同步，[第 2 节](#triton)的 Triton 把这部分交给编译器。
 
