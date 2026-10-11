@@ -99,9 +99,19 @@ Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的分块。CU
 | shared memory | 由编译器分配 | 没有对应语句 | 不能 |
 {#tab-2-1 caption="**表 2-1** CUDA 概念在 Triton 里的对应"}
 
-下面四个例子由浅入深：逐元素的 GELU，一行一个 program 的 softmax，行太长时分块累加的 row sum，以及分块乘加的矩阵乘；最后一节看每个 program 该用几个 warp。代码都在 RTX 5090 上和 PyTorch 对照过。[下一篇](/blog/gpu-training-analysis/#rmsnorm)手写的融合 RMSNorm 和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 也都用 Triton 写。
+下面四个例子由浅入深，分属三种 op。决定 grid 怎么切的，是一个输出依赖哪些输入：
 
-### 2.1 GELU：逐元素 kernel {#triton-gelu}
+| op | 类型 | 一个输出依赖 | grid 怎么切 |
+|:--|:--|:--|:--|
+| GELU | 逐元素 | 同位置的一个输入 | 展平成一维，按 BLOCK 随便切段 |
+| softmax | 按行归约 | 整行（max 和 sum） | 一行一个 program，整行装进 register |
+| row sum | 按行归约 | 整行（sum） | 一行一个 program，行太长就沿行循环 |
+| matmul | 分块乘加 | A 的一行、B 的一列（沿 K 归约） | 二维，C 的一块一个 program，沿 K 循环 |
+{#tab-2-2 caption="**表 2-2** 四个例子的 op 类型"}
+
+最后一节看每个 program 该用几个 warp。代码都在 RTX 5090 上和 PyTorch 对照过。[下一篇](/blog/gpu-training-analysis/#rmsnorm)手写的融合 RMSNorm 和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 也都用 Triton 写。
+
+### 2.1 GELU：逐元素 {#triton-gelu}
 
 {{fig-t-1}}
 
@@ -132,7 +142,7 @@ ex2.approx.f32 %r72, %r71;                    // tl.exp 编成以 2 为底的指
 
 GELU 的每个元素互不依赖，怎么切都可以。softmax 的每个元素都要用到整行的最大值和总和，切分就得按行来。
 
-### 2.2 Softmax：一行一个 program {#triton-softmax}
+### 2.2 Softmax：按行归约，一行一个 program {#triton-softmax}
 
 softmax 在 eager 下要 5 个 kernel，和[下一篇](/blog/gpu-training-analysis/#attention)里 attention 的 softmax 一样。对 `[M, N]` 的输入，一共读 5MN + 2M 个数，写 3MN + 2M 个：
 
@@ -152,7 +162,7 @@ softmax 在 eager 下要 5 个 kernel，和[下一篇](/blog/gpu-training-analys
 
 这个写法要求 BLOCK ≥ N，也就是一行能一次装进一个 program。行再长，一个 program 就只能一块一块地读。
 
-### 2.3 Row sum：行太长时分块累加 {#triton-rowsum}
+### 2.3 Row sum：按行归约，行太长时分块累加 {#triton-rowsum}
 
 {{fig-t-3}}
 
@@ -209,7 +219,7 @@ compute-bound 的那条线（I = 128）和上面的推算一致：1 个 warp 时
 |:--|--:|--:|--:|--:|--:|--:|--:|
 | 170 × 524288 | 1 | 439 µs | 232 µs | 214 µs | 213 µs | 212 µs | 211 µs |
 | 10880 × 8192 | 64 | 212 µs | 212 µs | 211 µs | 211 µs | 211 µs | 217 µs |
-{#tab-2-2 caption="**表 2-2** row sum 在不同 `num_warps` 下的耗时" note="表头的 1 到 32 是 num_warps。TILE = 128 × num_warps，每个线程每轮读 4 个 fp32。"}
+{#tab-2-3 caption="**表 2-3** row sum 在不同 `num_warps` 下的耗时" note="表头的 1 到 32 是 num_warps。TILE = 128 × num_warps，每个线程每轮读 4 个 fp32。"}
 
 170 行时 grid 只有 170 个 program，每个 SM 只分到 1 个，每个 SMSP 的 warp 数就是 `num_warps` ÷ 4：取 1 时 4 个 SMSP 里只有 1 个有活，439 µs；取 4 以上每个 SMSP 都有 warp，降到 214 µs，带宽 1.67e12 B/s。10880 行时 program 远多于 SM，每个 SM 都塞到上限，`num_warps` 只改变同样多的 warp 怎么分组，6 种取值都是 211 到 217 µs。
 
