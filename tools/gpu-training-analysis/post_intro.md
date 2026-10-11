@@ -3,14 +3,14 @@ title: "GPU 与 Triton 入门：从存储层级到第一个 kernel"
 date: 2026-10-03
 draft: false
 math: true
-description: "GPU 的存储层级、SM 结构、occupancy 和 CUDA 执行层级，和 TPU 对照；再用 GELU、softmax、row sum、matmul 四个例子入门 Triton。GPU training optimization 系列的第一篇。"
+description: "GPU 的存储层级、SM 结构、occupancy 和 CUDA 执行层级；再用 GELU、softmax、row sum、matmul 四个例子入门 Triton，附录对照 TPU。GPU training optimization 系列的第一篇。"
 tags: ["GPU", "Triton", "CUDA", "TPU", "LLM", "AI"]
 categories: ["AI笔记"]
 series: ["GPU training optimization"]
 series_order: 1
 ---
 
-这个系列讲怎么让 Transformer 训练在 GPU 上跑得更快。这一篇先打基础：[第 1 节](#hardware)介绍 GPU 的硬件，包括数据存在哪几层、一个 SM 里有什么、CUDA 的执行层级怎么对应到硬件，最后和 TPU 对照；[第 2 节](#triton)用四个例子介绍 Triton，后面两篇的 kernel 都用它写。
+这个系列讲怎么让 Transformer 训练在 GPU 上跑得更快。这一篇先打基础：[第 1 节](#hardware)介绍 GPU 的硬件，包括数据存在哪几层、一个 SM 里有什么、CUDA 的执行层级怎么对应到硬件；[第 2 节](#triton)用四个例子介绍 Triton，后面两篇的 kernel 都用它写。TPU 和 GPU 的对照放在[附录 A](#tpu)。
 
 下一篇[谁偷走了 5090 的算力和显存](/blog/gpu-training-analysis/)用这些知识在 RTX 5090 上拆解一步训练的时间和显存，第三篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 讲 attention 的 IO-aware kernel。
 
@@ -18,9 +18,9 @@ series_order: 1
 
 ---
 
-## 1 GPU 与 TPU：越靠近计算单元越快 {#hardware}
+## 1 GPU：越靠近计算单元越快 {#hardware}
 
-做性能分析时最常用的两个数是峰值算力和显存带宽。这一节介绍它们背后的硬件：数据在 GPU 里存在哪几层、一个 SM 里有什么、CUDA 的 thread、warp、block 和硬件怎么对应，最后和 TPU 对照一下。
+做性能分析时最常用的两个数是峰值算力和显存带宽。这一节介绍它们背后的硬件：数据在 GPU 里存在哪几层、一个 SM 里有什么、CUDA 的 thread、warp、block 和硬件怎么对应。
 
 ### 1.1 存储层级：越近越快，也越小 {#hw-memory}
 
@@ -77,29 +77,6 @@ CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：同一�
 {{fig-h-5}}
 
 block 之间不能直接共享数据，只能通过显存交换，而这正是最慢的一层。所以要尽量把会重复读的数据放进同一个 block 里处理，这就是分块（tiling）。
-
-### 1.4 TPU：更大的矩阵单元，更简单的控制 {#hw-tpu}
-
-TPU 的思路是把控制逻辑做轻，把矩阵乘单元做大。[图 1-5](#fig-h-3) 是 TPU v5p 的一个 TensorCore：Scalar unit 取指令、发给 VPU 和 MXU，整个核只有这一路控制，没有 warp 和调度器之间的切换；VPU 做逐元素运算和归约；矩阵乘交给 4 个 MXU，每个是 128 × 128 的 systolic array。片上存储只有 VMEM 和 VREG 两层，VMEM 是编译器管理的 scratchpad，不是硬件 cache，数据什么时候从 HBM 搬进来、搬多少，都由编译器（XLA）提前排好。
-
-{{fig-h-3}}
-
-MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 1-6](#fig-h-4)）。GPU 上每个 CUDA core 做一次乘加，要从 register file 读两个数、写回一个；一个数被用很多次，得靠 kernel 自己分块，先搬进 shared memory 和 register 再反复读，[2.4 节](#triton-matmul)的 matmul 就是这样写的。systolic array 把复用做进了硬件：权重先装进 128 × 128 个格子，固定不动；输入 x 从左边进入，每拍向右传一格，经过的每一格把它乘上自己的权重，加到从上面传下来的部分和上，再把部分和往下传。一个 x 从 VMEM 读一次，在一行里被 128 个格子用到；稳定以后每拍从左边进 128 个数、从底部出 128 个结果，阵列里同时做 16384 次乘加，中间结果都不经过 register file。
-
-{{fig-h-4}}
-
-代价是形状要规整。矩阵的维度要是 128 的倍数才能填满阵列，小矩阵和不规则的计算会浪费格子；数据流由编译器提前排好，也不能像 GPU 那样靠切换 warp 应付不确定的访存延迟。多卡之间怎么互联是另一个大区别，超出了本文的范围。两边术语的对应见[表 1-3](#tab-1-3)。
-
-| GPU | TPU | 作用 | H100 | TPU v5p |
-|:--|:--|:--|--:|--:|
-| SM | TensorCore | 包含其他运算单元的核心 | 132 | 2 |
-| warp 调度器 | VPU | SIMD 向量运算的调度 | 528 | 8 |
-| CUDA core | VPU ALU | 普通的 SIMD 运算单元 | — | — |
-| L1 / shared memory | VMEM | 片上的快速存储 | 33 MB | 128 MB |
-| register | VREG | vector register | 33 MB | 256 KB |
-| Tensor core | MXU | 矩阵乘单元 | 528 | 8 |
-| 显存（HBM） | HBM | 大容量主存 | 80 GB | 95 GB |
-{#tab-1-3 caption="**表 1-3** GPU 与 TPU 的术语对照" note="H100 的片上存储是 132 个 SM 加起来的总量。TPU 一列参考 Google 的 <a href=\"https://jax-ml.github.io/scaling-book/gpus/\">How to Scale Your Model</a>。"}
 
 ---
 
@@ -185,6 +162,31 @@ fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 的矩�
 
 ---
 
+## 附录 A TPU：更大的矩阵单元，更简单的控制 {#tpu}
+
+TPU 的思路是把控制逻辑做轻，把矩阵乘单元做大。[图 A-1](#fig-h-3) 是 TPU v5p 的一个 TensorCore：Scalar unit 取指令、发给 VPU 和 MXU，整个核只有这一路控制，没有 warp 和调度器之间的切换；VPU 做逐元素运算和归约；矩阵乘交给 4 个 MXU，每个是 128 × 128 的 systolic array。片上存储只有 VMEM 和 VREG 两层，VMEM 是编译器管理的 scratchpad，不是硬件 cache，数据什么时候从 HBM 搬进来、搬多少，都由编译器（XLA）提前排好。
+
+{{fig-h-3}}
+
+MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 A-2](#fig-h-4)）。GPU 上每个 CUDA core 做一次乘加，要从 register file 读两个数、写回一个；一个数被用很多次，得靠 kernel 自己分块，先搬进 shared memory 和 register 再反复读，[2.4 节](#triton-matmul)的 matmul 就是这样写的。systolic array 把复用做进了硬件：权重先装进 128 × 128 个格子，固定不动；输入 x 从左边进入，每拍向右传一格，经过的每一格把它乘上自己的权重，加到从上面传下来的部分和上，再把部分和往下传。一个 x 从 VMEM 读一次，在一行里被 128 个格子用到；稳定以后每拍从左边进 128 个数、从底部出 128 个结果，阵列里同时做 16384 次乘加，中间结果都不经过 register file。
+
+{{fig-h-4}}
+
+代价是形状要规整。矩阵的维度要是 128 的倍数才能填满阵列，小矩阵和不规则的计算会浪费格子；数据流由编译器提前排好，也不能像 GPU 那样靠切换 warp 应付不确定的访存延迟。多卡之间怎么互联是另一个大区别，超出了本文的范围。两边术语的对应见[表 A-1](#tab-a-1)。
+
+| GPU | TPU | 作用 | RTX 5090 | TPU v5p |
+|:--|:--|:--|--:|--:|
+| SM | TensorCore | 包含其他运算单元的核心 | 170 | 2 |
+| warp 调度器 | VPU | SIMD 向量运算的调度 | 680 | 8 |
+| CUDA core | VPU ALU | 普通的 SIMD 运算单元 | 21760 | — |
+| L1 / shared memory | VMEM | 片上的快速存储 | 21.3 MB | 128 MB |
+| register | VREG | vector register | 42.5 MB | 512 KB |
+| Tensor core | MXU | 矩阵乘单元 | 680 | 8 |
+| 显存 | HBM | 大容量主存 | 32 GB GDDR7 | 95 GB |
+{#tab-a-1 caption="**表 A-1** GPU 与 TPU 的术语对照" note="RTX 5090 的片上存储是 170 个 SM 加起来的总量。TPU 一列参考 Google 的 <a href=\"https://jax-ml.github.io/scaling-book/gpus/\">How to Scale Your Model</a>。"}
+
+---
+
 ## References {#references}
 
 1. Gholami, Yao, Kim, Hooper, Mahoney, Keutzer. [AI and Memory Wall](https://arxiv.org/abs/2403.14123). IEEE Micro, 2024. 图 1-1。
@@ -192,7 +194,7 @@ fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 的矩�
 3. NVIDIA. [NVIDIA A100 Tensor Core GPU Architecture](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)、[NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)、[NVIDIA Blackwell Architecture](https://resources.nvidia.com/en-us-blackwell-architecture)。表 1-1 的 A100、H100、B200 一列。
 4. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、register 和 shared memory 上限，CUDA 执行层级。
 5. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 调度状态和 occupancy。
-6. Austin et al. [How to Scale Your Model](https://jax-ml.github.io/scaling-book/gpus/), Google DeepMind, 2025. 图 1-5、图 1-6 的 TPU v5p 规格和 systolic array 的数据流，表 1-3 的 GPU 与 TPU 对照。
+6. Austin et al. [How to Scale Your Model](https://jax-ml.github.io/scaling-book/gpus/), Google DeepMind, 2025. 附录 A 的 TPU v5p 规格、systolic array 的数据流和表 A-1。
 7. Jouppi et al. [In-Datacenter Performance Analysis of a Tensor Processing Unit](https://arxiv.org/abs/1704.04760). ISCA 2017. 第一代 TPU 和它的 systolic array。
 8. Kung. [Why Systolic Architectures?](https://doi.org/10.1109/MC.1982.1653825). IEEE Computer, 1982.
 9. Tillet, Kung, Cox. [Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations](https://doi.org/10.1145/3315508.3329973). MAPL 2019.
