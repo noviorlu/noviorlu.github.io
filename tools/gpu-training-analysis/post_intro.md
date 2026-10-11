@@ -62,19 +62,11 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 
 ### 1.3 编程模型：thread、warp、block、grid {#hw-model}
 
-CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：同一个 warp 里的 32 个线程在同一时刻执行同一条指令。[图 1-4](#fig-h-5) 把四层画在一起，左边逐层放大，右边是每层跑在哪个硬件上；各层的作用见[表 1-2](#tab-1-2)。
-
-| 层级 | 是什么 | 对应的硬件 | 作用 |
-|:--|:--|:--|:--|
-| thread | 最基本的执行单元 | 一条 lane | 执行自己的标量指令序列 |
-| warp | 调度的基本单位，32 个线程 | 由一个 SMSP 的调度器调度 | 32 个线程同时执行同一条指令 |
-| block（CTA） | 一组线程，例如 8 个 warp | 整个驻留在一个 SM 上，不会跨 SM | 共享同一块 shared memory，块内可以同步，是分块计算的单位 |
-| grid | 一次 kernel 启动的全部 block | 整张 GPU | block 之间互相独立，由硬件分配到各个 SM |
-{#tab-1-2 caption="**表 1-2** CUDA 的执行层级"}
+CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：同一个 warp 里的 32 个线程在同一时刻执行同一条指令。线程分四层：thread；warp，32 个 thread；block（也叫 CTA），若干个 warp；grid，一次 kernel 启动的全部 block。[图 1-4](#fig-h-5) 把四层画在一起，左边逐层放大，右边是每层跑在哪个硬件上。
 
 {{fig-h-5}}
 
-block 放到 SM 上以后就一直驻留，直到它的线程全部跑完。一个 SM 能同时驻留多少，有几条硬件上限（[表 1-3](#tab-1-3)）。warp 的上限分摊到每个 SMSP 的调度器；block 的上限记在整个 SM 上，因为一个 block 的 shared memory 和同步由 4 个 SMSP 共用。
+block 放到 SM 上以后就一直驻留，直到它的线程全部跑完。一个 SM 能同时驻留多少，有几条硬件上限（[表 1-2](#tab-1-2)）。warp 的上限分摊到每个 SMSP 的调度器；block 的上限记在整个 SM 上，因为一个 block 的 shared memory 和同步由 4 个 SMSP 共用。
 
 | | A100 | H100 | B200 | RTX 5090 |
 |:--|--:|--:|--:|--:|
@@ -82,7 +74,7 @@ block 放到 SM 上以后就一直驻留，直到它的线程全部跑完。一�
 | 每 SM 最多驻留 warp | 64 | 64 | 64 | 48 |
 | 每 SM 最多驻留 block | 32 | 32 | 32 | 24 |
 | 每 thread 最多 register | 255 | 255 | 255 | 255 |
-{#tab-1-3 caption="**表 1-3** 一个 SM 的驻留上限" note="来自 CUDA Programming Guide 的 compute capability 表（8.0、9.0、10.0、12.0）。"}
+{#tab-1-2 caption="**表 1-2** 一个 SM 的驻留上限" note="来自 CUDA Programming Guide 的 compute capability 表（8.0、9.0、10.0、12.0）。"}
 
 一个 block 的 warp 按编号轮流分到 4 个 SMSP：warp 0 到 SMSP 0，warp 1 到 SMSP 1，依此类推。驻留不等于在跑。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp；所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态。所以一个 SM 上同时驻留的 warp 越多，访存延迟越容易藏住。[图 1-5](#fig-h-6) 画的是驻留 3 个 block、每个 4 个 warp 时的某一拍：每个 SMSP 有 3 个 warp，分别来自 3 个 block，调度器每个周期只发射其中一个；SMSP 2 的 3 个都在等数据，这一拍就空转。
 
@@ -212,7 +204,7 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 A-2](#fig-h-
 1. Gholami, Yao, Kim, Hooper, Mahoney, Keutzer. [AI and Memory Wall](https://arxiv.org/abs/2403.14123). IEEE Micro, 2024. 图 1-1。
 2. NVIDIA. [NVIDIA RTX Blackwell GPU Architecture](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)（白皮书）。RTX 5090 的存储层级和 SM 结构，图 1-2、图 1-3。
 3. NVIDIA. [NVIDIA A100 Tensor Core GPU Architecture](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)、[NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)、[NVIDIA Blackwell Architecture](https://resources.nvidia.com/en-us-blackwell-architecture)。表 1-1 的 A100、H100、B200 一列。
-4. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、block、register 和 shared memory 上限，表 1-3，CUDA 执行层级。
+4. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、block、register 和 shared memory 上限，表 1-2，CUDA 执行层级。
 5. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 调度状态和 occupancy。
 6. Austin et al. [How to Scale Your Model](https://jax-ml.github.io/scaling-book/gpus/), Google DeepMind, 2025. 附录 A 的 TPU v5p 规格、systolic array 的数据流和表 A-1。
 7. Jouppi et al. [In-Datacenter Performance Analysis of a Tensor Processing Unit](https://arxiv.org/abs/1704.04760). ISCA 2017. 第一代 TPU 和它的 systolic array。
