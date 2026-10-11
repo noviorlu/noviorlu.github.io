@@ -80,7 +80,16 @@ block 放到 SM 上以后就一直驻留，直到它的线程全部跑完。一�
 
 {{fig-h-6}}
 
-kernel 每个线程用的 register、每个 block 用的 shared memory 越多，一个 SM 上能同时放下的 block 就越少。驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。它不必占满：延迟藏住以后，多驻留的 warp 不会让 kernel 更快，矩阵乘这类 kernel 常让每个线程多用 register，换更多的数据复用。
+kernel 每个线程用的 register、每个 block 用的 shared memory 越多，一个 SM 上能同时放下的 block 就越少。驻留 warp 数与上限之比叫 occupancy。拿[第 2 节](#triton)的三个 Triton kernel 实际算一下（[表 1-3](#tab-1-3)）：它们都是每个 block 4 个 warp（128 个线程），register 和 shared memory 的用量取自编译结果，一个 SM 能放几个 block 用 CUDA 的 `cuOccupancyMaxActiveBlocksPerMultiprocessor` 查得。
+
+| kernel | 每线程 register | 每 block shared memory | 按 warp 算 | 按 register 算 | 按 shared memory 算 | 每 SM 驻留 block | 每 SMSP 驻留 warp | occupancy |
+|:--|--:|--:|--:|--:|--:|--:|--:|--:|
+| GELU | 35 | 0 | 12 | 12 | 不限 | 12 | 12 | 100% |
+| softmax | 55 | 16 B | 12 | 9 | 不限 | 9 | 9 | 75% |
+| matmul | 96 | 32 KB | 12 | 5 | 3 | 3 | 3 | 25% |
+{#tab-1-3 caption="**表 1-3** 三个 Triton kernel 在 5090 上的驻留情况" note="register 按每线程 8 个一组分配（35 实际占 40），每 SM 共 65536 个。shared memory 每 SM 最多 100 KB，每个 block 另外保留 1 KB。block 数的上限 24 三个 kernel 都碰不到。"}
+
+三个 kernel 各被一条不同的上限卡住：GELU 卡在 warp 数，softmax 卡在 register，matmul 卡在 shared memory。matmul 每个 SM 只放得下 3 个 block，每个 SMSP 3 个 warp，就是[图 1-5](#fig-h-6) 画的情形。occupancy 只有 25%，但它不慢：在 4096 × 4096 的 fp32 矩阵乘上实测 5.2e13 FLOPS，是 fp32 峰值的一半。它用 32 KB shared memory 和较多的 register 把 A、B 的块留在片上反复使用，每个 warp 读一次数据能做很多次乘加，用不着靠大量 warp 轮流来掩盖等待。所以 occupancy 不必占满：延迟藏住以后，多驻留的 warp 不会让 kernel 更快。Nsight Compute 会直接报出一个 kernel 的 occupancy 和卡住它的是哪条上限。
 
 block 之间不能直接共享数据，只能通过显存交换，而这正是最慢的一层。所以要尽量把会重复读的数据放进同一个 block 里处理，这就是分块（tiling）。在 CUDA 里分块要自己管 shared memory 和线程同步，[第 2 节](#triton)的 Triton 把这部分交给编译器。
 
