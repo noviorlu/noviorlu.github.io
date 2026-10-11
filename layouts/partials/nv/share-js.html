@@ -12,14 +12,11 @@
     });
     document.querySelectorAll('[data-nv-share="copy"]').forEach((btn) => {
       btn.addEventListener("click", async () => {
-        const label = btn.querySelector("span");
-        try {
-          await navigator.clipboard.writeText(url);
-          label.textContent = "已复制";
-        } catch {
-          label.textContent = "复制失败";
-        }
-        setTimeout(() => (label.textContent = "复制链接"), 1600);
+        let ok = true;
+        try { await navigator.clipboard.writeText(url); } catch { ok = false; }
+        btn.dataset.state = ok ? "done" : "failed";
+        btn.title = ok ? "已复制" : "复制失败";
+        setTimeout(() => { delete btn.dataset.state; btn.title = "复制链接"; }, 1600);
       });
     });
 
@@ -41,6 +38,7 @@
       const n = c ? Math.max(c.add - c.undo, 0) : "";
       document.querySelectorAll(`[data-nv-react="${key}"]`).forEach((btn) => {
         btn.querySelector("[data-nv-react-count]").textContent = n || "";
+        btn.classList.toggle("has-count", n > 0);
         btn.setAttribute("aria-pressed", reacted.has(key));
       });
     };
@@ -55,10 +53,23 @@
       } catch {}
     });
 
+    // Picker: "+" opens every reaction; picking one, clicking outside or Esc closes it.
+    const setOpen = (group, open) => {
+      group.classList.toggle("is-open", open);
+      group.querySelector("[data-nv-react-more]").setAttribute("aria-expanded", open);
+    };
+    document.querySelectorAll("[data-nv-react-more]").forEach((more) => {
+      more.addEventListener("click", () => setOpen(more.parentElement, !more.parentElement.classList.contains("is-open")));
+    });
+    const closeAll = () => document.querySelectorAll(".nv-react.is-open").forEach((g) => setOpen(g, false));
+    document.addEventListener("click", (e) => { if (!e.target.closest(".nv-react")) closeAll(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAll(); });
+
     const busy = new Set();
     document.querySelectorAll("[data-nv-react]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const key = btn.dataset.nvReact;
+        closeAll();
         if (busy.has(key)) return;
         busy.add(key);
         const undo = reacted.has(key);

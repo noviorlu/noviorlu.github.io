@@ -651,8 +651,11 @@ html.dark {
   transition: color .15s, border-color .15s, background-color .15s;
 }
 .nv-share__btn:hover { color: var(--nv-accent); border-color: var(--nv-accent-line); background: var(--nv-accent-soft); }
-.nv-share__btn svg { width: 1em; height: 1em; }
 .nv-share__btn[hidden] { display: none; }
+.nv-share__btn svg { width: 15px; height: 15px; }
+/* Copy link feedback: a green ring for done, red for failed */
+.nv-share__btn[data-state="done"] { color: #16a34a; border-color: #16a34a; }
+.nv-share__btn[data-state="failed"] { color: #dc2626; border-color: #dc2626; }
 .nv-share__btn b { font-weight: 600; color: var(--nv-text-3); font-variant-numeric: tabular-nums; }
 .nv-share__btn b:empty { display: none; }
 .nv-share--bar { display: flex; flex-wrap: wrap; gap: 8px 16px; }
@@ -672,25 +675,19 @@ html.dark {
 .nv-react__btn b { font-weight: 600; color: var(--nv-text-3); font-variant-numeric: tabular-nums; }
 .nv-react__btn[aria-pressed="true"] b { color: var(--nv-accent); }
 .nv-react__btn b:empty { display: none; }
-.nv-share--bar .nv-react { flex-basis: 100%; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); max-width: 560px; }
-@media (max-width: 560px) { .nv-share--bar .nv-react { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+/* Collapsed: hide reactions nobody has used yet; the "+" button opens the full set */
+.nv-react:not(.is-open) .nv-react__btn:not(.has-count):not([aria-pressed="true"]):not(.nv-react__more) { display: none; }
+.nv-react__more { color: var(--nv-text-3); }
+.nv-react__more[aria-expanded="true"] { color: var(--nv-accent); border-color: var(--nv-accent-line); background: var(--nv-accent-soft); }
+.nv-share--bar .nv-react { flex-basis: 100%; }
+.nv-share--bar .nv-react__btn { min-width: 52px; }
 
 /* Side panel: the TOC and the actions stick together */
 .nv-article__side { position: sticky; top: calc(var(--nv-header-h) + 28px); display: flex; flex-direction: column; gap: 24px; }
 .nv-share--side { display: flex; flex-direction: column; gap: 10px; padding: 16px 0 0 17px; border-top: 1px solid var(--nv-border); }
-.nv-share--side::before {
-  content: "表情 · 分享"; display: block;
-  font: 600 12px/1 var(--nv-font-mono); letter-spacing: .08em; color: var(--nv-text-3);
-}
 .nv-share--side .nv-share__group { gap: 6px; }
-.nv-share--side .nv-react { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-.nv-share--side .nv-react__btn { min-width: 0; padding: 0 4px; height: 32px; }
-.nv-share--side .nv-share__btn { height: 30px; padding: 0 10px; font-size: 13px; }
-.nv-share--side .nv-share__btn--icon { padding: 0 9px; }
-.nv-share--side .nv-share__group { display: grid; grid-template-columns: repeat(6, 1fr); }
-.nv-share--side .nv-share__btn { justify-content: center; }
-.nv-share--side .nv-share__btn--comment, .nv-share--side [data-nv-share="copy"], .nv-share--side [data-nv-share="native"] { grid-column: span 3; }
-.nv-share--side .nv-share__btn:not(.nv-share__btn--comment):not([data-nv-share]) { grid-column: span 2; }
+.nv-share--side .nv-react__btn { flex: 0 0 calc((100% - 18px) / 4); min-width: 0; padding: 0 4px; height: 32px; }
+.nv-share--side .nv-share__btn { height: 32px; padding: 0 9px; font-size: 13px; }
 /* With a visible side panel the bottom row is redundant */
 @media (min-width: 1081px) { .nv-article.has-toc .nv-share--bar { display: none; } }
 
