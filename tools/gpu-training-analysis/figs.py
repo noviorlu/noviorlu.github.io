@@ -799,9 +799,70 @@ def hw_sm():
         lx += 24 + 13 * len(lab) + 28
     return f
 
+# ── 图 1-4 / 1-5 TPU（规格来自 How to Scale Your Model，TPU v5p） ─────
+def tpu_core():
+    f = F("fig-h-3", 300, "TPU v5p 的一个 TensorCore：Scalar unit 发指令，VMEM 是编译器管理的片上存储，VREG 供给 VPU 和 4 个 128×128 的 MXU；芯片外是 95 GB HBM，带宽 2.8e12 B/s")
+    f.w(f'<rect x="10" y="22" width="452" height="250" rx="12" {tint("--fig-1", 6, sw=1.4)}/>')
+    f.w('<text class="lab2" x="22" y="40">TensorCore（TPU v5p 每个芯片 2 个）</text>')
+    f.w(f'<rect x="24" y="50" width="424" height="30" rx="6" {tint("--fig-1", 14)}/>')
+    f.w('<text class="t" x="236" y="70" text-anchor="middle">Scalar unit：取指令，发给 VPU 和 MXU（只有这一路控制）</text>')
+    f.w(f'<rect x="24" y="92" width="424" height="36" rx="6" {tint("--fig-2", 22)}/>')
+    f.w('<text class="t" x="236" y="115" text-anchor="middle">VMEM：片上 scratchpad，由编译器显式搬入搬出</text>')
+    f.w(f'<rect x="24" y="156" width="424" height="30" rx="6" {tint("--fig-hi", 16)}/>')
+    f.w('<text class="t" x="236" y="176" text-anchor="middle">VREG 256 KB（vector register）</text>')
+    f.arrow(200, 129, 200, 154, None, width=1.4); f.arrow(272, 155, 272, 130, None, width=1.4)
+    f.w(f'<rect x="24" y="214" width="120" height="48" rx="6" {tint("--fig-2", 30)}/>')
+    f.w('<text class="tb" x="84" y="235" text-anchor="middle">VPU</text><text class="s" x="84" y="252" text-anchor="middle">8 × 128 lanes</text>')
+    f.arrow(84, 187, 84, 212, None, width=1.4)
+    for k in range(4):
+        x = 160 + k * 72
+        f.w(f'<rect x="{x}" y="214" width="64" height="48" rx="6" {tint("--fig-1", 22)}/>')
+        f.w(f'<text class="tb" x="{x + 32}" y="235" text-anchor="middle">MXU</text><text class="s" x="{x + 32}" y="252" text-anchor="middle">128 × 128</text>')
+        f.arrow(x + 32, 187, x + 32, 212, None, width=1.4)
+    f.w(f'<rect x="504" y="70" width="124" height="150" rx="10" {tint("--fig-mute", 14, sw=1.4)}/>')
+    f.w('<text class="tb" x="566" y="124" text-anchor="middle">HBM</text><text class="t" x="566" y="144" text-anchor="middle">95 GB</text><text class="s" x="566" y="168" text-anchor="middle">带宽</text><text class="s" x="566" y="182" text-anchor="middle">2.8e12 B/s</text>')
+    f.arrow(450, 104, 500, 104, "--fig-mute", width=1.8); f.arrow(500, 118, 450, 118, "--fig-mute", width=1.8)
+    f.w('<text class="lab2" x="10" y="292">没有 warp，也没有硬件管理的 L1 / L2：HBM → VMEM → VREG → VPU / MXU 每一步都由编译器排好</text>')
+    return f
+
+def systolic():
+    f = F("fig-h-4", 334, "GPU 的 CUDA core 每次乘加都从 register file 读两个数、写回一个；TPU 的 MXU 是 systolic array，权重固定在格子里，x 每拍向右流一格，部分和每拍向下流一格，只有边上读写")
+    f.w('<text class="ttl" x="20" y="22">GPU：CUDA core 从 register file 取数</text>')
+    f.w(f'<rect x="20" y="52" width="220" height="34" rx="6" {tint("--fig-hi", 16)}/>')
+    f.w('<text class="t" x="130" y="74" text-anchor="middle">register file</text>')
+    for k in range(4):
+        x = 20 + k * 59; cx = x + 22
+        f.w(f'<rect x="{x}" y="150" width="44" height="36" rx="5" {tint("--fig-2", 22)}/>')
+        f.w(f'<text class="s" x="{cx}" y="172" text-anchor="middle">FMA</text>')
+        f.arrow(cx - 12, 87, cx - 12, 148, None, width=1.3); f.arrow(cx, 87, cx, 148, None, width=1.3)
+        f.arrow(cx + 12, 149, cx + 12, 89, "--fig-hi", width=1.3)
+    f.w('<text class="lab" x="20" y="212">每次乘加读 2 个数、写回 1 个</text>')
+    f.w('<text class="lab2" x="20" y="234">一个数要被用很多次，得靠 kernel 自己分块：</text>')
+    f.w('<text class="lab2" x="20" y="250">先搬进 shared memory / register，再反复读</text>')
+    f.w('<text class="ttl" x="300" y="22">TPU：MXU 是 systolic array（示意 4 × 4，实际 128 × 128）</text>')
+    f.w('<text class="lab2" x="300" y="40">W 先装进格子固定不动；x 每拍右移一格，部分和每拍下移一格</text>')
+    X0, Y0, P, ST = 372, 52, 36, 66
+    for i in range(4):
+        for j in range(4):
+            x, y = X0 + j * ST, Y0 + i * ST
+            f.w(f'<rect x="{x}" y="{y}" width="{P}" height="{P}" rx="5" {tint("--fig-1", 22)}/>')
+            f.w(f'<text class="s" x="{x + P / 2}" y="{y + 22}" text-anchor="middle">w<tspan baseline-shift="sub" font-size="8">{i}{j}</tspan></text>')
+            if j < 3: f.arrow(x + P + 2, y + P / 2, x + ST - 3, y + P / 2, "--fig-2", width=1.4)
+            if i < 3: f.arrow(x + P / 2, y + P + 2, x + P / 2, y + ST - 3, "--fig-hi", width=1.4)
+        y = Y0 + i * ST + P / 2
+        f.arrow(328, y, X0 - 3, y, "--fig-2", width=1.4)
+        f.w(f'<text class="t" x="320" y="{y + 4}" text-anchor="end">x<tspan baseline-shift="sub" font-size="9">{i}</tspan></text>')
+    for j in range(4):
+        x = X0 + j * ST + P / 2
+        f.arrow(x, Y0 + 3 * ST + P + 2, x, Y0 + 3 * ST + P + 24, "--fig-hi", width=1.4)
+        f.w(f'<text class="t" x="{x}" y="{Y0 + 3 * ST + P + 40}" text-anchor="middle">y<tspan baseline-shift="sub" font-size="9">{j}</tspan></text>')
+    return f
+
 CAPS = {
  "hw_hierarchy": '<strong>图 1-2</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。',
  "hw_sm": '<strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每一格是一个 warp（32 个线程）的槽位，每个 SMSP 最多驻留 12 个 warp，整个 SM 共 48 个。图中是某一拍：3 个 block 各 4 个 warp，按编号轮流分到 4 个 SMSP，每个 SMSP 驻留 3 个。',
+ "tpu_core": '<strong>图 1-4</strong> TPU v5p 一个 TensorCore 的结构示意，画法对应<a href="#fig-h-1">图 1-2</a>。规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>，原书也有一张 TensorCore 的结构图。',
+ "systolic": '<strong>图 1-5</strong> 乘加单元怎么拿到数据。左边是 GPU 的 CUDA core，右边是 TPU 的 MXU；x 按行错开一拍进入，y 是每列的输出。动画演示见 <a href="https://jax-ml.github.io/scaling-book/tpus/#appendix-b-how-does-a-systolic-array-work">How to Scale Your Model 附录 B</a>。',
  "linear": '<strong>图 2-1</strong> 一个 Linear 的前向与反向：前向从左边往下，误差从右边传回；虚线是反向要从前向拿的东西。',
  "step_time": '<strong>图 2-2</strong> 一步训练里前向、反向、optimizer 的耗时占比（fp32，batch 4，seq 512），右侧是每步耗时和 MFU。',
  "roofline": '<strong>图 1-1</strong> RTX 5090 各精度的 roofline：斜线是带宽，平线是峰值算力（dense，boost clock 2407 MHz，来自 NVIDIA RTX Blackwell 白皮书；Tensor core 按 fp32 累加）。',
@@ -821,7 +882,7 @@ CAPS = {
  "ckpt": '<strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。',
  "sweep": '<strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。',
 }
-OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
+OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
        ("flops_vs_time", flops_vs_time), ("share_vs_seq", share_vs_seq), ("peak_memory", peak_memory), ("peak_moment", peak_moment),
        ("rms_eager", rms_eager), ("rms_fused", rms_fused), ("attn_flow", attn_flow), ("layer_donut", layer_donut), ("timelines", timelines),
        ("bf16", bf16), ("ckpt", ckpt), ("sweep", sweep))}
