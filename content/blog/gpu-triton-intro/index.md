@@ -20,11 +20,11 @@ series_order: 1
 
 ## 1 GPU：越靠近计算单元越快 {#hardware}
 
-做性能分析时最常用的两个数是峰值算力和显存带宽。这一节介绍它们背后的硬件：数据在 GPU 里存在哪几层、一个 SM 里有什么、CUDA 的 thread、warp、block 和硬件怎么对应。
+做性能分析时最常用的两个数是峰值算力和显存带宽。一个 kernel 受哪个限制，取决于它要搬多少数据、数据在哪一层被读写。这一节按这个顺序看 5090 的硬件：先看数据存在哪几层（[1.1](#hw-memory)），再看负责计算的 SM 里有什么、它在等数据时怎么不让计算单元闲着（[1.2](#hw-sm)），最后看 CUDA 的 thread、warp、block 怎么落到这些硬件上（[1.3](#hw-model)）。
 
 ### 1.1 存储层级：越近越快，也越小 {#hw-memory}
 
-处理器的频率早就不怎么涨了，算力的增长主要来自并行：更多的 SM、更宽的 Tensor core。显存带宽的增长比算力慢得多：过去 20 年，峰值算力涨了约 6 万倍（每两年 3.0 倍），DRAM 带宽只涨了约 100 倍（每两年 1.6 倍），芯片之间的互联带宽约 30 倍（[图 1-1](#fig-memwall)）。所以越来越多的 op 落在 roofline 的斜坡上，这是 memory-bound 越来越常见的原因。
+处理器的频率早就不怎么涨了，算力的增长主要来自并行：更多的 SM、更宽的 Tensor core。显存带宽的增长比算力慢得多：过去 20 年，峰值算力涨了约 6 万倍（每两年 3.0 倍），DRAM 带宽只涨了约 100 倍（每两年 1.6 倍），芯片之间的互联带宽约 30 倍（[图 1-1](#fig-memwall)）。所以越来越多的 op 落在 roofline 的斜坡上，这是 memory-bound 越来越常见的原因。带宽跟不上，就只能少搬：让读进来的数据留在离计算单元近的地方，多用几次。
 
 <figure id="fig-memwall" class="fg-fig">
 <img src="memory-wall.webp" alt="1997 到 2023 年峰值算力、DRAM 带宽和互联带宽的增长：算力每两年 3.0 倍，DRAM 带宽每两年 1.6 倍，互联带宽每两年 1.4 倍" loading="lazy" style="width: 100%; height: auto; border-radius: 8px; background: #fff;">
@@ -100,6 +100,8 @@ series_order: 1
 </figure>
 
 5090 是消费级显卡，显存用的是 GDDR7（32 GB，512-bit，28 Gbps，带宽 1,792 GB/s），不是数据中心卡上的 HBM，也没有 ECC 和 NVLink。
+
+register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构。
 
 ### 1.2 一个 SM 里有什么 {#hw-sm}
 
@@ -250,6 +252,8 @@ series_order: 1
 
 每个 SMSP 能驻留的 warp 有上限（[表 1-1](#tab-1-1) 最后两行）。kernel 每个线程用的 register、每个 block 用的 shared memory 越多，一个 SM 上能同时放下的 block 就越少。驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。它不必占满：延迟藏住以后，多驻留的 warp 不会让 kernel 更快，矩阵乘这类 kernel 常让每个线程多用 register，换更多的数据复用。
 
+register 按 thread 分配，shared memory 按 block 分配。要知道一个 kernel 占多少资源、能放下几个 block，得先看 CUDA 怎么把线程组织起来。
+
 ### 1.3 编程模型：thread、warp、block、grid {#hw-model}
 
 CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：同一个 warp 里的 32 个线程在同一时刻执行同一条指令。[图 1-4](#fig-h-5) 把四层画在一起，左边逐层放大，右边是每层跑在哪个硬件上；各层的作用见[表 1-2](#tab-1-2)。
@@ -369,15 +373,13 @@ CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：同一�
 <figcaption><strong>图 1-4</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。</figcaption>
 </figure>
 
-block 之间不能直接共享数据，只能通过显存交换，而这正是最慢的一层。所以要尽量把会重复读的数据放进同一个 block 里处理，这就是分块（tiling）。
+block 之间不能直接共享数据，只能通过显存交换，而这正是最慢的一层。所以要尽量把会重复读的数据放进同一个 block 里处理，这就是分块（tiling）。在 CUDA 里分块要自己管 shared memory 和线程同步，[第 2 节](#triton)的 Triton 把这部分交给编译器。
 
 ---
 
 ## 2 Triton：按 block 写 kernel {#triton}
 
-[下一篇](/blog/gpu-training-analysis/#rmsnorm)手写的融合 RMSNorm 和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 都用 Triton 写。这一节用四个例子介绍它：逐元素的 GELU，一行一个 program 的 softmax，行太长时分块累加的 row sum，以及分块乘加的矩阵乘。代码都在 RTX 5090 上和 PyTorch 对照过。
-
-CUDA 要写清楚每个线程做什么，控制最细，但 shared memory、线程同步这些都要自己管。Triton 只要写清楚每个线程块做什么：把一块数据读进来，在片上算完，再写回显存，块内怎么分给线程、要不要经过 shared memory 由编译器决定。Triton 把一个线程块叫作一个 program，概念对应见[表 2-1](#tab-2-1)。
+Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的分块。CUDA 要写清楚每个线程做什么，控制最细，但 shared memory、线程同步这些都要自己管。Triton 只要写清楚每个线程块做什么：把一块数据读进来，在片上算完，再写回显存，块内怎么分给线程、要不要经过 shared memory 由编译器决定。Triton 把一个线程块叫作一个 program，概念对应见[表 2-1](#tab-2-1)。
 
 | CUDA | Triton | 写法 | 能否直接控制 |
 |:--|:--|:--|:--|
@@ -388,9 +390,11 @@ CUDA 要写清楚每个线程做什么，控制最细，但 shared memory、线�
 | shared memory | 由编译器分配 | 没有对应语句 | 不能 |
 {#tab-2-1 caption="**表 2-1** CUDA 概念在 Triton 里的对应"}
 
+下面四个例子由浅入深：逐元素的 GELU，一行一个 program 的 softmax，行太长时分块累加的 row sum，以及分块乘加的矩阵乘。代码都在 RTX 5090 上和 PyTorch 对照过。[下一篇](/blog/gpu-training-analysis/#rmsnorm)手写的融合 RMSNorm 和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 也都用 Triton 写。
+
 ### 2.1 GELU：逐元素 kernel {#triton-gelu}
 
-逐元素 op 最简单：把 n 个元素切成每段 BLOCK 个，一段交给一个 program。kernel 里先用 `tl.program_id` 算出自己负责的下标，读进来，算完写回：
+逐元素 op 最简单，每个元素各算各的，program 之间不需要配合。把 n 个元素切成每段 BLOCK 个，一段交给一个 program。kernel 里先用 `tl.program_id` 算出自己负责的下标，读进来，算完写回：
 
 ```python
 @triton.jit
@@ -430,9 +434,11 @@ ex2.approx.f32 %r72, %r71;                    // tl.exp 编成以 2 为底的指
 
 一个 program 处理 1024 个元素，默认 4 个 warp 共 128 个线程，所以每个线程分到 8 个元素，PTX 里正好是 8 条 `ld.global` 和 8 条 `st.global`。
 
+GELU 的每个元素互不依赖，怎么切都可以。softmax 的每个元素都要用到整行的最大值和总和，切分就得按行来。
+
 ### 2.2 Softmax：一行一个 program {#triton-softmax}
 
-按行做的 softmax 在 eager 下要 5 个 kernel，和[下一篇](/blog/gpu-training-analysis/#attention)里 attention 的 softmax 一样。对 `[M, N]` 的输入，一共读 5MN + 2M 个数，写 3MN + 2M 个：
+softmax 在 eager 下要 5 个 kernel，和[下一篇](/blog/gpu-training-analysis/#attention)里 attention 的 softmax 一样。对 `[M, N]` 的输入，一共读 5MN + 2M 个数，写 3MN + 2M 个：
 
 ```python
 def softmax_naive(x):                         # x: [M, N]，按行
@@ -465,11 +471,11 @@ def softmax(x):
 
 在 5090 上对 4096 × 4096 的 fp32 输入实测，eager 版 249 µs，Triton 版 80 µs，快了 3.1 倍，和 `torch.softmax`（79 µs）相当。
 
-这个写法要求 BLOCK ≥ N，也就是一行能一次装进一个 program。行再长就要像下一节那样分块读。
+这个写法要求 BLOCK ≥ N，也就是一行能一次装进一个 program。行再长，一个 program 就只能一块一块地读。
 
 ### 2.3 Row sum：行太长时分块累加 {#triton-rowsum}
 
-求和可以分块：program 沿着行一块一块读，每块 TILE 个数加到一个长度为 TILE 的部分和向量上，最后再把这个向量加成一个数。循环里每个位置各加各的，不需要线程之间通信；只有最后的 `tl.sum` 做一次跨线程归约。
+先看最简单的按行归约：求和。program 沿着行一块一块读，每块 TILE 个数加到一个长度为 TILE 的部分和向量上，最后再把这个向量加成一个数。循环里每个位置各加各的，不需要线程之间通信；只有最后的 `tl.sum` 做一次跨线程归约。
 
 ```python
 @triton.jit
@@ -489,6 +495,8 @@ def row_sum(x, TILE=1024):
 ```
 
 softmax 不能直接这样分块：要先知道整行的最大值才能算 exp，而最大值要读完整行才知道。边读边更新最大值、同时修正已经算好的部分和，就是 online softmax，[FlashAttention](/blog/flashattention-1-to-4/) 那篇会讲。
+
+前面三个例子里每个数只读一次，分块只是为了把工作分给不同的 program。矩阵乘不同：A 的每个元素要和 B 的一整列相乘，分块是为了让读进片上的数据被多次使用。
 
 ### 2.4 Matmul：分块乘加，顺手融合 ReLU {#triton-matmul}
 
@@ -527,11 +535,13 @@ def matmul_relu(a, b, BM=64, BN=64, BK=32):
 
 fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 的矩阵乘差 0.1 左右；要和 PyTorch（关掉 tf32）对上，需要 `input_precision="ieee"`。
 
+四个例子是同一个模式：program 把一块数据读进 register，在片上做完能做的计算，再写回显存。[下一篇](/blog/gpu-training-analysis/)在 5090 上拆解一步训练的时间和显存，用的就是这个模式：把 RMSNorm 的几个 kernel 融合成一个，少读写一遍中间结果。
+
 ---
 
 ## 附录 A TPU：更大的矩阵单元，更简单的控制 {#tpu}
 
-TPU 的思路是把控制逻辑做轻，把矩阵乘单元做大。[图 A-1](#fig-h-3) 是 TPU v5p 的一个 TensorCore：Scalar unit 取指令、发给 VPU 和 MXU，整个核只有这一路控制，没有 warp 和调度器之间的切换；VPU 做逐元素运算和归约；矩阵乘交给 4 个 MXU，每个是 128 × 128 的 systolic array。片上存储只有 VMEM 和 VREG 两层，VMEM 是编译器管理的 scratchpad，不是硬件 cache，数据什么时候从 HBM 搬进来、搬多少，都由编译器（XLA）提前排好。
+正文的 GPU 靠 kernel 自己分块来复用数据。TPU 面对同样的带宽问题，思路是把控制逻辑做轻，把矩阵乘单元做大。[图 A-1](#fig-h-3) 是 TPU v5p 的一个 TensorCore：Scalar unit 取指令、发给 VPU 和 MXU，整个核只有这一路控制，没有 warp 和调度器之间的切换；VPU 做逐元素运算和归约；矩阵乘交给 4 个 MXU，每个是 128 × 128 的 systolic array。片上存储只有 VMEM 和 VREG 两层，VMEM 是编译器管理的 scratchpad，不是硬件 cache，数据什么时候从 HBM 搬进来、搬多少，都由编译器（XLA）提前排好。
 
 <figure id="fig-h-3" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="TPU v5p 的一个 TensorCore：Scalar unit 发指令，VMEM 是编译器管理的片上存储，VREG 供给 VPU 和 4 个 128×128 的 MXU；芯片外是 95 GB HBM，带宽 2.8e12 B/s">
