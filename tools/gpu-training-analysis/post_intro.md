@@ -80,7 +80,7 @@ block 放到 SM 上以后就一直驻留，直到它的线程全部跑完。一�
 
 {{fig-h-6}}
 
-驻留多少个 warp 才够？我用一组逐元素 kernel 实测了一遍（[图 1-6](#fig-h-7)）：256 MiB 的 fp32 数组，每个元素读进来，串 K 次 FMA，再写回。K 从 1 加到 512，arithmetic intensity 从 0.25 加到 128，跨过了 ridge point 58，最后一个是 compute-bound。kernel 写成固定个数的 program 循环走完整个数组，每个 program 4 个 warp，grid 取 170 × m 个 program，每个 SMSP 就正好驻留 m 个 warp。
+驻留多少个 warp 才够？我用一组逐元素 kernel 实测了一遍（[图 1-6](#fig-h-7)）：256 MiB 的 fp32 数组，每个元素读进来，串 K 次 FMA，再写回。FMA（fused multiply-add）是一条指令算 a × b + c，记作 2 次浮点运算；一个 CUDA core 每拍做一次，5090 的 fp32 峰值就是 21760 个 CUDA core × 2 × 2.41e9 Hz ≈ 1.05e14 FLOPS。K 从 1 加到 512，arithmetic intensity 从 0.25 加到 128，跨过了 ridge point 58，最后一个是 compute-bound。kernel 写成固定个数的 program 循环走完整个数组，每个 program 4 个 warp，grid 取 170 × m 个 program，每个 SMSP 就正好驻留 m 个 warp。
 
 {{fig-h-7}}
 
