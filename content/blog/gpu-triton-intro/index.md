@@ -530,7 +530,7 @@ block 放到 SM 上以后就一直驻留，直到它的线程全部跑完。一�
   <g class="m"><title>256 MiB，每线程每轮 4 个数，每 SMSP 12 个 warp：361.0 µs，1.49e+12 B/s</title><circle cx="610.0" cy="215.6" r="3" class="ring" style="fill: var(--fig-1)"/></g>
   <line x1="340" y1="174" x2="362" y2="174" style="stroke: var(--fig-1)" stroke-width="2" stroke-dasharray="6 4"/><text class="lab" x="370" y="178">256 MiB，每线程每轮读 4 个数</text>
 </svg>
-<figcaption><strong>图 1-6</strong> 驻留的 warp 数和实测带宽（RTX 5090，fp32 数组每个元素乘 2 写回，标签是数组大小，读写的总量是它的两倍；L2 是 96 MB）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。脚本是 <code>tools/gpu-training-analysis/occupancy_sweep.py</code>，悬停可看数值。</figcaption>
+<figcaption><strong>图 1-6</strong> 驻留的 warp 数和实测带宽（RTX 5090，fp32 数组每个元素乘 2 写回，标签是数组大小，读写的总量是它的两倍；L2 是 96 MB）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。悬停可看数值。</figcaption>
 </figure>
 
 先看 256 MiB（<span class="sw" style="background: var(--fig-1)"></span>），数组比 96 MB 的 L2 大得多，读写都走显存。每个 SMSP 只有 1 个 warp 时带宽是 4.7e11 B/s，只有 β 的 26%：这个 warp 发出一次读就停下来等，等的几百个周期里调度器没有别的 warp 可发。加到 2 个、3 个，带宽几乎按比例上涨；到 5、6 个时是 1.4e12 B/s（β 的 78%），之后不再涨，多出来的 warp 只是在后面排队。
