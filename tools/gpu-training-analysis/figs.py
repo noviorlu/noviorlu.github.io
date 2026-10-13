@@ -124,15 +124,15 @@ def linear():
     f.w('<text class="tb" x="482" y="24" text-anchor="middle">Backward Pass（反向）</text>')
     f.w('<line x1="320" y1="36" x2="320" y2="364" stroke="currentColor" stroke-opacity=".25" stroke-dasharray="5 4"/>')
     box(176, 76, 150, 50, "输入", "X_{L−1}", A)
-    box(190, 182, 150, 54, "计算", "X_L = X_{L−1} · W_L", A)
+    box(190, 182, 150, 54, "forward matmul", "X_L = X_{L−1} · W_L", A)
     box(44, 182, 68, 50, "权重", "W_L", W)
     box(176, 288, 150, 50, "输出", "X_L", A)
     f.arrow(176, 101, 176, 152); f.arrow(78, 182, 112, 182); f.arrow(176, 209, 176, 260)
     box(320, 398, 220, 44, "进入深层 Layer L+1，等误差传回", None, 'class="op"')
     f.path("M176,313 L176,398 L207,398"); f.path("M430,398 L482,398 L482,316")
     box(482, 288, 150, 50, "接收误差", "∇X_L", T)
-    box(404, 182, 152, 54, "计算参数梯度", "∇W_L = X_{L−1}^T · ∇X_L", G)
-    box(562, 182, 152, 54, "计算激活梯度", "∇X_{L−1} = ∇X_L · W_L^T", T)
+    box(404, 182, 152, 54, "weight grad", "∇W_L = X_{L−1}^T · ∇X_L", G)
+    box(562, 182, 152, 54, "input grad", "∇X_{L−1} = ∇X_L · W_L^T", T)
     box(562, 76, 152, 50, "进入浅层 Layer L−1", None, T)
     f.arrow(462, 263, 420, 212); f.arrow(502, 263, 540, 212); f.arrow(562, 155, 562, 104)
     f.path("M251,76 L404,76 L404,151", "--fig-2", dash=True, width=1.8)
@@ -244,10 +244,10 @@ def _roofline(fid, label, ROOFS, OPS, YHI, link=False):
 def attn_flow():
     f = F("fig-3-4", 350, "eager attention 一层：前向 9 个 kernel 依次读写显存里 S 大小的张量，softmax 拆成 max、减 max、exp、求和、除；为反向新存了 e = exp(S−m) 和 P 两个 256 MiB 的张量，Q、K、V、mask 只是引用", W=800)
     YF, YM, YB = 70, 196, 290
-    LANES = [(6, 112, "前向", "箭头指向 op 是读，指向显存是写"), (148, 240, "显存", ""), (252, 344, "反向", "")]
+    LANES = [(6, 112, "前向", "外框是 kernel 的 register，里面是计算单元；箭头是数据流"), (148, 240, "显存", ""), (252, 344, "反向", "")]
     rms_lanes(f, LANES, titles=False)
     X = [140 + 67 * i + (34 if i > 3 else 0) for i in range(9)]
-    names = ["① QKᵀ", "② ÷√d", "③ +M", "max", "− m", "exp", "求和", "÷ Σ", "⑤ PV"]
+    names = ["① QKᵀ", "② ÷√d", "③ +M", "max", "− m", "exp", "sum", "÷ Σ", "⑤ PV"]
     ops_f = [(x, 60, n, None) for x, n in zip(X, names)]
     ops_b = [(x, 60, n) for x, n in zip(X, names)]
     mid = [(X[k] + X[k + 1]) / 2 for k in range(8)]
@@ -492,8 +492,8 @@ def flow(f, ops_f, ops_b, blocks, fe, be, YF=56, YM=176, YB=296, route=170, size
         es = sorted([e for e in be if e[0] == i and len(e) == 2], key=lambda e: blocks[e[1]][0])
         opb_pts.update({e: p for e, p in zip(es, attach(cx, w - 16, es).values())})
         opb_pts.update({e: cx for e in be if e[0] == i and len(e) > 2})
-    yo, yt, yb, yob = YF + 20, YM - 22, YM + (32 if sizes else 22), YB - 18
-    otop, bbot = YF - 16, YB + 18
+    yo, yt, yb, yob = YF + 26, YM - 22, YM + (32 if sizes else 22), YB - 20
+    otop, bbot = YF - 20, YB + 22                    # 箭头只到 register 外框，不碰里面的计算单元
     for e in fe:
         i, b, kind = e[:3]
         ox, bx, var = op_pts[e], blk_top[e], blocks[b][5]
@@ -522,8 +522,9 @@ def flow(f, ops_f, ops_b, blocks, fe, be, YF=56, YM=176, YB=296, route=170, size
             f.path(f"M{bx:.1f},{yb} L{bx:.1f},{yc} L{ox:.1f},{yc} L{ox:.1f},{yob - 2}", var, dash=True, width=1.3)
         else:
             f.arrow(bx, yb, ox, yob - 2, var, dash=True, width=1.3)
-    for cx, w, t, sub in ops_f:
-        tbox(f, cx, YF + 4, w, 40, t, sub, 'class="op"', b1=True)
+    for cx, w, t, sub in ops_f:                      # 外框是这个 kernel 的 register，里面是计算单元
+        f.w(f'<rect x="{cx - w / 2:.1f}" y="{YF - 20}" width="{w}" height="48" rx="8" {tint("--fig-2", 22)}/>')
+        tbox(f, cx, YF + 4, w - 10, 38, t, sub, 'class="op"', b1=True)
     for b, (cx, w, l1, l2, st, var) in blocks.items():
         if sizes:
             bw = bws[b]
@@ -534,7 +535,8 @@ def flow(f, ops_f, ops_b, blocks, fe, be, YF=56, YM=176, YB=296, route=170, size
         else:
             chip(f, cx, YM, w, l1, l2, st, bold=l2.startswith("+"))
     for cx, w, t in ops_b:
-        bbox(f, cx, YB, w, 36, t)
+        f.w(f'<rect x="{cx - w / 2:.1f}" y="{YB - 22}" width="{w}" height="44" rx="8" {tint("--fig-2", 22)}/>')
+        bbox(f, cx, YB, w - 10, 34, t)
 
 def blk(var, kind):
     """kind: new (thick solid, new memory), ref (thin solid, already there), tmp (gray dashed, freed after use)."""
@@ -545,12 +547,12 @@ def blk(var, kind):
 def rms_eager():
     f = F("fig-3-1", 350, "RMSNorm eager：中间一排是显存里的每一块张量，前向箭头表示读写，反向虚线箭头表示读回存下的张量；x 被 ① 和 ④ 共用，r 被 ③ 和 ④ 共用")
     YF, YM, YB = 70, 196, 290
-    LANES = [(6, 112, "前向", "箭头指向 op 是读，指向显存是写"), (148, 240, "显存", ""), (252, 344, "反向", "")]
+    LANES = [(6, 112, "前向", "外框是 kernel 的 register，里面是计算单元；箭头是数据流"), (148, 240, "显存", ""), (252, 344, "反向", "")]
     rms_lanes(f, LANES, titles=False)
     C, BW = [100, 210, 320, 430, 540], 84
     ops_f = [(C[0], BW, "① x²", "1 FLOP/元素"), (C[1], BW, "② mean", "1 FLOP/元素"), (C[2], BW, "③ rsqrt", "每行 2 FLOPs"),
              (C[3], BW, "④ x · r", "1 FLOP/元素"), (C[4], BW, "⑤ w ⊙ x̂", "1 FLOP/元素")]
-    ops_b = [(c, BW, f"{n} 反向") for c, n in zip(C, "①②③④⑤")]
+    ops_b = [(c, BW, f"{n} bwd") for c, n in zip(C, "①②③④⑤")]
     blocks = {"x": (46, 80, "x …9040", "20 MiB，输入", blk("--fig-2", "ref"), "--fig-2"),
               "x2": (158, 76, "x²", "20 MiB，临时", blk(None, "tmp"), "--fig-mute"),
               "v": (264, 72, "v", "8 KiB，临时", blk(None, "tmp"), "--fig-mute"),
@@ -572,10 +574,10 @@ def rms_eager():
 
 def rms_fused():
     f = F("fig-3-2", 336, "torch.compile 融合后的 RMSNorm：前向一个 kernel 只读 x、w，写 r 和 y；x̂ 不存；反向 3 个 kernel 读回 x、w、r，现场重算 x̂")
-    LANES = [(6, 98, "前向", "箭头指向 op 是读，指向显存是写"), (128, 224, "显存", ""), (254, 330, "反向", "")]
+    LANES = [(6, 98, "前向", "外框是 kernel 的 register，里面是计算单元；箭头是数据流"), (128, 224, "显存", ""), (254, 330, "反向", "")]
     rms_lanes(f, LANES, titles=False)
-    ops_f = [(330, 420, "fused forward：①–⑤ 一个 kernel", "~4 FLOPs/元素")]
-    ops_b = [(330, 420, "反向 3 个 kernel（dx 1 个，dw 2 个），x̂ = x · r 现场重算")]
+    ops_f = [(330, 420, "fused fwd (①–⑤, one kernel)", "~4 FLOPs/元素")]
+    ops_b = [(330, 420, "bwd: 3 kernels (dx ×1, dw ×2), recompute x̂ = x · r")]
     blocks = {"x": (180, 90, "x …3c80", "20 MiB，输入", blk("--fig-2", "ref"), "--fig-2"),
               "r": (330, 80, "r …f9c0", "+8 KiB", blk("--fig-1", "new"), "--fig-1"),
               "w": (480, 70, "w …b3c0", "参数", blk("--fig-3", "ref"), "--fig-3")}
@@ -1094,7 +1096,7 @@ def tri_gelu():
     f, cx, p = lanes_fig("fig-t-1", "GELU kernel：数组展平成一维按 BLOCK 切段，一段一个 program；tl.load 把一段从显存直接读进 register，计算单元算 GELU，tl.store 从 register 直接写回显存；每个 SM 同时跑 12 个 program，1536 个 thread 全满",
         "逐元素：y[i] 只依赖 x[i]", "一个 program（pid = 1）", grid_strip,
         ["grid = (cdiv(n, BLOCK),)", "n = 8M，8192 个 program"],
-        [("算下标", "offsets"), ("@", "tl.load"), ("GELU", "逐元素"), ("@", "tl.store")], "reg", (12, "线程数先满"),
+        [("offsets", "tl.arange"), ("@", "tl.load"), ("gelu", "tl.exp"), ("@", "tl.store")], "reg", (12, "线程数先满"),
         ["每个 program 1024 个元素，每个 thread 8 个，都在 register 里，不用 shared memory；", "offsets 是 load、store 的地址。显存只读 x 一次、写 y 一次。"], mem_y1=308)
     MY = p.ROW["m"][0]
     p.chip("offsets", cx[0]); p.down(cx[0], 110)                       # 算下标 → offsets
@@ -1111,7 +1113,7 @@ def tri_softmax():
     f, cx, p = lanes_fig("fig-t-2", "softmax kernel：一行一个 program；tl.load 把一整行从显存直接读进 register，计算单元减最大值、exp、求和、归一化，中间结果都在 register 里，跨 warp 的归约经 shared memory，最后 tl.store 写回；每个 SM 同时跑 9 个 program",
         "按行归约：y[i, j] 依赖整行 x[i, :]", "一个 program（pid = 1）", grid_rows,
         ["grid = (M,)", "M = 4096 个 program"],
-        [("@", "tl.load"), ("减最大值", "x − max"), ("exp", "tl.exp"), ("÷ 求和", "tl.sum"), ("@", "tl.store")], "reg", (9, "register 先满"),
+        [("@", "tl.load"), ("sub max", "tl.max"), ("exp", "tl.exp"), ("div sum", "tl.sum"), ("@", "tl.store")], "reg", (9, "register 先满"),
         ["中间结果都在 register 里，每个 thread 存这一行的 32 个数；tl.max、tl.sum 先在每个 warp 里归约，",
          "4 个 warp 的部分结果再经 shared memory 交换（16 B）。显存只读 x 一次、写 y 一次。"], mem_y1=308)
     MY = p.ROW["m"][0]
@@ -1123,7 +1125,7 @@ def tri_softmax():
     p.xfer(cx[4], 130, MY - 2, "tl.store")
     for nm, k in [("x，64 MiB", 0), ("y，64 MiB", 4)]:
         p.mem(nm, cx[k] - 36, cx[k] + 36, [(cx[k] - 36, cx[k] + 36, .3, .25)])
-    for k, t in [(1, "warp 间 max"), (3, "warp 间 sum")]:             # 跨 warp 归约经 shared memory
+    for k, t in [(1, "warp max"), (3, "warp sum")]:             # 跨 warp 归约经 shared memory
         y0 = p.ROW["s"][0]
         f.w(f'<rect x="{cx[k] - 34:.1f}" y="{y0}" width="68" height="18" rx="4" {tint("--fig-3", 40)}/><text class="s" x="{cx[k]:.1f}" y="{y0 + 13}" text-anchor="middle">{t}</text>')
         f.arrow(cx[k] - 5, 86, cx[k] - 5, y0 - 2, "--fig-2", width=1.3); f.arrow(cx[k] + 5, y0 - 2, cx[k] + 5, 86, "--fig-2", width=1.3)
@@ -1133,7 +1135,7 @@ def tri_rowsum():
     f, cx, p = lanes_fig("fig-t-3", "row sum kernel：一行一个 program；tl.load 一轮把一块从显存直接读进 register，计算单元把它加到 acc 上，颜色深浅是 for 循环的顺序；acc 一直留在 register 里，最后归约成一个数，tl.store 写回",
         "按行归约，分块累加", "一个 program（pid = 1）", grid_rows,
         ["grid = (M,)", "M = 4096 个 program"],
-        [("@", "tl.load"), ("累加", "acc += x"), "⋯", ("@", "tl.load"), ("累加", "acc += x"), ("归约", "tl.sum"), ("@", "tl.store")], "reg", (12, "线程数先满"),
+        [("@", "tl.load"), ("add", "acc += x"), "⋯", ("@", "tl.load"), ("add", "acc += x"), ("reduce", "tl.sum"), ("@", "tl.store")], "reg", (12, "线程数先满"),
         ["图里 TILE = 4（代码里 1024），一行 16 个数分 4 块，颜色由淡到浓是 for 循环读的顺序；",
          "acc 逐位累加，一直在 register 里；最后的 tl.sum 跨 4 个 warp，经 shared memory 交换（16 B）。"], mem_y1=332)
     tiles = [[1, 2, 0, 3], [4, 1, 2, 0], [2, 2, 1, 1], [0, 3, 1, 2]]
@@ -1166,7 +1168,7 @@ def tri_rowsum():
     f.w(f'<rect x="{cx[6] - 12:.1f}" y="112" width="24" height="16" style="fill: var(--fig-1)" fill-opacity=".78"/><text class="s" x="{cx[6]:.1f}" y="123.5" text-anchor="middle" style="fill: var(--fig-on-1)">25</text>')
     p.down(cx[5] + 16, 110, cx[6] - 10)                                       # 归约 → 25
     y0 = p.ROW["s"][0]                                                       # tl.sum 跨 4 个 warp：经 shared memory 交换
-    f.w(f'<rect x="{cx[5] - 33:.1f}" y="{y0}" width="66" height="18" rx="4" {tint("--fig-3", 40)}/><text class="s" x="{cx[5]:.1f}" y="{y0 + 13}" text-anchor="middle">warp 间 sum</text>')
+    f.w(f'<rect x="{cx[5] - 33:.1f}" y="{y0}" width="66" height="18" rx="4" {tint("--fig-3", 40)}/><text class="s" x="{cx[5]:.1f}" y="{y0 + 13}" text-anchor="middle">warp sum</text>')
     f.arrow(cx[5] - 5, 86, cx[5] - 5, y0 - 2, "--fig-2", width=1.3); f.arrow(cx[5] + 5, y0 - 2, cx[5] + 5, 86, "--fig-2", width=1.3)
     # 显存：x 画 3 行，第 1 行 16 个数按块着色；out 第 1 位写 25
     for r in range(3):
@@ -1198,7 +1200,7 @@ def tri_matmul():
     f, cx, p = lanes_fig("fig-t-4", "matmul kernel（A 4096 × 2048，B 2048 × 512）：C 的每一块一个 program；program (1, 1) 沿 K 一轮用 cp.async 把 A、B 各一块从显存直接搬进 shared memory，tl.dot 从 shared memory 读一小片进 register 做乘加，acc 留在 register 里，中间几轮用 ⋯ 省略，最后 ReLU 后 tl.store 写回 C 的 (1, 1) 块",
         "分块乘加", "一个 program（pid_m = 1，pid_n = 1）", grid_tiles42,
         ["grid = (M / BM, N / BN)", "64 × 8 = 512 个 program"],
-        [("@", "cp.async"), ("乘加", "tl.dot"), "⋯", ("@", "cp.async"), ("乘加", "tl.dot"), ("ReLU", "tl.maximum"), ("@", "tl.store")], "matmul",
+        [("@", "cp.async"), ("dot", "tl.dot"), "⋯", ("@", "cp.async"), ("dot", "tl.dot"), ("relu", "tl.maximum"), ("@", "tl.store")], "matmul",
         (3, "shared memory 先满"),
         ["cp.async：两次 tl.load 把 A 块、B 块从显存直接搬进 shared memory，不经过 register；",
          "乘加：tl.dot 从 shared memory 读一小片 a、b 到 register，计算单元做 FMA，加到 acc 上；",
@@ -1282,7 +1284,7 @@ CAPS = {
  "share_vs_seq": '<strong>图 3-7</strong> attention 三段占 forward GPU 时间的比例随 seq 变化（medium）。',
  "peak_memory": '<strong>图 2-3</strong> full step 的实测峰值显存（batch 4，seq 512）。A = 带梯度的前向峰值 − W，顶上 ~0.1 GiB 是 T。',
  "peak_moment": '<strong>图 2-4</strong> 一步前向 + 反向的显存（fp32）：色带按 M(j) 用实测的 W、A、G、T 堆叠，× 是逐层实测值。',
- "rms_eager": '<strong>图 3-1</strong> RMSNorm（eager，x 是 20 MiB）：中间一排是显存里的张量，框宽按实际字节数线性画（KiB 级的只剩一条细线），每块只画一次，同色是同一块内存（ptr 相同）；粗实线框新占显存，细实线框本来就在、只被引用（x 是上一层的输出，w 是参数，都会一直留着），灰色虚线框是用完即释放的临时量。前向的实线箭头指向 op 是读、指向显存是写；反向沿虚线箭头读回存下的张量。',
+ "rms_eager": '<strong>图 3-1</strong> RMSNorm（eager，x 是 20 MiB）：中间一排是显存里的张量，框宽按实际字节数线性画（KiB 级的只剩一条细线），每块只画一次，同色是同一块内存（ptr 相同）；粗实线框新占显存，细实线框本来就在、只被引用（x 是上一层的输出，w 是参数，都会一直留着），灰色虚线框是用完即释放的临时量。每个 kernel 画成两层框：外框是它的 register，里面是计算单元；实线箭头是数据流，从显存指向 register 是 load，从 register 指向显存是 store；反向沿虚线箭头把存下的张量读回 register。',
  "rms_fused": '<strong>图 3-2</strong> 融合后的 RMSNorm（画法同<a href="#fig-3-1">图 3-1</a>）：前向只读 x、w，写 r 和 y，x²、v、x̂ 都不进显存；反向读回 x、w、r，现场重算 x̂。',
  "layer_donut": '<strong>图 3-8</strong> xl 一层为反向存的张量（batch 4，seq 2048，16 头，<code>torch.compile</code> 后用 <code>saved_tensors_hooks</code> 实测）。',
  "timelines": '<strong>图 3-9</strong> xl（batch 4，32 头）一步的显存时间线，横轴是分配 / 释放的次序。',

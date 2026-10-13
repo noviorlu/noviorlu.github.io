@@ -577,9 +577,9 @@ GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函�
   <text class="s" x="152" y="284.0">GDDR7</text>
   <line x1="130.0" y1="73.0" x2="144.0" y2="73.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-1-m0)"/>
   <rect class="op" x="281.0" y="46" width="84.0" height="38" rx="6"/>
-  <text class="tb" x="323.0" y="62" text-anchor="middle">算下标</text><text class="s" x="323.0" y="77" text-anchor="middle">offsets</text>
+  <text class="tb" x="323.0" y="62" text-anchor="middle">offsets</text><text class="s" x="323.0" y="77" text-anchor="middle">tl.arange</text>
   <rect class="op" x="425.0" y="46" width="84.0" height="38" rx="6"/>
-  <text class="tb" x="467.0" y="62" text-anchor="middle">GELU</text><text class="s" x="467.0" y="77" text-anchor="middle">逐元素</text>
+  <text class="tb" x="467.0" y="62" text-anchor="middle">gelu</text><text class="s" x="467.0" y="77" text-anchor="middle">tl.exp</text>
   <text class="lab2" x="152" y="324">每个 program 1024 个元素，每个 thread 8 个，都在 register 里，不用 shared memory；</text>
   <text class="lab2" x="152" y="339">offsets 是 load、store 的地址。显存只读 x 一次、写 y 一次。</text>
   <rect x="298.0" y="110" width="50" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
@@ -766,11 +766,11 @@ def softmax_naive(x):                         # x: [M, N]，按行
   <text class="s" x="152" y="284.0">GDDR7</text>
   <line x1="130.0" y1="73.0" x2="144.0" y2="73.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-2-m0)"/>
   <rect class="op" x="284.0" y="46" width="84.0" height="38" rx="6"/>
-  <text class="tb" x="326.0" y="62" text-anchor="middle">减最大值</text><text class="s" x="326.0" y="77" text-anchor="middle">x − max</text>
+  <text class="tb" x="326.0" y="62" text-anchor="middle">sub max</text><text class="s" x="326.0" y="77" text-anchor="middle">tl.max</text>
   <rect class="op" x="378.0" y="46" width="84.0" height="38" rx="6"/>
   <text class="tb" x="420.0" y="62" text-anchor="middle">exp</text><text class="s" x="420.0" y="77" text-anchor="middle">tl.exp</text>
   <rect class="op" x="472.0" y="46" width="84.0" height="38" rx="6"/>
-  <text class="tb" x="514.0" y="62" text-anchor="middle">÷ 求和</text><text class="s" x="514.0" y="77" text-anchor="middle">tl.sum</text>
+  <text class="tb" x="514.0" y="62" text-anchor="middle">div sum</text><text class="s" x="514.0" y="77" text-anchor="middle">tl.sum</text>
   <text class="lab2" x="152" y="324">中间结果都在 register 里，每个 thread 存这一行的 32 个数；tl.max、tl.sum 先在每个 warp 里归约，</text>
   <text class="lab2" x="152" y="339">4 个 warp 的部分结果再经 shared memory 交换（16 B）。显存只读 x 一次、写 y 一次。</text>
   <rect x="232.0" y="110" width="44" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
@@ -797,10 +797,10 @@ def softmax_naive(x):                         # x: [M, N]，按行
   <rect x="550.0" y="252" width="72.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <rect x="550.0" y="260.4" width="72.0" height="7.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
   <text class="s" x="586.0" y="293" text-anchor="middle">y，64 MiB</text>
-  <rect x="292.0" y="191" width="68" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 40%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/><text class="s" x="326.0" y="204" text-anchor="middle">warp 间 max</text>
+  <rect x="292.0" y="191" width="68" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 40%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/><text class="s" x="326.0" y="204" text-anchor="middle">warp max</text>
   <line x1="321.0" y1="86.0" x2="321.0" y2="189.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
   <line x1="331.0" y1="189.0" x2="331.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
-  <rect x="480.0" y="191" width="68" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 40%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/><text class="s" x="514.0" y="204" text-anchor="middle">warp 间 sum</text>
+  <rect x="480.0" y="191" width="68" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 40%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/><text class="s" x="514.0" y="204" text-anchor="middle">warp sum</text>
   <line x1="509.0" y1="86.0" x2="509.0" y2="189.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
   <line x1="519.0" y1="189.0" x2="519.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
 </svg>
@@ -954,12 +954,12 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。
   <text class="s" x="152" y="296.0">GDDR7</text>
   <line x1="130.0" y1="73.0" x2="144.0" y2="73.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-3-m0)"/>
   <rect class="op" x="262.0" y="46" width="71.3" height="38" rx="6"/>
-  <text class="tb" x="297.7" y="62" text-anchor="middle">累加</text><text class="s" x="297.7" y="77" text-anchor="middle">acc += x</text>
+  <text class="tb" x="297.7" y="62" text-anchor="middle">add</text><text class="s" x="297.7" y="77" text-anchor="middle">acc += x</text>
   <text class="tb" x="354.3" y="69.0" text-anchor="middle">⋯</text>
   <rect class="op" x="425.3" y="46" width="71.3" height="38" rx="6"/>
-  <text class="tb" x="461.0" y="62" text-anchor="middle">累加</text><text class="s" x="461.0" y="77" text-anchor="middle">acc += x</text>
+  <text class="tb" x="461.0" y="62" text-anchor="middle">add</text><text class="s" x="461.0" y="77" text-anchor="middle">acc += x</text>
   <rect class="op" x="506.7" y="46" width="71.3" height="38" rx="6"/>
-  <text class="tb" x="542.3" y="62" text-anchor="middle">归约</text><text class="s" x="542.3" y="77" text-anchor="middle">tl.sum</text>
+  <text class="tb" x="542.3" y="62" text-anchor="middle">reduce</text><text class="s" x="542.3" y="77" text-anchor="middle">tl.sum</text>
   <text class="lab2" x="152" y="348">图里 TILE = 4（代码里 1024），一行 16 个数分 4 块，颜色由淡到浓是 for 循环读的顺序；</text>
   <text class="lab2" x="152" y="363">acc 逐位累加，一直在 register 里；最后的 tl.sum 跨 4 个 warp，经 shared memory 交换（16 B）。</text>
   <defs><linearGradient id="fig-t-3-acc" x1="0" x2="1" y1="0" y2="0"><stop offset="0.00" style="stop-color: var(--fig-1)" stop-opacity="0.12"/><stop offset="0.33" style="stop-color: var(--fig-1)" stop-opacity="0.34"/><stop offset="0.67" style="stop-color: var(--fig-1)" stop-opacity="0.56"/><stop offset="1.00" style="stop-color: var(--fig-1)" stop-opacity="0.78"/></linearGradient></defs>
@@ -1025,7 +1025,7 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。
   <text class="s" x="379.3" y="33" text-anchor="middle" style="fill: var(--fig-hi)">acc 带到下一轮</text>
   <rect x="596.0" y="112" width="24" height="16" style="fill: var(--fig-1)" fill-opacity=".78"/><text class="s" x="608.0" y="123.5" text-anchor="middle" style="fill: var(--fig-on-1)">25</text>
   <line x1="558.3" y1="86.0" x2="598.0" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m2)"/>
-  <rect x="509.3" y="191" width="66" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 40%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/><text class="s" x="542.3" y="204" text-anchor="middle">warp 间 sum</text>
+  <rect x="509.3" y="191" width="66" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 40%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/><text class="s" x="542.3" y="204" text-anchor="middle">warp sum</text>
   <line x1="537.3" y1="86.0" x2="537.3" y2="189.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-3-m2)"/>
   <line x1="547.3" y1="189.0" x2="547.3" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-3-m2)"/>
   <rect x="204.8" y="238" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
@@ -1246,12 +1246,12 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
   <text class="s" x="152" y="320.0">GDDR7</text>
   <line x1="90.0" y1="66.0" x2="144.0" y2="66.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-4-m0)"/>
   <rect class="op" x="262.0" y="46" width="71.3" height="38" rx="6"/>
-  <text class="tb" x="297.7" y="62" text-anchor="middle">乘加</text><text class="s" x="297.7" y="77" text-anchor="middle">tl.dot</text>
+  <text class="tb" x="297.7" y="62" text-anchor="middle">dot</text><text class="s" x="297.7" y="77" text-anchor="middle">tl.dot</text>
   <text class="tb" x="354.3" y="69.0" text-anchor="middle">⋯</text>
   <rect class="op" x="425.3" y="46" width="71.3" height="38" rx="6"/>
-  <text class="tb" x="461.0" y="62" text-anchor="middle">乘加</text><text class="s" x="461.0" y="77" text-anchor="middle">tl.dot</text>
+  <text class="tb" x="461.0" y="62" text-anchor="middle">dot</text><text class="s" x="461.0" y="77" text-anchor="middle">tl.dot</text>
   <rect class="op" x="506.7" y="46" width="71.3" height="38" rx="6"/>
-  <text class="tb" x="542.3" y="62" text-anchor="middle">ReLU</text><text class="s" x="542.3" y="77" text-anchor="middle">tl.maximum</text>
+  <text class="tb" x="542.3" y="62" text-anchor="middle">relu</text><text class="s" x="542.3" y="77" text-anchor="middle">tl.maximum</text>
   <text class="lab2" x="152" y="388">cp.async：两次 tl.load 把 A 块、B 块从显存直接搬进 shared memory，不经过 register；</text>
   <text class="lab2" x="152" y="403">乘加：tl.dot 从 shared memory 读一小片 a、b 到 register，计算单元做 FMA，加到 acc 上；</text>
   <text class="lab2" x="152" y="418">num_stages = 3：shared memory 里放两份 A、B 块（共 32 KiB），算第 T 轮时第 T+1 轮已经在搬；</text>
