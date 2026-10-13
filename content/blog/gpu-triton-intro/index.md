@@ -1489,6 +1489,9 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
   <text class="s" x="593.6" y="305.0" text-anchor="middle">C [4096, 512]</text>
   <text class="s" x="593.6" y="318.0" text-anchor="middle">8 MiB</text>
   <line x1="596.6" y1="86.0" x2="596.6" y2="201.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-4-m3)"/>
+  <rect x="276.4" y="240" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.85" stroke-opacity=".4" stroke-width=".6"/><text class="s" x="290.4" y="248">第 0 轮读的块</text>
+  <rect x="276.4" y="256" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.45" stroke-opacity=".4" stroke-width=".6"/><text class="s" x="290.4" y="264">第 63 轮读的块</text>
+  <rect x="276.4" y="272" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.22" stroke-opacity=".4" stroke-width=".6"/><text class="s" x="290.4" y="280">第 1 到 62 轮读的块</text>
 </svg>
 <figcaption><strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的 A、B、C 按形状比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 行和 B 的第 1 列，深色是第 0 轮读的块，浅色是第 63 轮的；结果写回 C 的 (1, 1) 块。512 个 program 分到 170 个 SM，每个 SM 放 3 个，正好一批。</figcaption>
 </figure>

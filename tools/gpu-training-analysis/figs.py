@@ -1153,6 +1153,9 @@ def tri_matmul():
     CX, CY = cx[5] - 6, 196                          # C [4096, 512]：16 × 2 格，写回 (1, 1)
     mat(CX, CY, 16, 2, {(1, 1): .85}, ["C [4096, 512]", "8 MiB"])
     f.arrow(CX + 9, 86, CX + 9, CY + S - 1, "--fig-1", width=1.6)        # 箭头直接指到 (1, 1) 块
+    for k, (op, t) in enumerate([(.85, "第 0 轮读的块"), (.45, "第 63 轮读的块"), (.22, "第 1 到 62 轮读的块")]):
+        lx, ly = BX + 18, BY + 52 + k * 16                 # 图例：A、B 那一条三种深浅
+        f.w(f'<rect x="{lx}" y="{ly - 8}" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="{op}" stroke-opacity=".4" stroke-width=".6"/><text class="s" x="{lx + 14}" y="{ly}">{t}</text>')
     return f
 
 CAPS = {
