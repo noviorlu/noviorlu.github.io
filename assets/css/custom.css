@@ -606,6 +606,11 @@ html.dark {
 .article-content hr { margin: 2.4em 0; border-color: var(--nv-border); }
 .article-content ul > li::marker, .article-content ol > li::marker { color: var(--nv-text-3); }
 
+/* Key-point callout in posts: <div class="nv-key"> … </div>, highlighted with the palette's red-orange */
+.article-content .nv-key { margin: 1.4em 0; padding: 12px 18px; border-left: 4px solid var(--fig-hi); border-radius: 8px; background: color-mix(in srgb, var(--fig-hi) 9%, transparent); }
+.article-content .nv-key > p { margin: .45em 0; }
+.article-content .nv-key strong { color: var(--fig-hi); }
+
 /* Code blocks tagged with a role (render-codeblock.html): program = navy/sky, grid = red-orange */
 .article-content .highlight-wrapper.cb-role { --cb: var(--fig-1); border-left: 4px solid var(--cb); overflow: hidden; }
 .article-content .highlight-wrapper.cb-grid { --cb: var(--fig-hi); }

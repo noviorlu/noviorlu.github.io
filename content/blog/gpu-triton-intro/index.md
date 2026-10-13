@@ -833,6 +833,8 @@ def softmax(x):
 
 在 5090 上对 4096 × 4096 的 fp32 输入实测，eager 版 249 µs，Triton 版 80 µs，快了 3.1 倍，和 `torch.softmax`（79 µs）相当。
 
+图 2-2 里的 warp max、warp sum 是 shared memory 在这个 kernel 里唯一的用处：`tl.max`、`tl.sum` 先在每个 warp 里用 shuffle 交换 register 归约，4 个 warp 的部分结果再经 shared memory 交换，一共 16 B。什么时候值得把数据整块放进 shared memory，[2.4 节](#triton-matmul)再讲。
+
 这个写法要求 BLOCK ≥ N，也就是一行能一次装进一个 program。行再长，program 就只能沿行一块一块地读，读过的块要留下一个中间结果。下一节先看最简单的按行归约：求和。
 
 ### 2.3 Row sum：按行归约，分块累加 {#triton-rowsum}
@@ -1670,6 +1672,14 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
 </figure>
 
 一个 program 负责一个 $C_{IJ}$，grid 是二维的（[图 2-4](#fig-t-4)）。program 沿 K 方向循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上。写回之前在 register 里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
+
+<div class="nv-key">
+
+**shared memory 什么时候值得用**：一是同一份数据要被读很多次（复用），二是线程之间要交换大量数据。
+
+matmul 两条都满足：A 的一块要和 B 块的 64 列都乘一遍，`tl.dot` 还要把 A、B 块重新分给不同的线程，所以 A、B 块放在 shared memory 里，每个 program 32 KiB。softmax 和 row sum 两条都不满足：每个数只被一个 thread 读一次，线程之间只交换 4 个 warp 的部分结果（16 B），把数据整块放进 shared memory 只会多搬一趟。代价是 shared memory 用得越多，一个 SM 能同时放的 program 越少，matmul 只放得下 3 个。
+
+</div>
 
 ```python {role="program" tag="算 C 的第 (pid_m, pid_n) 块"}
 @triton.jit
