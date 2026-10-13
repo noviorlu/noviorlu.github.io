@@ -1018,21 +1018,105 @@ def tri_softmax():
                    ["grid = (M,)", "一行一个 program"],
                    items=[("行 0", False), ("行 1 ← pid=1", True), ("行 2", False), ("⋯", False)])
 
+TC = ["--fig-1", "--fig-2", "--fig-3", "--fig-mute"]   # 第 T 块 / 第 T 轮的颜色，两张分块图共用
+
 def tri_rowsum():
-    return tri_fig("fig-t-3", "row sum kernel，按行归约、分块累加：一行一个 program，沿行循环，每次读 TILE 个加到累加器上，最后归约成一个数",
-                   "按行归约：s[i] 依赖整行 x[i, :]",
-                   [("累加器清零", "acc = tl.zeros"), ("读一块", "tl.load"), ("累加", "acc += x"), ("归约写回", "tl.sum, tl.store", "整行归约")],
-                   "一个 program（pid = 1）：沿第 1 行一块一块地读，部分和留在 acc 里",
-                   ["grid = (M,)", "一行一个 program"],
-                   items=[("行 0", False), ("行 1 ← pid=1", True), ("行 2", False), ("⋯", False)], loop=(1, 2, "沿行循环，每次 TILE 个"))
+    f = F("fig-t-3", 232, "row sum kernel：一行一个 program；program 把这一行按 TILE 切成几块，每轮读一块加到累加器 acc 上，acc 一直留在 register 里，循环结束后 tl.sum 把 acc 加成一个数写回")
+    f.w('<text class="ttl" x="10" y="16">grid</text>')
+    f.w('<text class="ttl" x="162" y="16">一个 program（pid = 1）做的事</text>')
+    f.w('<text class="tb" x="630" y="16" text-anchor="end" style="fill: var(--fig-hi)">按行归约，分块累加</text>')
+    for i, (t, hi) in enumerate([("行 0", False), ("行 1 ← pid=1", True), ("行 2", False), ("⋯", False)]):
+        y = 24 + i * 32
+        f.w(f'<rect x="10" y="{y}" width="118" height="26" rx="5" {tint("--fig-1" if hi else "--fig-mute", 30 if hi else 12)}/>')
+        f.w(f'<text class="t" x="69" y="{y + 18}" text-anchor="middle">{t}</text>')
+    f.w('<text class="lab2" x="10" y="168">grid = (M,)</text><text class="lab2" x="10" y="183">一行一个 program</text>')
+    f.w('<rect x="150" y="26" width="480" height="196" rx="10" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="6 4"/>')
+    f.arrow(130, 69, 158, 69, None, width=1.5)
+    tiles = [[1, 2, 0, 3], [4, 1, 2, 0], [2, 2, 1, 1], [0, 3, 1, 2]]
+    accs, a = [], [0, 0, 0, 0]
+    for t in tiles:
+        a = [u + v for u, v in zip(a, t)]; accs.append(a)
+    f.w('<text class="lab2" x="164" y="73">行 1</text><text class="lab2" x="164" y="149">acc</text>')
+    X0, P, CW = 206, 106, 18
+    for k, (t, acc) in enumerate(zip(tiles, accs)):
+        x = X0 + k * P
+        f.w(f'<text class="s" x="{x + 2 * CW}" y="{50}" text-anchor="middle">第 {k} 块</text>')
+        for j, v in enumerate(t):           # 行 1 的第 k 块
+            f.w(f'<rect x="{x + j * CW}" y="58" width="{CW}" height="22" {tint(TC[k], 55, stroke="--fig-2" if k == 2 else None, sw=1)}/>')
+            f.w(f'<text class="s" x="{x + j * CW + CW / 2}" y="73" text-anchor="middle">{v}</text>')
+        cx = x + 2 * CW
+        f.arrow(cx, 82, cx, 130, None, width=1.4)
+        f.w(f'<text class="s" x="{cx - 6}" y="106" text-anchor="end">第 {k} 轮</text><text class="tb" x="{cx + 6}" y="110">+</text>')
+        for j, v in enumerate(acc):         # 第 k 轮后的 acc
+            f.w(f'<rect x="{x + j * CW}" y="134" width="{CW}" height="22" {tint("--fig-1", 10 + 12 * k, sw=1)}/>')
+            f.w(f'<text class="s" x="{x + j * CW + CW / 2}" y="149" text-anchor="middle">{v}</text>')
+        if k:
+            f.arrow(x - P + 4 * CW + 3, 145, x - 3, 145, "--fig-hi", width=1.5)
+    f.w(f'<text class="s" x="{X0 + 4 * CW + 17}" y="172" text-anchor="middle" style="fill: var(--fig-hi)">acc 带到下一轮</text>')
+    lx = X0 + 3 * P + 2 * CW
+    f.arrow(lx, 158, lx, 186, None, width=1.4)
+    f.w(f'<rect x="{lx - 150}" y="188" width="{X0 + 3 * P + 4 * CW + 14 - (lx - 150)}" height="26" rx="6" {tint("--fig-hi", 14, stroke="--fig-hi")}/>')
+    f.w(f'<text class="t" x="{lx - 150 + 10}" y="205">tl.sum(acc) = 25，写回 out[1]</text>')
+    f.w('<text class="lab2" x="164" y="205">acc 一直在 register 里</text>')
+    return f
 
 def tri_matmul():
-    return tri_fig("fig-t-4", "matmul kernel，分块乘加型：grid 是二维的，一个 program 负责 C 的一个 BM × BN 块；沿 K 循环读 A、B 的块用 tl.dot 累加，最后做 ReLU 写回",
-                   "分块乘加：C 的一块依赖 A 的一行块、B 的一列块",
-                   [("初始化", "acc [BM, BN] = 0"), ("读 A、B 的块", "两次 tl.load"), ("乘加", "acc += tl.dot", "沿 K 归约"), ("ReLU 写回", "tl.store")],
-                   "一个 program（pid_m = 1，pid_n = 2）：算出 C 的 (1, 2) 块",
-                   ["C 的分块，每块 BM × BN", "grid = (cdiv(M, BM),", "  cdiv(N, BN))"],
-                   tiles=(3, 3, 1, 2), loop=(1, 2, "沿 K 循环，每次 BK"))
+    f = F("fig-t-4", 278, "matmul kernel：C 按 BM × BN 分块，每块一个 program；program (1, 2) 沿 K 循环 4 轮，第 T 轮读 A 的第 1 个行块的第 T 块和 B 的第 2 个列块的第 T 块，小矩阵乘的结果加到累加器 acc 上，最后做 ReLU 写回")
+    f.w('<text class="ttl" x="10" y="16">grid：C 的每一块一个 program</text>')
+    f.w('<text class="ttl" x="312" y="16">一个 program（pid_m = 1，pid_n = 2）做的事</text>')
+    S = 40; AX, AY, BX, BY = 70, 116, 150, 30
+    # B [K, N]：上方，4 个 K 块 × 3 个列块
+    for t in range(4):
+        for c in range(3):
+            hi = c == 2
+            f.w(f'<rect x="{BX + c * S}" y="{BY + t * 20}" width="{S}" height="20" {tint(TC[t] if hi else "--fig-mute", 55 if hi else 8, stroke=("--fig-2" if hi and t == 2 else None) if hi else "--fig-mute", sw=1)}/>')
+            if hi:
+                f.w(f'<text class="s" x="{BX + c * S + S / 2}" y="{BY + t * 20 + 14}" text-anchor="middle">{t}</text>')
+    f.w(f'<text class="lab2" x="{BX - 8}" y="{BY + 44}" text-anchor="end">B [K, N]</text>')
+    # A [M, K]：左边，3 个行块 × 4 个 K 块
+    for r in range(3):
+        for t in range(4):
+            hi = r == 1
+            f.w(f'<rect x="{AX + t * 20}" y="{AY + r * S}" width="20" height="{S}" {tint(TC[t] if hi else "--fig-mute", 55 if hi else 8, stroke=("--fig-2" if hi and t == 2 else None) if hi else "--fig-mute", sw=1)}/>')
+            if hi:
+                f.w(f'<text class="s" x="{AX + t * 20 + 10}" y="{AY + r * S + 24}" text-anchor="middle">{t}</text>')
+    f.w(f'<text class="lab2" x="{AX + 40}" y="{AY + 3 * S + 16}" text-anchor="middle">A [M, K]</text>')
+    # C [M, N]：grid
+    for r in range(3):
+        for c in range(3):
+            hi = (r, c) == (1, 2)
+            f.w(f'<rect x="{BX + c * S + 2}" y="{AY + r * S + 2}" width="{S - 4}" height="{S - 4}" rx="4" {tint("--fig-1" if hi else "--fig-mute", 30 if hi else 12)}/>')
+            if hi:
+                f.w(f'<text class="s" x="{BX + c * S + S / 2}" y="{AY + r * S + 24}" text-anchor="middle">(1,2)</text>')
+    f.w(f'<text class="lab2" x="{BX + 60}" y="{AY + 3 * S + 16}" text-anchor="middle">C [M, N]</text>')
+    f.w('<text class="lab2" x="10" y="44">A、B 里的 0–3：</text><text class="lab2" x="10" y="59">沿 K 切成的第 T 块</text>')
+    # program 框
+    PX = 300
+    f.w(f'<rect x="{PX}" y="26" width="330" height="206" rx="10" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="6 4"/>')
+    f.arrow(BX + 3 * S + 2, AY + S + 20, PX + 8, AY + S + 20, None, width=1.5)
+    X0, P = 316, 78
+    for k in range(4):
+        c = X0 + k * P; cx = c + 30
+        f.w(f'<text class="s" x="{cx}" y="46" text-anchor="middle">第 {k} 轮</text>')
+        f.w(f'<rect x="{c}" y="54" width="16" height="32" {tint(TC[k], 55, stroke="--fig-2" if k == 2 else None, sw=1)}/>')
+        f.w(f'<text class="s" x="{c + 8}" y="74" text-anchor="middle">A</text>')
+        f.w(f'<text class="s" x="{c + 23}" y="74" text-anchor="middle">×</text>')
+        f.w(f'<rect x="{c + 30}" y="62" width="32" height="16" {tint(TC[k], 55, stroke="--fig-2" if k == 2 else None, sw=1)}/>')
+        f.w(f'<text class="s" x="{c + 46}" y="74" text-anchor="middle">B</text>')
+        f.arrow(cx, 90, cx, 126, None, width=1.4)
+        f.w(f'<text class="tb" x="{cx + 6}" y="112">+</text>')
+        f.w(f'<rect x="{cx - 18}" y="130" width="36" height="36" rx="4" {tint("--fig-1", 10 + 12 * k, sw=1)}/>')
+        f.w(f'<text class="s" x="{cx}" y="152" text-anchor="middle">acc</text>')
+        if k:
+            f.arrow(cx - P + 21, 148, cx - 21, 148, "--fig-hi", width=1.5)
+    f.w(f'<text class="s" x="{X0 + 30 + P / 2}" y="182" text-anchor="middle" style="fill: var(--fig-hi)">沿 K 循环，acc 带到下一轮</text>')
+    lx = X0 + 3 * P + 30
+    f.arrow(lx, 168, lx, 192, None, width=1.4)
+    f.w(f'<rect x="{lx - 150}" y="194" width="{622 - (lx - 150)}" height="26" rx="6" {tint("--fig-hi", 14, stroke="--fig-hi")}/>')
+    f.w(f'<text class="t" x="{lx - 142}" y="211">ReLU(acc)，写回 C 的 (1,2) 块</text>')
+    f.w('<text class="lab2" x="312" y="211">acc [BM, BN]</text>')
+    f.w('<text class="tb" x="630" y="268" text-anchor="end" style="fill: var(--fig-hi)">分块乘加：C 的一块 = 4 轮「A 的第 T 块 × B 的第 T 块」之和</text>')
+    return f
 
 CAPS = {
  "hw_hierarchy": '<strong>图 1-2</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。',
@@ -1041,8 +1125,8 @@ CAPS = {
  "cuda_model": '<strong>图 1-4</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。',
  "tri_gelu": '<strong>图 2-1</strong> GELU kernel，逐元素型。每个输出只依赖同位置的输入，所以把数组展平成一维、按 BLOCK 切段就行，不用管行。左边是 grid，右边虚线框是一个 program 做的事，里面没有归约。',
  "tri_softmax": '<strong>图 2-2</strong> softmax kernel，按行归约型，画法同<a href="#fig-t-1">图 2-1</a>。和 GELU 的区别在红框：减最大值和求和都要看整行，所以 grid 只能按行切，一个 program 必须拿到一整行。',
- "tri_rowsum": '<strong>图 2-3</strong> row sum kernel，按行归约，画法同<a href="#fig-t-1">图 2-1</a>。和 softmax 的区别是一行装不下，要沿行循环（红线），每次读 TILE 个加到累加器 acc 上，最后的 <code>tl.sum</code> 才做一次整行归约。',
- "tri_matmul": '<strong>图 2-4</strong> matmul kernel，分块乘加型，画法同<a href="#fig-t-1">图 2-1</a>。grid 是二维的，一个 program 负责 C 的一块，沿 K 循环（红线）读 A、B 的块，<code>tl.dot</code> 沿 K 归约。',
+ "tri_rowsum": '<strong>图 2-3</strong> row sum kernel。左边是 grid，一行一个 program；右边是 program 1 怎么走完第 1 行（图里 TILE = 4，代码里是 1024）。上排是第 0 到 3 块，下排是每一轮加完以后的 acc：第 T 块的第 j 个数加到 acc 的第 j 位，acc 留在 register 里带到下一轮，最后 <code>tl.sum</code> 才把它加成一个数。',
+ "tri_matmul": '<strong>图 2-4</strong> matmul kernel。左边 C 的 3 × 3 块就是 grid，program (1, 2) 只用到 A 的第 1 个行块和 B 的第 2 个列块，两者都沿 K 切成 0 到 3 块（同色是同一个 T）。右边是这个 program 的循环：第 T 轮读 A 的第 T 块和 B 的第 T 块，小矩阵乘的结果加到 acc 上，4 轮加完就是 C 的 (1, 2) 块，最后做 ReLU 写回。',
  "occ_sweep": '<strong>图 2-5</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。',
  "tpu_core": '<strong>图 A-1</strong> TPU v5p 一个 TensorCore 的结构示意，画法对应<a href="#fig-h-1">图 1-2</a>。规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>，原书也有一张 TensorCore 的结构图。',
  "systolic": '<strong>图 A-2</strong> 乘加单元怎么拿到数据。左边是 GPU 的 CUDA core，右边是 TPU 的 MXU；x 按行错开一拍进入，y 是每列的输出。动画演示见 <a href="https://jax-ml.github.io/scaling-book/tpus/#appendix-b-how-does-a-systolic-array-work">How to Scale Your Model 附录 B</a>。',

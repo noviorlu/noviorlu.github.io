@@ -681,7 +681,7 @@ row sum 对 `[M, N]` 的输入每行求和：
 $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标。加法满足结合律，先把每块加起来再相加，和一次加完是同一个数（浮点数下只差舍入误差），所以 program 可以沿行一块一块地读，每读一块就加到累加器上（[图 2-3](#fig-t-3)）。
 
 <figure id="fig-t-3" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 198" width="100%" role="img" aria-label="row sum kernel，按行归约、分块累加：一行一个 program，沿行循环，每次读 TILE 个加到累加器上，最后归约成一个数">
+<svg class="fg" viewBox="0 0 640 232" width="100%" role="img" aria-label="row sum kernel：一行一个 program；program 把这一行按 TILE 切成几块，每轮读一块加到累加器 acc 上，acc 一直留在 register 里，循环结束后 tl.sum 把 acc 加成一个数写回">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -702,39 +702,107 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标。加法满足结合律，�
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
   </style>
   <defs><marker id="fig-t-3-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-t-3-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker></defs>
-  <text class="ttl" x="10" y="18">grid</text>
-  <text class="ttl" x="162" y="18">一个 program 做的事</text>
-  <text class="tb" x="630" y="18" text-anchor="end" style="fill: var(--fig-hi)">按行归约：s[i] 依赖整行 x[i, :]</text>
-  <rect x="10" y="32" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <text class="t" x="69" y="50" text-anchor="middle">行 0</text>
-  <rect x="10" y="64" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-1) 30%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="t" x="69" y="82" text-anchor="middle">行 1 ← pid=1</text>
-  <rect x="10" y="96" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <text class="t" x="69" y="114" text-anchor="middle">行 2</text>
-  <rect x="10" y="128" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <text class="t" x="69" y="146" text-anchor="middle">⋯</text>
-  <text class="lab2" x="10" y="168">grid = (M,)</text>
-  <text class="lab2" x="10" y="183">一行一个 program</text>
-  <rect x="150" y="32" width="480" height="118" rx="10" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="6 4"/>
-  <text class="lab2" x="390" y="168" text-anchor="middle">一个 program（pid = 1）：沿第 1 行一块一块地读，部分和留在 acc 里</text>
-  <line x1="130.0" y1="77.0" x2="160.0" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-3-m0)"/>
-  <rect x="162.0" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="tb" x="210.8" y="73" text-anchor="middle">累加器清零</text><text class="s" x="210.8" y="90" text-anchor="middle">acc = tl.zeros</text>
-  <rect x="281.5" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="tb" x="330.2" y="73" text-anchor="middle">读一块</text><text class="s" x="330.2" y="90" text-anchor="middle">tl.load</text>
-  <line x1="261.5" y1="77.0" x2="279.5" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-3-m0)"/>
-  <rect x="401.0" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="tb" x="449.8" y="73" text-anchor="middle">累加</text><text class="s" x="449.8" y="90" text-anchor="middle">acc += x</text>
-  <line x1="381.0" y1="77.0" x2="399.0" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-3-m0)"/>
-  <rect x="520.5" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-mute) 22%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <rect x="518.5" y="50" width="101.5" height="54" rx="8" style="fill: none; stroke: var(--fig-hi); stroke-width: 1.8"/>
-  <text class="s" x="569.2" y="46" text-anchor="middle" style="fill: var(--fig-hi)">整行归约</text>
-  <text class="tb" x="569.2" y="73" text-anchor="middle">归约写回</text><text class="s" x="569.2" y="90" text-anchor="middle">tl.sum, tl.store</text>
-  <line x1="500.5" y1="77.0" x2="518.5" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-3-m0)"/>
-  <path d="M449.8,104 L449.8,124 L330.2,124 L330.2,105" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-3-m1)"/>
-  <text class="s" x="390.0" y="138" text-anchor="middle" style="fill: var(--fig-hi)">沿行循环，每次 TILE 个</text>
+  <text class="ttl" x="10" y="16">grid</text>
+  <text class="ttl" x="162" y="16">一个 program（pid = 1）做的事</text>
+  <text class="tb" x="630" y="16" text-anchor="end" style="fill: var(--fig-hi)">按行归约，分块累加</text>
+  <rect x="10" y="24" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="t" x="69" y="42" text-anchor="middle">行 0</text>
+  <rect x="10" y="56" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-1) 30%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="t" x="69" y="74" text-anchor="middle">行 1 ← pid=1</text>
+  <rect x="10" y="88" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="t" x="69" y="106" text-anchor="middle">行 2</text>
+  <rect x="10" y="120" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="t" x="69" y="138" text-anchor="middle">⋯</text>
+  <text class="lab2" x="10" y="168">grid = (M,)</text><text class="lab2" x="10" y="183">一行一个 program</text>
+  <rect x="150" y="26" width="480" height="196" rx="10" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="6 4"/>
+  <line x1="130.0" y1="69.0" x2="158.0" y2="69.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-3-m0)"/>
+  <text class="lab2" x="164" y="73">行 1</text><text class="lab2" x="164" y="149">acc</text>
+  <text class="s" x="242" y="50" text-anchor="middle">第 0 块</text>
+  <rect x="206" y="58" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-1) 55%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="215.0" y="73" text-anchor="middle">1</text>
+  <rect x="224" y="58" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-1) 55%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="233.0" y="73" text-anchor="middle">2</text>
+  <rect x="242" y="58" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-1) 55%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="251.0" y="73" text-anchor="middle">0</text>
+  <rect x="260" y="58" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-1) 55%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="269.0" y="73" text-anchor="middle">3</text>
+  <line x1="242.0" y1="82.0" x2="242.0" y2="130.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-t-3-m0)"/>
+  <text class="s" x="236" y="106" text-anchor="end">第 0 轮</text><text class="tb" x="248" y="110">+</text>
+  <rect x="206" y="134" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="215.0" y="149" text-anchor="middle">1</text>
+  <rect x="224" y="134" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="233.0" y="149" text-anchor="middle">2</text>
+  <rect x="242" y="134" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="251.0" y="149" text-anchor="middle">0</text>
+  <rect x="260" y="134" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="269.0" y="149" text-anchor="middle">3</text>
+  <text class="s" x="348" y="50" text-anchor="middle">第 1 块</text>
+  <rect x="312" y="58" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-2) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <text class="s" x="321.0" y="73" text-anchor="middle">4</text>
+  <rect x="330" y="58" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-2) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <text class="s" x="339.0" y="73" text-anchor="middle">1</text>
+  <rect x="348" y="58" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-2) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <text class="s" x="357.0" y="73" text-anchor="middle">2</text>
+  <rect x="366" y="58" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-2) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <text class="s" x="375.0" y="73" text-anchor="middle">0</text>
+  <line x1="348.0" y1="82.0" x2="348.0" y2="130.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-t-3-m0)"/>
+  <text class="s" x="342" y="106" text-anchor="end">第 1 轮</text><text class="tb" x="354" y="110">+</text>
+  <rect x="312" y="134" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="321.0" y="149" text-anchor="middle">5</text>
+  <rect x="330" y="134" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="339.0" y="149" text-anchor="middle">3</text>
+  <rect x="348" y="134" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="357.0" y="149" text-anchor="middle">2</text>
+  <rect x="366" y="134" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="375.0" y="149" text-anchor="middle">3</text>
+  <line x1="281.0" y1="145.0" x2="309.0" y2="145.0" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-3-m1)"/>
+  <text class="s" x="454" y="50" text-anchor="middle">第 2 块</text>
+  <rect x="418" y="58" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <text class="s" x="427.0" y="73" text-anchor="middle">2</text>
+  <rect x="436" y="58" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <text class="s" x="445.0" y="73" text-anchor="middle">2</text>
+  <rect x="454" y="58" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <text class="s" x="463.0" y="73" text-anchor="middle">1</text>
+  <rect x="472" y="58" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <text class="s" x="481.0" y="73" text-anchor="middle">1</text>
+  <line x1="454.0" y1="82.0" x2="454.0" y2="130.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-t-3-m0)"/>
+  <text class="s" x="448" y="106" text-anchor="end">第 2 轮</text><text class="tb" x="460" y="110">+</text>
+  <rect x="418" y="134" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-1) 34%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="427.0" y="149" text-anchor="middle">7</text>
+  <rect x="436" y="134" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-1) 34%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="445.0" y="149" text-anchor="middle">5</text>
+  <rect x="454" y="134" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-1) 34%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="463.0" y="149" text-anchor="middle">3</text>
+  <rect x="472" y="134" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-1) 34%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="481.0" y="149" text-anchor="middle">4</text>
+  <line x1="387.0" y1="145.0" x2="415.0" y2="145.0" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-3-m1)"/>
+  <text class="s" x="560" y="50" text-anchor="middle">第 3 块</text>
+  <rect x="524" y="58" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-mute) 55%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <text class="s" x="533.0" y="73" text-anchor="middle">0</text>
+  <rect x="542" y="58" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-mute) 55%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <text class="s" x="551.0" y="73" text-anchor="middle">3</text>
+  <rect x="560" y="58" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-mute) 55%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <text class="s" x="569.0" y="73" text-anchor="middle">1</text>
+  <rect x="578" y="58" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-mute) 55%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <text class="s" x="587.0" y="73" text-anchor="middle">2</text>
+  <line x1="560.0" y1="82.0" x2="560.0" y2="130.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-t-3-m0)"/>
+  <text class="s" x="554" y="106" text-anchor="end">第 3 轮</text><text class="tb" x="566" y="110">+</text>
+  <rect x="524" y="134" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-1) 46%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="533.0" y="149" text-anchor="middle">7</text>
+  <rect x="542" y="134" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-1) 46%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="551.0" y="149" text-anchor="middle">8</text>
+  <rect x="560" y="134" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-1) 46%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="569.0" y="149" text-anchor="middle">4</text>
+  <rect x="578" y="134" width="18" height="22" style="fill: color-mix(in srgb, var(--fig-1) 46%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="587.0" y="149" text-anchor="middle">6</text>
+  <line x1="493.0" y1="145.0" x2="521.0" y2="145.0" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-3-m1)"/>
+  <text class="s" x="295" y="172" text-anchor="middle" style="fill: var(--fig-hi)">acc 带到下一轮</text>
+  <line x1="560.0" y1="158.0" x2="560.0" y2="186.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-t-3-m0)"/>
+  <rect x="410" y="188" width="200" height="26" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 14%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <text class="t" x="420" y="205">tl.sum(acc) = 25，写回 out[1]</text>
+  <text class="lab2" x="164" y="205">acc 一直在 register 里</text>
 </svg>
-<figcaption><strong>图 2-3</strong> row sum kernel，按行归约，画法同<a href="#fig-t-1">图 2-1</a>。和 softmax 的区别是一行装不下，要沿行循环（红线），每次读 TILE 个加到累加器 acc 上，最后的 <code>tl.sum</code> 才做一次整行归约。</figcaption>
+<figcaption><strong>图 2-3</strong> row sum kernel。左边是 grid，一行一个 program；右边是 program 1 怎么走完第 1 行（图里 TILE = 4，代码里是 1024）。上排是第 0 到 3 块，下排是每一轮加完以后的 acc：第 T 块的第 j 个数加到 acc 的第 j 位，acc 留在 register 里带到下一轮，最后 <code>tl.sum</code> 才把它加成一个数。</figcaption>
 </figure>
 
 累加器 `acc` 是一个长度为 TILE 的向量，不是一个数：循环里每个线程只加自己负责的几个位置，线程之间不需要通信；循环结束后，`tl.sum` 再做一次跨线程归约，把 TILE 个部分和加成一个数。
@@ -773,7 +841,7 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
 加法满足结合律，分段加完再相加和一次加完是同一个数（浮点数下只差舍入误差），所以每次只读 $A_{IT}$ 和 $B_{TJ}$ 两个小块、算一个小矩阵乘 $A_{IT} B_{TJ}$ 累加起来，最后得到的就是完整的 $C_{IJ}$。ReLU 逐元素作用在累加完的结果上，放在最后做不影响答案。
 
 <figure id="fig-t-4" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 185" width="100%" role="img" aria-label="matmul kernel，分块乘加型：grid 是二维的，一个 program 负责 C 的一个 BM × BN 块；沿 K 循环读 A、B 的块用 tl.dot 累加，最后做 ReLU 写回">
+<svg class="fg" viewBox="0 0 640 278" width="100%" role="img" aria-label="matmul kernel：C 按 BM × BN 分块，每块一个 program；program (1, 2) 沿 K 循环 4 轮，第 T 轮读 A 的第 1 个行块的第 T 块和 B 的第 2 个列块的第 T 块，小矩阵乘的结果加到累加器 acc 上，最后做 ReLU 写回">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -794,42 +862,107 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
   </style>
   <defs><marker id="fig-t-4-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-t-4-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker></defs>
-  <text class="ttl" x="10" y="18">grid</text>
-  <text class="ttl" x="162" y="18">一个 program 做的事</text>
-  <text class="tb" x="630" y="18" text-anchor="end" style="fill: var(--fig-hi)">分块乘加：C 的一块依赖 A 的一行块、B 的一列块</text>
-  <rect x="10" y="32" width="34" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <rect x="50" y="32" width="34" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <rect x="90" y="32" width="34" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <rect x="10" y="64" width="34" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <rect x="50" y="64" width="34" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <rect x="90" y="64" width="34" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 30%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="s" x="107" y="81" text-anchor="middle">(1,2)</text>
-  <rect x="10" y="96" width="34" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <rect x="50" y="96" width="34" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <rect x="90" y="96" width="34" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <text class="lab2" x="10" y="140">C 的分块，每块 BM × BN</text>
-  <text class="lab2" x="10" y="155">grid = (cdiv(M, BM),</text>
-  <text class="lab2" x="10" y="170">  cdiv(N, BN))</text>
-  <rect x="150" y="32" width="480" height="118" rx="10" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="6 4"/>
-  <text class="lab2" x="390" y="168" text-anchor="middle">一个 program（pid_m = 1，pid_n = 2）：算出 C 的 (1, 2) 块</text>
-  <line x1="126.0" y1="77.0" x2="160.0" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-4-m0)"/>
-  <rect x="162.0" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="tb" x="210.8" y="73" text-anchor="middle">初始化</text><text class="s" x="210.8" y="90" text-anchor="middle">acc [BM, BN] = 0</text>
-  <rect x="281.5" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="tb" x="330.2" y="73" text-anchor="middle">读 A、B 的块</text><text class="s" x="330.2" y="90" text-anchor="middle">两次 tl.load</text>
-  <line x1="261.5" y1="77.0" x2="279.5" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-4-m0)"/>
-  <rect x="401.0" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <rect x="399.0" y="50" width="101.5" height="54" rx="8" style="fill: none; stroke: var(--fig-hi); stroke-width: 1.8"/>
-  <text class="s" x="449.8" y="46" text-anchor="middle" style="fill: var(--fig-hi)">沿 K 归约</text>
-  <text class="tb" x="449.8" y="73" text-anchor="middle">乘加</text><text class="s" x="449.8" y="90" text-anchor="middle">acc += tl.dot</text>
-  <line x1="381.0" y1="77.0" x2="399.0" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-4-m0)"/>
-  <rect x="520.5" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-mute) 22%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <text class="tb" x="569.2" y="73" text-anchor="middle">ReLU 写回</text><text class="s" x="569.2" y="90" text-anchor="middle">tl.store</text>
-  <line x1="500.5" y1="77.0" x2="518.5" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-4-m0)"/>
-  <path d="M449.8,104 L449.8,124 L330.2,124 L330.2,105" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-4-m1)"/>
-  <text class="s" x="390.0" y="138" text-anchor="middle" style="fill: var(--fig-hi)">沿 K 循环，每次 BK</text>
+  <text class="ttl" x="10" y="16">grid：C 的每一块一个 program</text>
+  <text class="ttl" x="312" y="16">一个 program（pid_m = 1，pid_n = 2）做的事</text>
+  <rect x="150" y="30" width="40" height="20" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="190" y="30" width="40" height="20" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="230" y="30" width="40" height="20" style="fill: color-mix(in srgb, var(--fig-1) 55%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="250.0" y="44" text-anchor="middle">0</text>
+  <rect x="150" y="50" width="40" height="20" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="190" y="50" width="40" height="20" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="230" y="50" width="40" height="20" style="fill: color-mix(in srgb, var(--fig-2) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <text class="s" x="250.0" y="64" text-anchor="middle">1</text>
+  <rect x="150" y="70" width="40" height="20" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="190" y="70" width="40" height="20" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="230" y="70" width="40" height="20" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <text class="s" x="250.0" y="84" text-anchor="middle">2</text>
+  <rect x="150" y="90" width="40" height="20" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="190" y="90" width="40" height="20" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="230" y="90" width="40" height="20" style="fill: color-mix(in srgb, var(--fig-mute) 55%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <text class="s" x="250.0" y="104" text-anchor="middle">3</text>
+  <text class="lab2" x="142" y="74" text-anchor="end">B [K, N]</text>
+  <rect x="70" y="116" width="20" height="40" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="90" y="116" width="20" height="40" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="110" y="116" width="20" height="40" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="130" y="116" width="20" height="40" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="70" y="156" width="20" height="40" style="fill: color-mix(in srgb, var(--fig-1) 55%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="80" y="180" text-anchor="middle">0</text>
+  <rect x="90" y="156" width="20" height="40" style="fill: color-mix(in srgb, var(--fig-2) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <text class="s" x="100" y="180" text-anchor="middle">1</text>
+  <rect x="110" y="156" width="20" height="40" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <text class="s" x="120" y="180" text-anchor="middle">2</text>
+  <rect x="130" y="156" width="20" height="40" style="fill: color-mix(in srgb, var(--fig-mute) 55%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <text class="s" x="140" y="180" text-anchor="middle">3</text>
+  <rect x="70" y="196" width="20" height="40" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="90" y="196" width="20" height="40" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="110" y="196" width="20" height="40" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="130" y="196" width="20" height="40" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <text class="lab2" x="110" y="252" text-anchor="middle">A [M, K]</text>
+  <rect x="152" y="118" width="36" height="36" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="192" y="118" width="36" height="36" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="232" y="118" width="36" height="36" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="152" y="158" width="36" height="36" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="192" y="158" width="36" height="36" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="232" y="158" width="36" height="36" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 30%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="s" x="250.0" y="180" text-anchor="middle">(1,2)</text>
+  <rect x="152" y="198" width="36" height="36" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="192" y="198" width="36" height="36" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="232" y="198" width="36" height="36" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="lab2" x="210" y="252" text-anchor="middle">C [M, N]</text>
+  <text class="lab2" x="10" y="44">A、B 里的 0–3：</text><text class="lab2" x="10" y="59">沿 K 切成的第 T 块</text>
+  <rect x="300" y="26" width="330" height="206" rx="10" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="6 4"/>
+  <line x1="272.0" y1="176.0" x2="308.0" y2="176.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-4-m0)"/>
+  <text class="s" x="346" y="46" text-anchor="middle">第 0 轮</text>
+  <rect x="316" y="54" width="16" height="32" style="fill: color-mix(in srgb, var(--fig-1) 55%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="324" y="74" text-anchor="middle">A</text>
+  <text class="s" x="339" y="74" text-anchor="middle">×</text>
+  <rect x="346" y="62" width="32" height="16" style="fill: color-mix(in srgb, var(--fig-1) 55%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="362" y="74" text-anchor="middle">B</text>
+  <line x1="346.0" y1="90.0" x2="346.0" y2="126.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-t-4-m0)"/>
+  <text class="tb" x="352" y="112">+</text>
+  <rect x="328" y="130" width="36" height="36" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="346" y="152" text-anchor="middle">acc</text>
+  <text class="s" x="424" y="46" text-anchor="middle">第 1 轮</text>
+  <rect x="394" y="54" width="16" height="32" style="fill: color-mix(in srgb, var(--fig-2) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <text class="s" x="402" y="74" text-anchor="middle">A</text>
+  <text class="s" x="417" y="74" text-anchor="middle">×</text>
+  <rect x="424" y="62" width="32" height="16" style="fill: color-mix(in srgb, var(--fig-2) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <text class="s" x="440" y="74" text-anchor="middle">B</text>
+  <line x1="424.0" y1="90.0" x2="424.0" y2="126.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-t-4-m0)"/>
+  <text class="tb" x="430" y="112">+</text>
+  <rect x="406" y="130" width="36" height="36" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="424" y="152" text-anchor="middle">acc</text>
+  <line x1="367.0" y1="148.0" x2="403.0" y2="148.0" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-4-m1)"/>
+  <text class="s" x="502" y="46" text-anchor="middle">第 2 轮</text>
+  <rect x="472" y="54" width="16" height="32" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <text class="s" x="480" y="74" text-anchor="middle">A</text>
+  <text class="s" x="495" y="74" text-anchor="middle">×</text>
+  <rect x="502" y="62" width="32" height="16" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <text class="s" x="518" y="74" text-anchor="middle">B</text>
+  <line x1="502.0" y1="90.0" x2="502.0" y2="126.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-t-4-m0)"/>
+  <text class="tb" x="508" y="112">+</text>
+  <rect x="484" y="130" width="36" height="36" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 34%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="502" y="152" text-anchor="middle">acc</text>
+  <line x1="445.0" y1="148.0" x2="481.0" y2="148.0" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-4-m1)"/>
+  <text class="s" x="580" y="46" text-anchor="middle">第 3 轮</text>
+  <rect x="550" y="54" width="16" height="32" style="fill: color-mix(in srgb, var(--fig-mute) 55%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <text class="s" x="558" y="74" text-anchor="middle">A</text>
+  <text class="s" x="573" y="74" text-anchor="middle">×</text>
+  <rect x="580" y="62" width="32" height="16" style="fill: color-mix(in srgb, var(--fig-mute) 55%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <text class="s" x="596" y="74" text-anchor="middle">B</text>
+  <line x1="580.0" y1="90.0" x2="580.0" y2="126.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-t-4-m0)"/>
+  <text class="tb" x="586" y="112">+</text>
+  <rect x="562" y="130" width="36" height="36" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 46%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="580" y="152" text-anchor="middle">acc</text>
+  <line x1="523.0" y1="148.0" x2="559.0" y2="148.0" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-4-m1)"/>
+  <text class="s" x="385.0" y="182" text-anchor="middle" style="fill: var(--fig-hi)">沿 K 循环，acc 带到下一轮</text>
+  <line x1="580.0" y1="168.0" x2="580.0" y2="192.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-t-4-m0)"/>
+  <rect x="430" y="194" width="192" height="26" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 14%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <text class="t" x="438" y="211">ReLU(acc)，写回 C 的 (1,2) 块</text>
+  <text class="lab2" x="312" y="211">acc [BM, BN]</text>
+  <text class="tb" x="630" y="268" text-anchor="end" style="fill: var(--fig-hi)">分块乘加：C 的一块 = 4 轮「A 的第 T 块 × B 的第 T 块」之和</text>
 </svg>
-<figcaption><strong>图 2-4</strong> matmul kernel，分块乘加型，画法同<a href="#fig-t-1">图 2-1</a>。grid 是二维的，一个 program 负责 C 的一块，沿 K 循环（红线）读 A、B 的块，<code>tl.dot</code> 沿 K 归约。</figcaption>
+<figcaption><strong>图 2-4</strong> matmul kernel。左边 C 的 3 × 3 块就是 grid，program (1, 2) 只用到 A 的第 1 个行块和 B 的第 2 个列块，两者都沿 K 切成 0 到 3 块（同色是同一个 T）。右边是这个 program 的循环：第 T 轮读 A 的第 T 块和 B 的第 T 块，小矩阵乘的结果加到 acc 上，4 轮加完就是 C 的 (1, 2) 块，最后做 ReLU 写回。</figcaption>
 </figure>
 
 一个 program 负责一个 $C_{IJ}$，grid 是二维的（[图 2-4](#fig-t-4)）。program 沿 K 方向循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上。写回之前在 register 里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
