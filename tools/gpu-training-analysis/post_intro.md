@@ -107,7 +107,7 @@ Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的分块。CU
 | matmul | 分块乘加 | A 的一行、B 的一列 | 二维，C 的一块一个 program | 沿 K 循环，累加器存 C 的一块 |
 {#tab-2-2 caption="**表 2-2** 四个例子的 op 类型"}
 
-代码都在 RTX 5090 上和 PyTorch 对照过。每个例子配一张图：左边是 grid，右边是一个 program 的步骤和它读写的存储。图里的「显存」指芯片外的 GDDR7，`tl.load` 和 `tl.store` 读写的就是它；中间经过的 L2 和 L1 cache 由硬件自动管理，kernel 不直接控制，图里不画。中间一条是 kernel 显式用到的 register，matmul 还用到 shared memory。[下一篇](/blog/gpu-training-analysis/#rmsnorm)手写的融合 RMSNorm 和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 也都用 Triton 写。
+代码都在 RTX 5090 上和 PyTorch 对照过。每个例子配一张图：左边是 grid，右边从上到下是计算单元、register、shared memory 和显存，箭头是数据流。`tl.load` 和 `tl.store` 在显存和 register（或 shared memory）之间直接搬数据，不经过计算单元；计算单元只从 register 读、写回 register。图里的「显存」指芯片外的 GDDR7，中间经过的 L2 和 L1 cache 由硬件自动管理，kernel 不直接控制，图里不画。[下一篇](/blog/gpu-training-analysis/#rmsnorm)手写的融合 RMSNorm 和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 也都用 Triton 写。
 
 ### 2.1 GELU：逐元素 {#triton-gelu}
 

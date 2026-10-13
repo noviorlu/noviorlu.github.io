@@ -456,7 +456,7 @@ Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的分块。CU
 | matmul | 分块乘加 | A 的一行、B 的一列 | 二维，C 的一块一个 program | 沿 K 循环，累加器存 C 的一块 |
 {#tab-2-2 caption="**表 2-2** 四个例子的 op 类型"}
 
-代码都在 RTX 5090 上和 PyTorch 对照过。每个例子配一张图：左边是 grid，右边是一个 program 的步骤和它读写的存储。图里的「显存」指芯片外的 GDDR7，`tl.load` 和 `tl.store` 读写的就是它；中间经过的 L2 和 L1 cache 由硬件自动管理，kernel 不直接控制，图里不画。中间一条是 kernel 显式用到的 register，matmul 还用到 shared memory。[下一篇](/blog/gpu-training-analysis/#rmsnorm)手写的融合 RMSNorm 和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 也都用 Triton 写。
+代码都在 RTX 5090 上和 PyTorch 对照过。每个例子配一张图：左边是 grid，右边从上到下是计算单元、register、shared memory 和显存，箭头是数据流。`tl.load` 和 `tl.store` 在显存和 register（或 shared memory）之间直接搬数据，不经过计算单元；计算单元只从 register 读、写回 register。图里的「显存」指芯片外的 GDDR7，中间经过的 L2 和 L1 cache 由硬件自动管理，kernel 不直接控制，图里不画。[下一篇](/blog/gpu-training-analysis/#rmsnorm)手写的融合 RMSNorm 和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 也都用 Triton 写。
 
 ### 2.1 GELU：逐元素 {#triton-gelu}
 
@@ -465,7 +465,7 @@ GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函�
 <p align="center">$y_i = \mathrm{GELU}(x_i) = x_i\,\Phi(x_i) \approx \tfrac{1}{2}\,x_i\left(1 + \tanh\left(\sqrt{2/\pi}\,(x_i + 0.044715\,x_i^3)\right)\right)$</p>
 
 <figure id="fig-t-1" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 356" width="100%" role="img" aria-label="GELU kernel：数组展平成一维按 BLOCK 切段，一段一个 program；program 读一段、在 register 里算 GELU、写回；每个 SM 同时跑 12 个 program，1536 个 thread 全满">
+<svg class="fg" viewBox="0 0 640 356" width="100%" role="img" aria-label="GELU kernel：数组展平成一维按 BLOCK 切段，一段一个 program；tl.load 把一段从显存直接读进 register，计算单元算 GELU，tl.store 从 register 直接写回显存；每个 SM 同时跑 12 个 program，1536 个 thread 全满">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -565,7 +565,8 @@ GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函�
   <text class="s" x="10" y="286">每格一个 program（4 warp）</text><text class="s" x="10" y="300">12 × 128 = 1536 thread</text>
   <text class="s" x="10" y="314">线程数先满</text>
   <rect class="band" x="146" y="26" width="490" height="66" rx="8"/>
-  <text class="lab2" x="152" y="63.0">步骤</text>
+  <text class="lab2" x="152" y="56.5">计算</text>
+  <text class="lab2" x="152" y="69.5">单元</text>
   <rect class="band" x="146" y="100" width="490" height="76" rx="8"/>
   <text class="lab2" x="152" y="142.0">register</text>
   <rect class="band" x="146" y="184" width="490" height="32" rx="8"/>
@@ -575,39 +576,34 @@ GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函�
   <text class="lab2" x="152" y="270.0">显存</text>
   <text class="s" x="152" y="284.0">GDDR7</text>
   <line x1="130.0" y1="73.0" x2="144.0" y2="73.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-1-m0)"/>
-  <rect class="op" x="237.0" y="46" width="84.0" height="38" rx="6"/>
-  <text class="tb" x="279.0" y="62" text-anchor="middle">算下标</text><text class="s" x="279.0" y="77" text-anchor="middle">offsets</text>
-  <rect class="op" x="331.0" y="46" width="84.0" height="38" rx="6"/>
-  <text class="tb" x="373.0" y="62" text-anchor="middle">读一段</text><text class="s" x="373.0" y="77" text-anchor="middle">tl.load</text>
+  <rect class="op" x="281.0" y="46" width="84.0" height="38" rx="6"/>
+  <text class="tb" x="323.0" y="62" text-anchor="middle">算下标</text><text class="s" x="323.0" y="77" text-anchor="middle">offsets</text>
   <rect class="op" x="425.0" y="46" width="84.0" height="38" rx="6"/>
   <text class="tb" x="467.0" y="62" text-anchor="middle">GELU</text><text class="s" x="467.0" y="77" text-anchor="middle">逐元素</text>
-  <rect class="op" x="519.0" y="46" width="84.0" height="38" rx="6"/>
-  <text class="tb" x="561.0" y="62" text-anchor="middle">写回</text><text class="s" x="561.0" y="77" text-anchor="middle">tl.store</text>
   <text class="lab2" x="152" y="324">每个 program 1024 个元素，每个 thread 8 个，都在 register 里，不用 shared memory；</text>
-  <text class="lab2" x="152" y="339">显存只读 x 一次、写 y 一次。</text>
-  <rect x="301.0" y="110" width="50" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="326.0" y="123" text-anchor="middle">offsets</text>
-  <line x1="285.0" y1="86.0" x2="318.0" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-1-m1)"/>
-  <line x1="334.0" y1="108.0" x2="367.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-1-m1)"/>
-  <rect x="395.0" y="110" width="50" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="420.0" y="123" text-anchor="middle">x 段</text>
-  <line x1="379.0" y1="86.0" x2="412.0" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-1-m1)"/>
-  <line x1="428.0" y1="108.0" x2="461.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-1-m1)"/>
-  <rect x="489.0" y="110" width="50" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="514.0" y="123" text-anchor="middle">y 段</text>
-  <line x1="473.0" y1="86.0" x2="506.0" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-1-m1)"/>
-  <line x1="522.0" y1="108.0" x2="555.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-1-m1)"/>
-  <rect x="333.0" y="252" width="80.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <rect x="359.0" y="252.0" width="20.0" height="28.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="373.0" y="293" text-anchor="middle">x，32 MiB</text>
-  <line x1="369.0" y1="250.0" x2="369.0" y2="86.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-1-m2)"/>
-  <rect x="521.0" y="252" width="80.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <rect x="547.0" y="252.0" width="20.0" height="28.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="561.0" y="293" text-anchor="middle">y，32 MiB</text>
-  <line x1="557.0" y1="86.0" x2="557.0" y2="250.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-1-m2)"/>
-  <text class="s" x="467.0" y="204.0" text-anchor="middle">GELU 不用 shared memory（0 B）</text>
+  <text class="lab2" x="152" y="339">offsets 是 load、store 的地址。显存只读 x 一次、写 y 一次。</text>
+  <rect x="298.0" y="110" width="50" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="323.0" y="123" text-anchor="middle">offsets</text>
+  <line x1="323.0" y1="86.0" x2="323.0" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-1-m1)"/>
+  <rect x="373.0" y="110" width="44" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="395.0" y="123" text-anchor="middle">x 段</text>
+  <line x1="395.0" y1="250.0" x2="395.0" y2="130.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-1-m2)"/>
+  <text class="s" x="399.0" y="194.0" text-anchor="start" style="fill: var(--fig-1)">tl.load</text>
+  <line x1="409.0" y1="108.0" x2="451.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-1-m1)"/>
+  <rect x="517.0" y="110" width="44" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="539.0" y="123" text-anchor="middle">y 段</text>
+  <line x1="483.0" y1="86.0" x2="525.0" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-1-m1)"/>
+  <line x1="539.0" y1="130.0" x2="539.0" y2="250.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-1-m2)"/>
+  <text class="s" x="543.0" y="194.0" text-anchor="start" style="fill: var(--fig-1)">tl.store</text>
+  <rect x="355.0" y="252" width="80.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <rect x="385.0" y="252.0" width="20.0" height="28.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <text class="s" x="395.0" y="293" text-anchor="middle">x，32 MiB</text>
+  <rect x="499.0" y="252" width="80.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <rect x="529.0" y="252.0" width="20.0" height="28.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <text class="s" x="539.0" y="293" text-anchor="middle">y，32 MiB</text>
+  <text class="s" x="214" y="204.0">不用（0 B）</text>
 </svg>
-<figcaption><strong>图 2-1</strong> GELU kernel（n = 8M，fp32）。左边是 grid：数组展平成一维、按 BLOCK = 1024 切段，一段一个 program；下面是一个 SM 同时跑几个 program，12 格是上限（1536 个 thread）。右边是 program 1：上面是步骤，中间是 register（matmul 还有 shared memory），下面是显存，即芯片外的 GDDR7，箭头指向步骤是读，指向存储是写，画法同<a href="/blog/gpu-training-analysis/#fig-3-4">上一篇的图 3-4</a>。读写显存都会经过 L2 和 L1 cache，它们由硬件自动管理，图里不画。</figcaption>
+<figcaption><strong>图 2-1</strong> GELU kernel（n = 8M，fp32）。左边是 grid：数组展平成一维、按 BLOCK = 1024 切段，一段一个 program；下面是一个 SM 同时跑几个 program，12 格是上限（1536 个 thread）。右边是 program 1：最上面是计算单元，下面依次是 register、shared memory 和显存（芯片外的 GDDR7）。箭头是数据流：tl.load 从显存直接读进 register，tl.store 从 register 直接写回显存，计算单元只从 register 读、写回 register。读写显存都会经过 L2 和 L1 cache，由硬件自动管理，图里不画。</figcaption>
 </figure>
 
 逐元素 op 最简单，每个元素各算各的，program 之间不需要配合。把 n 个元素切成每段 BLOCK 个，一段交给一个 program（[图 2-1](#fig-t-1)）。kernel 里先用 `tl.program_id` 算出自己负责的下标，读进来，算完写回：
@@ -672,7 +668,7 @@ def softmax_naive(x):                         # x: [M, N]，按行
 ```
 
 <figure id="fig-t-2" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 356" width="100%" role="img" aria-label="softmax kernel：一行一个 program；program 从显存读一整行，减最大值、exp、求和、归一化都在 register 里做，只写回一次；每个 SM 同时跑 9 个 program，共 1152 个 thread">
+<svg class="fg" viewBox="0 0 640 356" width="100%" role="img" aria-label="softmax kernel：一行一个 program；tl.load 把一整行从显存直接读进 register，计算单元减最大值、exp、求和、归一化，中间结果都在 register 里，跨 warp 的归约经 shared memory，最后 tl.store 写回；每个 SM 同时跑 9 个 program">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -692,7 +688,7 @@ def softmax_naive(x):                         # x: [M, N]，按行
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
   </style>
-  <defs><marker id="fig-t-2-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-t-2-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-2)"/></marker><marker id="fig-t-2-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker></defs>
+  <defs><marker id="fig-t-2-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-t-2-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker><marker id="fig-t-2-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-2)"/></marker></defs>
   <text class="ttl" x="10" y="16">grid</text>
   <text class="ttl" x="162" y="16">一个 program（pid = 1）</text>
   <text class="tb" x="630" y="16" text-anchor="end" style="fill: var(--fig-hi)">按行归约：y[i, j] 依赖整行 x[i, :]</text>
@@ -758,7 +754,8 @@ def softmax_naive(x):                         # x: [M, N]，按行
   <text class="s" x="10" y="286">每格一个 program（4 warp）</text><text class="s" x="10" y="300">9 × 128 = 1152 thread</text>
   <text class="s" x="10" y="314">register 先满</text>
   <rect class="band" x="146" y="26" width="490" height="66" rx="8"/>
-  <text class="lab2" x="152" y="63.0">步骤</text>
+  <text class="lab2" x="152" y="56.5">计算</text>
+  <text class="lab2" x="152" y="69.5">单元</text>
   <rect class="band" x="146" y="100" width="490" height="76" rx="8"/>
   <text class="lab2" x="152" y="142.0">register</text>
   <rect class="band" x="146" y="184" width="490" height="32" rx="8"/>
@@ -768,48 +765,44 @@ def softmax_naive(x):                         # x: [M, N]，按行
   <text class="lab2" x="152" y="270.0">显存</text>
   <text class="s" x="152" y="284.0">GDDR7</text>
   <line x1="130.0" y1="73.0" x2="144.0" y2="73.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-2-m0)"/>
-  <rect class="op" x="212.0" y="46" width="75.2" height="38" rx="6"/>
-  <text class="tb" x="249.6" y="62" text-anchor="middle">读一行</text><text class="s" x="249.6" y="77" text-anchor="middle">tl.load</text>
-  <rect class="op" x="297.2" y="46" width="75.2" height="38" rx="6"/>
-  <text class="tb" x="334.8" y="62" text-anchor="middle">减最大值</text><text class="s" x="334.8" y="77" text-anchor="middle">x − max</text>
-  <rect class="op" x="382.4" y="46" width="75.2" height="38" rx="6"/>
+  <rect class="op" x="284.0" y="46" width="84.0" height="38" rx="6"/>
+  <text class="tb" x="326.0" y="62" text-anchor="middle">减最大值</text><text class="s" x="326.0" y="77" text-anchor="middle">x − max</text>
+  <rect class="op" x="378.0" y="46" width="84.0" height="38" rx="6"/>
   <text class="tb" x="420.0" y="62" text-anchor="middle">exp</text><text class="s" x="420.0" y="77" text-anchor="middle">tl.exp</text>
-  <rect class="op" x="467.6" y="46" width="75.2" height="38" rx="6"/>
-  <text class="tb" x="505.2" y="62" text-anchor="middle">÷ 求和</text><text class="s" x="505.2" y="77" text-anchor="middle">tl.sum</text>
-  <rect class="op" x="552.8" y="46" width="75.2" height="38" rx="6"/>
-  <text class="tb" x="590.4" y="62" text-anchor="middle">写回</text><text class="s" x="590.4" y="77" text-anchor="middle">tl.store</text>
+  <rect class="op" x="472.0" y="46" width="84.0" height="38" rx="6"/>
+  <text class="tb" x="514.0" y="62" text-anchor="middle">÷ 求和</text><text class="s" x="514.0" y="77" text-anchor="middle">tl.sum</text>
   <text class="lab2" x="152" y="324">中间结果都在 register 里，每个 thread 存这一行的 32 个数；tl.max、tl.sum 先在每个 warp 里归约，</text>
   <text class="lab2" x="152" y="339">4 个 warp 的部分结果再经 shared memory 交换（16 B）。显存只读 x 一次、写 y 一次。</text>
-  <rect x="267.2" y="110" width="50" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="292.2" y="123" text-anchor="middle">x 行</text>
-  <line x1="265.6" y1="86.0" x2="286.2" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m1)"/>
-  <line x1="298.2" y1="108.0" x2="318.8" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m1)"/>
-  <rect x="352.4" y="110" width="50" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="377.4" y="123" text-anchor="middle">x − m</text>
-  <line x1="350.8" y1="86.0" x2="371.4" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m1)"/>
-  <line x1="383.4" y1="108.0" x2="404.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m1)"/>
-  <rect x="437.6" y="110" width="50" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="462.6" y="123" text-anchor="middle">e</text>
-  <line x1="436.0" y1="86.0" x2="456.6" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m1)"/>
-  <line x1="468.6" y1="108.0" x2="489.2" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m1)"/>
-  <rect x="522.8" y="110" width="50" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="547.8" y="123" text-anchor="middle">y 行</text>
-  <line x1="521.2" y1="86.0" x2="541.8" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m1)"/>
-  <line x1="553.8" y1="108.0" x2="574.4" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m1)"/>
-  <rect x="211.6" y="252" width="76.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <rect x="211.6" y="260.4" width="76.0" height="7.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="249.6" y="293" text-anchor="middle">x，64 MiB</text>
-  <line x1="249.6" y1="250.0" x2="249.6" y2="86.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-2-m2)"/>
-  <rect x="552.4" y="252" width="76.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <rect x="552.4" y="260.4" width="76.0" height="7.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="590.4" y="293" text-anchor="middle">y，64 MiB</text>
-  <line x1="590.4" y1="86.0" x2="590.4" y2="250.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-2-m2)"/>
-  <rect x="300.8" y="191" width="68" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 40%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/><text class="s" x="334.8" y="204" text-anchor="middle">warp 间 max</text>
-  <line x1="329.8" y1="86.0" x2="329.8" y2="189.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m1)"/>
-  <line x1="339.8" y1="189.0" x2="339.8" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m1)"/>
-  <rect x="471.2" y="191" width="68" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 40%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/><text class="s" x="505.2" y="204" text-anchor="middle">warp 间 sum</text>
-  <line x1="500.2" y1="86.0" x2="500.2" y2="189.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m1)"/>
-  <line x1="510.2" y1="189.0" x2="510.2" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m1)"/>
+  <rect x="232.0" y="110" width="44" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="254.0" y="123" text-anchor="middle">x 行</text>
+  <line x1="254.0" y1="250.0" x2="254.0" y2="130.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-2-m1)"/>
+  <text class="s" x="258.0" y="194.0" text-anchor="start" style="fill: var(--fig-1)">tl.load</text>
+  <line x1="268.0" y1="108.0" x2="310.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m2)"/>
+  <rect x="349.0" y="110" width="48" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="373.0" y="123" text-anchor="middle">x − m</text>
+  <line x1="342.0" y1="86.0" x2="367.0" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m2)"/>
+  <line x1="379.0" y1="108.0" x2="404.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m2)"/>
+  <rect x="443.0" y="110" width="48" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="467.0" y="123" text-anchor="middle">e</text>
+  <line x1="436.0" y1="86.0" x2="461.0" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m2)"/>
+  <line x1="473.0" y1="108.0" x2="498.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m2)"/>
+  <rect x="564.0" y="110" width="44" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="586.0" y="123" text-anchor="middle">y 行</text>
+  <line x1="530.0" y1="86.0" x2="572.0" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m2)"/>
+  <line x1="586.0" y1="130.0" x2="586.0" y2="250.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-2-m1)"/>
+  <text class="s" x="590.0" y="194.0" text-anchor="start" style="fill: var(--fig-1)">tl.store</text>
+  <rect x="218.0" y="252" width="72.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <rect x="218.0" y="260.4" width="72.0" height="7.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <text class="s" x="254.0" y="293" text-anchor="middle">x，64 MiB</text>
+  <rect x="550.0" y="252" width="72.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <rect x="550.0" y="260.4" width="72.0" height="7.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <text class="s" x="586.0" y="293" text-anchor="middle">y，64 MiB</text>
+  <rect x="292.0" y="191" width="68" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 40%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/><text class="s" x="326.0" y="204" text-anchor="middle">warp 间 max</text>
+  <line x1="321.0" y1="86.0" x2="321.0" y2="189.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
+  <line x1="331.0" y1="189.0" x2="331.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
+  <rect x="480.0" y="191" width="68" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 40%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/><text class="s" x="514.0" y="204" text-anchor="middle">warp 间 sum</text>
+  <line x1="509.0" y1="86.0" x2="509.0" y2="189.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
+  <line x1="519.0" y1="189.0" x2="519.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
 </svg>
 <figcaption><strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次；每个 program 用的 register 多，一个 SM 只放得下 9 个。</figcaption>
 </figure>
@@ -851,7 +844,7 @@ row sum 对 `[M, N]` 的输入每行求和：
 $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。加法满足结合律，先把每块加起来再相加，和一次加完是同一个数（浮点数下只差舍入误差），所以 program 可以沿行一块一块地读，每读一块就加到累加器上（[图 2-3](#fig-t-3)）。
 
 <figure id="fig-t-3" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 380" width="100%" role="img" aria-label="row sum kernel：一行一个 program；program 沿行一轮读一块加到 acc 上，颜色深浅是 for 循环的顺序；acc 一直留在 register 里，最后归约成一个数写回">
+<svg class="fg" viewBox="0 0 640 380" width="100%" role="img" aria-label="row sum kernel：一行一个 program；tl.load 一轮把一块从显存直接读进 register，计算单元把它加到 acc 上，颜色深浅是 for 循环的顺序；acc 一直留在 register 里，最后归约成一个数，tl.store 写回">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -871,7 +864,7 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
   </style>
-  <defs><marker id="fig-t-3-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-t-3-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-2)"/></marker><marker id="fig-t-3-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker><marker id="fig-t-3-m3" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker></defs>
+  <defs><marker id="fig-t-3-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-t-3-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker><marker id="fig-t-3-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-2)"/></marker><marker id="fig-t-3-m3" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker></defs>
   <text class="ttl" x="10" y="16">grid</text>
   <text class="ttl" x="162" y="16">一个 program（pid = 1）</text>
   <text class="tb" x="630" y="16" text-anchor="end" style="fill: var(--fig-hi)">按行归约，分块累加</text>
@@ -949,7 +942,8 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。
   <text class="s" x="10" y="286">每格一个 program（4 warp）</text><text class="s" x="10" y="300">12 × 128 = 1536 thread</text>
   <text class="s" x="10" y="314">线程数先满</text>
   <rect class="band" x="146" y="26" width="490" height="66" rx="8"/>
-  <text class="lab2" x="152" y="63.0">步骤</text>
+  <text class="lab2" x="152" y="56.5">计算</text>
+  <text class="lab2" x="152" y="69.5">单元</text>
   <rect class="band" x="146" y="100" width="490" height="76" rx="8"/>
   <text class="lab2" x="152" y="142.0">register</text>
   <rect class="band" x="146" y="184" width="490" height="32" rx="8"/>
@@ -959,176 +953,179 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。
   <text class="lab2" x="152" y="282.0">显存</text>
   <text class="s" x="152" y="296.0">GDDR7</text>
   <line x1="130.0" y1="73.0" x2="144.0" y2="73.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-3-m0)"/>
-  <rect class="op" x="212.0" y="46" width="68.8" height="38" rx="6"/>
-  <text class="tb" x="246.4" y="62" text-anchor="middle">读第 0 块</text><text class="s" x="246.4" y="77" text-anchor="middle">tl.load</text>
-  <rect class="op" x="290.8" y="46" width="68.8" height="38" rx="6"/>
-  <text class="tb" x="325.2" y="62" text-anchor="middle">累加</text><text class="s" x="325.2" y="77" text-anchor="middle">acc += x</text>
-  <text class="tb" x="380.6" y="69.0" text-anchor="middle">⋯</text>
-  <rect class="op" x="401.6" y="46" width="68.8" height="38" rx="6"/>
-  <text class="tb" x="436.0" y="62" text-anchor="middle">读第 3 块</text><text class="s" x="436.0" y="77" text-anchor="middle">tl.load</text>
-  <rect class="op" x="480.4" y="46" width="68.8" height="38" rx="6"/>
-  <text class="tb" x="514.8" y="62" text-anchor="middle">累加</text><text class="s" x="514.8" y="77" text-anchor="middle">acc += x</text>
-  <rect class="op" x="559.2" y="46" width="68.8" height="38" rx="6"/>
-  <text class="tb" x="593.6" y="62" text-anchor="middle">归约写回</text><text class="s" x="593.6" y="77" text-anchor="middle">tl.sum</text>
+  <rect class="op" x="262.0" y="46" width="71.3" height="38" rx="6"/>
+  <text class="tb" x="297.7" y="62" text-anchor="middle">累加</text><text class="s" x="297.7" y="77" text-anchor="middle">acc += x</text>
+  <text class="tb" x="354.3" y="69.0" text-anchor="middle">⋯</text>
+  <rect class="op" x="425.3" y="46" width="71.3" height="38" rx="6"/>
+  <text class="tb" x="461.0" y="62" text-anchor="middle">累加</text><text class="s" x="461.0" y="77" text-anchor="middle">acc += x</text>
+  <rect class="op" x="506.7" y="46" width="71.3" height="38" rx="6"/>
+  <text class="tb" x="542.3" y="62" text-anchor="middle">归约</text><text class="s" x="542.3" y="77" text-anchor="middle">tl.sum</text>
   <text class="lab2" x="152" y="348">图里 TILE = 4（代码里 1024），一行 16 个数分 4 块，颜色由淡到浓是 for 循环读的顺序；</text>
   <text class="lab2" x="152" y="363">acc 逐位累加，一直在 register 里；最后的 tl.sum 跨 4 个 warp，经 shared memory 交换（16 B）。</text>
   <defs><linearGradient id="fig-t-3-acc" x1="0" x2="1" y1="0" y2="0"><stop offset="0.00" style="stop-color: var(--fig-1)" stop-opacity="0.12"/><stop offset="0.33" style="stop-color: var(--fig-1)" stop-opacity="0.34"/><stop offset="0.67" style="stop-color: var(--fig-1)" stop-opacity="0.56"/><stop offset="1.00" style="stop-color: var(--fig-1)" stop-opacity="0.78"/></linearGradient></defs>
-  <rect x="263.8" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
-  <rect x="263.8" y="112" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
-  <text class="s" x="269.3" y="123.5" text-anchor="middle" style="opacity: .9">1</text>
-  <rect x="274.8" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
-  <rect x="274.8" y="112" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
-  <text class="s" x="280.3" y="123.5" text-anchor="middle" style="opacity: .9">2</text>
-  <rect x="285.8" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
-  <rect x="285.8" y="112" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
-  <text class="s" x="291.3" y="123.5" text-anchor="middle" style="opacity: .9">0</text>
-  <rect x="296.8" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
-  <rect x="296.8" y="112" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
-  <text class="s" x="302.3" y="123.5" text-anchor="middle" style="opacity: .9">3</text>
-  <text class="s" x="311.8" y="124">块 0</text>
-  <line x1="252.4" y1="86.0" x2="271.8" y2="106.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m1)"/>
-  <line x1="299.8" y1="106.0" x2="315.2" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m1)"/>
-  <rect x="453.4" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.78"/>
-  <rect x="453.4" y="112" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
-  <text class="s" x="458.9" y="123.5" text-anchor="middle" style="fill: var(--fig-on-1)">0</text>
-  <rect x="464.4" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.78"/>
-  <rect x="464.4" y="112" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
-  <text class="s" x="469.9" y="123.5" text-anchor="middle" style="fill: var(--fig-on-1)">3</text>
-  <rect x="475.4" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.78"/>
-  <rect x="475.4" y="112" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
-  <text class="s" x="480.9" y="123.5" text-anchor="middle" style="fill: var(--fig-on-1)">1</text>
-  <rect x="486.4" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.78"/>
-  <rect x="486.4" y="112" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
-  <text class="s" x="491.9" y="123.5" text-anchor="middle" style="fill: var(--fig-on-1)">2</text>
-  <text class="s" x="501.4" y="124">块 3</text>
-  <line x1="442.0" y1="86.0" x2="461.4" y2="106.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m1)"/>
-  <line x1="489.4" y1="106.0" x2="504.8" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m1)"/>
-  <rect x="333.2" y="144" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
-  <rect x="333.2" y="144" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
-  <text class="s" x="338.7" y="155.5" text-anchor="middle" style="opacity: .9">1</text>
-  <rect x="344.2" y="144" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
-  <rect x="344.2" y="144" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
-  <text class="s" x="349.7" y="155.5" text-anchor="middle" style="opacity: .9">2</text>
-  <rect x="355.2" y="144" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
-  <rect x="355.2" y="144" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
-  <text class="s" x="360.7" y="155.5" text-anchor="middle" style="opacity: .9">0</text>
-  <rect x="366.2" y="144" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
-  <rect x="366.2" y="144" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
-  <text class="s" x="371.7" y="155.5" text-anchor="middle" style="opacity: .9">3</text>
-  <text class="s" x="355.2" y="173" text-anchor="middle">acc</text>
-  <rect x="536.2" y="144" width="44" height="16" fill="url(#fig-t-3-acc)"/>
-  <rect x="536.2" y="144" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/><text class="s" x="541.7" y="155.5" text-anchor="middle" style="opacity: .9">7</text>
-  <rect x="547.2" y="144" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/><text class="s" x="552.7" y="155.5" text-anchor="middle" style="opacity: .9">8</text>
-  <rect x="558.2" y="144" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/><text class="s" x="563.7" y="155.5" text-anchor="middle" style="fill: var(--fig-on-1)">4</text>
-  <rect x="569.2" y="144" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/><text class="s" x="574.7" y="155.5" text-anchor="middle" style="fill: var(--fig-on-1)">6</text>
-  <text class="s" x="558.2" y="173" text-anchor="middle">acc</text>
-  <line x1="333.2" y1="86.0" x2="345.2" y2="140.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m1)"/>
-  <line x1="522.8" y1="86.0" x2="548.2" y2="140.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m1)"/>
-  <line x1="568.2" y1="140.0" x2="587.6" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m1)"/>
-  <path d="M325.2,44 L325.2,37 L514.8,37 L514.8,43" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-3-m2)"/>
-  <text class="s" x="420.0" y="33" text-anchor="middle" style="fill: var(--fig-hi)">acc 带到下一轮</text>
-  <rect x="214.8" y="238" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="230.6" y="238" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="246.4" y="238" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="262.2" y="238" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="278.0" y="238" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="293.8" y="238" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="309.6" y="238" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="325.4" y="238" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="341.2" y="238" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="357.0" y="238" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="372.8" y="238" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="388.6" y="238" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="404.4" y="238" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="420.2" y="238" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="436.0" y="238" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="451.8" y="238" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="214.8" y="254" width="15.8" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
-  <text class="s" x="222.7" y="265.5" text-anchor="middle" style="opacity: .9">1</text>
-  <rect x="214.8" y="254" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
-  <rect x="230.6" y="254" width="15.8" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
-  <text class="s" x="238.5" y="265.5" text-anchor="middle" style="opacity: .9">2</text>
-  <rect x="230.6" y="254" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
-  <rect x="246.4" y="254" width="15.8" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
-  <text class="s" x="254.3" y="265.5" text-anchor="middle" style="opacity: .9">0</text>
-  <rect x="246.4" y="254" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
-  <rect x="262.2" y="254" width="15.8" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
-  <text class="s" x="270.1" y="265.5" text-anchor="middle" style="opacity: .9">3</text>
-  <rect x="262.2" y="254" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
-  <rect x="278.0" y="254" width="15.8" height="16" style="fill: var(--fig-1)" fill-opacity="0.34"/>
-  <text class="s" x="285.9" y="265.5" text-anchor="middle" style="opacity: .9">4</text>
-  <rect x="278.0" y="254" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
-  <rect x="293.8" y="254" width="15.8" height="16" style="fill: var(--fig-1)" fill-opacity="0.34"/>
-  <text class="s" x="301.7" y="265.5" text-anchor="middle" style="opacity: .9">1</text>
-  <rect x="293.8" y="254" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
-  <rect x="309.6" y="254" width="15.8" height="16" style="fill: var(--fig-1)" fill-opacity="0.34"/>
-  <text class="s" x="317.5" y="265.5" text-anchor="middle" style="opacity: .9">2</text>
-  <rect x="309.6" y="254" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
-  <rect x="325.4" y="254" width="15.8" height="16" style="fill: var(--fig-1)" fill-opacity="0.34"/>
-  <text class="s" x="333.3" y="265.5" text-anchor="middle" style="opacity: .9">0</text>
-  <rect x="325.4" y="254" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
-  <rect x="341.2" y="254" width="15.8" height="16" style="fill: var(--fig-1)" fill-opacity="0.56"/>
-  <text class="s" x="349.1" y="265.5" text-anchor="middle" style="fill: var(--fig-on-1)">2</text>
-  <rect x="341.2" y="254" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
-  <rect x="357.0" y="254" width="15.8" height="16" style="fill: var(--fig-1)" fill-opacity="0.56"/>
-  <text class="s" x="364.9" y="265.5" text-anchor="middle" style="fill: var(--fig-on-1)">2</text>
-  <rect x="357.0" y="254" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
-  <rect x="372.8" y="254" width="15.8" height="16" style="fill: var(--fig-1)" fill-opacity="0.56"/>
-  <text class="s" x="380.7" y="265.5" text-anchor="middle" style="fill: var(--fig-on-1)">1</text>
-  <rect x="372.8" y="254" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
-  <rect x="388.6" y="254" width="15.8" height="16" style="fill: var(--fig-1)" fill-opacity="0.56"/>
-  <text class="s" x="396.5" y="265.5" text-anchor="middle" style="fill: var(--fig-on-1)">1</text>
-  <rect x="388.6" y="254" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
-  <rect x="404.4" y="254" width="15.8" height="16" style="fill: var(--fig-1)" fill-opacity="0.78"/>
-  <text class="s" x="412.3" y="265.5" text-anchor="middle" style="fill: var(--fig-on-1)">0</text>
-  <rect x="404.4" y="254" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
-  <rect x="420.2" y="254" width="15.8" height="16" style="fill: var(--fig-1)" fill-opacity="0.78"/>
-  <text class="s" x="428.1" y="265.5" text-anchor="middle" style="fill: var(--fig-on-1)">3</text>
-  <rect x="420.2" y="254" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
-  <rect x="436.0" y="254" width="15.8" height="16" style="fill: var(--fig-1)" fill-opacity="0.78"/>
-  <text class="s" x="443.9" y="265.5" text-anchor="middle" style="fill: var(--fig-on-1)">1</text>
-  <rect x="436.0" y="254" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
-  <rect x="451.8" y="254" width="15.8" height="16" style="fill: var(--fig-1)" fill-opacity="0.78"/>
-  <text class="s" x="459.7" y="265.5" text-anchor="middle" style="fill: var(--fig-on-1)">2</text>
-  <rect x="451.8" y="254" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
-  <rect x="214.8" y="270" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="230.6" y="270" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="246.4" y="270" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="262.2" y="270" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="278.0" y="270" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="293.8" y="270" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="309.6" y="270" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="325.4" y="270" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="341.2" y="270" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="357.0" y="270" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="372.8" y="270" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="388.6" y="270" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="404.4" y="270" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="420.2" y="270" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="436.0" y="270" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="451.8" y="270" width="15.8" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
-  <rect x="214.8" y="238" width="252.8" height="48" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
-  <line x1="278.0" y1="238" x2="278.0" y2="286" style="stroke: var(--fig-1)" stroke-width="1.2"/>
-  <line x1="341.2" y1="238" x2="341.2" y2="286" style="stroke: var(--fig-1)" stroke-width="1.2"/>
-  <line x1="404.4" y1="238" x2="404.4" y2="286" style="stroke: var(--fig-1)" stroke-width="1.2"/>
-  <text class="s" x="210.8" y="265.5" text-anchor="end">行 1</text>
-  <text class="s" x="246.4" y="298" text-anchor="middle">块 0</text>
-  <text class="s" x="309.6" y="298" text-anchor="middle">块 1</text>
-  <text class="s" x="372.8" y="298" text-anchor="middle">块 2</text>
-  <text class="s" x="436.0" y="298" text-anchor="middle">块 3</text>
-  <text class="s" x="341.2" y="312" text-anchor="middle">x [4096, 4096]，64 MiB</text>
-  <line x1="246.4" y1="252.0" x2="246.4" y2="86.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-3-m3)"/>
-  <line x1="436.0" y1="252.0" x2="436.0" y2="86.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-3-m3)"/>
-  <rect x="613.6" y="238" width="16" height="16" fill="none"/><rect x="613.6" y="238" width="16" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
-  <rect x="613.6" y="254" width="16" height="16" style="fill: var(--fig-1)" fill-opacity=".78"/><rect x="613.6" y="254" width="16" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
-  <rect x="613.6" y="270" width="16" height="16" fill="none"/><rect x="613.6" y="270" width="16" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
-  <text class="s" x="621.6" y="265.5" text-anchor="middle" style="fill: var(--fig-on-1)">25</text>
-  <rect x="613.6" y="238" width="16" height="48" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
-  <text class="s" x="621.6" y="299" text-anchor="middle">out</text>
-  <line x1="621.6" y1="86.0" x2="621.6" y2="253.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-3-m3)"/>
-  <rect x="553.6" y="191" width="66" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 40%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/><text class="s" x="586.6" y="204" text-anchor="middle">warp 间 sum</text>
-  <line x1="597.6" y1="86.0" x2="597.6" y2="189.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-3-m1)"/>
-  <line x1="605.6" y1="189.0" x2="605.6" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-3-m1)"/>
+  <rect x="210.0" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
+  <rect x="210.0" y="112" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
+  <text class="s" x="215.5" y="123.5" text-anchor="middle" style="opacity: .9">1</text>
+  <rect x="221.0" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
+  <rect x="221.0" y="112" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
+  <text class="s" x="226.5" y="123.5" text-anchor="middle" style="opacity: .9">2</text>
+  <rect x="232.0" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
+  <rect x="232.0" y="112" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
+  <text class="s" x="237.5" y="123.5" text-anchor="middle" style="opacity: .9">0</text>
+  <rect x="243.0" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
+  <rect x="243.0" y="112" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
+  <text class="s" x="248.5" y="123.5" text-anchor="middle" style="opacity: .9">3</text>
+  <text class="s" x="210.0" y="107">块 0</text>
+  <line x1="232.0" y1="254.0" x2="232.0" y2="130.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-3-m1)"/>
+  <text class="s" x="236.0" y="196.0" text-anchor="start" style="fill: var(--fig-1)">tl.load</text>
+  <rect x="373.3" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.78"/>
+  <rect x="373.3" y="112" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
+  <text class="s" x="378.8" y="123.5" text-anchor="middle" style="fill: var(--fig-on-1)">0</text>
+  <rect x="384.3" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.78"/>
+  <rect x="384.3" y="112" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
+  <text class="s" x="389.8" y="123.5" text-anchor="middle" style="fill: var(--fig-on-1)">3</text>
+  <rect x="395.3" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.78"/>
+  <rect x="395.3" y="112" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
+  <text class="s" x="400.8" y="123.5" text-anchor="middle" style="fill: var(--fig-on-1)">1</text>
+  <rect x="406.3" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.78"/>
+  <rect x="406.3" y="112" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
+  <text class="s" x="411.8" y="123.5" text-anchor="middle" style="fill: var(--fig-on-1)">2</text>
+  <text class="s" x="373.3" y="107">块 3</text>
+  <line x1="395.3" y1="254.0" x2="395.3" y2="130.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-3-m1)"/>
+  <text class="s" x="399.3" y="196.0" text-anchor="start" style="fill: var(--fig-1)">tl.load</text>
+  <line x1="246.0" y1="108.0" x2="281.7" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m2)"/>
+  <line x1="409.3" y1="108.0" x2="445.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m2)"/>
+  <rect x="305.7" y="144" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
+  <rect x="305.7" y="144" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
+  <text class="s" x="311.2" y="155.5" text-anchor="middle" style="opacity: .9">1</text>
+  <rect x="316.7" y="144" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
+  <rect x="316.7" y="144" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
+  <text class="s" x="322.2" y="155.5" text-anchor="middle" style="opacity: .9">2</text>
+  <rect x="327.7" y="144" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
+  <rect x="327.7" y="144" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
+  <text class="s" x="333.2" y="155.5" text-anchor="middle" style="opacity: .9">0</text>
+  <rect x="338.7" y="144" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
+  <rect x="338.7" y="144" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
+  <text class="s" x="344.2" y="155.5" text-anchor="middle" style="opacity: .9">3</text>
+  <text class="s" x="327.7" y="173" text-anchor="middle">acc</text>
+  <rect x="479.7" y="144" width="44" height="16" fill="url(#fig-t-3-acc)"/>
+  <rect x="479.7" y="144" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
+  <text class="s" x="485.2" y="155.5" text-anchor="middle" style="opacity: .9">7</text>
+  <rect x="490.7" y="144" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
+  <text class="s" x="496.2" y="155.5" text-anchor="middle" style="opacity: .9">8</text>
+  <rect x="501.7" y="144" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
+  <text class="s" x="507.2" y="155.5" text-anchor="middle" style="fill: var(--fig-on-1)">4</text>
+  <rect x="512.7" y="144" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
+  <text class="s" x="518.2" y="155.5" text-anchor="middle" style="fill: var(--fig-on-1)">6</text>
+  <text class="s" x="501.7" y="173" text-anchor="middle">acc</text>
+  <line x1="305.7" y1="86.0" x2="317.7" y2="140.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m2)"/>
+  <line x1="469.0" y1="86.0" x2="491.7" y2="140.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m2)"/>
+  <line x1="511.7" y1="140.0" x2="526.3" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m2)"/>
+  <path d="M297.7,44 L297.7,37 L461.0,37 L461.0,43" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-3-m3)"/>
+  <text class="s" x="379.3" y="33" text-anchor="middle" style="fill: var(--fig-hi)">acc 带到下一轮</text>
+  <rect x="596.0" y="112" width="24" height="16" style="fill: var(--fig-1)" fill-opacity=".78"/><text class="s" x="608.0" y="123.5" text-anchor="middle" style="fill: var(--fig-on-1)">25</text>
+  <line x1="558.3" y1="86.0" x2="598.0" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m2)"/>
+  <rect x="509.3" y="191" width="66" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 40%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/><text class="s" x="542.3" y="204" text-anchor="middle">warp 间 sum</text>
+  <line x1="537.3" y1="86.0" x2="537.3" y2="189.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-3-m2)"/>
+  <line x1="547.3" y1="189.0" x2="547.3" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-3-m2)"/>
+  <rect x="204.8" y="238" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="218.4" y="238" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="232.0" y="238" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="245.6" y="238" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="259.2" y="238" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="272.8" y="238" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="286.4" y="238" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="300.1" y="238" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="313.7" y="238" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="327.3" y="238" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="340.9" y="238" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="354.5" y="238" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="368.1" y="238" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="381.7" y="238" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="395.3" y="238" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="408.9" y="238" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="204.8" y="254" width="13.6" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
+  <text class="s" x="211.6" y="265.5" text-anchor="middle" style="opacity: .9">1</text>
+  <rect x="204.8" y="254" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
+  <rect x="218.4" y="254" width="13.6" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
+  <text class="s" x="225.2" y="265.5" text-anchor="middle" style="opacity: .9">2</text>
+  <rect x="218.4" y="254" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
+  <rect x="232.0" y="254" width="13.6" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
+  <text class="s" x="238.8" y="265.5" text-anchor="middle" style="opacity: .9">0</text>
+  <rect x="232.0" y="254" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
+  <rect x="245.6" y="254" width="13.6" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
+  <text class="s" x="252.4" y="265.5" text-anchor="middle" style="opacity: .9">3</text>
+  <rect x="245.6" y="254" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
+  <rect x="259.2" y="254" width="13.6" height="16" style="fill: var(--fig-1)" fill-opacity="0.34"/>
+  <text class="s" x="266.0" y="265.5" text-anchor="middle" style="opacity: .9">4</text>
+  <rect x="259.2" y="254" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
+  <rect x="272.8" y="254" width="13.6" height="16" style="fill: var(--fig-1)" fill-opacity="0.34"/>
+  <text class="s" x="279.6" y="265.5" text-anchor="middle" style="opacity: .9">1</text>
+  <rect x="272.8" y="254" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
+  <rect x="286.4" y="254" width="13.6" height="16" style="fill: var(--fig-1)" fill-opacity="0.34"/>
+  <text class="s" x="293.2" y="265.5" text-anchor="middle" style="opacity: .9">2</text>
+  <rect x="286.4" y="254" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
+  <rect x="300.1" y="254" width="13.6" height="16" style="fill: var(--fig-1)" fill-opacity="0.34"/>
+  <text class="s" x="306.9" y="265.5" text-anchor="middle" style="opacity: .9">0</text>
+  <rect x="300.1" y="254" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
+  <rect x="313.7" y="254" width="13.6" height="16" style="fill: var(--fig-1)" fill-opacity="0.56"/>
+  <text class="s" x="320.5" y="265.5" text-anchor="middle" style="fill: var(--fig-on-1)">2</text>
+  <rect x="313.7" y="254" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
+  <rect x="327.3" y="254" width="13.6" height="16" style="fill: var(--fig-1)" fill-opacity="0.56"/>
+  <text class="s" x="334.1" y="265.5" text-anchor="middle" style="fill: var(--fig-on-1)">2</text>
+  <rect x="327.3" y="254" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
+  <rect x="340.9" y="254" width="13.6" height="16" style="fill: var(--fig-1)" fill-opacity="0.56"/>
+  <text class="s" x="347.7" y="265.5" text-anchor="middle" style="fill: var(--fig-on-1)">1</text>
+  <rect x="340.9" y="254" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
+  <rect x="354.5" y="254" width="13.6" height="16" style="fill: var(--fig-1)" fill-opacity="0.56"/>
+  <text class="s" x="361.3" y="265.5" text-anchor="middle" style="fill: var(--fig-on-1)">1</text>
+  <rect x="354.5" y="254" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
+  <rect x="368.1" y="254" width="13.6" height="16" style="fill: var(--fig-1)" fill-opacity="0.78"/>
+  <text class="s" x="374.9" y="265.5" text-anchor="middle" style="fill: var(--fig-on-1)">0</text>
+  <rect x="368.1" y="254" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
+  <rect x="381.7" y="254" width="13.6" height="16" style="fill: var(--fig-1)" fill-opacity="0.78"/>
+  <text class="s" x="388.5" y="265.5" text-anchor="middle" style="fill: var(--fig-on-1)">3</text>
+  <rect x="381.7" y="254" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
+  <rect x="395.3" y="254" width="13.6" height="16" style="fill: var(--fig-1)" fill-opacity="0.78"/>
+  <text class="s" x="402.1" y="265.5" text-anchor="middle" style="fill: var(--fig-on-1)">1</text>
+  <rect x="395.3" y="254" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
+  <rect x="408.9" y="254" width="13.6" height="16" style="fill: var(--fig-1)" fill-opacity="0.78"/>
+  <text class="s" x="415.7" y="265.5" text-anchor="middle" style="fill: var(--fig-on-1)">2</text>
+  <rect x="408.9" y="254" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.45" stroke-width=".6"/>
+  <rect x="204.8" y="270" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="218.4" y="270" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="232.0" y="270" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="245.6" y="270" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="259.2" y="270" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="272.8" y="270" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="286.4" y="270" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="300.1" y="270" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="313.7" y="270" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="327.3" y="270" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="340.9" y="270" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="354.5" y="270" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="368.1" y="270" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="381.7" y="270" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="395.3" y="270" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="408.9" y="270" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
+  <rect x="204.8" y="238" width="217.8" height="48" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
+  <line x1="259.2" y1="238" x2="259.2" y2="286" style="stroke: var(--fig-1)" stroke-width="1.2"/>
+  <line x1="313.7" y1="238" x2="313.7" y2="286" style="stroke: var(--fig-1)" stroke-width="1.2"/>
+  <line x1="368.1" y1="238" x2="368.1" y2="286" style="stroke: var(--fig-1)" stroke-width="1.2"/>
+  <text class="s" x="426.6" y="265.5">行 1</text>
+  <text class="s" x="232.0" y="298" text-anchor="middle">块 0</text>
+  <text class="s" x="286.4" y="298" text-anchor="middle">块 1</text>
+  <text class="s" x="340.9" y="298" text-anchor="middle">块 2</text>
+  <text class="s" x="395.3" y="298" text-anchor="middle">块 3</text>
+  <text class="s" x="313.7" y="312" text-anchor="middle">x [4096, 4096]，64 MiB</text>
+  <rect x="600.0" y="238" width="16" height="16" fill="none"/><rect x="600.0" y="238" width="16" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
+  <rect x="600.0" y="254" width="16" height="16" style="fill: var(--fig-1)" fill-opacity=".78"/><rect x="600.0" y="254" width="16" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
+  <rect x="600.0" y="270" width="16" height="16" fill="none"/><rect x="600.0" y="270" width="16" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
+  <text class="s" x="608.0" y="265.5" text-anchor="middle" style="fill: var(--fig-on-1)">25</text>
+  <rect x="600.0" y="238" width="16" height="48" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
+  <text class="s" x="608.0" y="299" text-anchor="middle">out</text>
+  <line x1="608.0" y1="130.0" x2="608.0" y2="253.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-3-m1)"/>
+  <text class="s" x="604.0" y="152.0" text-anchor="end" style="fill: var(--fig-1)">tl.store</text>
 </svg>
 <figcaption><strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 块，代码里 TILE = 1024。颜色由淡到浓是 for 循环读块的顺序：第 0 轮后 acc 只有第 0 块的数，最后的 acc 是 4 块逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。</figcaption>
 </figure>
@@ -1173,7 +1170,7 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
 加法满足结合律，分段加完再相加和一次加完是同一个数（浮点数下只差舍入误差），所以每次只读 $A_{IT}$ 和 $B_{TJ}$ 两个小块、算一个小矩阵乘 $A_{IT} B_{TJ}$ 累加起来，最后得到的就是完整的 $C_{IJ}$。ReLU 逐元素作用在累加完的结果上，放在最后做不影响答案。
 
 <figure id="fig-t-4" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 450" width="100%" role="img" aria-label="matmul kernel（A 4096 × 2048，B 2048 × 512）：C 的每一块一个 program；program (1, 1) 沿 K 一轮读 A 的第 1 个行块、B 的第 1 个列块各一块进 shared memory，tl.dot 加到 register 里的 acc 上，中间几轮用 ⋯ 省略，最后 ReLU 写回 C 的 (1, 1) 块">
+<svg class="fg" viewBox="0 0 640 450" width="100%" role="img" aria-label="matmul kernel（A 4096 × 2048，B 2048 × 512）：C 的每一块一个 program；program (1, 1) 沿 K 一轮用 cp.async 把 A、B 各一块从显存直接搬进 shared memory，tl.dot 从 shared memory 读一小片进 register 做乘加，acc 留在 register 里，中间几轮用 ⋯ 省略，最后 ReLU 后 tl.store 写回 C 的 (1, 1) 块">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -1237,7 +1234,8 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
   <text class="s" x="10" y="286">每格一个 program（4 warp）</text><text class="s" x="10" y="300">3 × 128 = 384 thread</text>
   <text class="s" x="10" y="314">shared memory 先满</text>
   <rect class="band" x="146" y="26" width="490" height="66" rx="8"/>
-  <text class="lab2" x="152" y="63.0">步骤</text>
+  <text class="lab2" x="152" y="56.5">计算</text>
+  <text class="lab2" x="152" y="69.5">单元</text>
   <rect class="band" x="146" y="100" width="490" height="40" rx="8"/>
   <text class="lab2" x="152" y="124.0">register</text>
   <rect class="band" x="146" y="148" width="490" height="76" rx="8"/>
@@ -1247,429 +1245,426 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
   <text class="lab2" x="152" y="306.0">显存</text>
   <text class="s" x="152" y="320.0">GDDR7</text>
   <line x1="90.0" y1="66.0" x2="144.0" y2="66.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-4-m0)"/>
-  <rect class="op" x="212.0" y="46" width="68.8" height="38" rx="6"/>
-  <text class="tb" x="246.4" y="62" text-anchor="middle">读第 0 块</text><text class="s" x="246.4" y="77" text-anchor="middle">cp.async</text>
-  <rect class="op" x="290.8" y="46" width="68.8" height="38" rx="6"/>
-  <text class="tb" x="325.2" y="62" text-anchor="middle">乘加</text><text class="s" x="325.2" y="77" text-anchor="middle">tl.dot</text>
-  <text class="tb" x="380.6" y="69.0" text-anchor="middle">⋯</text>
-  <rect class="op" x="401.6" y="46" width="68.8" height="38" rx="6"/>
-  <text class="tb" x="436.0" y="62" text-anchor="middle">读第 63 块</text><text class="s" x="436.0" y="77" text-anchor="middle">cp.async</text>
-  <rect class="op" x="480.4" y="46" width="68.8" height="38" rx="6"/>
-  <text class="tb" x="514.8" y="62" text-anchor="middle">乘加</text><text class="s" x="514.8" y="77" text-anchor="middle">tl.dot</text>
-  <rect class="op" x="559.2" y="46" width="68.8" height="38" rx="6"/>
-  <text class="tb" x="593.6" y="62" text-anchor="middle">ReLU 写回</text><text class="s" x="593.6" y="77" text-anchor="middle">tl.store</text>
-  <text class="lab2" x="152" y="388">读：两次 tl.load 编译成 cp.async，把 A 块、B 块从显存直接搬进 shared memory，不经过 register；</text>
-  <text class="lab2" x="152" y="403">乘加：tl.dot 从 shared memory 读一小片 a、b 到 register，用 FMA 加到 acc 上；</text>
+  <rect class="op" x="262.0" y="46" width="71.3" height="38" rx="6"/>
+  <text class="tb" x="297.7" y="62" text-anchor="middle">乘加</text><text class="s" x="297.7" y="77" text-anchor="middle">tl.dot</text>
+  <text class="tb" x="354.3" y="69.0" text-anchor="middle">⋯</text>
+  <rect class="op" x="425.3" y="46" width="71.3" height="38" rx="6"/>
+  <text class="tb" x="461.0" y="62" text-anchor="middle">乘加</text><text class="s" x="461.0" y="77" text-anchor="middle">tl.dot</text>
+  <rect class="op" x="506.7" y="46" width="71.3" height="38" rx="6"/>
+  <text class="tb" x="542.3" y="62" text-anchor="middle">ReLU</text><text class="s" x="542.3" y="77" text-anchor="middle">tl.maximum</text>
+  <text class="lab2" x="152" y="388">cp.async：两次 tl.load 把 A 块、B 块从显存直接搬进 shared memory，不经过 register；</text>
+  <text class="lab2" x="152" y="403">乘加：tl.dot 从 shared memory 读一小片 a、b 到 register，计算单元做 FMA，加到 acc 上；</text>
   <text class="lab2" x="152" y="418">num_stages = 3：shared memory 里放两份 A、B 块（共 32 KiB），算第 T 轮时第 T+1 轮已经在搬；</text>
-  <text class="lab2" x="152" y="433">K = 2048 按 BK = 32 切成 64 轮，图里只画第 0 轮从显存的读。</text>
+  <text class="lab2" x="152" y="433">K = 2048 按 BK = 32 切成 64 轮，图里只画第 0 轮的 cp.async。</text>
   <defs><linearGradient id="fig-t-4-acc" x1="0" x2="1" y1="0" y2="0"><stop offset="0.00" style="stop-color: var(--fig-1)" stop-opacity="0.12"/><stop offset="0.14" style="stop-color: var(--fig-1)" stop-opacity="0.21"/><stop offset="0.29" style="stop-color: var(--fig-1)" stop-opacity="0.31"/><stop offset="0.43" style="stop-color: var(--fig-1)" stop-opacity="0.40"/><stop offset="0.57" style="stop-color: var(--fig-1)" stop-opacity="0.50"/><stop offset="0.71" style="stop-color: var(--fig-1)" stop-opacity="0.59"/><stop offset="0.86" style="stop-color: var(--fig-1)" stop-opacity="0.69"/><stop offset="1.00" style="stop-color: var(--fig-1)" stop-opacity="0.78"/></linearGradient></defs>
-  <rect x="270.8" y="158" width="30" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="270.8" y="158" width="30" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
-  <text class="s" x="285.8" y="171" text-anchor="middle" >A 块</text>
-  <rect x="268.8" y="190" width="34" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="268.8" y="190" width="34" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
-  <text class="s" x="285.8" y="203" text-anchor="middle" >B 块</text>
-  <line x1="262.4" y1="86.0" x2="277.8" y2="156.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <line x1="248.4" y1="86.0" x2="269.8" y2="188.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <rect x="286.8" y="111" width="34" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="286.8" y="111" width="34" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
-  <text class="s" x="303.8" y="124" text-anchor="middle" >a、b</text>
-  <line x1="291.8" y1="156.0" x2="299.8" y2="131.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <line x1="302.8" y1="188.0" x2="311.8" y2="131.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <line x1="317.8" y1="109.0" x2="321.2" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <rect x="460.4" y="158" width="30" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="460.4" y="158" width="30" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
-  <text class="s" x="475.4" y="171" text-anchor="middle" style="fill: var(--fig-on-1)">A 块</text>
-  <rect x="458.4" y="190" width="34" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="458.4" y="190" width="34" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
-  <text class="s" x="475.4" y="203" text-anchor="middle" style="fill: var(--fig-on-1)">B 块</text>
-  <line x1="452.0" y1="86.0" x2="467.4" y2="156.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <line x1="438.0" y1="86.0" x2="459.4" y2="188.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <rect x="476.4" y="111" width="34" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="476.4" y="111" width="34" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
-  <text class="s" x="493.4" y="124" text-anchor="middle" style="fill: var(--fig-on-1)">a、b</text>
-  <line x1="481.4" y1="156.0" x2="489.4" y2="131.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <line x1="492.4" y1="188.0" x2="501.4" y2="131.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <line x1="507.4" y1="109.0" x2="510.8" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <rect x="338.2" y="111" width="34" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="338.2" y="111" width="34" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
-  <text class="s" x="355.2" y="124" text-anchor="middle" >acc</text>
-  <rect x="547.2" y="111" width="34" height="18" rx="4" fill="url(#fig-t-4-acc)"/><rect x="547.2" y="111" width="34" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
-  <text class="s" x="564.2" y="124" text-anchor="middle" >acc</text>
-  <rect x="350.6" y="172" width="76" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-dasharray="3 2" stroke-opacity=".7"/>
-  <text class="s" x="388.6" y="185" text-anchor="middle">第 1 轮 A、B 块</text><text class="s" x="388.6" y="203" text-anchor="middle">另一份 buffer，正在搬</text>
-  <line x1="333.2" y1="86.0" x2="347.2" y2="109.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <line x1="522.8" y1="86.0" x2="556.2" y2="109.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <line x1="572.2" y1="109.0" x2="587.6" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <path d="M325.2,44 L325.2,37 L514.8,37 L514.8,43" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-4-m2)"/>
-  <text class="s" x="420.0" y="33" text-anchor="middle" style="fill: var(--fig-hi)">acc 带到下一轮</text>
-  <rect x="202.4" y="244" width="6" height="6" fill="none"/>
-  <rect x="202.4" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="208.4" y="244" width="6" height="6" fill="none"/>
-  <rect x="208.4" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="214.4" y="244" width="6" height="6" fill="none"/>
-  <rect x="214.4" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="220.4" y="244" width="6" height="6" fill="none"/>
-  <rect x="220.4" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="226.4" y="244" width="6" height="6" fill="none"/>
-  <rect x="226.4" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="232.4" y="244" width="6" height="6" fill="none"/>
-  <rect x="232.4" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="238.4" y="244" width="6" height="6" fill="none"/>
-  <rect x="238.4" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="244.4" y="244" width="6" height="6" fill="none"/>
-  <rect x="244.4" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="202.4" y="250" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.12"/>
-  <rect x="202.4" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="208.4" y="250" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.2142857142857143"/>
-  <rect x="208.4" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="214.4" y="250" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.3085714285714286"/>
-  <rect x="214.4" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="220.4" y="250" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.40285714285714286"/>
-  <rect x="220.4" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="226.4" y="250" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.49714285714285716"/>
-  <rect x="226.4" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="232.4" y="250" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.5914285714285714"/>
-  <rect x="232.4" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="238.4" y="250" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.6857142857142857"/>
-  <rect x="238.4" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="244.4" y="250" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.78"/>
-  <rect x="244.4" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="202.4" y="256" width="6" height="6" fill="none"/>
-  <rect x="202.4" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="208.4" y="256" width="6" height="6" fill="none"/>
-  <rect x="208.4" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="214.4" y="256" width="6" height="6" fill="none"/>
-  <rect x="214.4" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="220.4" y="256" width="6" height="6" fill="none"/>
-  <rect x="220.4" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="226.4" y="256" width="6" height="6" fill="none"/>
-  <rect x="226.4" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="232.4" y="256" width="6" height="6" fill="none"/>
-  <rect x="232.4" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="238.4" y="256" width="6" height="6" fill="none"/>
-  <rect x="238.4" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="244.4" y="256" width="6" height="6" fill="none"/>
-  <rect x="244.4" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="202.4" y="262" width="6" height="6" fill="none"/>
-  <rect x="202.4" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="208.4" y="262" width="6" height="6" fill="none"/>
-  <rect x="208.4" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="214.4" y="262" width="6" height="6" fill="none"/>
-  <rect x="214.4" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="220.4" y="262" width="6" height="6" fill="none"/>
-  <rect x="220.4" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="226.4" y="262" width="6" height="6" fill="none"/>
-  <rect x="226.4" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="232.4" y="262" width="6" height="6" fill="none"/>
-  <rect x="232.4" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="238.4" y="262" width="6" height="6" fill="none"/>
-  <rect x="238.4" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="244.4" y="262" width="6" height="6" fill="none"/>
-  <rect x="244.4" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="202.4" y="268" width="6" height="6" fill="none"/>
-  <rect x="202.4" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="208.4" y="268" width="6" height="6" fill="none"/>
-  <rect x="208.4" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="214.4" y="268" width="6" height="6" fill="none"/>
-  <rect x="214.4" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="220.4" y="268" width="6" height="6" fill="none"/>
-  <rect x="220.4" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="226.4" y="268" width="6" height="6" fill="none"/>
-  <rect x="226.4" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="232.4" y="268" width="6" height="6" fill="none"/>
-  <rect x="232.4" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="238.4" y="268" width="6" height="6" fill="none"/>
-  <rect x="238.4" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="244.4" y="268" width="6" height="6" fill="none"/>
-  <rect x="244.4" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="202.4" y="274" width="6" height="6" fill="none"/>
-  <rect x="202.4" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="208.4" y="274" width="6" height="6" fill="none"/>
-  <rect x="208.4" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="214.4" y="274" width="6" height="6" fill="none"/>
-  <rect x="214.4" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="220.4" y="274" width="6" height="6" fill="none"/>
-  <rect x="220.4" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="226.4" y="274" width="6" height="6" fill="none"/>
-  <rect x="226.4" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="232.4" y="274" width="6" height="6" fill="none"/>
-  <rect x="232.4" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="238.4" y="274" width="6" height="6" fill="none"/>
-  <rect x="238.4" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="244.4" y="274" width="6" height="6" fill="none"/>
-  <rect x="244.4" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="202.4" y="280" width="6" height="6" fill="none"/>
-  <rect x="202.4" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="208.4" y="280" width="6" height="6" fill="none"/>
-  <rect x="208.4" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="214.4" y="280" width="6" height="6" fill="none"/>
-  <rect x="214.4" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="220.4" y="280" width="6" height="6" fill="none"/>
-  <rect x="220.4" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="226.4" y="280" width="6" height="6" fill="none"/>
-  <rect x="226.4" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="232.4" y="280" width="6" height="6" fill="none"/>
-  <rect x="232.4" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="238.4" y="280" width="6" height="6" fill="none"/>
-  <rect x="238.4" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="244.4" y="280" width="6" height="6" fill="none"/>
-  <rect x="244.4" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="202.4" y="286" width="6" height="6" fill="none"/>
-  <rect x="202.4" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="208.4" y="286" width="6" height="6" fill="none"/>
-  <rect x="208.4" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="214.4" y="286" width="6" height="6" fill="none"/>
-  <rect x="214.4" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="220.4" y="286" width="6" height="6" fill="none"/>
-  <rect x="220.4" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="226.4" y="286" width="6" height="6" fill="none"/>
-  <rect x="226.4" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="232.4" y="286" width="6" height="6" fill="none"/>
-  <rect x="232.4" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="238.4" y="286" width="6" height="6" fill="none"/>
-  <rect x="238.4" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="244.4" y="286" width="6" height="6" fill="none"/>
-  <rect x="244.4" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="202.4" y="292" width="6" height="6" fill="none"/>
-  <rect x="202.4" y="292" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="208.4" y="292" width="6" height="6" fill="none"/>
-  <rect x="208.4" y="292" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="214.4" y="292" width="6" height="6" fill="none"/>
-  <rect x="214.4" y="292" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="220.4" y="292" width="6" height="6" fill="none"/>
-  <rect x="220.4" y="292" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="226.4" y="292" width="6" height="6" fill="none"/>
-  <rect x="226.4" y="292" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="232.4" y="292" width="6" height="6" fill="none"/>
-  <rect x="232.4" y="292" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="238.4" y="292" width="6" height="6" fill="none"/>
-  <rect x="238.4" y="292" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="244.4" y="292" width="6" height="6" fill="none"/>
-  <rect x="244.4" y="292" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="202.4" y="298" width="6" height="6" fill="none"/>
-  <rect x="202.4" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="208.4" y="298" width="6" height="6" fill="none"/>
-  <rect x="208.4" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="214.4" y="298" width="6" height="6" fill="none"/>
-  <rect x="214.4" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="220.4" y="298" width="6" height="6" fill="none"/>
-  <rect x="220.4" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="226.4" y="298" width="6" height="6" fill="none"/>
-  <rect x="226.4" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="232.4" y="298" width="6" height="6" fill="none"/>
-  <rect x="232.4" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="238.4" y="298" width="6" height="6" fill="none"/>
-  <rect x="238.4" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="244.4" y="298" width="6" height="6" fill="none"/>
-  <rect x="244.4" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="202.4" y="304" width="6" height="6" fill="none"/>
-  <rect x="202.4" y="304" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="208.4" y="304" width="6" height="6" fill="none"/>
-  <rect x="208.4" y="304" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="214.4" y="304" width="6" height="6" fill="none"/>
-  <rect x="214.4" y="304" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="220.4" y="304" width="6" height="6" fill="none"/>
-  <rect x="220.4" y="304" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="226.4" y="304" width="6" height="6" fill="none"/>
-  <rect x="226.4" y="304" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="232.4" y="304" width="6" height="6" fill="none"/>
-  <rect x="232.4" y="304" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="238.4" y="304" width="6" height="6" fill="none"/>
-  <rect x="238.4" y="304" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="244.4" y="304" width="6" height="6" fill="none"/>
-  <rect x="244.4" y="304" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="202.4" y="310" width="6" height="6" fill="none"/>
-  <rect x="202.4" y="310" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="208.4" y="310" width="6" height="6" fill="none"/>
-  <rect x="208.4" y="310" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="214.4" y="310" width="6" height="6" fill="none"/>
-  <rect x="214.4" y="310" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="220.4" y="310" width="6" height="6" fill="none"/>
-  <rect x="220.4" y="310" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="226.4" y="310" width="6" height="6" fill="none"/>
-  <rect x="226.4" y="310" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="232.4" y="310" width="6" height="6" fill="none"/>
-  <rect x="232.4" y="310" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="238.4" y="310" width="6" height="6" fill="none"/>
-  <rect x="238.4" y="310" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="244.4" y="310" width="6" height="6" fill="none"/>
-  <rect x="244.4" y="310" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="202.4" y="316" width="6" height="6" fill="none"/>
-  <rect x="202.4" y="316" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="208.4" y="316" width="6" height="6" fill="none"/>
-  <rect x="208.4" y="316" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="214.4" y="316" width="6" height="6" fill="none"/>
-  <rect x="214.4" y="316" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="220.4" y="316" width="6" height="6" fill="none"/>
-  <rect x="220.4" y="316" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="226.4" y="316" width="6" height="6" fill="none"/>
-  <rect x="226.4" y="316" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="232.4" y="316" width="6" height="6" fill="none"/>
-  <rect x="232.4" y="316" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="238.4" y="316" width="6" height="6" fill="none"/>
-  <rect x="238.4" y="316" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="244.4" y="316" width="6" height="6" fill="none"/>
-  <rect x="244.4" y="316" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="202.4" y="322" width="6" height="6" fill="none"/>
-  <rect x="202.4" y="322" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="208.4" y="322" width="6" height="6" fill="none"/>
-  <rect x="208.4" y="322" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="214.4" y="322" width="6" height="6" fill="none"/>
-  <rect x="214.4" y="322" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="220.4" y="322" width="6" height="6" fill="none"/>
-  <rect x="220.4" y="322" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="226.4" y="322" width="6" height="6" fill="none"/>
-  <rect x="226.4" y="322" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="232.4" y="322" width="6" height="6" fill="none"/>
-  <rect x="232.4" y="322" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="238.4" y="322" width="6" height="6" fill="none"/>
-  <rect x="238.4" y="322" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="244.4" y="322" width="6" height="6" fill="none"/>
-  <rect x="244.4" y="322" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="202.4" y="328" width="6" height="6" fill="none"/>
-  <rect x="202.4" y="328" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="208.4" y="328" width="6" height="6" fill="none"/>
-  <rect x="208.4" y="328" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="214.4" y="328" width="6" height="6" fill="none"/>
-  <rect x="214.4" y="328" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="220.4" y="328" width="6" height="6" fill="none"/>
-  <rect x="220.4" y="328" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="226.4" y="328" width="6" height="6" fill="none"/>
-  <rect x="226.4" y="328" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="232.4" y="328" width="6" height="6" fill="none"/>
-  <rect x="232.4" y="328" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="238.4" y="328" width="6" height="6" fill="none"/>
-  <rect x="238.4" y="328" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="244.4" y="328" width="6" height="6" fill="none"/>
-  <rect x="244.4" y="328" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="202.4" y="334" width="6" height="6" fill="none"/>
-  <rect x="202.4" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="208.4" y="334" width="6" height="6" fill="none"/>
-  <rect x="208.4" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="214.4" y="334" width="6" height="6" fill="none"/>
-  <rect x="214.4" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="220.4" y="334" width="6" height="6" fill="none"/>
-  <rect x="220.4" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="226.4" y="334" width="6" height="6" fill="none"/>
-  <rect x="226.4" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="232.4" y="334" width="6" height="6" fill="none"/>
-  <rect x="232.4" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="238.4" y="334" width="6" height="6" fill="none"/>
-  <rect x="238.4" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="244.4" y="334" width="6" height="6" fill="none"/>
-  <rect x="244.4" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="202.4" y="244" width="48" height="96" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
-  <text class="s" x="226.4" y="353.0" text-anchor="middle">A [4096, 2048]</text>
-  <text class="s" x="226.4" y="366.0" text-anchor="middle">32 MiB</text>
-  <rect x="258.4" y="244" width="6" height="6" fill="none"/>
-  <rect x="258.4" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="264.4" y="244" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.12"/>
-  <rect x="264.4" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="258.4" y="250" width="6" height="6" fill="none"/>
-  <rect x="258.4" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="264.4" y="250" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.2142857142857143"/>
-  <rect x="264.4" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="258.4" y="256" width="6" height="6" fill="none"/>
-  <rect x="258.4" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="264.4" y="256" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.3085714285714286"/>
-  <rect x="264.4" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="258.4" y="262" width="6" height="6" fill="none"/>
-  <rect x="258.4" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="264.4" y="262" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.40285714285714286"/>
-  <rect x="264.4" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="258.4" y="268" width="6" height="6" fill="none"/>
-  <rect x="258.4" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="264.4" y="268" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.49714285714285716"/>
-  <rect x="264.4" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="258.4" y="274" width="6" height="6" fill="none"/>
-  <rect x="258.4" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="264.4" y="274" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.5914285714285714"/>
-  <rect x="264.4" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="258.4" y="280" width="6" height="6" fill="none"/>
-  <rect x="258.4" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="264.4" y="280" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.6857142857142857"/>
-  <rect x="264.4" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="258.4" y="286" width="6" height="6" fill="none"/>
-  <rect x="258.4" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="264.4" y="286" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.78"/>
-  <rect x="264.4" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="258.4" y="244" width="12" height="48" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
-  <text class="s" x="276.4" y="258.0" text-anchor="start">B [2048, 512]</text>
-  <text class="s" x="276.4" y="271.0" text-anchor="start">4 MiB</text>
-  <line x1="205.4" y1="248.0" x2="220.4" y2="86.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-4-m3)"/>
-  <line x1="267.4" y1="242.0" x2="238.4" y2="86.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-4-m3)"/>
-  <rect x="587.6" y="244" width="6" height="6" fill="none"/>
-  <rect x="587.6" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="593.6" y="244" width="6" height="6" fill="none"/>
-  <rect x="593.6" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="587.6" y="250" width="6" height="6" fill="none"/>
-  <rect x="587.6" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="593.6" y="250" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.78"/>
-  <rect x="593.6" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="587.6" y="256" width="6" height="6" fill="none"/>
-  <rect x="587.6" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="593.6" y="256" width="6" height="6" fill="none"/>
-  <rect x="593.6" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="587.6" y="262" width="6" height="6" fill="none"/>
-  <rect x="587.6" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="593.6" y="262" width="6" height="6" fill="none"/>
-  <rect x="593.6" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="587.6" y="268" width="6" height="6" fill="none"/>
-  <rect x="587.6" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="593.6" y="268" width="6" height="6" fill="none"/>
-  <rect x="593.6" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="587.6" y="274" width="6" height="6" fill="none"/>
-  <rect x="587.6" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="593.6" y="274" width="6" height="6" fill="none"/>
-  <rect x="593.6" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="587.6" y="280" width="6" height="6" fill="none"/>
-  <rect x="587.6" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="593.6" y="280" width="6" height="6" fill="none"/>
-  <rect x="593.6" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="587.6" y="286" width="6" height="6" fill="none"/>
-  <rect x="587.6" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="593.6" y="286" width="6" height="6" fill="none"/>
-  <rect x="593.6" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="587.6" y="292" width="6" height="6" fill="none"/>
-  <rect x="587.6" y="292" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="593.6" y="292" width="6" height="6" fill="none"/>
-  <rect x="593.6" y="292" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="587.6" y="298" width="6" height="6" fill="none"/>
-  <rect x="587.6" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="593.6" y="298" width="6" height="6" fill="none"/>
-  <rect x="593.6" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="587.6" y="304" width="6" height="6" fill="none"/>
-  <rect x="587.6" y="304" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="593.6" y="304" width="6" height="6" fill="none"/>
-  <rect x="593.6" y="304" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="587.6" y="310" width="6" height="6" fill="none"/>
-  <rect x="587.6" y="310" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="593.6" y="310" width="6" height="6" fill="none"/>
-  <rect x="593.6" y="310" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="587.6" y="316" width="6" height="6" fill="none"/>
-  <rect x="587.6" y="316" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="593.6" y="316" width="6" height="6" fill="none"/>
-  <rect x="593.6" y="316" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="587.6" y="322" width="6" height="6" fill="none"/>
-  <rect x="587.6" y="322" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="593.6" y="322" width="6" height="6" fill="none"/>
-  <rect x="593.6" y="322" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="587.6" y="328" width="6" height="6" fill="none"/>
-  <rect x="587.6" y="328" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="593.6" y="328" width="6" height="6" fill="none"/>
-  <rect x="593.6" y="328" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="587.6" y="334" width="6" height="6" fill="none"/>
-  <rect x="587.6" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="593.6" y="334" width="6" height="6" fill="none"/>
-  <rect x="593.6" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="587.6" y="244" width="12" height="96" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
-  <text class="s" x="593.6" y="353.0" text-anchor="middle">C [4096, 512]</text>
-  <text class="s" x="593.6" y="366.0" text-anchor="middle">8 MiB</text>
-  <line x1="596.6" y1="86.0" x2="596.6" y2="249.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-4-m3)"/>
-  <text class="s" x="276.4" y="296">for 循环沿 K 读块的顺序</text>
-  <rect x="276.4" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.12" stroke-opacity=".4" stroke-width=".6"/>
-  <rect x="288.4" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.21" stroke-opacity=".4" stroke-width=".6"/>
-  <rect x="300.4" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.31" stroke-opacity=".4" stroke-width=".6"/>
-  <rect x="312.4" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.40" stroke-opacity=".4" stroke-width=".6"/>
-  <rect x="324.4" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.50" stroke-opacity=".4" stroke-width=".6"/>
-  <rect x="336.4" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.59" stroke-opacity=".4" stroke-width=".6"/>
-  <rect x="348.4" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.69" stroke-opacity=".4" stroke-width=".6"/>
-  <rect x="360.4" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.78" stroke-opacity=".4" stroke-width=".6"/>
-  <text class="s" x="276.4" y="325">第 0 轮</text><text class="s" x="372.4" y="325" text-anchor="end">第 63 轮</text>
+  <rect x="203.0" y="158" width="30" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="203.0" y="158" width="30" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
+  <text class="s" x="218.0" y="171" text-anchor="middle" >A 块</text>
+  <rect x="245.0" y="190" width="34" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="245.0" y="190" width="34" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
+  <text class="s" x="262.0" y="203" text-anchor="middle" >B 块</text>
+  <rect x="249.0" y="111" width="34" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="249.0" y="111" width="34" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
+  <text class="s" x="266.0" y="124" text-anchor="middle" >a、b</text>
+  <line x1="224.0" y1="156.0" x2="258.0" y2="131.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <line x1="268.0" y1="188.0" x2="272.0" y2="131.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <line x1="280.0" y1="109.0" x2="281.7" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <rect x="366.3" y="158" width="30" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="366.3" y="158" width="30" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
+  <text class="s" x="381.3" y="171" text-anchor="middle" style="fill: var(--fig-on-1)">A 块</text>
+  <rect x="408.3" y="190" width="34" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="408.3" y="190" width="34" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
+  <text class="s" x="425.3" y="203" text-anchor="middle" style="fill: var(--fig-on-1)">B 块</text>
+  <rect x="412.3" y="111" width="34" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="412.3" y="111" width="34" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
+  <text class="s" x="429.3" y="124" text-anchor="middle" style="fill: var(--fig-on-1)">a、b</text>
+  <line x1="387.3" y1="156.0" x2="421.3" y2="131.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <line x1="431.3" y1="188.0" x2="435.3" y2="131.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <line x1="443.3" y1="109.0" x2="445.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <rect x="310.7" y="111" width="34" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="310.7" y="111" width="34" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
+  <text class="s" x="327.7" y="124" text-anchor="middle" >acc</text>
+  <rect x="484.7" y="111" width="34" height="18" rx="4" fill="url(#fig-t-4-acc)"/><rect x="484.7" y="111" width="34" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
+  <text class="s" x="501.7" y="124" text-anchor="middle" >acc</text>
+  <line x1="305.7" y1="86.0" x2="319.7" y2="109.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <line x1="469.0" y1="86.0" x2="493.7" y2="109.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <line x1="509.7" y1="109.0" x2="526.3" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <path d="M297.7,44 L297.7,37 L461.0,37 L461.0,43" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-4-m2)"/>
+  <text class="s" x="379.3" y="33" text-anchor="middle" style="fill: var(--fig-hi)">acc 带到下一轮</text>
+  <rect x="593.0" y="111" width="30" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="593.0" y="111" width="30" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
+  <text class="s" x="608.0" y="124" text-anchor="middle" style="fill: var(--fig-on-1)">C 块</text>
+  <line x1="558.3" y1="86.0" x2="596.0" y2="109.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <rect x="285.7" y="172" width="74" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-dasharray="3 2" stroke-opacity=".7"/>
+  <text class="s" x="322.7" y="185" text-anchor="middle">第 1 轮 A、B</text><text class="s" x="322.7" y="203" text-anchor="middle">正在搬</text>
+  <rect x="202.0" y="244" width="6" height="6" fill="none"/>
+  <rect x="202.0" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="208.0" y="244" width="6" height="6" fill="none"/>
+  <rect x="208.0" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="214.0" y="244" width="6" height="6" fill="none"/>
+  <rect x="214.0" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="220.0" y="244" width="6" height="6" fill="none"/>
+  <rect x="220.0" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="226.0" y="244" width="6" height="6" fill="none"/>
+  <rect x="226.0" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="232.0" y="244" width="6" height="6" fill="none"/>
+  <rect x="232.0" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="238.0" y="244" width="6" height="6" fill="none"/>
+  <rect x="238.0" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="244.0" y="244" width="6" height="6" fill="none"/>
+  <rect x="244.0" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="202.0" y="250" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.12"/>
+  <rect x="202.0" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="208.0" y="250" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.2142857142857143"/>
+  <rect x="208.0" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="214.0" y="250" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.3085714285714286"/>
+  <rect x="214.0" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="220.0" y="250" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.40285714285714286"/>
+  <rect x="220.0" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="226.0" y="250" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.49714285714285716"/>
+  <rect x="226.0" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="232.0" y="250" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.5914285714285714"/>
+  <rect x="232.0" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="238.0" y="250" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.6857142857142857"/>
+  <rect x="238.0" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="244.0" y="250" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.78"/>
+  <rect x="244.0" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="202.0" y="256" width="6" height="6" fill="none"/>
+  <rect x="202.0" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="208.0" y="256" width="6" height="6" fill="none"/>
+  <rect x="208.0" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="214.0" y="256" width="6" height="6" fill="none"/>
+  <rect x="214.0" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="220.0" y="256" width="6" height="6" fill="none"/>
+  <rect x="220.0" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="226.0" y="256" width="6" height="6" fill="none"/>
+  <rect x="226.0" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="232.0" y="256" width="6" height="6" fill="none"/>
+  <rect x="232.0" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="238.0" y="256" width="6" height="6" fill="none"/>
+  <rect x="238.0" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="244.0" y="256" width="6" height="6" fill="none"/>
+  <rect x="244.0" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="202.0" y="262" width="6" height="6" fill="none"/>
+  <rect x="202.0" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="208.0" y="262" width="6" height="6" fill="none"/>
+  <rect x="208.0" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="214.0" y="262" width="6" height="6" fill="none"/>
+  <rect x="214.0" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="220.0" y="262" width="6" height="6" fill="none"/>
+  <rect x="220.0" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="226.0" y="262" width="6" height="6" fill="none"/>
+  <rect x="226.0" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="232.0" y="262" width="6" height="6" fill="none"/>
+  <rect x="232.0" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="238.0" y="262" width="6" height="6" fill="none"/>
+  <rect x="238.0" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="244.0" y="262" width="6" height="6" fill="none"/>
+  <rect x="244.0" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="202.0" y="268" width="6" height="6" fill="none"/>
+  <rect x="202.0" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="208.0" y="268" width="6" height="6" fill="none"/>
+  <rect x="208.0" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="214.0" y="268" width="6" height="6" fill="none"/>
+  <rect x="214.0" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="220.0" y="268" width="6" height="6" fill="none"/>
+  <rect x="220.0" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="226.0" y="268" width="6" height="6" fill="none"/>
+  <rect x="226.0" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="232.0" y="268" width="6" height="6" fill="none"/>
+  <rect x="232.0" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="238.0" y="268" width="6" height="6" fill="none"/>
+  <rect x="238.0" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="244.0" y="268" width="6" height="6" fill="none"/>
+  <rect x="244.0" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="202.0" y="274" width="6" height="6" fill="none"/>
+  <rect x="202.0" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="208.0" y="274" width="6" height="6" fill="none"/>
+  <rect x="208.0" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="214.0" y="274" width="6" height="6" fill="none"/>
+  <rect x="214.0" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="220.0" y="274" width="6" height="6" fill="none"/>
+  <rect x="220.0" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="226.0" y="274" width="6" height="6" fill="none"/>
+  <rect x="226.0" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="232.0" y="274" width="6" height="6" fill="none"/>
+  <rect x="232.0" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="238.0" y="274" width="6" height="6" fill="none"/>
+  <rect x="238.0" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="244.0" y="274" width="6" height="6" fill="none"/>
+  <rect x="244.0" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="202.0" y="280" width="6" height="6" fill="none"/>
+  <rect x="202.0" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="208.0" y="280" width="6" height="6" fill="none"/>
+  <rect x="208.0" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="214.0" y="280" width="6" height="6" fill="none"/>
+  <rect x="214.0" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="220.0" y="280" width="6" height="6" fill="none"/>
+  <rect x="220.0" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="226.0" y="280" width="6" height="6" fill="none"/>
+  <rect x="226.0" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="232.0" y="280" width="6" height="6" fill="none"/>
+  <rect x="232.0" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="238.0" y="280" width="6" height="6" fill="none"/>
+  <rect x="238.0" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="244.0" y="280" width="6" height="6" fill="none"/>
+  <rect x="244.0" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="202.0" y="286" width="6" height="6" fill="none"/>
+  <rect x="202.0" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="208.0" y="286" width="6" height="6" fill="none"/>
+  <rect x="208.0" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="214.0" y="286" width="6" height="6" fill="none"/>
+  <rect x="214.0" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="220.0" y="286" width="6" height="6" fill="none"/>
+  <rect x="220.0" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="226.0" y="286" width="6" height="6" fill="none"/>
+  <rect x="226.0" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="232.0" y="286" width="6" height="6" fill="none"/>
+  <rect x="232.0" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="238.0" y="286" width="6" height="6" fill="none"/>
+  <rect x="238.0" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="244.0" y="286" width="6" height="6" fill="none"/>
+  <rect x="244.0" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="202.0" y="292" width="6" height="6" fill="none"/>
+  <rect x="202.0" y="292" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="208.0" y="292" width="6" height="6" fill="none"/>
+  <rect x="208.0" y="292" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="214.0" y="292" width="6" height="6" fill="none"/>
+  <rect x="214.0" y="292" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="220.0" y="292" width="6" height="6" fill="none"/>
+  <rect x="220.0" y="292" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="226.0" y="292" width="6" height="6" fill="none"/>
+  <rect x="226.0" y="292" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="232.0" y="292" width="6" height="6" fill="none"/>
+  <rect x="232.0" y="292" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="238.0" y="292" width="6" height="6" fill="none"/>
+  <rect x="238.0" y="292" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="244.0" y="292" width="6" height="6" fill="none"/>
+  <rect x="244.0" y="292" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="202.0" y="298" width="6" height="6" fill="none"/>
+  <rect x="202.0" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="208.0" y="298" width="6" height="6" fill="none"/>
+  <rect x="208.0" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="214.0" y="298" width="6" height="6" fill="none"/>
+  <rect x="214.0" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="220.0" y="298" width="6" height="6" fill="none"/>
+  <rect x="220.0" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="226.0" y="298" width="6" height="6" fill="none"/>
+  <rect x="226.0" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="232.0" y="298" width="6" height="6" fill="none"/>
+  <rect x="232.0" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="238.0" y="298" width="6" height="6" fill="none"/>
+  <rect x="238.0" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="244.0" y="298" width="6" height="6" fill="none"/>
+  <rect x="244.0" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="202.0" y="304" width="6" height="6" fill="none"/>
+  <rect x="202.0" y="304" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="208.0" y="304" width="6" height="6" fill="none"/>
+  <rect x="208.0" y="304" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="214.0" y="304" width="6" height="6" fill="none"/>
+  <rect x="214.0" y="304" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="220.0" y="304" width="6" height="6" fill="none"/>
+  <rect x="220.0" y="304" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="226.0" y="304" width="6" height="6" fill="none"/>
+  <rect x="226.0" y="304" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="232.0" y="304" width="6" height="6" fill="none"/>
+  <rect x="232.0" y="304" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="238.0" y="304" width="6" height="6" fill="none"/>
+  <rect x="238.0" y="304" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="244.0" y="304" width="6" height="6" fill="none"/>
+  <rect x="244.0" y="304" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="202.0" y="310" width="6" height="6" fill="none"/>
+  <rect x="202.0" y="310" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="208.0" y="310" width="6" height="6" fill="none"/>
+  <rect x="208.0" y="310" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="214.0" y="310" width="6" height="6" fill="none"/>
+  <rect x="214.0" y="310" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="220.0" y="310" width="6" height="6" fill="none"/>
+  <rect x="220.0" y="310" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="226.0" y="310" width="6" height="6" fill="none"/>
+  <rect x="226.0" y="310" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="232.0" y="310" width="6" height="6" fill="none"/>
+  <rect x="232.0" y="310" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="238.0" y="310" width="6" height="6" fill="none"/>
+  <rect x="238.0" y="310" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="244.0" y="310" width="6" height="6" fill="none"/>
+  <rect x="244.0" y="310" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="202.0" y="316" width="6" height="6" fill="none"/>
+  <rect x="202.0" y="316" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="208.0" y="316" width="6" height="6" fill="none"/>
+  <rect x="208.0" y="316" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="214.0" y="316" width="6" height="6" fill="none"/>
+  <rect x="214.0" y="316" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="220.0" y="316" width="6" height="6" fill="none"/>
+  <rect x="220.0" y="316" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="226.0" y="316" width="6" height="6" fill="none"/>
+  <rect x="226.0" y="316" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="232.0" y="316" width="6" height="6" fill="none"/>
+  <rect x="232.0" y="316" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="238.0" y="316" width="6" height="6" fill="none"/>
+  <rect x="238.0" y="316" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="244.0" y="316" width="6" height="6" fill="none"/>
+  <rect x="244.0" y="316" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="202.0" y="322" width="6" height="6" fill="none"/>
+  <rect x="202.0" y="322" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="208.0" y="322" width="6" height="6" fill="none"/>
+  <rect x="208.0" y="322" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="214.0" y="322" width="6" height="6" fill="none"/>
+  <rect x="214.0" y="322" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="220.0" y="322" width="6" height="6" fill="none"/>
+  <rect x="220.0" y="322" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="226.0" y="322" width="6" height="6" fill="none"/>
+  <rect x="226.0" y="322" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="232.0" y="322" width="6" height="6" fill="none"/>
+  <rect x="232.0" y="322" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="238.0" y="322" width="6" height="6" fill="none"/>
+  <rect x="238.0" y="322" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="244.0" y="322" width="6" height="6" fill="none"/>
+  <rect x="244.0" y="322" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="202.0" y="328" width="6" height="6" fill="none"/>
+  <rect x="202.0" y="328" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="208.0" y="328" width="6" height="6" fill="none"/>
+  <rect x="208.0" y="328" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="214.0" y="328" width="6" height="6" fill="none"/>
+  <rect x="214.0" y="328" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="220.0" y="328" width="6" height="6" fill="none"/>
+  <rect x="220.0" y="328" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="226.0" y="328" width="6" height="6" fill="none"/>
+  <rect x="226.0" y="328" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="232.0" y="328" width="6" height="6" fill="none"/>
+  <rect x="232.0" y="328" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="238.0" y="328" width="6" height="6" fill="none"/>
+  <rect x="238.0" y="328" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="244.0" y="328" width="6" height="6" fill="none"/>
+  <rect x="244.0" y="328" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="202.0" y="334" width="6" height="6" fill="none"/>
+  <rect x="202.0" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="208.0" y="334" width="6" height="6" fill="none"/>
+  <rect x="208.0" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="214.0" y="334" width="6" height="6" fill="none"/>
+  <rect x="214.0" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="220.0" y="334" width="6" height="6" fill="none"/>
+  <rect x="220.0" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="226.0" y="334" width="6" height="6" fill="none"/>
+  <rect x="226.0" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="232.0" y="334" width="6" height="6" fill="none"/>
+  <rect x="232.0" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="238.0" y="334" width="6" height="6" fill="none"/>
+  <rect x="238.0" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="244.0" y="334" width="6" height="6" fill="none"/>
+  <rect x="244.0" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="202.0" y="244" width="48" height="96" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
+  <text class="s" x="226.0" y="353.0" text-anchor="middle">A [4096, 2048]</text>
+  <text class="s" x="226.0" y="366.0" text-anchor="middle">32 MiB</text>
+  <rect x="258.0" y="244" width="6" height="6" fill="none"/>
+  <rect x="258.0" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="264.0" y="244" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.12"/>
+  <rect x="264.0" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="258.0" y="250" width="6" height="6" fill="none"/>
+  <rect x="258.0" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="264.0" y="250" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.2142857142857143"/>
+  <rect x="264.0" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="258.0" y="256" width="6" height="6" fill="none"/>
+  <rect x="258.0" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="264.0" y="256" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.3085714285714286"/>
+  <rect x="264.0" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="258.0" y="262" width="6" height="6" fill="none"/>
+  <rect x="258.0" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="264.0" y="262" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.40285714285714286"/>
+  <rect x="264.0" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="258.0" y="268" width="6" height="6" fill="none"/>
+  <rect x="258.0" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="264.0" y="268" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.49714285714285716"/>
+  <rect x="264.0" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="258.0" y="274" width="6" height="6" fill="none"/>
+  <rect x="258.0" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="264.0" y="274" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.5914285714285714"/>
+  <rect x="264.0" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="258.0" y="280" width="6" height="6" fill="none"/>
+  <rect x="258.0" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="264.0" y="280" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.6857142857142857"/>
+  <rect x="264.0" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="258.0" y="286" width="6" height="6" fill="none"/>
+  <rect x="258.0" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="264.0" y="286" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.78"/>
+  <rect x="264.0" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="258.0" y="244" width="12" height="48" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
+  <text class="s" x="276.0" y="258.0" text-anchor="start">B [2048, 512]</text>
+  <text class="s" x="276.0" y="271.0" text-anchor="start">4 MiB</text>
+  <line x1="205.0" y1="250.0" x2="212.0" y2="178.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-4-m3)"/>
+  <line x1="267.0" y1="244.0" x2="265.0" y2="210.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-4-m3)"/>
+  <text class="s" x="271.0" y="228.0" text-anchor="start" style="fill: var(--fig-1)">cp.async</text>
+  <rect x="599.0" y="244" width="6" height="6" fill="none"/>
+  <rect x="599.0" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="605.0" y="244" width="6" height="6" fill="none"/>
+  <rect x="605.0" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="599.0" y="250" width="6" height="6" fill="none"/>
+  <rect x="599.0" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="605.0" y="250" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.78"/>
+  <rect x="605.0" y="250" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="599.0" y="256" width="6" height="6" fill="none"/>
+  <rect x="599.0" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="605.0" y="256" width="6" height="6" fill="none"/>
+  <rect x="605.0" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="599.0" y="262" width="6" height="6" fill="none"/>
+  <rect x="599.0" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="605.0" y="262" width="6" height="6" fill="none"/>
+  <rect x="605.0" y="262" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="599.0" y="268" width="6" height="6" fill="none"/>
+  <rect x="599.0" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="605.0" y="268" width="6" height="6" fill="none"/>
+  <rect x="605.0" y="268" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="599.0" y="274" width="6" height="6" fill="none"/>
+  <rect x="599.0" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="605.0" y="274" width="6" height="6" fill="none"/>
+  <rect x="605.0" y="274" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="599.0" y="280" width="6" height="6" fill="none"/>
+  <rect x="599.0" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="605.0" y="280" width="6" height="6" fill="none"/>
+  <rect x="605.0" y="280" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="599.0" y="286" width="6" height="6" fill="none"/>
+  <rect x="599.0" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="605.0" y="286" width="6" height="6" fill="none"/>
+  <rect x="605.0" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="599.0" y="292" width="6" height="6" fill="none"/>
+  <rect x="599.0" y="292" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="605.0" y="292" width="6" height="6" fill="none"/>
+  <rect x="605.0" y="292" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="599.0" y="298" width="6" height="6" fill="none"/>
+  <rect x="599.0" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="605.0" y="298" width="6" height="6" fill="none"/>
+  <rect x="605.0" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="599.0" y="304" width="6" height="6" fill="none"/>
+  <rect x="599.0" y="304" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="605.0" y="304" width="6" height="6" fill="none"/>
+  <rect x="605.0" y="304" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="599.0" y="310" width="6" height="6" fill="none"/>
+  <rect x="599.0" y="310" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="605.0" y="310" width="6" height="6" fill="none"/>
+  <rect x="605.0" y="310" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="599.0" y="316" width="6" height="6" fill="none"/>
+  <rect x="599.0" y="316" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="605.0" y="316" width="6" height="6" fill="none"/>
+  <rect x="605.0" y="316" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="599.0" y="322" width="6" height="6" fill="none"/>
+  <rect x="599.0" y="322" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="605.0" y="322" width="6" height="6" fill="none"/>
+  <rect x="605.0" y="322" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="599.0" y="328" width="6" height="6" fill="none"/>
+  <rect x="599.0" y="328" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="605.0" y="328" width="6" height="6" fill="none"/>
+  <rect x="605.0" y="328" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="599.0" y="334" width="6" height="6" fill="none"/>
+  <rect x="599.0" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="605.0" y="334" width="6" height="6" fill="none"/>
+  <rect x="605.0" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
+  <rect x="599.0" y="244" width="12" height="96" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
+  <text class="s" x="630.0" y="353.0" text-anchor="end">C [4096, 512]</text>
+  <text class="s" x="630.0" y="366.0" text-anchor="end">8 MiB</text>
+  <line x1="608.0" y1="131.0" x2="608.0" y2="249.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-4-m3)"/>
+  <text class="s" x="604.0" y="196.0" text-anchor="end" style="fill: var(--fig-1)">tl.store</text>
+  <text class="s" x="276.0" y="296">for 循环沿 K 读块的顺序</text>
+  <rect x="276.0" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.12" stroke-opacity=".4" stroke-width=".6"/>
+  <rect x="288.0" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.21" stroke-opacity=".4" stroke-width=".6"/>
+  <rect x="300.0" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.31" stroke-opacity=".4" stroke-width=".6"/>
+  <rect x="312.0" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.40" stroke-opacity=".4" stroke-width=".6"/>
+  <rect x="324.0" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.50" stroke-opacity=".4" stroke-width=".6"/>
+  <rect x="336.0" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.59" stroke-opacity=".4" stroke-width=".6"/>
+  <rect x="348.0" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.69" stroke-opacity=".4" stroke-width=".6"/>
+  <rect x="360.0" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.78" stroke-opacity=".4" stroke-width=".6"/>
+  <text class="s" x="276.0" y="325">第 0 轮</text><text class="s" x="372.0" y="325" text-anchor="end">第 63 轮</text>
 </svg>
 <figcaption><strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的 A、B、C 按形状比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 行和 B 的第 1 列，颜色由淡到浓是 for 循环沿 K 读块的顺序：第 0 轮读最淡的块，第 63 轮读最浓的；acc 一轮轮累积，最后铺满整条渐变，ReLU 后写回 C 的 (1, 1) 块。512 个 program 分到 170 个 SM，每个 SM 放 3 个，正好一批。</figcaption>
 </figure>
