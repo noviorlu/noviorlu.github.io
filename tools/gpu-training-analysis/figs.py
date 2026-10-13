@@ -784,6 +784,44 @@ def hw_sm():
     f.w('<text class="t" x="321" y="202" text-anchor="middle">L1 cache / shared memory 128 KB（4 个 SMSP 共享）</text>')
     return f
 
+def hw_smsp():
+    f = F("fig-h-7b", 322, "RTX 5090 一个 SMSP 的结构：L0 指令 cache、warp scheduler 和 dispatch，64 KB register file，32 个 FP32/INT32 核和 1 个 Tensor core，4 个 LD/ST 和 SFU；下面接 SM 共享的 128 KB L1 / shared memory")
+    f.w(f'<rect x="12" y="12" width="356" height="248" rx="12" {tint("--fig-1", 6, sw=1.4)}/>')
+    f.w('<text class="tb" x="30" y="33">一个 SMSP（每个 SM 4 个）</text>')
+    M = lambda x, y, n, anchor="start": f.w(f'<text class="s" x="{x}" y="{y}" text-anchor="{anchor}" style="fill: var(--fig-hi)">{n}</text>')
+    def box(x, y, w, h, t, var, pct, cls="s"):
+        f.w(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="4" {tint(var, pct)}/>')
+        f.w(f'<text class="{cls}" x="{x + w / 2}" y="{y + h / 2 + 4}" text-anchor="middle">{t}</text>')
+    box(30, 42, 96, 24, "L0 i-cache", "--fig-1", 10)
+    box(132, 42, 112, 24, "① warp scheduler", "--fig-1", 18)
+    box(250, 42, 104, 24, "dispatch", "--fig-1", 10)
+    box(30, 72, 324, 24, "② register file：16,384 × 32-bit = 64 KB", "--fig-hi", 14)
+    for r in range(4):                                # 32 个 FP32/INT32 核，4 × 8
+        for c in range(8):
+            f.w(f'<rect x="{30 + c * 25.5:.1f}" y="{102 + r * 26}" width="22.5" height="23" rx="3" {tint("--fig-2", 26, sw=1)}/>')
+    f.w('<rect x="66" y="137" width="132" height="34" rx="5" style="fill: var(--fig-bg); stroke: var(--fig-2)"/>')
+    f.w('<text class="tb" x="132" y="152" text-anchor="middle">③ FP32 / INT32</text><text class="s" x="132" y="166" text-anchor="middle">× 32</text>')
+    f.w(f'<rect x="238" y="102" width="116" height="101" rx="4" {tint("--fig-1", 24)}/>')
+    f.w('<text class="tb" x="296" y="148" text-anchor="middle">④ Tensor core</text><text class="s" x="296" y="165" text-anchor="middle">第 5 代，× 1</text>')
+    M(16, 225, "⑤")
+    for k in range(4):
+        box(30 + k * 52.5, 210, 47, 22, "LD/ST", "--fig-mute", 22)
+    box(250, 210, 104, 22, "⑥ SFU", "--fig-3", 45)
+    f.w('<text class="lab2" x="190" y="251" text-anchor="middle">↓ 4 个 SMSP 共享 128 KB L1 / shared memory（图 1-3）</text>')
+    notes = [("①", ["warp scheduler：每拍从驻留的", "warp 里挑一个就绪的；dispatch", "把它的一条指令发给 32 个 thread"]),
+             ("②", ["register：这个 SMSP 上所有驻留的", "thread 分着用，每个最多 255 个"]),
+             ("③", ["FP32 / INT32 核：一条加法、乘法", "或 FMA，32 个 thread 各用一个核；", "同一拍只能做 FP32 或 INT32"]),
+             ("④", ["Tensor core：一条指令算一个", "小矩阵乘，tl.dot 走它"]),
+             ("⑤", ["LD/ST：load / store，在 register", "和 L1 / shared memory、显存之间", "搬数据"]),
+             ("⑥", ["SFU：exp、rsqrt、sin 这类特殊函数"])]
+    y = 34
+    for n, lines in notes:
+        M(384, y, n)
+        for k, line in enumerate(lines):
+            f.w(f'<text class="lab2" x="400" y="{y + k * 15}">{line}</text>')
+        y += 15 * len(lines) + 8
+    return f
+
 def warp_slots():
     f = F("fig-h-6", 300, "一个 SM 上驻留 3 个 block、每个 4 个 warp 时的某一拍：每个 SMSP 有 3 个 warp，分别来自 3 个 block；每个调度器这一拍最多发射一个，SMSP 2 的 3 个都在等数据，调度器空转")
     f.w(f'<rect x="10" y="10" width="620" height="246" rx="12" {tint("--fig-1", 6, sw=1.4)}/>')
@@ -1095,7 +1133,7 @@ def grid_tiles(f):
 def tri_gelu():
     f, cx, p = lanes_fig("fig-t-1", "GELU kernel：数组展平成一维按 BLOCK 切段，一段一个 program；tl.load 把一段从显存直接读进 register，计算单元算 GELU，tl.store 从 register 直接写回显存；每个 SM 同时跑 12 个 program，1536 个 thread 全满",
         "逐元素：y[i] 只依赖 x[i]", "一个 program（pid = 1）", grid_strip,
-        ["grid = (cdiv(n, BLOCK),)", "n = 8M，8192 个 program"],
+        ["grid = (cdiv(n, BLOCK),)", "n = 8388608", "8192 个 program"],
         [("offsets", "tl.arange"), ("@", "tl.load"), ("gelu", "tl.exp"), ("@", "tl.store")], "reg", (12, "线程数先满"),
         ["每个 program 1024 个元素，每个 thread 8 个，都在 register 里，不用 shared memory；", "offsets 是 load、store 的地址。显存只读 x 一次、写 y 一次。"], mem_y1=308)
     MY = p.ROW["m"][0]
@@ -1263,9 +1301,10 @@ def tri_matmul():
 CAPS = {
  "hw_hierarchy": '<strong>图 1-2</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。',
  "hw_sm": '<strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core 和 1 个 Tensor core，4 个 SMSP 共享 L1 / shared memory。',
- "warp_slots": '<strong>图 1-5</strong> 一个 SM 上驻留 3 个 block（B0、B1、B2）时的某一拍。格子里写的是这个 warp 属于哪个 block，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。',
- "cuda_model": '<strong>图 1-4</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。',
- "tri_gelu": '<strong>图 2-1</strong> GELU kernel（n = 8M，fp32）。左边是 grid：数组展平成一维、按 BLOCK = 1024 切段，一段一个 program；下面是一个 SM 同时跑几个 program，12 格是上限（1536 个 thread）。右边是 program 1：最上面是计算单元，下面依次是 register、shared memory 和显存（芯片外的 GDDR7）。箭头是数据流：tl.load 从显存直接读进 register，tl.store 从 register 直接写回显存，计算单元只从 register 读、写回 register。读写显存都会经过 L2 和 L1 cache，由硬件自动管理，图里不画。',
+ "warp_slots": '<strong>图 1-6</strong> 一个 SM 上驻留 3 个 block（B0、B1、B2）时的某一拍。格子里写的是这个 warp 属于哪个 block，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。',
+ "hw_smsp": '<strong>图 1-4</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 把 FP32 和 INT32 合成同一批核，同一拍只能做其中一种。',
+ "cuda_model": '<strong>图 1-5</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。',
+ "tri_gelu": '<strong>图 2-1</strong> GELU kernel（n = 8388608，fp32）。左边是 grid：数组展平成一维、按 BLOCK = 1024 切段，一段一个 program；下面是一个 SM 同时跑几个 program，12 格是上限（1536 个 thread）。右边是 program 1：最上面是计算单元，下面依次是 register、shared memory 和显存（芯片外的 GDDR7）。箭头是数据流：tl.load 从显存直接读进 register，tl.store 从 register 直接写回显存，计算单元只从 register 读、写回 register。读写显存都会经过 L2 和 L1 cache，由硬件自动管理，图里不画。',
  "tri_softmax": '<strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次；每个 program 用的 register 多，一个 SM 只放得下 9 个。',
  "tri_rowsum": '<strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 块，代码里 TILE = 1024。颜色由淡到浓是 for 循环读块的顺序：第 0 轮后 acc 只有第 0 块的数，最后的 acc 是 4 块逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。',
  "tri_matmul": '<strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的 A、B、C 按形状比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 行和 B 的第 1 列，颜色由淡到浓是 for 循环沿 K 读块的顺序：第 0 轮读最淡的块，第 63 轮读最浓的；acc 一轮轮累积，最后铺满整条渐变，ReLU 后写回 C 的 (1, 1) 块。512 个 program 分到 170 个 SM，每个 SM 放 3 个，正好一批。',
@@ -1292,7 +1331,7 @@ CAPS = {
  "ckpt": '<strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。',
  "sweep": '<strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。',
 }
-OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
+OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
        ("flops_vs_time", flops_vs_time), ("share_vs_seq", share_vs_seq), ("peak_memory", peak_memory), ("peak_moment", peak_moment),
        ("rms_eager", rms_eager), ("rms_fused", rms_fused), ("attn_flow", attn_flow), ("layer_donut", layer_donut), ("timelines", timelines),
        ("bf16", bf16), ("ckpt", ckpt), ("sweep", sweep))}

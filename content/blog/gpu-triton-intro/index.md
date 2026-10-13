@@ -176,6 +176,10 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 <figcaption><strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core 和 1 个 Tensor core，4 个 SMSP 共享 L1 / shared memory。</figcaption>
 </figure>
 
+一个 SMSP 里面再细分（[图 1-4](#fig-h-7b)）：warp scheduler 每拍挑一个 warp，dispatch 把它的一条指令发给 32 个 thread；FP32 / INT32 核做普通运算，Tensor core 做矩阵乘，SFU 算 exp、rsqrt 这类函数，LD/ST 负责 load 和 store。[第 2 节](#triton)kernel 图里的「计算单元」就是这些核，「register」就是这块 64 KB 的 register file。
+
+{{fig-h-7b}}
+
 | | A100 | H100 | B200 | RTX 5090 |
 |:--|--:|--:|--:|--:|
 | SM 数 | 108 | 132 | 148 | 170 |
@@ -193,7 +197,7 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 
 ### 1.3 编程模型：thread、warp、block、grid {#hw-model}
 
-CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：同一个 warp 里的 32 个线程在同一时刻执行同一条指令。线程分四层：thread；warp，32 个 thread；block（也叫 CTA），若干个 warp；grid，一次 kernel 启动的全部 block。[图 1-4](#fig-h-5) 把四层画在一起，左边逐层放大，右边是每层跑在哪个硬件上。
+CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：同一个 warp 里的 32 个线程在同一时刻执行同一条指令。线程分四层：thread；warp，32 个 thread；block（也叫 CTA），若干个 warp；grid，一次 kernel 启动的全部 block。[图 1-5](#fig-h-5) 把四层画在一起，左边逐层放大，右边是每层跑在哪个硬件上。
 
 <figure id="fig-h-5" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 352" width="100%" role="img" aria-label="CUDA 的执行层级：grid 由 block 组成，block 由 warp 组成，warp 由 32 个 thread 组成；分别跑在整张 GPU、一个 SM、一个 SMSP 和一条 lane 上">
@@ -299,7 +303,7 @@ CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：同一�
   <path d="M32 264 L20 302 M40 264 L370 302" stroke="currentColor" stroke-opacity=".3" stroke-dasharray="3 3" fill="none"/>
   <text class="lab" x="32" y="328">thread：自己的 register 和下标</text>
 </svg>
-<figcaption><strong>图 1-4</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。</figcaption>
+<figcaption><strong>图 1-5</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。</figcaption>
 </figure>
 
 block 放到 SM 上以后就一直驻留，直到它的线程全部跑完。一个 SM 能同时驻留多少，有几条硬件上限（[表 1-2](#tab-1-2)）。warp 的上限分摊到每个 SMSP 的调度器；block 的上限记在整个 SM 上，因为一个 block 的 shared memory 和同步由 4 个 SMSP 共用。
@@ -312,7 +316,7 @@ block 放到 SM 上以后就一直驻留，直到它的线程全部跑完。一�
 | 每 thread 最多 register | 255 | 255 | 255 | 255 |
 {#tab-1-2 caption="**表 1-2** 一个 SM 的驻留上限" note="来自 CUDA Programming Guide 的 compute capability 表（8.0、9.0、10.0、12.0）。"}
 
-一个 block 的 warp 按编号轮流分到 4 个 SMSP：warp 0 到 SMSP 0，warp 1 到 SMSP 1，依此类推。驻留不等于在跑。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp；所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态。所以一个 SM 上同时驻留的 warp 越多，访存延迟越容易藏住。[图 1-5](#fig-h-6) 画的是驻留 3 个 block、每个 4 个 warp 时的某一拍：每个 SMSP 有 3 个 warp，分别来自 3 个 block，调度器每个周期只发射其中一个；SMSP 2 的 3 个都在等数据，这一拍就空转。
+一个 block 的 warp 按编号轮流分到 4 个 SMSP：warp 0 到 SMSP 0，warp 1 到 SMSP 1，依此类推。驻留不等于在跑。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp；所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态。所以一个 SM 上同时驻留的 warp 越多，访存延迟越容易藏住。[图 1-6](#fig-h-6) 画的是驻留 3 个 block、每个 4 个 warp 时的某一拍：每个 SMSP 有 3 个 warp，分别来自 3 个 block，调度器每个周期只发射其中一个；SMSP 2 的 3 个都在等数据，这一拍就空转。
 
 <figure id="fig-h-6" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="一个 SM 上驻留 3 个 block、每个 4 个 warp 时的某一拍：每个 SMSP 有 3 个 warp，分别来自 3 个 block；每个调度器这一拍最多发射一个，SMSP 2 的 3 个都在等数据，调度器空转">
@@ -426,7 +430,7 @@ block 放到 SM 上以后就一直驻留，直到它的线程全部跑完。一�
   <rect x="343" y="272" width="17" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity=".55"/><text class="lab2" x="367" y="281">等数据</text>
   <rect x="434" y="272" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/><text class="lab2" x="458" y="281">空槽</text>
 </svg>
-<figcaption><strong>图 1-5</strong> 一个 SM 上驻留 3 个 block（B0、B1、B2）时的某一拍。格子里写的是这个 warp 属于哪个 block，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。</figcaption>
+<figcaption><strong>图 1-6</strong> 一个 SM 上驻留 3 个 block（B0、B1、B2）时的某一拍。格子里写的是这个 warp 属于哪个 block，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。</figcaption>
 </figure>
 
 block 之间不能直接共享数据，只能通过显存交换，而这正是最慢的一层。所以要尽量把会重复读的数据放进同一个 block 里处理，这就是分块（tiling）。在 CUDA 里分块要自己管 shared memory 和线程同步，[第 2 节](#triton)的 Triton 把这部分交给编译器。
@@ -500,70 +504,71 @@ GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函�
   <text class="s" x="112.2" y="77" text-anchor="middle">⋯</text>
   <text class="s" x="53.2" y="100" text-anchor="middle">pid=1</text>
   <text class="lab2" x="10" y="168">grid = (cdiv(n, BLOCK),)</text>
-  <text class="lab2" x="10" y="183">n = 8M，8192 个 program</text>
-  <text class="ttl" x="10" y="204">一个 SM</text>
-  <rect x="12" y="212" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <line x1="17.0" y1="216" x2="17.0" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="21.7" y1="216" x2="21.7" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="26.4" y1="216" x2="26.4" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="31.1" y1="216" x2="31.1" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <rect x="40" y="212" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <line x1="45.0" y1="216" x2="45.0" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="49.7" y1="216" x2="49.7" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="54.4" y1="216" x2="54.4" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="59.1" y1="216" x2="59.1" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <rect x="68" y="212" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <line x1="73.0" y1="216" x2="73.0" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="77.7" y1="216" x2="77.7" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="82.4" y1="216" x2="82.4" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="87.1" y1="216" x2="87.1" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <rect x="96" y="212" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <line x1="101.0" y1="216" x2="101.0" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="105.7" y1="216" x2="105.7" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="110.4" y1="216" x2="110.4" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="115.1" y1="216" x2="115.1" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <rect x="12" y="234" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <line x1="17.0" y1="238" x2="17.0" y2="248" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="21.7" y1="238" x2="21.7" y2="248" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="26.4" y1="238" x2="26.4" y2="248" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="31.1" y1="238" x2="31.1" y2="248" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <rect x="40" y="234" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <line x1="45.0" y1="238" x2="45.0" y2="248" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="49.7" y1="238" x2="49.7" y2="248" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="54.4" y1="238" x2="54.4" y2="248" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="59.1" y1="238" x2="59.1" y2="248" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <rect x="68" y="234" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <line x1="73.0" y1="238" x2="73.0" y2="248" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="77.7" y1="238" x2="77.7" y2="248" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="82.4" y1="238" x2="82.4" y2="248" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="87.1" y1="238" x2="87.1" y2="248" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <rect x="96" y="234" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <line x1="101.0" y1="238" x2="101.0" y2="248" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="105.7" y1="238" x2="105.7" y2="248" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="110.4" y1="238" x2="110.4" y2="248" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="115.1" y1="238" x2="115.1" y2="248" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <rect x="12" y="256" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <line x1="17.0" y1="260" x2="17.0" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="21.7" y1="260" x2="21.7" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="26.4" y1="260" x2="26.4" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="31.1" y1="260" x2="31.1" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <rect x="40" y="256" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <line x1="45.0" y1="260" x2="45.0" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="49.7" y1="260" x2="49.7" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="54.4" y1="260" x2="54.4" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="59.1" y1="260" x2="59.1" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <rect x="68" y="256" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <line x1="73.0" y1="260" x2="73.0" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="77.7" y1="260" x2="77.7" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="82.4" y1="260" x2="82.4" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="87.1" y1="260" x2="87.1" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <rect x="96" y="256" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <line x1="101.0" y1="260" x2="101.0" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="105.7" y1="260" x2="105.7" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="110.4" y1="260" x2="110.4" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="115.1" y1="260" x2="115.1" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <text class="s" x="10" y="286">每格一个 program（4 warp）</text><text class="s" x="10" y="300">12 × 128 = 1536 thread</text>
-  <text class="s" x="10" y="314">线程数先满</text>
+  <text class="lab2" x="10" y="183">n = 8388608</text>
+  <text class="lab2" x="10" y="198">8192 个 program</text>
+  <text class="ttl" x="10" y="219">一个 SM</text>
+  <rect x="12" y="227" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <line x1="17.0" y1="231" x2="17.0" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="21.7" y1="231" x2="21.7" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="26.4" y1="231" x2="26.4" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="31.1" y1="231" x2="31.1" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="40" y="227" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <line x1="45.0" y1="231" x2="45.0" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="49.7" y1="231" x2="49.7" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="54.4" y1="231" x2="54.4" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="59.1" y1="231" x2="59.1" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="68" y="227" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <line x1="73.0" y1="231" x2="73.0" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="77.7" y1="231" x2="77.7" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="82.4" y1="231" x2="82.4" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="87.1" y1="231" x2="87.1" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="96" y="227" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <line x1="101.0" y1="231" x2="101.0" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="105.7" y1="231" x2="105.7" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="110.4" y1="231" x2="110.4" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="115.1" y1="231" x2="115.1" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="12" y="249" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <line x1="17.0" y1="253" x2="17.0" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="21.7" y1="253" x2="21.7" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="26.4" y1="253" x2="26.4" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="31.1" y1="253" x2="31.1" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="40" y="249" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <line x1="45.0" y1="253" x2="45.0" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="49.7" y1="253" x2="49.7" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="54.4" y1="253" x2="54.4" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="59.1" y1="253" x2="59.1" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="68" y="249" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <line x1="73.0" y1="253" x2="73.0" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="77.7" y1="253" x2="77.7" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="82.4" y1="253" x2="82.4" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="87.1" y1="253" x2="87.1" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="96" y="249" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <line x1="101.0" y1="253" x2="101.0" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="105.7" y1="253" x2="105.7" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="110.4" y1="253" x2="110.4" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="115.1" y1="253" x2="115.1" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="12" y="271" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <line x1="17.0" y1="275" x2="17.0" y2="285" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="21.7" y1="275" x2="21.7" y2="285" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="26.4" y1="275" x2="26.4" y2="285" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="31.1" y1="275" x2="31.1" y2="285" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="40" y="271" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <line x1="45.0" y1="275" x2="45.0" y2="285" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="49.7" y1="275" x2="49.7" y2="285" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="54.4" y1="275" x2="54.4" y2="285" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="59.1" y1="275" x2="59.1" y2="285" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="68" y="271" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <line x1="73.0" y1="275" x2="73.0" y2="285" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="77.7" y1="275" x2="77.7" y2="285" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="82.4" y1="275" x2="82.4" y2="285" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="87.1" y1="275" x2="87.1" y2="285" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="96" y="271" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <line x1="101.0" y1="275" x2="101.0" y2="285" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="105.7" y1="275" x2="105.7" y2="285" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="110.4" y1="275" x2="110.4" y2="285" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="115.1" y1="275" x2="115.1" y2="285" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <text class="s" x="10" y="301">每格一个 program（4 warp）</text><text class="s" x="10" y="315">12 × 128 = 1536 thread</text>
+  <text class="s" x="10" y="329">线程数先满</text>
   <rect class="band" x="146" y="26" width="490" height="66" rx="8"/>
   <text class="lab2" x="152" y="56.5">计算</text>
   <text class="lab2" x="152" y="69.5">单元</text>
@@ -603,7 +608,7 @@ GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函�
   <text class="s" x="539.0" y="293" text-anchor="middle">y，32 MiB</text>
   <text class="s" x="214" y="204.0">不用（0 B）</text>
 </svg>
-<figcaption><strong>图 2-1</strong> GELU kernel（n = 8M，fp32）。左边是 grid：数组展平成一维、按 BLOCK = 1024 切段，一段一个 program；下面是一个 SM 同时跑几个 program，12 格是上限（1536 个 thread）。右边是 program 1：最上面是计算单元，下面依次是 register、shared memory 和显存（芯片外的 GDDR7）。箭头是数据流：tl.load 从显存直接读进 register，tl.store 从 register 直接写回显存，计算单元只从 register 读、写回 register。读写显存都会经过 L2 和 L1 cache，由硬件自动管理，图里不画。</figcaption>
+<figcaption><strong>图 2-1</strong> GELU kernel（n = 8388608，fp32）。左边是 grid：数组展平成一维、按 BLOCK = 1024 切段，一段一个 program；下面是一个 SM 同时跑几个 program，12 格是上限（1536 个 thread）。右边是 program 1：最上面是计算单元，下面依次是 register、shared memory 和显存（芯片外的 GDDR7）。箭头是数据流：tl.load 从显存直接读进 register，tl.store 从 register 直接写回显存，计算单元只从 register 读、写回 register。读写显存都会经过 L2 和 L1 cache，由硬件自动管理，图里不画。</figcaption>
 </figure>
 
 逐元素 op 最简单，每个元素各算各的，program 之间不需要配合。把 n 个元素切成每段 BLOCK 个，一段交给一个 program（[图 2-1](#fig-t-1)）。kernel 里先用 `tl.program_id` 算出自己负责的下标，读进来，算完写回：

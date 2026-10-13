@@ -45,6 +45,10 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 
 {{fig-h-2}}
 
+一个 SMSP 里面再细分（[图 1-4](#fig-h-7b)）：warp scheduler 每拍挑一个 warp，dispatch 把它的一条指令发给 32 个 thread；FP32 / INT32 核做普通运算，Tensor core 做矩阵乘，SFU 算 exp、rsqrt 这类函数，LD/ST 负责 load 和 store。[第 2 节](#triton)kernel 图里的「计算单元」就是这些核，「register」就是这块 64 KB 的 register file。
+
+{{fig-h-7b}}
+
 | | A100 | H100 | B200 | RTX 5090 |
 |:--|--:|--:|--:|--:|
 | SM 数 | 108 | 132 | 148 | 170 |
@@ -62,7 +66,7 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 
 ### 1.3 编程模型：thread、warp、block、grid {#hw-model}
 
-CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：同一个 warp 里的 32 个线程在同一时刻执行同一条指令。线程分四层：thread；warp，32 个 thread；block（也叫 CTA），若干个 warp；grid，一次 kernel 启动的全部 block。[图 1-4](#fig-h-5) 把四层画在一起，左边逐层放大，右边是每层跑在哪个硬件上。
+CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：同一个 warp 里的 32 个线程在同一时刻执行同一条指令。线程分四层：thread；warp，32 个 thread；block（也叫 CTA），若干个 warp；grid，一次 kernel 启动的全部 block。[图 1-5](#fig-h-5) 把四层画在一起，左边逐层放大，右边是每层跑在哪个硬件上。
 
 {{fig-h-5}}
 
@@ -76,7 +80,7 @@ block 放到 SM 上以后就一直驻留，直到它的线程全部跑完。一�
 | 每 thread 最多 register | 255 | 255 | 255 | 255 |
 {#tab-1-2 caption="**表 1-2** 一个 SM 的驻留上限" note="来自 CUDA Programming Guide 的 compute capability 表（8.0、9.0、10.0、12.0）。"}
 
-一个 block 的 warp 按编号轮流分到 4 个 SMSP：warp 0 到 SMSP 0，warp 1 到 SMSP 1，依此类推。驻留不等于在跑。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp；所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态。所以一个 SM 上同时驻留的 warp 越多，访存延迟越容易藏住。[图 1-5](#fig-h-6) 画的是驻留 3 个 block、每个 4 个 warp 时的某一拍：每个 SMSP 有 3 个 warp，分别来自 3 个 block，调度器每个周期只发射其中一个；SMSP 2 的 3 个都在等数据，这一拍就空转。
+一个 block 的 warp 按编号轮流分到 4 个 SMSP：warp 0 到 SMSP 0，warp 1 到 SMSP 1，依此类推。驻留不等于在跑。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp；所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态。所以一个 SM 上同时驻留的 warp 越多，访存延迟越容易藏住。[图 1-6](#fig-h-6) 画的是驻留 3 个 block、每个 4 个 warp 时的某一拍：每个 SMSP 有 3 个 warp，分别来自 3 个 block，调度器每个周期只发射其中一个；SMSP 2 的 3 个都在等数据，这一拍就空转。
 
 {{fig-h-6}}
 
