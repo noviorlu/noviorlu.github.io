@@ -937,6 +937,31 @@ def occ_sweep():
         f.w(f'<line x1="{LX}" y1="{ly - 4}" x2="{LX + 22}" y2="{ly - 4}" style="stroke: var({var})" stroke-width="2"/><text class="lab" x="{LX + 30}" y="{ly}">{lab}</text>')
     return f
 
+def tile_sweep():
+    rows = json.load(open(os.path.join(HERE, "tile_sweep.json")))
+    f = F("fig-h-8", 300, "row sum 的 TILE 从 128 到 16384 时的带宽：10880 行时都在 1.69e12 B/s 左右；170 行时随 TILE 起伏，128 最慢，4096 和 8192 也掉到 1.1e12 以下，512 和 16384 最快")
+    X0, X1, Y0, Y1 = 110, 610, 236, 40
+    Ts = sorted({r["TILE"] for r in rows})
+    px = lambda T: X0 + (math.log2(T) - 7) * (X1 - X0) / 7
+    py = lambda b: Y0 - b / 2e12 * (Y0 - Y1)
+    for v in (0, 5e11, 1e12, 1.5e12, 2e12):
+        f.w(f'<line class="grid" x1="{X0}" y1="{py(v):.1f}" x2="{X1}" y2="{py(v):.1f}"/><text class="tick" x="{X0 - 8}" y="{py(v) + 4:.1f}" text-anchor="end">{v:.1e}</text>'.replace("0.0e+00", "0").replace("e+11", "e11").replace("e+12", "e12"))
+    for T in Ts:
+        f.w(f'<text class="tick" x="{px(T):.1f}" y="{Y0 + 16}" text-anchor="middle">{T}</text><text class="tick" x="{px(T):.1f}" y="{Y0 + 30}" text-anchor="middle" opacity=".7">{T // 128}</text>')
+    f.w(f'<text class="lab2" x="{X0 - 28}" y="{Y0 + 16}" text-anchor="end">TILE</text><text class="lab2" x="{X0 - 28}" y="{Y0 + 30}" text-anchor="end">每线程</text>')
+    f.w(f'<text class="lab2" x="{X0}" y="{Y1 - 16}">有效带宽（B/s），num_warps = 4；第二行是每个线程每轮读几个数</text>')
+    f.w(f'<line class="ref" x1="{X0}" y1="{py(1.79e12):.1f}" x2="{X1}" y2="{py(1.79e12):.1f}"/><text class="lab2" x="{X1}" y="{py(1.79e12) - 6:.1f}" text-anchor="end">显存带宽 1.79e12</text>')
+    f.w(f'<line class="ref" x1="{px(1024):.1f}" y1="{Y1}" x2="{px(1024):.1f}" y2="{Y0}"/><text class="lab2" x="{px(1024) + 6:.1f}" y="{Y0 - 8}">代码默认 1024</text>')
+    ser = [(10880, "--fig-1", "10880 × 8192，每个 SM 分到 64 个 program"), (170, "--fig-hi", "170 × 524288，每个 SM 分到 1 个 program")]
+    for k, (M, var, lab) in enumerate(ser):
+        r = sorted((x for x in rows if x["M"] == M), key=lambda x: x["TILE"])
+        f.w(f'<polyline points="{" ".join(f"{px(x["TILE"]):.1f},{py(x["bw"]):.1f}" for x in r)}" fill="none" style="stroke: var({var})" stroke-width="2" stroke-linejoin="round"/>')
+        for x in r:
+            f.w(f'<g class="m"><title>{lab}，TILE = {x["TILE"]}：{x["us"]} µs，{x["bw"]:.2e} B/s，每线程 {x["regs"]} 个 register</title><circle cx="{px(x["TILE"]):.1f}" cy="{py(x["bw"]):.1f}" r="3.5" class="ring" style="fill: var({var})"/></g>')
+        ly = 170 + k * 20
+        f.w(f'<line x1="{px(1024) + 24:.1f}" y1="{ly - 4}" x2="{px(1024) + 46:.1f}" y2="{ly - 4}" style="stroke: var({var})" stroke-width="2"/><text class="lab" x="{px(1024) + 54:.1f}" y="{ly}">{lab}</text>')
+    return f
+
 # ── 图 2-1 到 2-4 Triton kernel 示意：左边是 grid 怎么切，右边是一个 program 做什么 ─────
 def tri_fig(fid, label, kind, steps, prog_note, grid_note, items=None, tiles=None, strip=None, loop=None):
     T = 18                                          # 顶上留给「grid」「一个 program」两个标题和类型
@@ -1128,6 +1153,7 @@ CAPS = {
  "tri_rowsum": '<strong>图 2-3</strong> row sum kernel。左边是 grid，一行一个 program；右边是 program 1 怎么走完第 1 行（图里 TILE = 4，代码里是 1024）。上排是第 0 到 3 块，下排是每一轮加完以后的 acc：第 T 块的第 j 个数加到 acc 的第 j 位，acc 留在 register 里带到下一轮，最后 <code>tl.sum</code> 才把它加成一个数。',
  "tri_matmul": '<strong>图 2-4</strong> matmul kernel。左边 C 的 3 × 3 块就是 grid，program (1, 2) 只用到 A 的第 1 个行块和 B 的第 2 个列块，两者都沿 K 切成 0 到 3 块（同色是同一个 T）。右边是这个 program 的循环：第 T 轮读 A 的第 T 块和 B 的第 T 块，小矩阵乘的结果加到 acc 上，4 轮加完就是 C 的 (1, 2) 块，最后做 ReLU 写回。',
  "occ_sweep": '<strong>图 2-5</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。',
+ "tile_sweep": '<strong>图 2-6</strong> row sum 的 TILE 和带宽（RTX 5090，fp32，两种形状都是 340 MiB，<code>num_warps=4</code>，每点取 8 次计时的最快值）。悬停可看耗时和每线程的 register 数。',
  "tpu_core": '<strong>图 A-1</strong> TPU v5p 一个 TensorCore 的结构示意，画法对应<a href="#fig-h-1">图 1-2</a>。规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>，原书也有一张 TensorCore 的结构图。',
  "systolic": '<strong>图 A-2</strong> 乘加单元怎么拿到数据。左边是 GPU 的 CUDA core，右边是 TPU 的 MXU；x 按行错开一拍进入，y 是每列的输出。动画演示见 <a href="https://jax-ml.github.io/scaling-book/tpus/#appendix-b-how-does-a-systolic-array-work">How to Scale Your Model 附录 B</a>。',
  "linear": '<strong>图 2-1</strong> 一个 Linear 的前向与反向：前向从左边往下，误差从右边传回；虚线是反向要从前向拿的东西。',
@@ -1149,7 +1175,7 @@ CAPS = {
  "ckpt": '<strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。',
  "sweep": '<strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。',
 }
-OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
+OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
        ("flops_vs_time", flops_vs_time), ("share_vs_seq", share_vs_seq), ("peak_memory", peak_memory), ("peak_moment", peak_moment),
        ("rms_eager", rms_eager), ("rms_fused", rms_fused), ("attn_flow", attn_flow), ("layer_donut", layer_donut), ("timelines", timelines),
        ("bf16", bf16), ("ckpt", ckpt), ("sweep", sweep))}

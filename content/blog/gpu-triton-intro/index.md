@@ -678,7 +678,7 @@ row sum 对 `[M, N]` 的输入每行求和：
 
 <p align="center">$s_i = \sum_{j=1}^{N} x_{ij} = \sum_{T} \ \sum_{j \in \mathcal{J}_T} x_{ij}$</p>
 
-$\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标。加法满足结合律，先把每块加起来再相加，和一次加完是同一个数（浮点数下只差舍入误差），所以 program 可以沿行一块一块地读，每读一块就加到累加器上（[图 2-3](#fig-t-3)）。
+$\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 默认取 1024，取多大合适见 [2.5 节](#triton-warps)。加法满足结合律，先把每块加起来再相加，和一次加完是同一个数（浮点数下只差舍入误差），所以 program 可以沿行一块一块地读，每读一块就加到累加器上（[图 2-3](#fig-t-3)）。
 
 <figure id="fig-t-3" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 232" width="100%" role="img" aria-label="row sum kernel：一行一个 program；program 把这一行按 TILE 切成几块，每轮读一块加到累加器 acc 上，acc 一直留在 register 里，循环结束后 tl.sum 把 acc 加成一个数写回">
@@ -1133,6 +1133,70 @@ compute-bound 的那条线（I = 128）和上面的推算一致：1 个 warp 时
 {#tab-2-3 caption="**表 2-3** row sum 在不同 `num_warps` 下的耗时" note="表头的 1 到 32 是 num_warps。TILE = 128 × num_warps，每个线程每轮读 4 个 fp32。"}
 
 170 行时 grid 只有 170 个 program，每个 SM 只分到 1 个，每个 SMSP 的 warp 数就是 `num_warps` ÷ 4：取 1 时 4 个 SMSP 里只有 1 个有活，439 µs；取 4 以上每个 SMSP 都有 warp，降到 214 µs，带宽 1.67e12 B/s。10880 行时 program 远多于 SM，每个 SM 都塞到上限，`num_warps` 只改变同样多的 warp 怎么分组，6 种取值都是 211 到 217 µs。
+
+TILE 的道理一样。row sum 每个线程每轮读 TILE ÷ 128 个数，[图 2-6](#fig-h-8) 把 TILE 从 128 扫到 16384。10880 行时每个 SM 驻留的 warp 够多，所有 TILE 都在 1.69e12 B/s 左右。170 行时每个 SM 只有 4 个 warp，速度取决于每个线程同时有几条读请求在路上：TILE = 128 时每个线程每轮只读 1 个数，只有 9.7e11 B/s；TILE 再大也不一定更快，4096 和 8192 时编译器为了少用 register，让每条读指令都写进同一组 register，下一条读要等上一轮加完才能发，掉到 1.0e12 到 1.1e12；16384 时编译器把 7 条读连着发出去，又回到 1.68e12。代码里的 1024 在两种形状下分别是 1.58e12 和 1.68e12，grid 小时最好用 `triton.autotune` 实测。
+
+<figure id="fig-h-8" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="row sum 的 TILE 从 128 到 16384 时的带宽：10880 行时都在 1.69e12 B/s 左右；170 行时随 TILE 起伏，128 最慢，4096 和 8192 也掉到 1.1e12 以下，512 和 16384 最快">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <line class="grid" x1="110" y1="236.0" x2="610" y2="236.0"/><text class="tick" x="102" y="240.0" text-anchor="end">0</text>
+  <line class="grid" x1="110" y1="187.0" x2="610" y2="187.0"/><text class="tick" x="102" y="191.0" text-anchor="end">5.0e11</text>
+  <line class="grid" x1="110" y1="138.0" x2="610" y2="138.0"/><text class="tick" x="102" y="142.0" text-anchor="end">1.0e12</text>
+  <line class="grid" x1="110" y1="89.0" x2="610" y2="89.0"/><text class="tick" x="102" y="93.0" text-anchor="end">1.5e12</text>
+  <line class="grid" x1="110" y1="40.0" x2="610" y2="40.0"/><text class="tick" x="102" y="44.0" text-anchor="end">2.0e12</text>
+  <text class="tick" x="110.0" y="252" text-anchor="middle">128</text><text class="tick" x="110.0" y="266" text-anchor="middle" opacity=".7">1</text>
+  <text class="tick" x="181.4" y="252" text-anchor="middle">256</text><text class="tick" x="181.4" y="266" text-anchor="middle" opacity=".7">2</text>
+  <text class="tick" x="252.9" y="252" text-anchor="middle">512</text><text class="tick" x="252.9" y="266" text-anchor="middle" opacity=".7">4</text>
+  <text class="tick" x="324.3" y="252" text-anchor="middle">1024</text><text class="tick" x="324.3" y="266" text-anchor="middle" opacity=".7">8</text>
+  <text class="tick" x="395.7" y="252" text-anchor="middle">2048</text><text class="tick" x="395.7" y="266" text-anchor="middle" opacity=".7">16</text>
+  <text class="tick" x="467.1" y="252" text-anchor="middle">4096</text><text class="tick" x="467.1" y="266" text-anchor="middle" opacity=".7">32</text>
+  <text class="tick" x="538.6" y="252" text-anchor="middle">8192</text><text class="tick" x="538.6" y="266" text-anchor="middle" opacity=".7">64</text>
+  <text class="tick" x="610.0" y="252" text-anchor="middle">16384</text><text class="tick" x="610.0" y="266" text-anchor="middle" opacity=".7">128</text>
+  <text class="lab2" x="82" y="252" text-anchor="end">TILE</text><text class="lab2" x="82" y="266" text-anchor="end">每线程</text>
+  <text class="lab2" x="110" y="24">有效带宽（B/s），num_warps = 4；第二行是每个线程每轮读几个数</text>
+  <line class="ref" x1="110" y1="60.6" x2="610" y2="60.6"/><text class="lab2" x="610" y="54.6" text-anchor="end">显存带宽 1.79e12</text>
+  <line class="ref" x1="324.3" y1="40" x2="324.3" y2="236"/><text class="lab2" x="330.3" y="228">代码默认 1024</text>
+  <polyline points="110.0,70.3 181.4,70.8 252.9,70.5 324.3,71.0 395.7,71.1 467.1,71.4 538.6,70.7 610.0,70.7" fill="none" style="stroke: var(--fig-1)" stroke-width="2" stroke-linejoin="round"/>
+  <g class="m"><title>10880 × 8192，每个 SM 分到 64 个 program，TILE = 128：210.9 µs，1.69e+12 B/s，每线程 17 个 register</title><circle cx="110.0" cy="70.3" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>10880 × 8192，每个 SM 分到 64 个 program，TILE = 256：211.5 µs，1.69e+12 B/s，每线程 22 个 register</title><circle cx="181.4" cy="70.8" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>10880 × 8192，每个 SM 分到 64 个 program，TILE = 512：211.2 µs，1.69e+12 B/s，每线程 34 个 register</title><circle cx="252.9" cy="70.5" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>10880 × 8192，每个 SM 分到 64 个 program，TILE = 1024：211.8 µs，1.68e+12 B/s，每线程 23 个 register</title><circle cx="324.3" cy="71.0" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>10880 × 8192，每个 SM 分到 64 个 program，TILE = 2048：211.9 µs，1.68e+12 B/s，每线程 36 个 register</title><circle cx="395.7" cy="71.1" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>10880 × 8192，每个 SM 分到 64 个 program，TILE = 4096：212.2 µs，1.68e+12 B/s，每线程 48 个 register</title><circle cx="467.1" cy="71.4" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>10880 × 8192，每个 SM 分到 64 个 program，TILE = 8192：211.4 µs，1.69e+12 B/s，每线程 86 个 register</title><circle cx="538.6" cy="70.7" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>10880 × 8192，每个 SM 分到 64 个 program，TILE = 16384：211.4 µs，1.69e+12 B/s，每线程 194 个 register</title><circle cx="610.0" cy="70.7" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <line x1="348.3" y1="166" x2="370.3" y2="166" style="stroke: var(--fig-1)" stroke-width="2"/><text class="lab" x="378.3" y="170">10880 × 8192，每个 SM 分到 64 个 program</text>
+  <polyline points="110.0,140.7 181.4,81.7 252.9,72.0 324.3,81.5 395.7,83.2 467.1,129.4 538.6,135.0 610.0,71.6" fill="none" style="stroke: var(--fig-hi)" stroke-width="2" stroke-linejoin="round"/>
+  <g class="m"><title>170 × 524288，每个 SM 分到 1 个 program，TILE = 128：366.6 µs，9.73e+11 B/s，每线程 17 个 register</title><circle cx="110.0" cy="140.7" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>170 × 524288，每个 SM 分到 1 个 program，TILE = 256：226.4 µs，1.57e+12 B/s，每线程 22 个 register</title><circle cx="181.4" cy="81.7" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>170 × 524288，每个 SM 分到 1 个 program，TILE = 512：213.1 µs，1.67e+12 B/s，每线程 34 个 register</title><circle cx="252.9" cy="72.0" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>170 × 524288，每个 SM 分到 1 个 program，TILE = 1024：226.1 µs，1.58e+12 B/s，每线程 23 个 register</title><circle cx="324.3" cy="81.5" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>170 × 524288，每个 SM 分到 1 个 program，TILE = 2048：228.7 µs，1.56e+12 B/s，每线程 36 个 register</title><circle cx="395.7" cy="83.2" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>170 × 524288，每个 SM 分到 1 个 program，TILE = 4096：327.8 µs，1.09e+12 B/s，每线程 48 个 register</title><circle cx="467.1" cy="129.4" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>170 × 524288，每个 SM 分到 1 个 program，TILE = 8192：345.9 µs，1.03e+12 B/s，每线程 86 个 register</title><circle cx="538.6" cy="135.0" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>170 × 524288，每个 SM 分到 1 个 program，TILE = 16384：212.5 µs，1.68e+12 B/s，每线程 194 个 register</title><circle cx="610.0" cy="71.6" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <line x1="348.3" y1="186" x2="370.3" y2="186" style="stroke: var(--fig-hi)" stroke-width="2"/><text class="lab" x="378.3" y="190">170 × 524288，每个 SM 分到 1 个 program</text>
+</svg>
+<figcaption><strong>图 2-6</strong> row sum 的 TILE 和带宽（RTX 5090，fp32，两种形状都是 340 MiB，<code>num_warps=4</code>，每点取 8 次计时的最快值）。悬停可看耗时和每线程的 register 数。</figcaption>
+</figure>
 
 `num_warps` 还决定每个线程要存多少数据：program 一次要存的数据平分给它的线程。[2.2 节](#triton-softmax)的 softmax 把一整行放在 register 里，行长 32768 时，`num_warps=1` 每个线程要存 1024 个数，远超每个线程 255 个 register 的上限，溢出到显存，耗时 705 µs；`num_warps=8` 每个线程存 128 个，不溢出，183 µs。
 
