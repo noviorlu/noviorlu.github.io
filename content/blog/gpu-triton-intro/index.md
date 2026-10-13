@@ -590,7 +590,7 @@ def softmax_naive(x):                         # x: [M, N]，按行
 ```
 
 <figure id="fig-t-2" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 198" width="100%" role="img" aria-label="softmax kernel，按行归约型：每个输出要用整行的 max 和 sum，所以一行一个 program；红框是跨整行的归约">
+<svg class="fg" viewBox="0 0 640 337" width="100%" role="img" aria-label="softmax kernel：一行一个 program；program 从显存读一整行，减最大值、exp、求和、归一化都在 register 里做，只写回一次；每个 SM 同时跑 9 个 program，共 1152 个 thread">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -610,40 +610,116 @@ def softmax_naive(x):                         # x: [M, N]，按行
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
   </style>
-  <defs><marker id="fig-t-2-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
-  <text class="ttl" x="10" y="18">grid</text>
-  <text class="ttl" x="162" y="18">一个 program 做的事</text>
-  <text class="tb" x="630" y="18" text-anchor="end" style="fill: var(--fig-hi)">按行归约：y[i, j] 依赖整行 x[i, :]</text>
-  <rect x="10" y="32" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <text class="t" x="69" y="50" text-anchor="middle">行 0</text>
-  <rect x="10" y="64" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-1) 30%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="t" x="69" y="82" text-anchor="middle">行 1 ← pid=1</text>
-  <rect x="10" y="96" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <text class="t" x="69" y="114" text-anchor="middle">行 2</text>
-  <rect x="10" y="128" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <text class="t" x="69" y="146" text-anchor="middle">⋯</text>
+  <defs><marker id="fig-t-2-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-t-2-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-2)"/></marker><marker id="fig-t-2-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker></defs>
+  <text class="ttl" x="10" y="16">grid</text>
+  <text class="ttl" x="162" y="16">一个 program（pid = 1）</text>
+  <text class="tb" x="630" y="16" text-anchor="end" style="fill: var(--fig-hi)">按行归约：y[i, j] 依赖整行 x[i, :]</text>
+  <rect x="10" y="28" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="t" x="69" y="46" text-anchor="middle">行 0</text>
+  <rect x="10" y="60" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-1) 30%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="t" x="69" y="78" text-anchor="middle">行 1 ← pid=1</text>
+  <rect x="10" y="92" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="t" x="69" y="110" text-anchor="middle">行 2</text>
+  <rect x="10" y="124" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="t" x="69" y="142" text-anchor="middle">⋯</text>
   <text class="lab2" x="10" y="168">grid = (M,)</text>
-  <text class="lab2" x="10" y="183">一行一个 program</text>
-  <rect x="150" y="32" width="480" height="88" rx="10" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="6 4"/>
-  <text class="lab2" x="390" y="138" text-anchor="middle">一个 program（pid = 1）：第 1 行，必须整行都在 register 里</text>
-  <line x1="130.0" y1="77.0" x2="160.0" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-2-m0)"/>
-  <rect x="162.0" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="tb" x="210.8" y="73" text-anchor="middle">读一整行</text><text class="s" x="210.8" y="90" text-anchor="middle">tl.load</text>
-  <rect x="281.5" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <rect x="279.5" y="50" width="101.5" height="54" rx="8" style="fill: none; stroke: var(--fig-hi); stroke-width: 1.8"/>
-  <text class="s" x="330.2" y="46" text-anchor="middle" style="fill: var(--fig-hi)">整行归约</text>
-  <text class="tb" x="330.2" y="73" text-anchor="middle">减最大值</text><text class="s" x="330.2" y="90" text-anchor="middle">x − tl.max(x)</text>
-  <line x1="261.5" y1="77.0" x2="279.5" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-2-m0)"/>
-  <rect x="401.0" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <rect x="399.0" y="50" width="101.5" height="54" rx="8" style="fill: none; stroke: var(--fig-hi); stroke-width: 1.8"/>
-  <text class="s" x="449.8" y="46" text-anchor="middle" style="fill: var(--fig-hi)">整行归约</text>
-  <text class="tb" x="449.8" y="73" text-anchor="middle">exp、求和</text><text class="s" x="449.8" y="90" text-anchor="middle">tl.exp, tl.sum</text>
-  <line x1="381.0" y1="77.0" x2="399.0" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-2-m0)"/>
-  <rect x="520.5" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-mute) 22%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <text class="tb" x="569.2" y="73" text-anchor="middle">归一化写回</text><text class="s" x="569.2" y="90" text-anchor="middle">tl.store</text>
-  <line x1="500.5" y1="77.0" x2="518.5" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-2-m0)"/>
+  <text class="lab2" x="10" y="183">M = 4096 个 program</text>
+  <text class="lab2" x="10" y="198">分到 170 个 SM 上</text>
+  <text class="ttl" x="10" y="219">一个 SM</text>
+  <rect x="12" y="227" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <line x1="17.0" y1="231" x2="17.0" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="21.7" y1="231" x2="21.7" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="26.4" y1="231" x2="26.4" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="31.1" y1="231" x2="31.1" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="40" y="227" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <line x1="45.0" y1="231" x2="45.0" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="49.7" y1="231" x2="49.7" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="54.4" y1="231" x2="54.4" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="59.1" y1="231" x2="59.1" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="68" y="227" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <line x1="73.0" y1="231" x2="73.0" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="77.7" y1="231" x2="77.7" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="82.4" y1="231" x2="82.4" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="87.1" y1="231" x2="87.1" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="96" y="227" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <line x1="101.0" y1="231" x2="101.0" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="105.7" y1="231" x2="105.7" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="110.4" y1="231" x2="110.4" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="115.1" y1="231" x2="115.1" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="12" y="249" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <line x1="17.0" y1="253" x2="17.0" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="21.7" y1="253" x2="21.7" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="26.4" y1="253" x2="26.4" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="31.1" y1="253" x2="31.1" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="40" y="249" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <line x1="45.0" y1="253" x2="45.0" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="49.7" y1="253" x2="49.7" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="54.4" y1="253" x2="54.4" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="59.1" y1="253" x2="59.1" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="68" y="249" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <line x1="73.0" y1="253" x2="73.0" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="77.7" y1="253" x2="77.7" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="82.4" y1="253" x2="82.4" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="87.1" y1="253" x2="87.1" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="96" y="249" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <line x1="101.0" y1="253" x2="101.0" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="105.7" y1="253" x2="105.7" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="110.4" y1="253" x2="110.4" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="115.1" y1="253" x2="115.1" y2="263" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="12" y="271" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <line x1="17.0" y1="275" x2="17.0" y2="285" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="21.7" y1="275" x2="21.7" y2="285" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="26.4" y1="275" x2="26.4" y2="285" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="31.1" y1="275" x2="31.1" y2="285" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="40" y="271" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <rect x="68" y="271" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <rect x="96" y="271" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="10" y="301">每格一个 program（4 warp）</text><text class="s" x="10" y="315">9 × 128 = 1152 thread</text><text class="s" x="10" y="329">register 先满，上限 12 格</text>
+  <rect class="band" x="146" y="26" width="490" height="66" rx="8"/>
+  <text class="lab2" x="152" y="63.0">步骤</text>
+  <rect class="band" x="146" y="100" width="490" height="76" rx="8"/>
+  <text class="lab2" x="152" y="142.0">register</text>
+  <rect class="band" x="146" y="184" width="490" height="72" rx="8"/>
+  <text class="lab2" x="152" y="224.0">显存</text>
+  <line x1="130.0" y1="73.0" x2="144.0" y2="73.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-2-m0)"/>
+  <rect class="op" x="212.0" y="42" width="72.0" height="38" rx="6"/>
+  <text class="tb" x="248.0" y="58" text-anchor="middle">读一行</text><text class="s" x="248.0" y="73" text-anchor="middle">tl.load</text>
+  <rect class="op" x="298.0" y="42" width="72.0" height="38" rx="6"/>
+  <text class="tb" x="334.0" y="58" text-anchor="middle">减最大值</text><text class="s" x="334.0" y="73" text-anchor="middle">x − max</text>
+  <rect class="op" x="384.0" y="42" width="72.0" height="38" rx="6"/>
+  <text class="tb" x="420.0" y="58" text-anchor="middle">exp</text><text class="s" x="420.0" y="73" text-anchor="middle">tl.exp</text>
+  <rect class="op" x="470.0" y="42" width="72.0" height="38" rx="6"/>
+  <text class="tb" x="506.0" y="58" text-anchor="middle">÷ 求和</text><text class="s" x="506.0" y="73" text-anchor="middle">tl.sum</text>
+  <rect class="op" x="556.0" y="42" width="72.0" height="38" rx="6"/>
+  <text class="tb" x="592.0" y="58" text-anchor="middle">写回</text><text class="s" x="592.0" y="73" text-anchor="middle">tl.store</text>
+  <rect x="262.0" y="128" width="58" height="20" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="291.0" y="142" text-anchor="middle">x 行</text><text class="s" x="291.0" y="161" text-anchor="middle">16 KiB</text>
+  <line x1="254.0" y1="82.0" x2="283.0" y2="126.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m1)"/>
+  <line x1="299.0" y1="126.0" x2="328.0" y2="82.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m1)"/>
+  <rect x="348.0" y="128" width="58" height="20" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="377.0" y="142" text-anchor="middle">x − m</text><text class="s" x="377.0" y="161" text-anchor="middle">16 KiB</text>
+  <line x1="340.0" y1="82.0" x2="369.0" y2="126.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m1)"/>
+  <line x1="385.0" y1="126.0" x2="414.0" y2="82.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m1)"/>
+  <rect x="434.0" y="128" width="58" height="20" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="463.0" y="142" text-anchor="middle">e</text><text class="s" x="463.0" y="161" text-anchor="middle">16 KiB</text>
+  <line x1="426.0" y1="82.0" x2="455.0" y2="126.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m1)"/>
+  <line x1="471.0" y1="126.0" x2="500.0" y2="82.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m1)"/>
+  <rect x="520.0" y="128" width="58" height="20" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="549.0" y="142" text-anchor="middle">y 行</text><text class="s" x="549.0" y="161" text-anchor="middle">16 KiB</text>
+  <line x1="512.0" y1="82.0" x2="541.0" y2="126.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m1)"/>
+  <line x1="557.0" y1="126.0" x2="586.0" y2="82.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m1)"/>
+  <rect x="216.0" y="208" width="64" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <rect x="216.0" y="215.0" width="64.0" height="7.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <text class="s" x="248.0" y="249" text-anchor="middle">x，64 MiB</text>
+  <line x1="248.0" y1="206.0" x2="248.0" y2="82.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-2-m2)"/>
+  <rect x="560.0" y="208" width="64" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <rect x="560.0" y="215.0" width="64.0" height="7.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <text class="s" x="592.0" y="249" text-anchor="middle">y，64 MiB</text>
+  <line x1="592.0" y1="82.0" x2="592.0" y2="206.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-2-m2)"/>
+  <text class="lab2" x="152" y="272">中间结果每个 program 一份，都在 register 里，每个 thread 存这一行的 32 个数；</text>
+  <text class="lab2" x="152" y="287">显存只读 x 一次、写 y 一次。</text>
 </svg>
-<figcaption><strong>图 2-2</strong> softmax kernel，按行归约型，画法同<a href="#fig-t-1">图 2-1</a>。和 GELU 的区别在红框：减最大值和求和都要看整行，所以 grid 只能按行切，一个 program 必须拿到一整行。</figcaption>
+<figcaption><strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32）。左边是 grid，一行一个 program，下面是一个 SM 上同时跑几个 program；右边是 program 1：上面是步骤，中间是 register，下面是显存，箭头指向步骤是读，指向存储是写，画法同<a href="/blog/gpu-training-analysis/#fig-3-4">上一篇的图 3-4</a>。中间结果都留在 register 里，显存只读写各一次。</figcaption>
 </figure>
 
 如果一个 program 处理一整行（[图 2-2](#fig-t-2)），max、exp、求和、除都可以在 register 里做完，只读 MN、写 MN，读写量是原来的 1/4：
