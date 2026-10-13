@@ -951,7 +951,7 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。
   <text class="tb" x="514.8" y="62" text-anchor="middle">累加</text><text class="s" x="514.8" y="77" text-anchor="middle">acc += x</text>
   <rect class="op" x="559.2" y="46" width="68.8" height="38" rx="6"/>
   <text class="tb" x="593.6" y="62" text-anchor="middle">归约写回</text><text class="s" x="593.6" y="77" text-anchor="middle">tl.sum</text>
-  <text class="lab2" x="152" y="308">图里 TILE = 4（代码里 1024），一行 16 个数分 4 块，颜色由浅到深是 for 循环读的顺序；</text>
+  <text class="lab2" x="152" y="308">图里 TILE = 4（代码里 1024），一行 16 个数分 4 块，颜色由淡到浓是 for 循环读的顺序；</text>
   <text class="lab2" x="152" y="323">acc 每轮把这一块逐位加上，一直留在 register 里，最后 tl.sum 加成一个数。</text>
   <defs><linearGradient id="fig-t-3-acc" x1="0" x2="1" y1="0" y2="0"><stop offset="0.00" style="stop-color: var(--fig-1)" stop-opacity="0.12"/><stop offset="0.33" style="stop-color: var(--fig-1)" stop-opacity="0.34"/><stop offset="0.67" style="stop-color: var(--fig-1)" stop-opacity="0.56"/><stop offset="1.00" style="stop-color: var(--fig-1)" stop-opacity="0.78"/></linearGradient></defs>
   <rect x="263.8" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
@@ -1108,7 +1108,7 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。
   <text class="s" x="593.6" y="259" text-anchor="middle">out</text>
   <line x1="593.6" y1="86.0" x2="593.6" y2="213.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-3-m3)"/>
 </svg>
-<figcaption><strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 块，代码里 TILE = 1024。颜色由浅到深是 for 循环读块的顺序：第 0 轮后 acc 只有第 0 块的数，最后的 acc 是 4 块逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。</figcaption>
+<figcaption><strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 块，代码里 TILE = 1024。颜色由淡到浓是 for 循环读块的顺序：第 0 轮后 acc 只有第 0 块的数，最后的 acc 是 4 块逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。</figcaption>
 </figure>
 
 累加器 `acc` 是一个长度为 TILE 的向量，不是一个数：循环里每个线程只加自己负责的几个位置，线程之间不需要通信；循环结束后，`tl.sum` 再做一次跨线程归约，把 TILE 个部分和加成一个数。
@@ -1234,18 +1234,19 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
   <text class="tb" x="593.6" y="62" text-anchor="middle">ReLU 写回</text><text class="s" x="593.6" y="77" text-anchor="middle">tl.store</text>
   <text class="lab2" x="152" y="340">A、B 的块在 shared memory，acc（64 × 64）在 register，每个 thread 32 个数；</text>
   <text class="lab2" x="152" y="355">K = 2048 按 BK = 32 切成 64 轮，每轮都从显存读 A、B 各一块，图里只画第 0 轮的读。</text>
-  <rect x="260.8" y="110" width="50" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 26%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/>
-  <text class="s" x="285.8" y="123" text-anchor="middle">A、B 块</text>
+  <defs><linearGradient id="fig-t-4-acc" x1="0" x2="1" y1="0" y2="0"><stop offset="0.00" style="stop-color: var(--fig-1)" stop-opacity="0.12"/><stop offset="0.14" style="stop-color: var(--fig-1)" stop-opacity="0.21"/><stop offset="0.29" style="stop-color: var(--fig-1)" stop-opacity="0.31"/><stop offset="0.43" style="stop-color: var(--fig-1)" stop-opacity="0.40"/><stop offset="0.57" style="stop-color: var(--fig-1)" stop-opacity="0.50"/><stop offset="0.71" style="stop-color: var(--fig-1)" stop-opacity="0.59"/><stop offset="0.86" style="stop-color: var(--fig-1)" stop-opacity="0.69"/><stop offset="1.00" style="stop-color: var(--fig-1)" stop-opacity="0.78"/></linearGradient></defs>
+  <rect x="260.8" y="110" width="50" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="260.8" y="110" width="50" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".5"/>
+  <text class="s" x="285.8" y="123" text-anchor="middle" >A、B 块</text>
   <line x1="252.4" y1="86.0" x2="277.8" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <line x1="293.8" y1="108.0" x2="315.2" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <rect x="450.4" y="110" width="50" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 26%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/>
-  <text class="s" x="475.4" y="123" text-anchor="middle">A、B 块</text>
+  <rect x="450.4" y="110" width="50" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="450.4" y="110" width="50" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".5"/>
+  <text class="s" x="475.4" y="123" text-anchor="middle" style="fill: var(--fig-on-1)">A、B 块</text>
   <line x1="442.0" y1="86.0" x2="467.4" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <line x1="483.4" y1="108.0" x2="504.8" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <rect x="333.2" y="140" width="40" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 26%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="s" x="353.2" y="153" text-anchor="middle">acc</text>
-  <rect x="538.2" y="140" width="40" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 26%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="s" x="558.2" y="153" text-anchor="middle">acc</text>
+  <rect x="333.2" y="140" width="40" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="333.2" y="140" width="40" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".5"/>
+  <text class="s" x="353.2" y="153" text-anchor="middle" >acc</text>
+  <rect x="538.2" y="140" width="40" height="18" rx="4" fill="url(#fig-t-4-acc)"/><rect x="538.2" y="140" width="40" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".5"/>
+  <text class="s" x="558.2" y="153" text-anchor="middle" >acc</text>
   <line x1="333.2" y1="86.0" x2="345.2" y2="138.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <line x1="522.8" y1="86.0" x2="550.2" y2="138.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <line x1="566.2" y1="138.0" x2="587.6" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
@@ -1267,21 +1268,21 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
   <rect x="238.4" y="196" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="244.4" y="196" width="6" height="6" fill="none"/>
   <rect x="244.4" y="196" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="202.4" y="202" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.85"/>
+  <rect x="202.4" y="202" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.12"/>
   <rect x="202.4" y="202" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="208.4" y="202" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.22"/>
+  <rect x="208.4" y="202" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.2142857142857143"/>
   <rect x="208.4" y="202" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="214.4" y="202" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.22"/>
+  <rect x="214.4" y="202" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.3085714285714286"/>
   <rect x="214.4" y="202" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="220.4" y="202" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.22"/>
+  <rect x="220.4" y="202" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.40285714285714286"/>
   <rect x="220.4" y="202" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="226.4" y="202" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.22"/>
+  <rect x="226.4" y="202" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.49714285714285716"/>
   <rect x="226.4" y="202" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="232.4" y="202" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.22"/>
+  <rect x="232.4" y="202" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.5914285714285714"/>
   <rect x="232.4" y="202" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="238.4" y="202" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.22"/>
+  <rect x="238.4" y="202" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.6857142857142857"/>
   <rect x="238.4" y="202" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="244.4" y="202" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.45"/>
+  <rect x="244.4" y="202" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.78"/>
   <rect x="244.4" y="202" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="202.4" y="208" width="6" height="6" fill="none"/>
   <rect x="202.4" y="208" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
@@ -1512,35 +1513,35 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
   <text class="s" x="226.4" y="318.0" text-anchor="middle">32 MiB</text>
   <rect x="258.4" y="196" width="6" height="6" fill="none"/>
   <rect x="258.4" y="196" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="264.4" y="196" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.85"/>
+  <rect x="264.4" y="196" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.12"/>
   <rect x="264.4" y="196" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="258.4" y="202" width="6" height="6" fill="none"/>
   <rect x="258.4" y="202" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="264.4" y="202" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.22"/>
+  <rect x="264.4" y="202" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.2142857142857143"/>
   <rect x="264.4" y="202" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="258.4" y="208" width="6" height="6" fill="none"/>
   <rect x="258.4" y="208" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="264.4" y="208" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.22"/>
+  <rect x="264.4" y="208" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.3085714285714286"/>
   <rect x="264.4" y="208" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="258.4" y="214" width="6" height="6" fill="none"/>
   <rect x="258.4" y="214" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="264.4" y="214" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.22"/>
+  <rect x="264.4" y="214" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.40285714285714286"/>
   <rect x="264.4" y="214" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="258.4" y="220" width="6" height="6" fill="none"/>
   <rect x="258.4" y="220" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="264.4" y="220" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.22"/>
+  <rect x="264.4" y="220" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.49714285714285716"/>
   <rect x="264.4" y="220" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="258.4" y="226" width="6" height="6" fill="none"/>
   <rect x="258.4" y="226" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="264.4" y="226" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.22"/>
+  <rect x="264.4" y="226" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.5914285714285714"/>
   <rect x="264.4" y="226" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="258.4" y="232" width="6" height="6" fill="none"/>
   <rect x="258.4" y="232" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="264.4" y="232" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.22"/>
+  <rect x="264.4" y="232" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.6857142857142857"/>
   <rect x="264.4" y="232" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="258.4" y="238" width="6" height="6" fill="none"/>
   <rect x="258.4" y="238" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="264.4" y="238" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.45"/>
+  <rect x="264.4" y="238" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.78"/>
   <rect x="264.4" y="238" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="258.4" y="196" width="12" height="48" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
   <text class="s" x="276.4" y="210.0" text-anchor="start">B [2048, 512]</text>
@@ -1553,7 +1554,7 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
   <rect x="593.6" y="196" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="587.6" y="202" width="6" height="6" fill="none"/>
   <rect x="587.6" y="202" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
-  <rect x="593.6" y="202" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.85"/>
+  <rect x="593.6" y="202" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.78"/>
   <rect x="593.6" y="202" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="587.6" y="208" width="6" height="6" fill="none"/>
   <rect x="587.6" y="208" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
@@ -1615,11 +1616,18 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
   <text class="s" x="593.6" y="305.0" text-anchor="middle">C [4096, 512]</text>
   <text class="s" x="593.6" y="318.0" text-anchor="middle">8 MiB</text>
   <line x1="596.6" y1="86.0" x2="596.6" y2="201.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-4-m3)"/>
-  <rect x="276.4" y="240" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.85" stroke-opacity=".4" stroke-width=".6"/><text class="s" x="290.4" y="248">第 0 轮读的块</text>
-  <rect x="276.4" y="256" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.45" stroke-opacity=".4" stroke-width=".6"/><text class="s" x="290.4" y="264">第 63 轮读的块</text>
-  <rect x="276.4" y="272" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.22" stroke-opacity=".4" stroke-width=".6"/><text class="s" x="290.4" y="280">第 1 到 62 轮读的块</text>
+  <text class="s" x="276.4" y="248">for 循环沿 K 读块的顺序</text>
+  <rect x="276.4" y="254" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.12" stroke-opacity=".4" stroke-width=".6"/>
+  <rect x="288.4" y="254" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.21" stroke-opacity=".4" stroke-width=".6"/>
+  <rect x="300.4" y="254" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.31" stroke-opacity=".4" stroke-width=".6"/>
+  <rect x="312.4" y="254" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.40" stroke-opacity=".4" stroke-width=".6"/>
+  <rect x="324.4" y="254" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.50" stroke-opacity=".4" stroke-width=".6"/>
+  <rect x="336.4" y="254" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.59" stroke-opacity=".4" stroke-width=".6"/>
+  <rect x="348.4" y="254" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.69" stroke-opacity=".4" stroke-width=".6"/>
+  <rect x="360.4" y="254" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.78" stroke-opacity=".4" stroke-width=".6"/>
+  <text class="s" x="276.4" y="277">第 0 轮</text><text class="s" x="372.4" y="277" text-anchor="end">第 63 轮</text>
 </svg>
-<figcaption><strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的 A、B、C 按形状比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 行和 B 的第 1 列，深色是第 0 轮读的块，浅色是第 63 轮的；结果写回 C 的 (1, 1) 块。512 个 program 分到 170 个 SM，每个 SM 放 3 个，正好一批。</figcaption>
+<figcaption><strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的 A、B、C 按形状比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 行和 B 的第 1 列，颜色由淡到浓是 for 循环沿 K 读块的顺序：第 0 轮读最淡的块，第 63 轮读最浓的；acc 一轮轮累积，最后铺满整条渐变，ReLU 后写回 C 的 (1, 1) 块。512 个 program 分到 170 个 SM，每个 SM 放 3 个，正好一批。</figcaption>
 </figure>
 
 一个 program 负责一个 $C_{IJ}$，grid 是二维的（[图 2-4](#fig-t-4)）。program 沿 K 方向循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上。写回之前在 register 里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
