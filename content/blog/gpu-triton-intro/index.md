@@ -679,7 +679,11 @@ def softmax(x):
 
 <p align="center">$C_{ij} = \max\left(0,\ \sum_{k=1}^{K} A_{ik} B_{kj}\right)$</p>
 
-$C_{ij}$ 要用到 A 的第 $i$ 行和 B 的第 $j$ 列，沿 K 求和。
+$C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别按 BM、BN、BK 切块，记 $A_{IT}$ 是 A 的第 $I$ 个行块、第 $T$ 个列块（BM × BK），$B_{TJ}$、$C_{IJ}$ 同理。C 的一块 $C_{IJ}$ 里的每个元素都只用到 A 的第 $I$ 个行块和 B 的第 $J$ 个列块，所以不同的 $C_{IJ}$ 可以交给不同的 program 各算各的。再把对 $k$ 的求和按 BK 一段一段地拆开，$\mathcal{K}_T$ 是第 $T$ 段的 BK 个下标：
+
+<p align="center">$\sum_{k=1}^{K} A_{ik} B_{kj} = \sum_{T=1}^{K/\mathrm{BK}} \ \sum_{k \in \mathcal{K}_T} A_{ik} B_{kj}, \qquad C_{IJ} = \max\left(0,\ \sum_{T} A_{IT}\, B_{TJ}\right)$</p>
+
+加法满足结合律，分段加完再相加和一次加完是同一个数（浮点数下只差舍入误差），所以每次只读 $A_{IT}$ 和 $B_{TJ}$ 两个小块、算一个小矩阵乘 $A_{IT} B_{TJ}$ 累加起来，最后得到的就是完整的 $C_{IJ}$。ReLU 逐元素作用在累加完的结果上，放在最后做不影响答案。
 
 <figure id="fig-t-4" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 185" width="100%" role="img" aria-label="matmul kernel，分块乘加型：grid 是二维的，一个 program 负责 C 的一个 BM × BN 块；沿 K 循环读 A、B 的块用 tl.dot 累加，最后做 ReLU 写回">
@@ -741,7 +745,7 @@ $C_{ij}$ 要用到 A 的第 $i$ 行和 B 的第 $j$ 列，沿 K 求和。
 <figcaption><strong>图 2-3</strong> matmul kernel，分块乘加型，画法同<a href="#fig-t-1">图 2-1</a>。grid 是二维的，一个 program 负责 C 的一块，沿 K 循环（红线）读 A、B 的块，<code>tl.dot</code> 沿 K 归约。</figcaption>
 </figure>
 
-矩阵乘按输出 C 分块，一个 program 负责 C 的一个 BM × BN 块，grid 是二维的（[图 2-3](#fig-t-4)）。program 沿 K 方向每次读 A 的一个 BM × BK 块和 B 的一个 BK × BN 块，用 `tl.dot` 乘加到累加器上。写回之前在 register 里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
+一个 program 负责一个 $C_{IJ}$，grid 是二维的（[图 2-3](#fig-t-4)）。program 沿 K 方向循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上。写回之前在 register 里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
 
 ```python
 @triton.jit
