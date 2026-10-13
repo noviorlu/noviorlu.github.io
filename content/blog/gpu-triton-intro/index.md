@@ -1002,7 +1002,7 @@ fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 的矩�
 
 ### 2.5 num_warps：结合 grid 和 op 一起看 {#triton-warps}
 
-四个例子都用了默认的 `num_warps=4`，即每个 program 4 个 warp。每个 SMSP 实际驻留几个 warp，还要看一个 SM 上同时放了几个 program：每个 SMSP 的 warp 数 = 每个 SM 驻留的 program 数 × `num_warps` ÷ 4。一个 SM 能驻留几个 program，取决于 grid 够不够分（program 总数 ÷ 170），以及[表 1-2](#tab-1-2) 的几条上限。需要驻留几个 warp，则由 op 决定。下面先看 op 需要几个 warp，再看 grid 和 `num_warps` 怎么凑出这个数。
+四个例子都用了默认的 `num_warps=4`，即每个 program 4 个 warp。每个 SMSP 实际驻留几个 warp，还要看一个 SM 上同时放了几个 program：每个 SMSP 的 warp 数 = 每个 SM 驻留的 program 数 × `num_warps` ÷ 4。一个 SM 能驻留几个 program，取决于 program 够不够分（grid 里的 program 总数 ÷ 170），以及[表 1-2](#tab-1-2) 的几条上限。需要驻留几个 warp，则由 op 决定。下面先看 op 需要几个 warp，再看 grid 和 `num_warps` 怎么凑出这个数。
 
 需要几个 warp，取决于每个 warp 要等多久。以 FMA（fused multiply-add，一条指令算 a × b + c，记 2 次浮点运算）为例：一条 FMA 大约 4 拍后才出结果，如果下一条要用这个结果，就得等它出来才能发。一个 SMSP 上只有 1 个 warp（A）时，4 拍里只有 1 拍在发指令；有 4 个 warp（A、B、C、D）时，A 等待的 3 拍由 B、C、D 填上，每一拍都有指令可发：
 
@@ -1150,7 +1150,7 @@ TILE = 8192 编译出来的样子：
   发读 ─── 等 ─── 加 ─ 发读 ─── 等 ─── 加 ─ 发读 ─── 等 ───    又只有 1 个在路上
 ```
 
-16384 时编译器换了一种排法，把读连着发出去，又回到 1.68e12。所以 grid 大时 TILE 取多少都行；grid 小时 TILE 太小会慢，大了也不一定快，要用 `triton.autotune` 实测。代码里的 1024 在两种形状下分别是 1.58e12 和 1.68e12。
+16384 时编译器换了一种排法，把读连着发出去，又回到 1.68e12。所以 program 比 SM 多很多时，TILE 取多少都行；program 少时 TILE 太小会慢，大了也不一定快，要用 `triton.autotune` 实测。代码里的 1024 在两种形状下分别是 1.58e12 和 1.68e12。
 
 <figure id="fig-h-8" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="row sum 的 TILE 从 128 到 16384 时的带宽：10880 行时都在 1.69e12 B/s 左右；170 行时随 TILE 起伏，128 最慢，4096 和 8192 也掉到 1.1e12 以下，512 和 16384 最快">
