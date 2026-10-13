@@ -9,7 +9,6 @@ import triton.language as tl
 
 
 # post:gelu_kernel
-# program：处理第 pid 段的 BLOCK 个元素
 @triton.jit
 def gelu_kernel(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
     pid = tl.program_id(axis=0)               # 第几个 program（≈ CUDA 的 blockIdx.x）
@@ -25,7 +24,6 @@ def gelu_kernel(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
 
 
 # post:gelu_launch
-# grid：一段一个 program
 def gelu(x):
     y = torch.empty_like(x)
     n, BLOCK = x.numel(), 1024                # 每个 program 处理 1024 个元素
@@ -46,7 +44,6 @@ def softmax_naive(x):                         # x: [M, N]，按行
 
 
 # post:softmax_kernel
-# program：处理第 row 行
 @triton.jit
 def softmax_kernel(x_ptr, y_ptr, stride, N, BLOCK: tl.constexpr):
     row = tl.program_id(0)                    # 一个 program 处理一整行
@@ -60,7 +57,6 @@ def softmax_kernel(x_ptr, y_ptr, stride, N, BLOCK: tl.constexpr):
 
 
 # post:softmax_launch
-# grid：一行一个 program
 def softmax(x):
     M, N = x.shape
     y = torch.empty_like(x)
@@ -70,7 +66,6 @@ def softmax(x):
 
 
 # post:row_sum_kernel
-# program：沿第 row 行循环累加
 @triton.jit
 def row_sum_kernel(x_ptr, out_ptr, N, TILE: tl.constexpr):
     row = tl.program_id(0)
@@ -83,7 +78,6 @@ def row_sum_kernel(x_ptr, out_ptr, N, TILE: tl.constexpr):
 
 
 # post:row_sum_launch
-# grid：一行一个 program
 def row_sum(x, TILE=1024):
     M, N = x.shape
     out = torch.empty(M, device=x.device, dtype=x.dtype)
@@ -93,7 +87,6 @@ def row_sum(x, TILE=1024):
 
 
 # post:matmul_kernel
-# program：算 C 的第 (pid_m, pid_n) 块
 @triton.jit
 def matmul_relu_kernel(a_ptr, b_ptr, c_ptr, M, N, K,
                        sam, sak, sbk, sbn, scm, scn,
@@ -118,7 +111,6 @@ def matmul_relu_kernel(a_ptr, b_ptr, c_ptr, M, N, K,
 
 
 # post:matmul_launch
-# grid：C 的每一块一个 program，二维
 def matmul_relu(a, b, BM=64, BN=64, BK=32):
     M, K = a.shape
     _, N = b.shape

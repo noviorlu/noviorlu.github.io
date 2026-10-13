@@ -119,13 +119,13 @@ GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函�
 
 逐元素 op 最简单，每个元素各算各的，program 之间不需要配合。把 n 个元素切成每段 BLOCK 个，一段交给一个 program（[图 2-1](#fig-t-1)）。kernel 里先用 `tl.program_id` 算出自己负责的下标，读进来，算完写回：
 
-```python
+```python {role="program" tag="处理第 pid 段的 BLOCK 个元素"}
 {{code:triton_tutorial.py:gelu_kernel}}
 ```
 
 启动时只要定 grid，也就是 program 的个数。program 个数和 SM 个数无关：5090 有 170 个 SM，program 多于 SM 时，GPU 会一批一批地调度。
 
-```python
+```python {role="grid" tag="一段一个 program"}
 {{code:triton_tutorial.py:gelu_launch}}
 ```
 
@@ -162,13 +162,13 @@ softmax 在 eager 下要 5 个 kernel，和[下一篇](/blog/gpu-training-analys
 
 如果一个 program 处理一整行（[图 2-2](#fig-t-2)），max、exp、求和、除都可以在 register 里做完，只读 MN、写 MN，读写量是原来的 1/4：
 
-```python
+```python {role="program" tag="处理第 row 行"}
 {{code:triton_tutorial.py:softmax_kernel}}
 ```
 
 启动时 grid 是 M 个 program，一行一个：
 
-```python
+```python {role="grid" tag="一行一个 program"}
 {{code:triton_tutorial.py:softmax_launch}}
 ```
 
@@ -188,13 +188,13 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。
 
 累加器 `acc` 是一个长度为 TILE 的向量，不是一个数：循环里每个线程只加自己负责的几个位置，线程之间不需要通信；循环结束后，`tl.sum` 再做一次跨线程归约，把 TILE 个部分和加成一个数。
 
-```python
+```python {role="program" tag="沿第 row 行循环累加"}
 {{code:triton_tutorial.py:row_sum_kernel}}
 ```
 
 grid 和 softmax 一样，一行一个 program：
 
-```python
+```python {role="grid" tag="一行一个 program"}
 {{code:triton_tutorial.py:row_sum_launch}}
 ```
 
@@ -218,13 +218,13 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
 
 一个 program 负责一个 $C_{IJ}$，grid 是二维的（[图 2-4](#fig-t-4)）。program 沿 K 方向循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上。写回之前在 register 里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
 
-```python
+```python {role="program" tag="算 C 的第 (pid_m, pid_n) 块"}
 {{code:triton_tutorial.py:matmul_kernel}}
 ```
 
 grid 是二维的，C 的每一块一个 program：
 
-```python
+```python {role="grid" tag="C 的每一块一个 program，二维"}
 {{code:triton_tutorial.py:matmul_launch}}
 ```
 

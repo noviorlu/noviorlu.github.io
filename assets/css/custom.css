@@ -606,6 +606,13 @@ html.dark {
 .article-content hr { margin: 2.4em 0; border-color: var(--nv-border); }
 .article-content ul > li::marker, .article-content ol > li::marker { color: var(--nv-text-3); }
 
+/* Code blocks tagged with a role (render-codeblock.html): program = navy/sky, grid = red-orange */
+.article-content .highlight-wrapper.cb-role { --cb: var(--fig-1); border-left: 4px solid var(--cb); overflow: hidden; }
+.article-content .highlight-wrapper.cb-grid { --cb: var(--fig-hi); }
+.article-content .cb-role .cb-tag { padding: 3px 14px; font: 600 12px/1.6 var(--nv-font-mono); letter-spacing: .02em; color: var(--cb); background: color-mix(in srgb, var(--cb) 12%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--cb) 30%, transparent); }
+.article-content .cb-role .cb-tag span { margin-left: 10px; font: 400 12.5px/1.6 var(--nv-font-sans, inherit); color: var(--nv-text-2, inherit); }
+.article-content .cb-role .cb-tag + pre, .article-content .cb-role pre { border-top-left-radius: 0; border-top-right-radius: 0; }
+
 /* Collapsible code blocks in posts: <details class="fold"> */
 .article-content details.fold { margin: 1.2em 0; border: 1px solid var(--nv-border); border-radius: 12px; background: var(--nv-surface); overflow: hidden; }
 .article-content details.fold > summary { padding: 10px 16px; cursor: pointer; list-style: none; font-size: 14.5px; font-weight: 600; color: var(--nv-text); }
