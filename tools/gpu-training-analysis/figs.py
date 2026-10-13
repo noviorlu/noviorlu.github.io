@@ -785,7 +785,7 @@ def hw_sm():
     return f
 
 def hw_smsp():
-    f = F("fig-h-7b", 322, "RTX 5090 一个 SMSP 的结构：L0 指令 cache、warp scheduler 和 dispatch，64 KB register file，32 个 FP32/INT32 核和 1 个 Tensor core，4 个 LD/ST 和 SFU；下面接 SM 共享的 128 KB L1 / shared memory")
+    f = F("fig-h-9", 322, "RTX 5090 一个 SMSP 的结构：L0 指令 cache、warp scheduler 和 dispatch，64 KB register file，32 个 FP32/INT32 核和 1 个 Tensor core，4 个 LD/ST 和 SFU；下面接 SM 共享的 128 KB L1 / shared memory")
     f.w(f'<rect x="12" y="12" width="356" height="248" rx="12" {tint("--fig-1", 6, sw=1.4)}/>')
     f.w('<text class="tb" x="30" y="33">一个 SMSP（每个 SM 4 个）</text>')
     M = lambda x, y, n, anchor="start": f.w(f'<text class="s" x="{x}" y="{y}" text-anchor="{anchor}" style="fill: var(--fig-hi)">{n}</text>')

@@ -45,9 +45,9 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 
 {{fig-h-2}}
 
-一个 SMSP 里面再细分（[图 1-4](#fig-h-7b)）：warp scheduler 每拍挑一个 warp，dispatch 把它的一条指令发给 32 个 thread；FP32 / INT32 核做普通运算，Tensor core 做矩阵乘，SFU 算 exp、rsqrt 这类函数，LD/ST 负责 load 和 store。[第 2 节](#triton)kernel 图里的「计算单元」就是这些核，「register」就是这块 64 KB 的 register file。
+一个 SMSP 里面再细分（[图 1-4](#fig-h-9)）：warp scheduler 每拍挑一个 warp，dispatch 把它的一条指令发给 32 个 thread；FP32 / INT32 核做普通运算，Tensor core 做矩阵乘，SFU 算 exp、rsqrt 这类函数，LD/ST 负责 load 和 store。[第 2 节](#triton)kernel 图里的「计算单元」就是这些核，「register」就是这块 64 KB 的 register file。
 
-{{fig-h-7b}}
+{{fig-h-9}}
 
 | | A100 | H100 | B200 | RTX 5090 |
 |:--|--:|--:|--:|--:|
