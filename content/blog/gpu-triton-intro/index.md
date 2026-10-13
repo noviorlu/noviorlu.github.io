@@ -3,14 +3,14 @@ title: "GPU 与 Triton 入门：从存储层级到第一个 kernel"
 date: 2026-10-03
 draft: false
 math: true
-description: "GPU 的存储层级、SM 结构、occupancy 和 CUDA 执行层级；再用 GELU、softmax、matmul 三个例子入门 Triton，附录对照 TPU。GPU training optimization 系列的第一篇。"
+description: "GPU 的存储层级、SM 结构、occupancy 和 CUDA 执行层级；再用 GELU、softmax、row sum、matmul 四个例子入门 Triton，附录对照 TPU。GPU training optimization 系列的第一篇。"
 tags: ["GPU", "Triton", "CUDA", "TPU", "LLM", "AI"]
 categories: ["AI笔记"]
 series: ["GPU training optimization"]
 series_order: 1
 ---
 
-这个系列讲怎么让 Transformer 训练在 GPU 上跑得更快。这一篇先打基础：[第 1 节](#hardware)介绍 GPU 的硬件，包括数据存在哪几层、一个 SM 里有什么、CUDA 的执行层级怎么对应到硬件；[第 2 节](#triton)用三个例子介绍 Triton，后面两篇的 kernel 都用它写。TPU 和 GPU 的对照放在[附录 A](#tpu)。
+这个系列讲怎么让 Transformer 训练在 GPU 上跑得更快。这一篇先打基础：[第 1 节](#hardware)介绍 GPU 的硬件，包括数据存在哪几层、一个 SM 里有什么、CUDA 的执行层级怎么对应到硬件；[第 2 节](#triton)用四个例子介绍 Triton，后面两篇的 kernel 都用它写。TPU 和 GPU 的对照放在[附录 A](#tpu)。
 
 下一篇[谁偷走了 5090 的算力和显存](/blog/gpu-training-analysis/)用这些知识在 RTX 5090 上拆解一步训练的时间和显存，第三篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 讲 attention 的 IO-aware kernel。
 
@@ -429,7 +429,7 @@ block 放到 SM 上以后就一直驻留，直到它的线程全部跑完。一�
 <figcaption><strong>图 1-5</strong> 一个 SM 上驻留 3 个 block（B0、B1、B2）时的某一拍。格子里写的是这个 warp 属于哪个 block，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。</figcaption>
 </figure>
 
-驻留几个 warp 才够、在 Triton 里怎么调，放到 [2.4 节](#triton-warps) 写 kernel 时再看。
+驻留几个 warp 才够、在 Triton 里怎么调，放到 [2.5 节](#triton-warps) 写 kernel 时再看。
 
 block 之间不能直接共享数据，只能通过显存交换，而这正是最慢的一层。所以要尽量把会重复读的数据放进同一个 block 里处理，这就是分块（tiling）。在 CUDA 里分块要自己管 shared memory 和线程同步，[第 2 节](#triton)的 Triton 把这部分交给编译器。
 
@@ -448,14 +448,15 @@ Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的分块。CU
 | shared memory | 由编译器分配 | 没有对应语句 | 不能 |
 {#tab-2-1 caption="**表 2-1** CUDA 概念在 Triton 里的对应"}
 
-下面三个例子由浅入深，每个代表一种 op。决定 grid 怎么切的，是一个输出依赖哪些输入：
+下面四个例子由浅入深。grid 怎么切，看一个输出依赖哪些输入；program 里要不要循环，看这些输入能不能一次装进 register，装不下就要一块一块读，用一个累加器（accumulator）存中间结果：
 
-| op | 类型 | 一个输出依赖 | grid 怎么切 |
-|:--|:--|:--|:--|
-| GELU | 逐元素 | 同位置的一个输入 | 展平成一维，按 BLOCK 随便切段 |
-| softmax | 按行归约 | 整行（max 和 sum） | 一行一个 program，整行装进 register |
-| matmul | 分块乘加 | A 的一行、B 的一列（沿 K 归约） | 二维，C 的一块一个 program，沿 K 循环 |
-{#tab-2-2 caption="**表 2-2** 三个例子的 op 类型"}
+| op | 类型 | 一个输出依赖 | grid 怎么切 | program 里 |
+|:--|:--|:--|:--|:--|
+| GELU | 逐元素 | 同位置的一个输入 | 展平成一维，按 BLOCK 切段 | 不循环 |
+| softmax | 按行归约 | 整行（max 和 sum） | 一行一个 program | 不循环，整行一次读进来 |
+| row sum | 按行归约 | 整行（sum） | 一行一个 program | 沿行循环，累加器存部分和 |
+| matmul | 分块乘加 | A 的一行、B 的一列 | 二维，C 的一块一个 program | 沿 K 循环，累加器存 C 的一块 |
+{#tab-2-2 caption="**表 2-2** 四个例子的 op 类型"}
 
 最后一节看每个 program 该用几个 warp。代码都在 RTX 5090 上和 PyTorch 对照过。[下一篇](/blog/gpu-training-analysis/#rmsnorm)手写的融合 RMSNorm 和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 也都用 Triton 写。
 
@@ -669,11 +670,97 @@ def softmax(x):
 
 在 5090 上对 4096 × 4096 的 fp32 输入实测，eager 版 249 µs，Triton 版 80 µs，快了 3.1 倍，和 `torch.softmax`（79 µs）相当。
 
-这个写法要求 BLOCK ≥ N，也就是一行能一次装进一个 program。行再长，就只能沿行一块一块地读；但 exp 要先减去整行的最大值，最大值要读完整行才知道。边读边更新最大值、同时修正已经算好的和，就是 online softmax，[FlashAttention](/blog/flashattention-1-to-4/) 那篇会讲。
+这个写法要求 BLOCK ≥ N，也就是一行能一次装进一个 program。行再长，program 就只能沿行一块一块地读，读过的块要留下一个中间结果。下一节先看最简单的按行归约：求和。
 
-前面两个例子里每个数只读一次，分块只是为了把工作分给不同的 program。矩阵乘不同：A 的每个元素要和 B 的一整列相乘，分块是为了让读进片上的数据被多次使用。
+### 2.3 Row sum：按行归约，分块累加 {#triton-rowsum}
 
-### 2.3 Matmul：分块乘加，顺手融合 ReLU {#triton-matmul}
+row sum 对 `[M, N]` 的输入每行求和：
+
+<p align="center">$s_i = \sum_{j=1}^{N} x_{ij} = \sum_{T} \ \sum_{j \in \mathcal{J}_T} x_{ij}$</p>
+
+$\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标。加法满足结合律，先把每块加起来再相加，和一次加完是同一个数（浮点数下只差舍入误差），所以 program 可以沿行一块一块地读，每读一块就加到累加器上（[图 2-3](#fig-t-3)）。
+
+<figure id="fig-t-3" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 198" width="100%" role="img" aria-label="row sum kernel，按行归约、分块累加：一行一个 program，沿行循环，每次读 TILE 个加到累加器上，最后归约成一个数">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <defs><marker id="fig-t-3-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-t-3-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker></defs>
+  <text class="ttl" x="10" y="18">grid</text>
+  <text class="ttl" x="162" y="18">一个 program 做的事</text>
+  <text class="tb" x="630" y="18" text-anchor="end" style="fill: var(--fig-hi)">按行归约：s[i] 依赖整行 x[i, :]</text>
+  <rect x="10" y="32" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="t" x="69" y="50" text-anchor="middle">行 0</text>
+  <rect x="10" y="64" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-1) 30%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="t" x="69" y="82" text-anchor="middle">行 1 ← pid=1</text>
+  <rect x="10" y="96" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="t" x="69" y="114" text-anchor="middle">行 2</text>
+  <rect x="10" y="128" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="t" x="69" y="146" text-anchor="middle">⋯</text>
+  <text class="lab2" x="10" y="168">grid = (M,)</text>
+  <text class="lab2" x="10" y="183">一行一个 program</text>
+  <rect x="150" y="32" width="480" height="118" rx="10" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="6 4"/>
+  <text class="lab2" x="390" y="168" text-anchor="middle">一个 program（pid = 1）：沿第 1 行一块一块地读，部分和留在 acc 里</text>
+  <line x1="130.0" y1="77.0" x2="160.0" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-3-m0)"/>
+  <rect x="162.0" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-1) 22%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="tb" x="210.8" y="73" text-anchor="middle">累加器清零</text><text class="s" x="210.8" y="90" text-anchor="middle">acc = tl.zeros</text>
+  <rect x="281.5" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="tb" x="330.2" y="73" text-anchor="middle">读一块</text><text class="s" x="330.2" y="90" text-anchor="middle">tl.load</text>
+  <line x1="261.5" y1="77.0" x2="279.5" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-3-m0)"/>
+  <rect x="401.0" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="tb" x="449.8" y="73" text-anchor="middle">累加</text><text class="s" x="449.8" y="90" text-anchor="middle">acc += x</text>
+  <line x1="381.0" y1="77.0" x2="399.0" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-3-m0)"/>
+  <rect x="520.5" y="52" width="97.5" height="50" rx="7" style="fill: color-mix(in srgb, var(--fig-mute) 22%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="518.5" y="50" width="101.5" height="54" rx="8" style="fill: none; stroke: var(--fig-hi); stroke-width: 1.8"/>
+  <text class="s" x="569.2" y="46" text-anchor="middle" style="fill: var(--fig-hi)">整行归约</text>
+  <text class="tb" x="569.2" y="73" text-anchor="middle">归约写回</text><text class="s" x="569.2" y="90" text-anchor="middle">tl.sum, tl.store</text>
+  <line x1="500.5" y1="77.0" x2="518.5" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-3-m0)"/>
+  <path d="M449.8,104 L449.8,124 L330.2,124 L330.2,105" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-3-m1)"/>
+  <text class="s" x="390.0" y="138" text-anchor="middle" style="fill: var(--fig-hi)">沿行循环，每次 TILE 个</text>
+</svg>
+<figcaption><strong>图 2-3</strong> row sum kernel，按行归约，画法同<a href="#fig-t-1">图 2-1</a>。和 softmax 的区别是一行装不下，要沿行循环（红线），每次读 TILE 个加到累加器 acc 上，最后的 <code>tl.sum</code> 才做一次整行归约。</figcaption>
+</figure>
+
+累加器 `acc` 是一个长度为 TILE 的向量，不是一个数：循环里每个线程只加自己负责的几个位置，线程之间不需要通信；循环结束后，`tl.sum` 再做一次跨线程归约，把 TILE 个部分和加成一个数。
+
+```python
+@triton.jit
+def row_sum_kernel(x_ptr, out_ptr, N, TILE: tl.constexpr):
+    row = tl.program_id(0)
+    acc = tl.zeros([TILE], dtype=tl.float32)  # TILE 路部分和，不是一个标量
+    for start in range(0, N, TILE):           # 行比 TILE 长：一块一块串行读
+        cols = start + tl.arange(0, TILE)
+        acc += tl.load(x_ptr + row * N + cols, mask=cols < N, other=0.0)
+    tl.store(out_ptr + row, tl.sum(acc, axis=0))  # 最后只做一次跨线程归约
+
+def row_sum(x, TILE=1024):
+    M, N = x.shape
+    out = torch.empty(M, device=x.device, dtype=x.dtype)
+    row_sum_kernel[(M,)](x, out, N, TILE=TILE)
+    return out
+```
+
+softmax 不能直接这样分块。$e^{x_{ij} - m_i}$ 要先知道整行的最大值 $m_i$，读完整行才知道。分块时累加器里要同时存目前的最大值和部分和，最大值变大时把已有的部分和乘上 $e^{m_{\text{old}} - m_{\text{new}}}$ 修正，这就是 online softmax，[FlashAttention](/blog/flashattention-1-to-4/) 那篇会讲。
+
+前面三个例子里每个数只读一次，分块只是为了把工作分给不同的 program。矩阵乘不同：A 的每个元素要和 B 的一整列相乘，分块是为了让读进片上的数据被多次使用。它也要沿 K 循环，累加器是 C 的一块。
+
+### 2.4 Matmul：分块乘加，顺手融合 ReLU {#triton-matmul}
 
 `[M, K] × [K, N]` 的矩阵乘再接 ReLU：
 
@@ -742,10 +829,10 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
   <path d="M449.8,104 L449.8,124 L330.2,124 L330.2,105" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-4-m1)"/>
   <text class="s" x="390.0" y="138" text-anchor="middle" style="fill: var(--fig-hi)">沿 K 循环，每次 BK</text>
 </svg>
-<figcaption><strong>图 2-3</strong> matmul kernel，分块乘加型，画法同<a href="#fig-t-1">图 2-1</a>。grid 是二维的，一个 program 负责 C 的一块，沿 K 循环（红线）读 A、B 的块，<code>tl.dot</code> 沿 K 归约。</figcaption>
+<figcaption><strong>图 2-4</strong> matmul kernel，分块乘加型，画法同<a href="#fig-t-1">图 2-1</a>。grid 是二维的，一个 program 负责 C 的一块，沿 K 循环（红线）读 A、B 的块，<code>tl.dot</code> 沿 K 归约。</figcaption>
 </figure>
 
-一个 program 负责一个 $C_{IJ}$，grid 是二维的（[图 2-3](#fig-t-4)）。program 沿 K 方向循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上。写回之前在 register 里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
+一个 program 负责一个 $C_{IJ}$，grid 是二维的（[图 2-4](#fig-t-4)）。program 沿 K 方向循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上。写回之前在 register 里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
 
 ```python
 @triton.jit
@@ -780,9 +867,9 @@ def matmul_relu(a, b, BM=64, BN=64, BK=32):
 
 fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 的矩阵乘差 0.1 左右；要和 PyTorch（关掉 tf32）对上，需要 `input_precision="ieee"`。
 
-### 2.4 num_warps：结合 grid 和 op 一起看 {#triton-warps}
+### 2.5 num_warps：结合 grid 和 op 一起看 {#triton-warps}
 
-三个例子都用了默认的 `num_warps=4`，即每个 program 4 个 warp。每个 SMSP 实际驻留几个 warp，还要看一个 SM 上同时放了几个 program：每个 SMSP 的 warp 数 = 每个 SM 驻留的 program 数 × `num_warps` ÷ 4。一个 SM 能驻留几个 program，取决于 grid 够不够分（program 总数 ÷ 170），以及[表 1-2](#tab-1-2) 的几条上限。需要驻留几个 warp，则由 op 决定。下面先看 op 需要几个 warp，再看 grid 和 `num_warps` 怎么凑出这个数。
+四个例子都用了默认的 `num_warps=4`，即每个 program 4 个 warp。每个 SMSP 实际驻留几个 warp，还要看一个 SM 上同时放了几个 program：每个 SMSP 的 warp 数 = 每个 SM 驻留的 program 数 × `num_warps` ÷ 4。一个 SM 能驻留几个 program，取决于 grid 够不够分（program 总数 ÷ 170），以及[表 1-2](#tab-1-2) 的几条上限。需要驻留几个 warp，则由 op 决定。下面先看 op 需要几个 warp，再看 grid 和 `num_warps` 怎么凑出这个数。
 
 需要几个 warp，取决于每个 warp 要等多久。以 FMA（fused multiply-add，一条指令算 a × b + c，记 2 次浮点运算）为例：一条 FMA 大约 4 拍后才出结果，如果下一条要用这个结果，就得等它出来才能发。一个 SMSP 上只有 1 个 warp（A）时，4 拍里只有 1 拍在发指令；有 4 个 warp（A、B、C、D）时，A 等待的 3 拍由 B、C、D 填上，每一拍都有指令可发：
 
@@ -792,7 +879,7 @@ fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 的矩�
 A、B、C、D：  A  B  C  D  A  B  C  D     每拍都在发
 ```
 
-所以要几个 warp，就看等待有几拍，要让别的 warp 把这几拍填满。[图 2-4](#fig-h-7) 在 5090 上验证了这一点。kernel 把 256 MiB 数组的每个元素读进来，连做 K 次 FMA（每次都用上一次的结果），再写回。K 越大 intensity 越高，四个 K 让 intensity 从 0.25 到 128，最后一个超过了 ridge point 58，是 compute-bound。grid 固定为 170 × m 个 program，每个 SMSP 就正好驻留 m 个 warp。
+所以要几个 warp，就看等待有几拍，要让别的 warp 把这几拍填满。[图 2-5](#fig-h-7) 在 5090 上验证了这一点。kernel 把 256 MiB 数组的每个元素读进来，连做 K 次 FMA（每次都用上一次的结果），再写回。K 越大 intensity 越高，四个 K 让 intensity 从 0.25 到 128，最后一个超过了 ridge point 58，是 compute-bound。grid 固定为 170 × m 个 program，每个 SMSP 就正好驻留 m 个 warp。
 
 <figure id="fig-h-7" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 320" width="100%" role="img" aria-label="每个 SMSP 驻留 1 到 12 个 warp 时，arithmetic intensity 从 0.25 到 128 的四个 kernel 的速度（占各自最快值的比例）：四条线形状几乎一样，都要 4 到 6 个 warp 才接近 100%">
@@ -892,38 +979,19 @@ A、B、C、D：  A  B  C  D  A  B  C  D     每拍都在发
   <g class="m"><title>I = 128，算力瓶颈，每 SMSP 12 个 warp：828.0 µs，8.30e+13 FLOPS，最快值的 98%</title><circle cx="610.0" cy="45.4" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
   <line x1="360" y1="242" x2="382" y2="242" style="stroke: var(--fig-hi)" stroke-width="2"/><text class="lab" x="390" y="246">I = 128，算力瓶颈</text>
 </svg>
-<figcaption><strong>图 2-4</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。</figcaption>
+<figcaption><strong>图 2-5</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。</figcaption>
 </figure>
 
 compute-bound 的那条线（I = 128）和上面的推算一致：1 个 warp 时是 25%，正好 1/4；4 个 warp 时到 92%。memory-bound 的三条线等的是显存，一次读要几百拍，按说要更多 warp 才能填满；但显存每秒能送的数据有上限，warp 多到把显存喂满以后，再加也没用，实测在 5、6 个 warp 时持平。
 
-反例是 [2.3 节](#triton-matmul)的矩阵乘。它每个 SM 只放得下 3 个 block（shared memory 先到上限），每个 SMSP 只有 3 个 warp，照样跑到 5.2e13 FLOPS，是 fp32 峰值的一半。因为一个线程负责很多个输出，这些 FMA 互不依赖，第 2 条不用等第 1 条的结果，一个 warp 自己就能每拍发一条：
+反例是 [2.4 节](#triton-matmul)的矩阵乘。它每个 SM 只放得下 3 个 block（shared memory 先到上限），每个 SMSP 只有 3 个 warp，照样跑到 5.2e13 FLOPS，是 fp32 峰值的一半。因为一个线程负责很多个输出，这些 FMA 互不依赖，第 2 条不用等第 1 条的结果，一个 warp 自己就能每拍发一条：
 
 ```
 拍：          1  2  3  4  5  6  7  8
 矩阵乘的 A：  A  A  A  A  A  A  A  A     每条 FMA 互不依赖
 ```
 
-知道了要几个 warp，再看 grid 和 `num_warps` 能不能凑出来。拿一个按行求和的 kernel 来试，$s_i = \sum_j x_{ij}$：一行一个 program，沿行每次读 TILE 个数加到一个部分和向量上，最后用 `tl.sum` 归约成一个数。
-
-```python
-@triton.jit
-def row_sum_kernel(x_ptr, out_ptr, N, TILE: tl.constexpr):
-    row = tl.program_id(0)
-    acc = tl.zeros([TILE], dtype=tl.float32)  # TILE 路部分和，不是一个标量
-    for start in range(0, N, TILE):           # 行比 TILE 长：一块一块串行读
-        cols = start + tl.arange(0, TILE)
-        acc += tl.load(x_ptr + row * N + cols, mask=cols < N, other=0.0)
-    tl.store(out_ptr + row, tl.sum(acc, axis=0))  # 最后只做一次跨线程归约
-
-def row_sum(x, TILE=1024):
-    M, N = x.shape
-    out = torch.empty(M, device=x.device, dtype=x.dtype)
-    row_sum_kernel[(M,)](x, out, N, TILE=TILE)
-    return out
-```
-
-试两种形状，元素总数一样（都是 340 MiB），每个线程每轮都读 4 个数，只改 `num_warps`：
+知道了要几个 warp，再看 grid 和 `num_warps` 能不能凑出来。拿 [2.3 节](#triton-rowsum)的 row sum 试两种形状，元素总数一样（都是 340 MiB），每个线程每轮都读 4 个数，只改 `num_warps`：
 
 | 形状 | 每个 SM 分到的 program | 1 | 2 | 4 | 8 | 16 | 32 |
 |:--|--:|--:|--:|--:|--:|--:|--:|
@@ -935,9 +1003,9 @@ def row_sum(x, TILE=1024):
 
 `num_warps` 还决定每个线程要存多少数据：program 一次要存的数据平分给它的线程。[2.2 节](#triton-softmax)的 softmax 把一整行放在 register 里，行长 32768 时，`num_warps=1` 每个线程要存 1024 个数，远超每个线程 255 个 register 的上限，溢出到显存，耗时 705 µs；`num_warps=8` 每个线程存 128 个，不溢出，183 µs。
 
-驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。它不必占满，够把等待的拍数填满就行：图 2-4 的 kernel 4 到 6 个 warp 就够，矩阵乘 25% 的 occupancy 也够。调 `num_warps` 的顺序是：先看 program 比 SM 多多少，program 少时把 `num_warps` 调大；再看 register 会不会溢出；最后用 `triton.autotune` 微调。
+驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。它不必占满，够把等待的拍数填满就行：图 2-5 的 kernel 4 到 6 个 warp 就够，矩阵乘 25% 的 occupancy 也够。调 `num_warps` 的顺序是：先看 program 比 SM 多多少，program 少时把 `num_warps` 调大；再看 register 会不会溢出；最后用 `triton.autotune` 微调。
 
-第 2 节的三个例子是同一个模式：program 把一块数据读进 register，在片上做完能做的计算，再写回显存。[下一篇](/blog/gpu-training-analysis/)在 5090 上拆解一步训练的时间和显存，用的就是这个模式：把 RMSNorm 的几个 kernel 融合成一个，少读写一遍中间结果。
+第 2 节的四个例子是同一个模式：program 把一块数据读进 register，在片上做完能做的计算，再写回显存。[下一篇](/blog/gpu-training-analysis/)在 5090 上拆解一步训练的时间和显存，用的就是这个模式：把 RMSNorm 的几个 kernel 融合成一个，少读写一遍中间结果。
 
 ---
 
@@ -1157,4 +1225,4 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 A-2](#fig-h-
 9. Tillet, Kung, Cox. [Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations](https://doi.org/10.1145/3315508.3329973). MAPL 2019.
 10. [Triton tutorials](https://triton-lang.org/main/getting-started/tutorials/index.html)。第 2 节 softmax 和 matmul 例子的写法。
 11. Hendrycks, Gimpel. [Gaussian Error Linear Units (GELUs)](https://arxiv.org/abs/1606.08415). arXiv:1606.08415, 2016. 第 2.1 节的 tanh 近似。
-12. Milakov, Gimelshein. [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867). arXiv:1805.02867, 2018. 第 2.2 节提到的 online softmax。
+12. Milakov, Gimelshein. [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867). arXiv:1805.02867, 2018. 第 2.3 节提到的 online softmax。
