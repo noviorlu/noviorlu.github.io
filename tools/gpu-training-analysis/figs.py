@@ -1100,22 +1100,65 @@ def tri_softmax():
     return f
 
 def tri_rowsum():
-    f, cx, p = lanes_fig("fig-t-3", "row sum kernel：一行一个 program；program 沿行一轮读一块（TILE 个）加到 acc 上，中间几轮用 ⋯ 省略，acc 一直留在 register 里，最后归约成一个数写回",
+    f, cx, p = lanes_fig("fig-t-3", "row sum kernel：一行一个 program；program 沿行一轮读一块加到 acc 上，颜色深浅是 for 循环的顺序；acc 一直留在 register 里，最后归约成一个数写回",
         "按行归约，分块累加", "一个 program（pid = 1）", grid_rows,
         ["grid = (M,)", "M = 4096 个 program"],
         [("读第 0 块", "tl.load"), ("累加", "acc += x"), "⋯", ("读第 3 块", "tl.load"), ("累加", "acc += x"), ("归约写回", "tl.sum")], "register", (12, "线程数先满"),
-        ["每轮读这一行的 1024 个数（TILE），4 轮读完；acc 每个 thread 8 个数，循环里一直在 register 里；", "显存只读 x 一次，只写回一个数。"])
-    for (n_, a, b) in [("块 0", 0, 1), ("块 3", 3, 4)]:
-        m = (cx[a] + cx[b]) / 2; p.chip(n_, m, w=44); p.down(cx[a] + 6, 110, m - 8); p.up(m + 8, 110, cx[b] - 10)
-    A1, A2 = cx[1] + 28, (cx[4] + cx[5]) / 2 + 4
-    p.chip("acc", A1, 1, 40, "--fig-1"); p.chip("acc", A2, 1, 40, "--fig-1")
-    p.down(cx[1] + 8, 140, A1 - 8); p.down(cx[4] + 8, 140, A2 - 8); p.up(A2 + 8, 140, cx[5] - 6)
+        ["图里 TILE = 4（代码里 1024），一行 16 个数分 4 块，颜色由浅到深是 for 循环读的顺序；",
+         "acc 每轮把这一块逐位加上，一直留在 register 里，最后 tl.sum 加成一个数。"], mem_y1=292)
+    tiles = [[1, 2, 0, 3], [4, 1, 2, 0], [2, 2, 1, 1], [0, 3, 1, 2]]
+    acc0, accN = tiles[0], [sum(c) for c in zip(*tiles)]                      # [7, 8, 4, 6]，和是 25
+    OP = [.12, .34, .56, .78]                                                # 第 0 到 3 块的颜色：越晚读越深
+    TX = lambda o: 'style="fill: var(--fig-on-1)"' if o > .5 else 'style="opacity: .9"'   # 深色格子里用反色字
+    gid = "fig-t-3-acc"
+    f.w(f'<defs><linearGradient id="{gid}" x1="0" x2="1" y1="0" y2="0">'
+        + "".join(f'<stop offset="{k / 3:.2f}" style="stop-color: var(--fig-1)" stop-opacity="{o}"/>' for k, o in enumerate(OP))
+        + '</linearGradient></defs>')
+    def cells(x0, y0, vals, fill, w=11, h=16):                                # 一排数，fill 是 opacity 或渐变
+        for j, v in enumerate(vals):
+            st = f'fill="url(#{gid})"' if fill == "grad" else f'style="fill: var(--fig-1)" fill-opacity="{fill}"'
+            f.w(f'<rect x="{x0 + j * w:.1f}" y="{y0}" width="{w}" height="{h}" {st}/>')
+            f.w(f'<rect x="{x0 + j * w:.1f}" y="{y0}" width="{w}" height="{h}" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>')
+            f.w(f'<text class="s" x="{x0 + j * w + w / 2:.1f}" y="{y0 + h - 4.5}" text-anchor="middle" {TX(fill if fill != "grad" else 0)}>{v}</text>')
+    # register：块 0、块 3、acc（第 0 轮后）、acc（最后）
+    for k, a_, b_ in [(0, 0, 1), (3, 3, 4)]:
+        m = (cx[a_] + cx[b_]) / 2
+        cells(m - 22, 112, tiles[k], OP[k]); f.w(f'<text class="s" x="{m + 26:.1f}" y="{124}">块 {k}</text>')
+        p.down(cx[a_] + 6, 108, m - 14); p.up(m + 14, 108, cx[b_] - 10)
+    A1, A2 = cx[1] + 30, (cx[4] + cx[5]) / 2 + 4
+    cells(A1 - 22, 144, acc0, OP[0]); f.w(f'<text class="s" x="{A1:.1f}" y="{173}" text-anchor="middle">acc</text>')
+    f.w(f'<rect x="{A2 - 22:.1f}" y="144" width="44" height="16" fill="url(#{gid})"/>')
+    for j, v in enumerate(accN):
+        f.w(f'<rect x="{A2 - 22 + j * 11:.1f}" y="144" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/><text class="s" x="{A2 - 22 + j * 11 + 5.5:.1f}" y="155.5" text-anchor="middle" {TX(OP[j])}>{v}</text>')
+    f.w(f'<text class="s" x="{A2:.1f}" y="{173}" text-anchor="middle">acc</text>')
+    p.down(cx[1] + 8, 142, A1 - 10); p.down(cx[4] + 8, 142, A2 - 10); p.up(A2 + 10, 142, cx[5] - 6)
     p.carry(cx[1], cx[4], "acc 带到下一轮")
-    xa, xb = cx[0] - 34, cx[3] + 34
-    p.mem("x 的第 1 行，64 MiB 里的 16 KiB", xa, xb, [(cx[0] - 12, cx[0] + 12, .3, .3), (cx[3] - 12, cx[3] + 12, .3, .3)])
-    f.w(f'<rect x="{xa:.1f}" y="{212 + .3 * 28:.1f}" width="{xb - xa:.1f}" height="{.3 * 28:.1f}" style="fill: var(--fig-1)" fill-opacity=".18"/>')
-    p.up(cx[0], 212, var="--fig-1"); p.up(cx[3], 212, var="--fig-1")
-    p.mem("out，16 KiB", cx[5] - 28, cx[5] + 28, [(cx[5] - 4, cx[5] + 4, 0, 1)]); p.down(cx[5] + 10, 212, var="--fig-1")
+    # 显存：x 画 3 行，第 1 行 16 个数按块着色；out 第 1 位写 25
+    w = (cx[3] - cx[0]) / 3; cw = w / 4; xa = cx[0] - w / 2; Y = 198; RH = 16
+    for r in range(3):
+        for k in range(4):
+            for j in range(4):
+                x = xa + k * w + j * cw
+                if r == 1:
+                    f.w(f'<rect x="{x:.1f}" y="{Y + r * RH}" width="{cw:.1f}" height="{RH}" style="fill: var(--fig-1)" fill-opacity="{OP[k]}"/>')
+                    f.w(f'<text class="s" x="{x + cw / 2:.1f}" y="{Y + r * RH + RH - 4.5}" text-anchor="middle" {TX(OP[k])}>{tiles[k][j]}</text>')
+                f.w(f'<rect x="{x:.1f}" y="{Y + r * RH}" width="{cw:.1f}" height="{RH}" style="fill: none; stroke: var(--fig-1)" stroke-opacity="{.45 if r == 1 else .18}" stroke-width=".6"/>')
+    f.w(f'<rect x="{xa:.1f}" y="{Y}" width="{4 * w:.1f}" height="{3 * RH}" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>')
+    for k in range(1, 4):                                                    # 块与块之间的粗分隔线
+        f.w(f'<line x1="{xa + k * w:.1f}" y1="{Y}" x2="{xa + k * w:.1f}" y2="{Y + 3 * RH}" style="stroke: var(--fig-1)" stroke-width="1.2"/>')
+    f.w(f'<text class="s" x="{xa - 4:.1f}" y="{Y + RH + 11.5}" text-anchor="end">行 1</text>')
+    for k in range(4):
+        f.w(f'<text class="s" x="{xa + k * w + w / 2:.1f}" y="{Y + 3 * RH + 12}" text-anchor="middle">块 {k}</text>')
+    f.w(f'<text class="s" x="{xa + 2 * w:.1f}" y="{Y + 3 * RH + 26}" text-anchor="middle">x [4096, 4096]，64 MiB</text>')
+    p.up(cx[0], Y + RH, var="--fig-1"); p.up(cx[3], Y + RH, var="--fig-1")
+    ox = cx[5] - 8
+    for r in range(3):
+        st = 'style="fill: var(--fig-1)" fill-opacity=".78"' if r == 1 else 'fill="none"'
+        f.w(f'<rect x="{ox}" y="{Y + r * RH}" width="16" height="{RH}" {st}/><rect x="{ox}" y="{Y + r * RH}" width="16" height="{RH}" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>')
+    f.w(f'<text class="s" x="{ox + 8}" y="{Y + RH + 11.5}" text-anchor="middle" style="fill: var(--fig-on-1)">25</text>')
+    f.w(f'<rect x="{ox}" y="{Y}" width="16" height="{3 * RH}" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>')
+    f.w(f'<text class="s" x="{ox + 8}" y="{Y + 3 * RH + 13}" text-anchor="middle">out</text>')
+    f.arrow(ox + 8, 86, ox + 8, Y + RH - 1, "--fig-1", width=1.6)
     return f
 
 def tri_matmul():
@@ -1165,7 +1208,7 @@ CAPS = {
  "cuda_model": '<strong>图 1-4</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。',
  "tri_gelu": '<strong>图 2-1</strong> GELU kernel（n = 8M，fp32）。左边是 grid：数组展平成一维、按 BLOCK = 1024 切段，一段一个 program；下面是一个 SM 同时跑几个 program，12 格是上限（1536 个 thread）。右边是 program 1：上面是步骤，中间是 register，下面是显存，箭头指向步骤是读，指向存储是写，画法同<a href="/blog/gpu-training-analysis/#fig-3-4">上一篇的图 3-4</a>。',
  "tri_softmax": '<strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次；每个 program 用的 register 多，一个 SM 只放得下 9 个。',
- "tri_rowsum": '<strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32，TILE = 1024），画法同<a href="#fig-t-1">图 2-1</a>。一行 4 块，图里只画第 0 块和第 3 块，中间用 ⋯ 省略；acc 一直留在 register 里，红线表示它带到下一轮，最后 <code>tl.sum</code> 才归约成一个数。',
+ "tri_rowsum": '<strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 块，代码里 TILE = 1024。颜色由浅到深是 for 循环读块的顺序：第 0 轮后 acc 只有第 0 块的数，最后的 acc 是 4 块逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。',
  "tri_matmul": '<strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的 A、B、C 按形状比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 行和 B 的第 1 列，深色是第 0 轮读的块，浅色是第 63 轮的；结果写回 C 的 (1, 1) 块。512 个 program 分到 170 个 SM，每个 SM 放 3 个，正好一批。',
  "occ_sweep": '<strong>图 2-5</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。',
  "tile_sweep": '<strong>图 2-6</strong> row sum 的 TILE 和带宽（RTX 5090，fp32，两种形状都是 340 MiB，<code>num_warps=4</code>，每点取 8 次计时的最快值）。悬停可看耗时和每线程的 register 数。',
