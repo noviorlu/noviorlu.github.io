@@ -994,7 +994,13 @@ def lanes_fig(fid, label, kind, prog_title, grid, grid_note, ops, chip_lab, sm, 
         f.w(f'<text class="s" x="10" y="{gy + 110 + k * 14}">{why}</text>')
     for y0, y1, t in [(26, 92, "步骤"), (100, 176, chip_lab), (184, mem_y1, "显存")]:
         f.w(f'<rect class="band" x="146" y="{y0}" width="490" height="{y1 - y0}" rx="8"/>')
-        f.w(f'<text class="lab2" x="152" y="{(y0 + y1) / 2 + 4}">{t}</text>')
+        if isinstance(t, tuple):                         # 图例：虚线框 shared memory，实线框 register
+            f.w('<rect x="152" y="113" width="10" height="9" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-dasharray="3 2"/>'
+                f'<text class="lab2" x="166" y="121">{t[0]}</text><text class="lab2" x="166" y="134">{t[1]}</text>'
+                '<rect x="152" y="146" width="10" height="9" rx="2" style="fill: none; stroke: var(--fig-1)"/>'
+                f'<text class="lab2" x="166" y="154">{t[2]}</text>')
+        else:
+            f.w(f'<text class="lab2" x="152" y="{(y0 + y1) / 2 + 4}">{t}</text>')
         if t == "显存":                                  # 芯片外的 GDDR7；中间的 L2、L1 cache 由硬件管，不画
             f.w(f'<text class="s" x="152" y="{(y0 + y1) / 2 + 18}">GDDR7</text>')
     f.arrow(hx, hy, 144, hy, None, width=1.5)
@@ -1167,9 +1173,9 @@ def tri_matmul():
     f, cx, p = lanes_fig("fig-t-4", "matmul kernel（A 4096 × 2048，B 2048 × 512）：C 的每一块一个 program；program (1, 1) 沿 K 一轮读 A 的第 1 个行块、B 的第 1 个列块各一块进 shared memory，tl.dot 加到 register 里的 acc 上，中间几轮用 ⋯ 省略，最后 ReLU 写回 C 的 (1, 1) 块",
         "分块乘加", "一个 program（pid_m = 1，pid_n = 1）", grid_tiles42,
         ["grid = (M / BM, N / BN)", "64 × 8 = 512 个 program"],
-        [("读 A、B", "第 0 块"), ("乘加", "tl.dot"), "⋯", ("读 A、B", "第 63 块"), ("乘加", "tl.dot"), ("ReLU 写回", "tl.store")], "片上",
+        [("读 A、B", "第 0 块"), ("乘加", "tl.dot"), "⋯", ("读 A、B", "第 63 块"), ("乘加", "tl.dot"), ("ReLU 写回", "tl.store")], ("shared", "memory", "register"),
         (3, "shared memory 先满"),
-        ["A、B 的块在 shared memory，acc（64 × 64）在 register，每个 thread 32 个数；",
+        ["A 块、B 块（虚线框）是两次 tl.load，放在 shared memory；acc（实线框，64 × 64）在 register；",
          "K = 2048 按 BK = 32 切成 64 轮，每轮都从显存读 A、B 各一块，图里只画第 0 轮的读。"], mem_y1=324)
     RAMP = [.12 + .66 * k / 7 for k in range(8)]     # 沿 K 的 for 循环顺序：越晚读越深
     TX = lambda o: 'style="fill: var(--fig-on-1)"' if o > .5 else ''
@@ -1177,12 +1183,16 @@ def tri_matmul():
     f.w(f'<defs><linearGradient id="{gid}" x1="0" x2="1" y1="0" y2="0">'
         + "".join(f'<stop offset="{k / 7:.2f}" style="stop-color: var(--fig-1)" stop-opacity="{o:.2f}"/>' for k, o in enumerate(RAMP))
         + '</linearGradient></defs>')
-    def chip(name, x, y, w, fill, op=None):
+    def chip(name, x, y, w, fill, dash=False):        # 虚线框在 shared memory，实线框在 register
         st = f'fill="url(#{gid})"' if fill == "grad" else f'style="fill: var(--fig-1)" fill-opacity="{fill:.2f}"'
-        f.w(f'<rect x="{x - w / 2:.1f}" y="{y}" width="{w}" height="18" rx="4" {st}/><rect x="{x - w / 2:.1f}" y="{y}" width="{w}" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".5"/>')
+        d = ' stroke-dasharray="3 2"' if dash else ''
+        f.w(f'<rect x="{x - w / 2:.1f}" y="{y}" width="{w}" height="18" rx="4" {st}/><rect x="{x - w / 2:.1f}" y="{y}" width="{w}" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"{d}/>')
         f.w(f'<text class="s" x="{x:.1f}" y="{y + 13}" text-anchor="middle" {TX(fill if fill != "grad" else 0)}>{name}</text>')
-    for (n_, a, b, o) in [("A、B 块", 0, 1, RAMP[0]), ("A、B 块", 3, 4, RAMP[-1])]:
-        m = (cx[a] + cx[b]) / 2; chip(n_, m, 110, 50, o); p.down(cx[a] + 6, 110, m - 8); p.up(m + 8, 110, cx[b] - 10)
+    for (a, b, o) in [(0, 1, RAMP[0]), (3, 4, RAMP[-1])]:   # 两次 tl.load：A 块在上，B 块在下，箭头互不交叉
+        m = (cx[a] + cx[b]) / 2
+        chip("A 块", m, 110, 30, o, True); chip("B 块", m, 140, 34, o, True)
+        p.down(cx[a] + 16, 110, m - 8); p.down(cx[a] + 2, 140, m - 16)
+        p.up(m + 8, 110, cx[b] - 16); p.up(m + 16, 140, cx[b] + 2)
     A1, A2 = cx[1] + 28, (cx[4] + cx[5]) / 2 + 4
     chip("acc", A1, 140, 40, RAMP[0]); chip("acc", A2, 140, 40, "grad")
     p.down(cx[1] + 8, 140, A1 - 8); p.down(cx[4] + 8, 140, A2 - 8); p.up(A2 + 8, 140, cx[5] - 6)
@@ -1220,7 +1230,7 @@ CAPS = {
  "hw_sm": '<strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core 和 1 个 Tensor core，4 个 SMSP 共享 L1 / shared memory。',
  "warp_slots": '<strong>图 1-5</strong> 一个 SM 上驻留 3 个 block（B0、B1、B2）时的某一拍。格子里写的是这个 warp 属于哪个 block，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。',
  "cuda_model": '<strong>图 1-4</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。',
- "tri_gelu": '<strong>图 2-1</strong> GELU kernel（n = 8M，fp32）。左边是 grid：数组展平成一维、按 BLOCK = 1024 切段，一段一个 program；下面是一个 SM 同时跑几个 program，12 格是上限（1536 个 thread）。右边是 program 1：上面是步骤，中间是片上（register、shared memory），下面是显存，即芯片外的 GDDR7，箭头指向步骤是读，指向存储是写，画法同<a href="/blog/gpu-training-analysis/#fig-3-4">上一篇的图 3-4</a>。读写显存都会经过 L2 和 L1 cache，它们由硬件自动管理，图里不画。',
+ "tri_gelu": '<strong>图 2-1</strong> GELU kernel（n = 8M，fp32）。左边是 grid：数组展平成一维、按 BLOCK = 1024 切段，一段一个 program；下面是一个 SM 同时跑几个 program，12 格是上限（1536 个 thread）。右边是 program 1：上面是步骤，中间是 register（matmul 还有 shared memory），下面是显存，即芯片外的 GDDR7，箭头指向步骤是读，指向存储是写，画法同<a href="/blog/gpu-training-analysis/#fig-3-4">上一篇的图 3-4</a>。读写显存都会经过 L2 和 L1 cache，它们由硬件自动管理，图里不画。',
  "tri_softmax": '<strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次；每个 program 用的 register 多，一个 SM 只放得下 9 个。',
  "tri_rowsum": '<strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 块，代码里 TILE = 1024。颜色由淡到浓是 for 循环读块的顺序：第 0 轮后 acc 只有第 0 块的数，最后的 acc 是 4 块逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。',
  "tri_matmul": '<strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的 A、B、C 按形状比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 行和 B 的第 1 列，颜色由淡到浓是 for 循环沿 K 读块的顺序：第 0 轮读最淡的块，第 63 轮读最浓的；acc 一轮轮累积，最后铺满整条渐变，ReLU 后写回 C 的 (1, 1) 块。512 个 program 分到 170 个 SM，每个 SM 放 3 个，正好一批。',

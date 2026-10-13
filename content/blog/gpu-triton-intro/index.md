@@ -456,7 +456,7 @@ Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的分块。CU
 | matmul | 分块乘加 | A 的一行、B 的一列 | 二维，C 的一块一个 program | 沿 K 循环，累加器存 C 的一块 |
 {#tab-2-2 caption="**表 2-2** 四个例子的 op 类型"}
 
-代码都在 RTX 5090 上和 PyTorch 对照过。每个例子配一张图：左边是 grid，右边是一个 program 的步骤和它读写的存储。图里的「显存」指芯片外的 GDDR7，`tl.load` 和 `tl.store` 读写的就是它；中间经过的 L2 和 L1 cache 由硬件自动管理，kernel 不直接控制，图里不画。「片上」指 kernel 显式用到的 register 和 shared memory。[下一篇](/blog/gpu-training-analysis/#rmsnorm)手写的融合 RMSNorm 和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 也都用 Triton 写。
+代码都在 RTX 5090 上和 PyTorch 对照过。每个例子配一张图：左边是 grid，右边是一个 program 的步骤和它读写的存储。图里的「显存」指芯片外的 GDDR7，`tl.load` 和 `tl.store` 读写的就是它；中间经过的 L2 和 L1 cache 由硬件自动管理，kernel 不直接控制，图里不画。中间一条是 kernel 显式用到的 register，matmul 还用到 shared memory。[下一篇](/blog/gpu-training-analysis/#rmsnorm)手写的融合 RMSNorm 和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 也都用 Triton 写。
 
 ### 2.1 GELU：逐元素 {#triton-gelu}
 
@@ -603,7 +603,7 @@ GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函�
   <text class="s" x="561.0" y="253" text-anchor="middle">y，32 MiB</text>
   <line x1="557.0" y1="86.0" x2="557.0" y2="210.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-1-m2)"/>
 </svg>
-<figcaption><strong>图 2-1</strong> GELU kernel（n = 8M，fp32）。左边是 grid：数组展平成一维、按 BLOCK = 1024 切段，一段一个 program；下面是一个 SM 同时跑几个 program，12 格是上限（1536 个 thread）。右边是 program 1：上面是步骤，中间是片上（register、shared memory），下面是显存，即芯片外的 GDDR7，箭头指向步骤是读，指向存储是写，画法同<a href="/blog/gpu-training-analysis/#fig-3-4">上一篇的图 3-4</a>。读写显存都会经过 L2 和 L1 cache，它们由硬件自动管理，图里不画。</figcaption>
+<figcaption><strong>图 2-1</strong> GELU kernel（n = 8M，fp32）。左边是 grid：数组展平成一维、按 BLOCK = 1024 切段，一段一个 program；下面是一个 SM 同时跑几个 program，12 格是上限（1536 个 thread）。右边是 program 1：上面是步骤，中间是 register（matmul 还有 shared memory），下面是显存，即芯片外的 GDDR7，箭头指向步骤是读，指向存储是写，画法同<a href="/blog/gpu-training-analysis/#fig-3-4">上一篇的图 3-4</a>。读写显存都会经过 L2 和 L1 cache，它们由硬件自动管理，图里不画。</figcaption>
 </figure>
 
 逐元素 op 最简单，每个元素各算各的，program 之间不需要配合。把 n 个元素切成每段 BLOCK 个，一段交给一个 program（[图 2-1](#fig-t-1)）。kernel 里先用 `tl.program_id` 算出自己负责的下标，读进来，算完写回：
@@ -1220,7 +1220,7 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
   <rect class="band" x="146" y="26" width="490" height="66" rx="8"/>
   <text class="lab2" x="152" y="63.0">步骤</text>
   <rect class="band" x="146" y="100" width="490" height="76" rx="8"/>
-  <text class="lab2" x="152" y="142.0">片上</text>
+  <rect x="152" y="113" width="10" height="9" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-dasharray="3 2"/><text class="lab2" x="166" y="121">shared</text><text class="lab2" x="166" y="134">memory</text><rect x="152" y="146" width="10" height="9" rx="2" style="fill: none; stroke: var(--fig-1)"/><text class="lab2" x="166" y="154">register</text>
   <rect class="band" x="146" y="184" width="490" height="140" rx="8"/>
   <text class="lab2" x="152" y="258.0">显存</text>
   <text class="s" x="152" y="272.0">GDDR7</text>
@@ -1236,20 +1236,28 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
   <text class="tb" x="514.8" y="62" text-anchor="middle">乘加</text><text class="s" x="514.8" y="77" text-anchor="middle">tl.dot</text>
   <rect class="op" x="559.2" y="46" width="68.8" height="38" rx="6"/>
   <text class="tb" x="593.6" y="62" text-anchor="middle">ReLU 写回</text><text class="s" x="593.6" y="77" text-anchor="middle">tl.store</text>
-  <text class="lab2" x="152" y="340">A、B 的块在 shared memory，acc（64 × 64）在 register，每个 thread 32 个数；</text>
+  <text class="lab2" x="152" y="340">A 块、B 块（虚线框）是两次 tl.load，放在 shared memory；acc（实线框，64 × 64）在 register；</text>
   <text class="lab2" x="152" y="355">K = 2048 按 BK = 32 切成 64 轮，每轮都从显存读 A、B 各一块，图里只画第 0 轮的读。</text>
   <defs><linearGradient id="fig-t-4-acc" x1="0" x2="1" y1="0" y2="0"><stop offset="0.00" style="stop-color: var(--fig-1)" stop-opacity="0.12"/><stop offset="0.14" style="stop-color: var(--fig-1)" stop-opacity="0.21"/><stop offset="0.29" style="stop-color: var(--fig-1)" stop-opacity="0.31"/><stop offset="0.43" style="stop-color: var(--fig-1)" stop-opacity="0.40"/><stop offset="0.57" style="stop-color: var(--fig-1)" stop-opacity="0.50"/><stop offset="0.71" style="stop-color: var(--fig-1)" stop-opacity="0.59"/><stop offset="0.86" style="stop-color: var(--fig-1)" stop-opacity="0.69"/><stop offset="1.00" style="stop-color: var(--fig-1)" stop-opacity="0.78"/></linearGradient></defs>
-  <rect x="260.8" y="110" width="50" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="260.8" y="110" width="50" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".5"/>
-  <text class="s" x="285.8" y="123" text-anchor="middle" >A、B 块</text>
-  <line x1="252.4" y1="86.0" x2="277.8" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <line x1="293.8" y1="108.0" x2="315.2" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <rect x="450.4" y="110" width="50" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="450.4" y="110" width="50" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".5"/>
-  <text class="s" x="475.4" y="123" text-anchor="middle" style="fill: var(--fig-on-1)">A、B 块</text>
-  <line x1="442.0" y1="86.0" x2="467.4" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <line x1="483.4" y1="108.0" x2="504.8" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <rect x="333.2" y="140" width="40" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="333.2" y="140" width="40" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".5"/>
+  <rect x="270.8" y="110" width="30" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="270.8" y="110" width="30" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7" stroke-dasharray="3 2"/>
+  <text class="s" x="285.8" y="123" text-anchor="middle" >A 块</text>
+  <rect x="268.8" y="140" width="34" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="268.8" y="140" width="34" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7" stroke-dasharray="3 2"/>
+  <text class="s" x="285.8" y="153" text-anchor="middle" >B 块</text>
+  <line x1="262.4" y1="86.0" x2="277.8" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <line x1="248.4" y1="86.0" x2="269.8" y2="138.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <line x1="293.8" y1="108.0" x2="309.2" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <line x1="301.8" y1="138.0" x2="327.2" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <rect x="460.4" y="110" width="30" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="460.4" y="110" width="30" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7" stroke-dasharray="3 2"/>
+  <text class="s" x="475.4" y="123" text-anchor="middle" style="fill: var(--fig-on-1)">A 块</text>
+  <rect x="458.4" y="140" width="34" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="458.4" y="140" width="34" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7" stroke-dasharray="3 2"/>
+  <text class="s" x="475.4" y="153" text-anchor="middle" style="fill: var(--fig-on-1)">B 块</text>
+  <line x1="452.0" y1="86.0" x2="467.4" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <line x1="438.0" y1="86.0" x2="459.4" y2="138.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <line x1="483.4" y1="108.0" x2="498.8" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <line x1="491.4" y1="138.0" x2="516.8" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <rect x="333.2" y="140" width="40" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="333.2" y="140" width="40" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
   <text class="s" x="353.2" y="153" text-anchor="middle" >acc</text>
-  <rect x="538.2" y="140" width="40" height="18" rx="4" fill="url(#fig-t-4-acc)"/><rect x="538.2" y="140" width="40" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".5"/>
+  <rect x="538.2" y="140" width="40" height="18" rx="4" fill="url(#fig-t-4-acc)"/><rect x="538.2" y="140" width="40" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
   <text class="s" x="558.2" y="153" text-anchor="middle" >acc</text>
   <line x1="333.2" y1="86.0" x2="345.2" y2="138.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <line x1="522.8" y1="86.0" x2="550.2" y2="138.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
