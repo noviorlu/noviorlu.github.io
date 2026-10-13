@@ -3,14 +3,14 @@ title: "GPU 与 Triton 入门：从存储层级到第一个 kernel"
 date: 2026-10-03
 draft: false
 math: true
-description: "GPU 的存储层级、SM 结构、occupancy 和 CUDA 执行层级；再用 GELU、softmax、row sum、matmul 四个例子入门 Triton，附录对照 TPU。GPU training optimization 系列的第一篇。"
+description: "GPU 的存储层级、SM 结构、occupancy 和 CUDA 执行层级；再用 GELU、softmax、matmul 三个例子入门 Triton，附录对照 TPU。GPU training optimization 系列的第一篇。"
 tags: ["GPU", "Triton", "CUDA", "TPU", "LLM", "AI"]
 categories: ["AI笔记"]
 series: ["GPU training optimization"]
 series_order: 1
 ---
 
-这个系列讲怎么让 Transformer 训练在 GPU 上跑得更快。这一篇先打基础：[第 1 节](#hardware)介绍 GPU 的硬件，包括数据存在哪几层、一个 SM 里有什么、CUDA 的执行层级怎么对应到硬件；[第 2 节](#triton)用四个例子介绍 Triton，后面两篇的 kernel 都用它写。TPU 和 GPU 的对照放在[附录 A](#tpu)。
+这个系列讲怎么让 Transformer 训练在 GPU 上跑得更快。这一篇先打基础：[第 1 节](#hardware)介绍 GPU 的硬件，包括数据存在哪几层、一个 SM 里有什么、CUDA 的执行层级怎么对应到硬件；[第 2 节](#triton)用三个例子介绍 Triton，后面两篇的 kernel 都用它写。TPU 和 GPU 的对照放在[附录 A](#tpu)。
 
 下一篇[谁偷走了 5090 的算力和显存](/blog/gpu-training-analysis/)用这些知识在 RTX 5090 上拆解一步训练的时间和显存，第三篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 讲 attention 的 IO-aware kernel。
 
@@ -80,7 +80,7 @@ block 放到 SM 上以后就一直驻留，直到它的线程全部跑完。一�
 
 {{fig-h-6}}
 
-驻留几个 warp 才够、在 Triton 里怎么调，放到 [2.5 节](#triton-warps) 写 kernel 时再看。
+驻留几个 warp 才够、在 Triton 里怎么调，放到 [2.4 节](#triton-warps) 写 kernel 时再看。
 
 block 之间不能直接共享数据，只能通过显存交换，而这正是最慢的一层。所以要尽量把会重复读的数据放进同一个 block 里处理，这就是分块（tiling）。在 CUDA 里分块要自己管 shared memory 和线程同步，[第 2 节](#triton)的 Triton 把这部分交给编译器。
 
@@ -99,15 +99,14 @@ Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的分块。CU
 | shared memory | 由编译器分配 | 没有对应语句 | 不能 |
 {#tab-2-1 caption="**表 2-1** CUDA 概念在 Triton 里的对应"}
 
-下面四个例子由浅入深，分属三种 op。决定 grid 怎么切的，是一个输出依赖哪些输入：
+下面三个例子由浅入深，每个代表一种 op。决定 grid 怎么切的，是一个输出依赖哪些输入：
 
 | op | 类型 | 一个输出依赖 | grid 怎么切 |
 |:--|:--|:--|:--|
 | GELU | 逐元素 | 同位置的一个输入 | 展平成一维，按 BLOCK 随便切段 |
 | softmax | 按行归约 | 整行（max 和 sum） | 一行一个 program，整行装进 register |
-| row sum | 按行归约 | 整行（sum） | 一行一个 program，行太长就沿行循环 |
 | matmul | 分块乘加 | A 的一行、B 的一列（沿 K 归约） | 二维，C 的一块一个 program，沿 K 循环 |
-{#tab-2-2 caption="**表 2-2** 四个例子的 op 类型"}
+{#tab-2-2 caption="**表 2-2** 三个例子的 op 类型"}
 
 最后一节看每个 program 该用几个 warp。代码都在 RTX 5090 上和 PyTorch 对照过。[下一篇](/blog/gpu-training-analysis/#rmsnorm)手写的融合 RMSNorm 和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 也都用 Triton 写。
 
@@ -160,27 +159,15 @@ softmax 在 eager 下要 5 个 kernel，和[下一篇](/blog/gpu-training-analys
 
 在 5090 上对 4096 × 4096 的 fp32 输入实测，eager 版 249 µs，Triton 版 80 µs，快了 3.1 倍，和 `torch.softmax`（79 µs）相当。
 
-这个写法要求 BLOCK ≥ N，也就是一行能一次装进一个 program。行再长，一个 program 就只能一块一块地读。
+这个写法要求 BLOCK ≥ N，也就是一行能一次装进一个 program。行再长，就只能沿行一块一块地读；但 exp 要先减去整行的最大值，最大值要读完整行才知道。边读边更新最大值、同时修正已经算好的和，就是 online softmax，[FlashAttention](/blog/flashattention-1-to-4/) 那篇会讲。
 
-### 2.3 Row sum：按行归约，行太长时分块累加 {#triton-rowsum}
+前面两个例子里每个数只读一次，分块只是为了把工作分给不同的 program。矩阵乘不同：A 的每个元素要和 B 的一整列相乘，分块是为了让读进片上的数据被多次使用。
 
-{{fig-t-3}}
-
-先看最简单的按行归约：求和。program 沿着行一块一块读（[图 2-3](#fig-t-3)），每块 TILE 个数加到一个长度为 TILE 的部分和向量上，最后再把这个向量加成一个数。循环里每个位置各加各的，不需要线程之间通信；只有最后的 `tl.sum` 做一次跨线程归约。
-
-```python
-{{code:triton_tutorial.py:row_sum}}
-```
-
-softmax 不能直接这样分块：要先知道整行的最大值才能算 exp，而最大值要读完整行才知道。边读边更新最大值、同时修正已经算好的部分和，就是 online softmax，[FlashAttention](/blog/flashattention-1-to-4/) 那篇会讲。
-
-前面三个例子里每个数只读一次，分块只是为了把工作分给不同的 program。矩阵乘不同：A 的每个元素要和 B 的一整列相乘，分块是为了让读进片上的数据被多次使用。
-
-### 2.4 Matmul：分块乘加，顺手融合 ReLU {#triton-matmul}
+### 2.3 Matmul：分块乘加，顺手融合 ReLU {#triton-matmul}
 
 {{fig-t-4}}
 
-矩阵乘按输出 C 分块，一个 program 负责 C 的一个 BM × BN 块，grid 是二维的（[图 2-4](#fig-t-4)）。program 沿 K 方向每次读 A 的一个 BM × BK 块和 B 的一个 BK × BN 块，用 `tl.dot` 乘加到累加器上。写回之前在 register 里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
+矩阵乘按输出 C 分块，一个 program 负责 C 的一个 BM × BN 块，grid 是二维的（[图 2-3](#fig-t-4)）。program 沿 K 方向每次读 A 的一个 BM × BK 块和 B 的一个 BK × BN 块，用 `tl.dot` 乘加到累加器上。写回之前在 register 里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
 
 ```python
 {{code:triton_tutorial.py:matmul}}
@@ -188,9 +175,9 @@ softmax 不能直接这样分块：要先知道整行的最大值才能算 exp�
 
 fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 的矩阵乘差 0.1 左右；要和 PyTorch（关掉 tf32）对上，需要 `input_precision="ieee"`。
 
-### 2.5 num_warps：结合 grid 和 op 一起看 {#triton-warps}
+### 2.4 num_warps：结合 grid 和 op 一起看 {#triton-warps}
 
-四个例子都用了默认的 `num_warps=4`，即每个 program 4 个 warp。每个 SMSP 实际驻留几个 warp，还要看一个 SM 上同时放了几个 program：每个 SMSP 的 warp 数 = 每个 SM 驻留的 program 数 × `num_warps` ÷ 4。一个 SM 能驻留几个 program，取决于 grid 够不够分（program 总数 ÷ 170），以及[表 1-2](#tab-1-2) 的几条上限。需要驻留几个 warp，则由 op 决定。下面先看 op 需要几个 warp，再看 grid 和 `num_warps` 怎么凑出这个数。
+三个例子都用了默认的 `num_warps=4`，即每个 program 4 个 warp。每个 SMSP 实际驻留几个 warp，还要看一个 SM 上同时放了几个 program：每个 SMSP 的 warp 数 = 每个 SM 驻留的 program 数 × `num_warps` ÷ 4。一个 SM 能驻留几个 program，取决于 grid 够不够分（program 总数 ÷ 170），以及[表 1-2](#tab-1-2) 的几条上限。需要驻留几个 warp，则由 op 决定。下面先看 op 需要几个 warp，再看 grid 和 `num_warps` 怎么凑出这个数。
 
 需要几个 warp，取决于每个 warp 要等多久。以 FMA（fused multiply-add，一条指令算 a × b + c，记 2 次浮点运算）为例：一条 FMA 大约 4 拍后才出结果，如果下一条要用这个结果，就得等它出来才能发。一个 SMSP 上只有 1 个 warp（A）时，4 拍里只有 1 拍在发指令；有 4 个 warp（A、B、C、D）时，A 等待的 3 拍由 B、C、D 填上，每一拍都有指令可发：
 
@@ -200,20 +187,26 @@ fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 的矩�
 A、B、C、D：  A  B  C  D  A  B  C  D     每拍都在发
 ```
 
-所以要几个 warp，就看等待有几拍，要让别的 warp 把这几拍填满。[图 2-5](#fig-h-7) 在 5090 上验证了这一点。kernel 把 256 MiB 数组的每个元素读进来，连做 K 次 FMA（每次都用上一次的结果），再写回。K 越大 intensity 越高，四个 K 让 intensity 从 0.25 到 128，最后一个超过了 ridge point 58，是 compute-bound。grid 固定为 170 × m 个 program，每个 SMSP 就正好驻留 m 个 warp。
+所以要几个 warp，就看等待有几拍，要让别的 warp 把这几拍填满。[图 2-4](#fig-h-7) 在 5090 上验证了这一点。kernel 把 256 MiB 数组的每个元素读进来，连做 K 次 FMA（每次都用上一次的结果），再写回。K 越大 intensity 越高，四个 K 让 intensity 从 0.25 到 128，最后一个超过了 ridge point 58，是 compute-bound。grid 固定为 170 × m 个 program，每个 SMSP 就正好驻留 m 个 warp。
 
 {{fig-h-7}}
 
 compute-bound 的那条线（I = 128）和上面的推算一致：1 个 warp 时是 25%，正好 1/4；4 个 warp 时到 92%。memory-bound 的三条线等的是显存，一次读要几百拍，按说要更多 warp 才能填满；但显存每秒能送的数据有上限，warp 多到把显存喂满以后，再加也没用，实测在 5、6 个 warp 时持平。
 
-反例是 [2.4 节](#triton-matmul)的矩阵乘。它每个 SM 只放得下 3 个 block（shared memory 先到上限），每个 SMSP 只有 3 个 warp，照样跑到 5.2e13 FLOPS，是 fp32 峰值的一半。因为一个线程负责很多个输出，这些 FMA 互不依赖，第 2 条不用等第 1 条的结果，一个 warp 自己就能每拍发一条：
+反例是 [2.3 节](#triton-matmul)的矩阵乘。它每个 SM 只放得下 3 个 block（shared memory 先到上限），每个 SMSP 只有 3 个 warp，照样跑到 5.2e13 FLOPS，是 fp32 峰值的一半。因为一个线程负责很多个输出，这些 FMA 互不依赖，第 2 条不用等第 1 条的结果，一个 warp 自己就能每拍发一条：
 
 ```
 拍：          1  2  3  4  5  6  7  8
 矩阵乘的 A：  A  A  A  A  A  A  A  A     每条 FMA 互不依赖
 ```
 
-知道了要几个 warp，再看 grid 和 `num_warps` 能不能凑出来。拿 [2.3 节](#triton-rowsum)的 row sum 试两种形状，元素总数一样（都是 340 MiB），每个线程每轮都读 4 个数，只改 `num_warps`：
+知道了要几个 warp，再看 grid 和 `num_warps` 能不能凑出来。拿一个按行求和的 kernel 来试：一行一个 program，沿行每次读 TILE 个数加到一个部分和向量上，最后用 `tl.sum` 归约成一个数。
+
+```python
+{{code:triton_tutorial.py:row_sum}}
+```
+
+试两种形状，元素总数一样（都是 340 MiB），每个线程每轮都读 4 个数，只改 `num_warps`：
 
 | 形状 | 每个 SM 分到的 program | 1 | 2 | 4 | 8 | 16 | 32 |
 |:--|--:|--:|--:|--:|--:|--:|--:|
@@ -225,9 +218,9 @@ compute-bound 的那条线（I = 128）和上面的推算一致：1 个 warp 时
 
 `num_warps` 还决定每个线程要存多少数据：program 一次要存的数据平分给它的线程。[2.2 节](#triton-softmax)的 softmax 把一整行放在 register 里，行长 32768 时，`num_warps=1` 每个线程要存 1024 个数，远超每个线程 255 个 register 的上限，溢出到显存，耗时 705 µs；`num_warps=8` 每个线程存 128 个，不溢出，183 µs。
 
-驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。它不必占满，够把等待的拍数填满就行：图 2-5 的 kernel 4 到 6 个 warp 就够，矩阵乘 25% 的 occupancy 也够。调 `num_warps` 的顺序是：先看 program 比 SM 多多少，program 少时把 `num_warps` 调大；再看 register 会不会溢出；最后用 `triton.autotune` 微调。
+驻留 warp 数与上限之比叫 occupancy，Nsight Compute 会直接报出来。它不必占满，够把等待的拍数填满就行：图 2-4 的 kernel 4 到 6 个 warp 就够，矩阵乘 25% 的 occupancy 也够。调 `num_warps` 的顺序是：先看 program 比 SM 多多少，program 少时把 `num_warps` 调大；再看 register 会不会溢出；最后用 `triton.autotune` 微调。
 
-第 2 节的四个例子是同一个模式：program 把一块数据读进 register，在片上做完能做的计算，再写回显存。[下一篇](/blog/gpu-training-analysis/)在 5090 上拆解一步训练的时间和显存，用的就是这个模式：把 RMSNorm 的几个 kernel 融合成一个，少读写一遍中间结果。
+第 2 节的三个例子是同一个模式：program 把一块数据读进 register，在片上做完能做的计算，再写回显存。[下一篇](/blog/gpu-training-analysis/)在 5090 上拆解一步训练的时间和显存，用的就是这个模式：把 RMSNorm 的几个 kernel 融合成一个，少读写一遍中间结果。
 
 ---
 
@@ -269,4 +262,4 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 A-2](#fig-h-
 9. Tillet, Kung, Cox. [Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations](https://doi.org/10.1145/3315508.3329973). MAPL 2019.
 10. [Triton tutorials](https://triton-lang.org/main/getting-started/tutorials/index.html)。第 2 节 softmax 和 matmul 例子的写法。
 11. Hendrycks, Gimpel. [Gaussian Error Linear Units (GELUs)](https://arxiv.org/abs/1606.08415). arXiv:1606.08415, 2016. 第 2.1 节的 tanh 近似。
-12. Milakov, Gimelshein. [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867). arXiv:1805.02867, 2018. 第 2.3 节提到的 online softmax。
+12. Milakov, Gimelshein. [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867). arXiv:1805.02867, 2018. 第 2.2 节提到的 online softmax。
