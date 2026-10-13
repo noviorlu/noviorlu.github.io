@@ -1119,38 +1119,40 @@ def tri_rowsum():
     return f
 
 def tri_matmul():
-    f, cx, p = lanes_fig("fig-t-4", "matmul kernel（A 1024 × 2048，B 2048 × 512）：C 的每一块一个 program；program (1, 1) 沿 K 一轮读 A 的第 1 个行块、B 的第 1 个列块各一块进 shared memory，tl.dot 加到 register 里的 acc 上，中间几轮用 ⋯ 省略，最后 ReLU 写回 C 的 (1, 1) 块",
+    f, cx, p = lanes_fig("fig-t-4", "matmul kernel（A 4096 × 2048，B 2048 × 512）：C 的每一块一个 program；program (1, 1) 沿 K 一轮读 A 的第 1 个行块、B 的第 1 个列块各一块进 shared memory，tl.dot 加到 register 里的 acc 上，中间几轮用 ⋯ 省略，最后 ReLU 写回 C 的 (1, 1) 块",
         "分块乘加", "一个 program（pid_m = 1，pid_n = 1）", grid_tiles42,
-        ["grid = (M / BM, N / BN)", "16 × 8 = 128 个 program", "比 170 个 SM 少"],
+        ["grid = (M / BM, N / BN)", "64 × 8 = 512 个 program"],
         [("读 A、B", "第 0 块"), ("乘加", "tl.dot"), "⋯", ("读 A、B", "第 63 块"), ("乘加", "tl.dot"), ("ReLU 写回", "tl.store")], "片上",
-        (1, ["program 比 SM 少，", "每个 SM 只分到 1 个", "（最多放得下 3 个）"]),
+        (3, "shared memory 先满"),
         ["A、B 的块在 shared memory，acc（64 × 64）在 register，每个 thread 32 个数；",
-         "K = 2048 按 BK = 32 切成 64 轮，每轮都从显存读 A、B 各一块，图里只画第 0 轮的读。"], mem_y1=300)
+         "K = 2048 按 BK = 32 切成 64 轮，每轮都从显存读 A、B 各一块，图里只画第 0 轮的读。"], mem_y1=324)
     for (n_, a, b) in [("A、B 块", 0, 1), ("A、B 块", 3, 4)]:
         m = (cx[a] + cx[b]) / 2; p.chip(n_, m, w=50, var="--fig-3"); p.down(cx[a] + 6, 110, m - 8); p.up(m + 8, 110, cx[b] - 10)
     A1, A2 = cx[1] + 28, (cx[4] + cx[5]) / 2 + 4
     p.chip("acc", A1, 1, 40, "--fig-1"); p.chip("acc", A2, 1, 40, "--fig-1")
     p.down(cx[1] + 8, 140, A1 - 8); p.down(cx[4] + 8, 140, A2 - 8); p.up(A2 + 8, 140, cx[5] - 6)
     p.carry(cx[1], cx[4], "acc 带到下一轮")
-    S = 9                                            # 显存里的矩阵按块示意：一格是一块，块数比实际少，形状比例不变
-    def mat(x0, y0, rows, cols, name, cells):
+    S = 6                                            # 显存里的矩阵画全：一格 256 × 256 个元素，形状比例不变
+    def mat(x0, y0, rows, cols, cells, labels, anchor="middle", lx=None, ly=None):
         for r in range(rows):
             for c in range(cols):
                 op = cells.get((r, c), 0)
-                st = f'style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="{op}" stroke-opacity=".35" stroke-width=".6"' if op else 'style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"'
-                f.w(f'<rect x="{x0 + c * S:.1f}" y="{y0 + r * S:.1f}" width="{S}" height="{S}" {st}/>')
-        f.w(f'<rect x="{x0:.1f}" y="{y0}" width="{cols * S}" height="{rows * S}" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>')
-        for k, t in enumerate(name):
-            f.w(f'<text class="s" x="{x0 + cols * S / 2:.1f}" y="{y0 + rows * S + 13 + k * 13}" text-anchor="middle">{t}</text>')
-    BX, BY = cx[0] - 52, 196                         # B [2048, 512]：8 × 2 块，第 1 列块，K 从上往下
-    mat(BX, BY, 8, 2, ["B [2048, 512]", "4 MiB"], {**{(r, 1): .18 for r in range(8)}, (0, 1): .75, (7, 1): .4})
-    AX, AY = cx[0] - 22, 212                         # A [1024, 2048]：4 × 8 块，第 1 行块，K 从左往右
-    mat(AX, AY, 4, 8, ["A [1024, 2048]", "8 MiB"], {**{(1, c): .18 for c in range(8)}, (1, 0): .75, (1, 7): .4})
-    p.up(AX + 4.5, AY + S, cx[0] - 18 + 1, var="--fig-1")
-    p.up(BX + 13.5, BY, cx[0] - 28, var="--fig-1")
-    CX, CY = cx[5] - 9, 204                          # C [1024, 512]：4 × 2 块，写回 (1, 1)
-    mat(CX, CY, 4, 2, ["C [1024, 512]", "2 MiB"], {(1, 1): .75})
-    f.arrow(CX + 13.5, 86, CX + 13.5, CY + S - 1, "--fig-1", width=1.6)   # 箭头直接指到 (1, 1) 块
+                fill = f'style="fill: var(--fig-1)" fill-opacity="{op}"' if op else 'fill="none"'
+                f.w(f'<rect x="{x0 + c * S}" y="{y0 + r * S}" width="{S}" height="{S}" {fill}/>')
+                f.w(f'<rect x="{x0 + c * S}" y="{y0 + r * S}" width="{S}" height="{S}" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>')
+        f.w(f'<rect x="{x0}" y="{y0}" width="{cols * S}" height="{rows * S}" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>')
+        lx = x0 + cols * S / 2 if lx is None else lx; ly = y0 + rows * S + 13 if ly is None else ly
+        for k, t in enumerate(labels):
+            f.w(f'<text class="s" x="{lx:.1f}" y="{ly + k * 13:.1f}" text-anchor="{anchor}">{t}</text>')
+    AX, AY = cx[0] - 44, 196                         # A [4096, 2048]：16 × 8 格，第 1 行，K 从左往右
+    mat(AX, AY, 16, 8, {**{(1, c): .22 for c in range(8)}, (1, 0): .85, (1, 7): .45}, ["A [4096, 2048]", "32 MiB"])
+    BX, BY = cx[0] + 12, 196                         # B [2048, 512]：8 × 2 格，第 1 列，K 从上往下
+    mat(BX, BY, 8, 2, {**{(r, 1): .22 for r in range(8)}, (0, 1): .85, (7, 1): .45}, ["B [2048, 512]", "4 MiB"], "start", BX + 18, BY + 14)
+    p.up(AX + 3, AY + S, cx[0] - 26, var="--fig-1")
+    p.up(BX + 9, BY, cx[0] - 8, var="--fig-1")
+    CX, CY = cx[5] - 6, 196                          # C [4096, 512]：16 × 2 格，写回 (1, 1)
+    mat(CX, CY, 16, 2, {(1, 1): .85}, ["C [4096, 512]", "8 MiB"])
+    f.arrow(CX + 9, 86, CX + 9, CY + S - 1, "--fig-1", width=1.6)        # 箭头直接指到 (1, 1) 块
     return f
 
 CAPS = {
@@ -1161,7 +1163,7 @@ CAPS = {
  "tri_gelu": '<strong>图 2-1</strong> GELU kernel（n = 8M，fp32）。左边是 grid：数组展平成一维、按 BLOCK = 1024 切段，一段一个 program；下面是一个 SM 同时跑几个 program，12 格是上限（1536 个 thread）。右边是 program 1：上面是步骤，中间是 register，下面是显存，箭头指向步骤是读，指向存储是写，画法同<a href="/blog/gpu-training-analysis/#fig-3-4">上一篇的图 3-4</a>。',
  "tri_softmax": '<strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次；每个 program 用的 register 多，一个 SM 只放得下 9 个。',
  "tri_rowsum": '<strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32，TILE = 1024），画法同<a href="#fig-t-1">图 2-1</a>。一行 4 块，图里只画第 0 块和第 3 块，中间用 ⋯ 省略；acc 一直留在 register 里，红线表示它带到下一轮，最后 <code>tl.sum</code> 才归约成一个数。',
- "tri_matmul": '<strong>图 2-4</strong> matmul kernel（A 1024 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的 A、B、C 按块示意，块数比实际少，形状比例不变：A 宽、B 高。program (1, 1) 读 A 的第 1 个行块和 B 的第 1 个列块，深色是第 0 轮读的块，浅色是第 63 轮的；结果写回 C 的 (1, 1) 块。',
+ "tri_matmul": '<strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的 A、B、C 按形状比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 行和 B 的第 1 列，深色是第 0 轮读的块，浅色是第 63 轮的；结果写回 C 的 (1, 1) 块。512 个 program 分到 170 个 SM，每个 SM 放 3 个，正好一批。',
  "occ_sweep": '<strong>图 2-5</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。',
  "tile_sweep": '<strong>图 2-6</strong> row sum 的 TILE 和带宽（RTX 5090，fp32，两种形状都是 340 MiB，<code>num_warps=4</code>，每点取 8 次计时的最快值）。悬停可看耗时和每线程的 register 数。',
  "tpu_core": '<strong>图 A-1</strong> TPU v5p 一个 TensorCore 的结构示意，画法对应<a href="#fig-h-1">图 1-2</a>。规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>，原书也有一张 TensorCore 的结构图。',
