@@ -112,6 +112,10 @@ Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的分块。CU
 
 ### 2.1 GELU：逐元素 {#triton-gelu}
 
+GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函数，实际用 tanh 近似：
+
+<p align="center">$y_i = \mathrm{GELU}(x_i) = x_i\,\Phi(x_i) \approx \tfrac{1}{2}\,x_i\left(1 + \tanh\left(\sqrt{2/\pi}\,(x_i + 0.044715\,x_i^3)\right)\right)$</p>
+
 {{fig-t-1}}
 
 逐元素 op 最简单，每个元素各算各的，program 之间不需要配合。把 n 个元素切成每段 BLOCK 个，一段交给一个 program（[图 2-1](#fig-t-1)）。kernel 里先用 `tl.program_id` 算出自己负责的下标，读进来，算完写回：
@@ -143,6 +147,12 @@ GELU 的每个元素互不依赖，怎么切都可以。softmax 的每个元素�
 
 ### 2.2 Softmax：按行归约，一行一个 program {#triton-softmax}
 
+softmax 对 `[M, N]` 的输入按行算，先减去每行的最大值 $m_i$ 防止 exp 溢出：
+
+<p align="center">$m_i = \max_k x_{ik}, \qquad y_{ij} = \dfrac{e^{x_{ij} - m_i}}{\sum_{k} e^{x_{ik} - m_i}}$</p>
+
+$y_{ij}$ 要用到第 $i$ 行全部 N 个数。
+
 softmax 在 eager 下要 5 个 kernel，和[下一篇](/blog/gpu-training-analysis/#attention)里 attention 的 softmax 一样。对 `[M, N]` 的输入，一共读 5MN + 2M 个数，写 3MN + 2M 个：
 
 ```python
@@ -164,6 +174,12 @@ softmax 在 eager 下要 5 个 kernel，和[下一篇](/blog/gpu-training-analys
 前面两个例子里每个数只读一次，分块只是为了把工作分给不同的 program。矩阵乘不同：A 的每个元素要和 B 的一整列相乘，分块是为了让读进片上的数据被多次使用。
 
 ### 2.3 Matmul：分块乘加，顺手融合 ReLU {#triton-matmul}
+
+`[M, K] × [K, N]` 的矩阵乘再接 ReLU：
+
+<p align="center">$C_{ij} = \max\left(0,\ \sum_{k=1}^{K} A_{ik} B_{kj}\right)$</p>
+
+$C_{ij}$ 要用到 A 的第 $i$ 行和 B 的第 $j$ 列，沿 K 求和。
 
 {{fig-t-4}}
 
@@ -200,7 +216,7 @@ compute-bound 的那条线（I = 128）和上面的推算一致：1 个 warp 时
 矩阵乘的 A：  A  A  A  A  A  A  A  A     每条 FMA 互不依赖
 ```
 
-知道了要几个 warp，再看 grid 和 `num_warps` 能不能凑出来。拿一个按行求和的 kernel 来试：一行一个 program，沿行每次读 TILE 个数加到一个部分和向量上，最后用 `tl.sum` 归约成一个数。
+知道了要几个 warp，再看 grid 和 `num_warps` 能不能凑出来。拿一个按行求和的 kernel 来试，$s_i = \sum_j x_{ij}$：一行一个 program，沿行每次读 TILE 个数加到一个部分和向量上，最后用 `tl.sum` 归约成一个数。
 
 ```python
 {{code:triton_tutorial.py:row_sum}}
