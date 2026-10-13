@@ -531,6 +531,7 @@ GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函�
 逐元素 op 最简单，每个元素各算各的，program 之间不需要配合。把 n 个元素切成每段 BLOCK 个，一段交给一个 program（[图 2-1](#fig-t-1)）。kernel 里先用 `tl.program_id` 算出自己负责的下标，读进来，算完写回：
 
 ```python
+# program：处理第 pid 段的 BLOCK 个元素
 @triton.jit
 def gelu_kernel(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
     pid = tl.program_id(axis=0)               # 第几个 program（≈ CUDA 的 blockIdx.x）
@@ -547,6 +548,7 @@ def gelu_kernel(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
 启动时只要定 grid，也就是 program 的个数。program 个数和 SM 个数无关：5090 有 170 个 SM，program 多于 SM 时，GPU 会一批一批地调度。
 
 ```python
+# grid：一段一个 program
 def gelu(x):
     y = torch.empty_like(x)
     n, BLOCK = x.numel(), 1024                # 每个 program 处理 1024 个元素
@@ -649,6 +651,7 @@ def softmax_naive(x):                         # x: [M, N]，按行
 如果一个 program 处理一整行（[图 2-2](#fig-t-2)），max、exp、求和、除都可以在 register 里做完，只读 MN、写 MN，读写量是原来的 1/4：
 
 ```python
+# program：处理第 row 行
 @triton.jit
 def softmax_kernel(x_ptr, y_ptr, stride, N, BLOCK: tl.constexpr):
     row = tl.program_id(0)                    # 一个 program 处理一整行
@@ -658,7 +661,12 @@ def softmax_kernel(x_ptr, y_ptr, stride, N, BLOCK: tl.constexpr):
     e = tl.exp(x)
     y = e / tl.sum(e, axis=0)
     tl.store(y_ptr + row * stride + cols, y, mask=cols < N)
+```
 
+启动时 grid 是 M 个 program，一行一个：
+
+```python
+# grid：一行一个 program
 def softmax(x):
     M, N = x.shape
     y = torch.empty_like(x)
@@ -806,6 +814,7 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。
 累加器 `acc` 是一个长度为 TILE 的向量，不是一个数：循环里每个线程只加自己负责的几个位置，线程之间不需要通信；循环结束后，`tl.sum` 再做一次跨线程归约，把 TILE 个部分和加成一个数。
 
 ```python
+# program：沿第 row 行循环累加
 @triton.jit
 def row_sum_kernel(x_ptr, out_ptr, N, TILE: tl.constexpr):
     row = tl.program_id(0)
@@ -814,7 +823,12 @@ def row_sum_kernel(x_ptr, out_ptr, N, TILE: tl.constexpr):
         cols = start + tl.arange(0, TILE)
         acc += tl.load(x_ptr + row * N + cols, mask=cols < N, other=0.0)
     tl.store(out_ptr + row, tl.sum(acc, axis=0))  # 最后只做一次跨线程归约
+```
 
+grid 和 softmax 一样，一行一个 program：
+
+```python
+# grid：一行一个 program
 def row_sum(x, TILE=1024):
     M, N = x.shape
     out = torch.empty(M, device=x.device, dtype=x.dtype)
@@ -966,6 +980,7 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
 一个 program 负责一个 $C_{IJ}$，grid 是二维的（[图 2-4](#fig-t-4)）。program 沿 K 方向循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上。写回之前在 register 里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
 
 ```python
+# program：算 C 的第 (pid_m, pid_n) 块
 @triton.jit
 def matmul_relu_kernel(a_ptr, b_ptr, c_ptr, M, N, K,
                        sam, sak, sbk, sbn, scm, scn,
@@ -986,7 +1001,12 @@ def matmul_relu_kernel(a_ptr, b_ptr, c_ptr, M, N, K,
     acc = tl.maximum(acc, 0.0)                # ReLU 在 register 里做完，不多一次读写
     c_ptrs = c_ptr + rm[:, None] * scm + rn[None, :] * scn
     tl.store(c_ptrs, acc, mask=(rm[:, None] < M) & (rn[None, :] < N))
+```
 
+grid 是二维的，C 的每一块一个 program：
+
+```python
+# grid：C 的每一块一个 program，二维
 def matmul_relu(a, b, BM=64, BN=64, BK=32):
     M, K = a.shape
     _, N = b.shape
