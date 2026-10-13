@@ -562,13 +562,14 @@ GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函�
   <line x1="105.7" y1="260" x2="105.7" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
   <line x1="110.4" y1="260" x2="110.4" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
   <line x1="115.1" y1="260" x2="115.1" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <text class="s" x="10" y="286">每格一个 program（4 warp）</text><text class="s" x="10" y="300">12 × 128 = 1536 thread</text><text class="s" x="10" y="314">线程数先满</text>
+  <text class="s" x="10" y="286">每格一个 program（4 warp）</text><text class="s" x="10" y="300">12 × 128 = 1536 thread</text>
+  <text class="s" x="10" y="314">线程数先满</text>
   <rect class="band" x="146" y="26" width="490" height="66" rx="8"/>
   <text class="lab2" x="152" y="63.0">步骤</text>
   <rect class="band" x="146" y="100" width="490" height="76" rx="8"/>
   <text class="lab2" x="152" y="142.0">register</text>
-  <rect class="band" x="146" y="184" width="490" height="72" rx="8"/>
-  <text class="lab2" x="152" y="224.0">显存</text>
+  <rect class="band" x="146" y="184" width="490" height="84" rx="8"/>
+  <text class="lab2" x="152" y="230.0">显存</text>
   <line x1="130.0" y1="73.0" x2="144.0" y2="73.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-1-m0)"/>
   <rect class="op" x="237.0" y="46" width="84.0" height="38" rx="6"/>
   <text class="tb" x="279.0" y="62" text-anchor="middle">算下标</text><text class="s" x="279.0" y="77" text-anchor="middle">offsets</text>
@@ -578,8 +579,8 @@ GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函�
   <text class="tb" x="467.0" y="62" text-anchor="middle">GELU</text><text class="s" x="467.0" y="77" text-anchor="middle">逐元素</text>
   <rect class="op" x="519.0" y="46" width="84.0" height="38" rx="6"/>
   <text class="tb" x="561.0" y="62" text-anchor="middle">写回</text><text class="s" x="561.0" y="77" text-anchor="middle">tl.store</text>
-  <text class="lab2" x="152" y="272">每个 program 1024 个元素，每个 thread 8 个，都在 register 里；</text>
-  <text class="lab2" x="152" y="287">显存只读 x 一次、写 y 一次。</text>
+  <text class="lab2" x="152" y="284">每个 program 1024 个元素，每个 thread 8 个，都在 register 里；</text>
+  <text class="lab2" x="152" y="299">显存只读 x 一次、写 y 一次。</text>
   <rect x="301.0" y="110" width="50" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
   <text class="s" x="326.0" y="123" text-anchor="middle">offsets</text>
   <line x1="285.0" y1="86.0" x2="318.0" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-1-m1)"/>
@@ -592,14 +593,14 @@ GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函�
   <text class="s" x="514.0" y="123" text-anchor="middle">y 段</text>
   <line x1="473.0" y1="86.0" x2="506.0" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-1-m1)"/>
   <line x1="522.0" y1="108.0" x2="555.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-1-m1)"/>
-  <rect x="333.0" y="206" width="80.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <rect x="359.0" y="206.0" width="20.0" height="28.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="373.0" y="247" text-anchor="middle">x，32 MiB</text>
-  <line x1="369.0" y1="204.0" x2="369.0" y2="86.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-1-m2)"/>
-  <rect x="521.0" y="206" width="80.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <rect x="547.0" y="206.0" width="20.0" height="28.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="561.0" y="247" text-anchor="middle">y，32 MiB</text>
-  <line x1="557.0" y1="86.0" x2="557.0" y2="204.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-1-m2)"/>
+  <rect x="333.0" y="212" width="80.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <rect x="359.0" y="212.0" width="20.0" height="28.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <text class="s" x="373.0" y="253" text-anchor="middle">x，32 MiB</text>
+  <line x1="369.0" y1="210.0" x2="369.0" y2="86.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-1-m2)"/>
+  <rect x="521.0" y="212" width="80.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <rect x="547.0" y="212.0" width="20.0" height="28.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <text class="s" x="561.0" y="253" text-anchor="middle">y，32 MiB</text>
+  <line x1="557.0" y1="86.0" x2="557.0" y2="210.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-1-m2)"/>
 </svg>
 <figcaption><strong>图 2-1</strong> GELU kernel（n = 8M，fp32）。左边是 grid：数组展平成一维、按 BLOCK = 1024 切段，一段一个 program；下面是一个 SM 同时跑几个 program，12 格是上限（1536 个 thread）。右边是 program 1：上面是步骤，中间是 register，下面是显存，箭头指向步骤是读，指向存储是写，画法同<a href="/blog/gpu-training-analysis/#fig-3-4">上一篇的图 3-4</a>。</figcaption>
 </figure>
@@ -749,13 +750,14 @@ def softmax_naive(x):                         # x: [M, N]，按行
   <rect x="40" y="256" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
   <rect x="68" y="256" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
   <rect x="96" y="256" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-  <text class="s" x="10" y="286">每格一个 program（4 warp）</text><text class="s" x="10" y="300">9 × 128 = 1152 thread</text><text class="s" x="10" y="314">register 先满</text>
+  <text class="s" x="10" y="286">每格一个 program（4 warp）</text><text class="s" x="10" y="300">9 × 128 = 1152 thread</text>
+  <text class="s" x="10" y="314">register 先满</text>
   <rect class="band" x="146" y="26" width="490" height="66" rx="8"/>
   <text class="lab2" x="152" y="63.0">步骤</text>
   <rect class="band" x="146" y="100" width="490" height="76" rx="8"/>
   <text class="lab2" x="152" y="142.0">register</text>
-  <rect class="band" x="146" y="184" width="490" height="72" rx="8"/>
-  <text class="lab2" x="152" y="224.0">显存</text>
+  <rect class="band" x="146" y="184" width="490" height="84" rx="8"/>
+  <text class="lab2" x="152" y="230.0">显存</text>
   <line x1="130.0" y1="73.0" x2="144.0" y2="73.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-2-m0)"/>
   <rect class="op" x="212.0" y="46" width="75.2" height="38" rx="6"/>
   <text class="tb" x="249.6" y="62" text-anchor="middle">读一行</text><text class="s" x="249.6" y="77" text-anchor="middle">tl.load</text>
@@ -767,8 +769,8 @@ def softmax_naive(x):                         # x: [M, N]，按行
   <text class="tb" x="505.2" y="62" text-anchor="middle">÷ 求和</text><text class="s" x="505.2" y="77" text-anchor="middle">tl.sum</text>
   <rect class="op" x="552.8" y="46" width="75.2" height="38" rx="6"/>
   <text class="tb" x="590.4" y="62" text-anchor="middle">写回</text><text class="s" x="590.4" y="77" text-anchor="middle">tl.store</text>
-  <text class="lab2" x="152" y="272">中间结果每个 program 一份，都在 register 里，每个 thread 存这一行的 32 个数；</text>
-  <text class="lab2" x="152" y="287">显存只读 x 一次、写 y 一次。</text>
+  <text class="lab2" x="152" y="284">中间结果每个 program 一份，都在 register 里，每个 thread 存这一行的 32 个数；</text>
+  <text class="lab2" x="152" y="299">显存只读 x 一次、写 y 一次。</text>
   <rect x="265.2" y="110" width="54" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
   <text class="s" x="292.2" y="123" text-anchor="middle">x 行</text>
   <line x1="255.6" y1="86.0" x2="284.2" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m1)"/>
@@ -785,14 +787,14 @@ def softmax_naive(x):                         # x: [M, N]，按行
   <text class="s" x="547.8" y="123" text-anchor="middle">y 行</text>
   <line x1="511.2" y1="86.0" x2="539.8" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m1)"/>
   <line x1="555.8" y1="108.0" x2="584.4" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m1)"/>
-  <rect x="211.6" y="206" width="76.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <rect x="211.6" y="214.4" width="76.0" height="7.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="249.6" y="247" text-anchor="middle">x，64 MiB</text>
-  <line x1="249.6" y1="204.0" x2="249.6" y2="86.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-2-m2)"/>
-  <rect x="552.4" y="206" width="76.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <rect x="552.4" y="214.4" width="76.0" height="7.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="590.4" y="247" text-anchor="middle">y，64 MiB</text>
-  <line x1="590.4" y1="86.0" x2="590.4" y2="204.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-2-m2)"/>
+  <rect x="211.6" y="212" width="76.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <rect x="211.6" y="220.4" width="76.0" height="7.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <text class="s" x="249.6" y="253" text-anchor="middle">x，64 MiB</text>
+  <line x1="249.6" y1="210.0" x2="249.6" y2="86.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-2-m2)"/>
+  <rect x="552.4" y="212" width="76.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <rect x="552.4" y="220.4" width="76.0" height="7.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <text class="s" x="590.4" y="253" text-anchor="middle">y，64 MiB</text>
+  <line x1="590.4" y1="86.0" x2="590.4" y2="210.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-2-m2)"/>
 </svg>
 <figcaption><strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次；每个 program 用的 register 多，一个 SM 只放得下 9 个。</figcaption>
 </figure>
@@ -929,13 +931,14 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。
   <line x1="105.7" y1="260" x2="105.7" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
   <line x1="110.4" y1="260" x2="110.4" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
   <line x1="115.1" y1="260" x2="115.1" y2="270" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <text class="s" x="10" y="286">每格一个 program（4 warp）</text><text class="s" x="10" y="300">12 × 128 = 1536 thread</text><text class="s" x="10" y="314">线程数先满</text>
+  <text class="s" x="10" y="286">每格一个 program（4 warp）</text><text class="s" x="10" y="300">12 × 128 = 1536 thread</text>
+  <text class="s" x="10" y="314">线程数先满</text>
   <rect class="band" x="146" y="26" width="490" height="66" rx="8"/>
   <text class="lab2" x="152" y="63.0">步骤</text>
   <rect class="band" x="146" y="100" width="490" height="76" rx="8"/>
   <text class="lab2" x="152" y="142.0">register</text>
-  <rect class="band" x="146" y="184" width="490" height="72" rx="8"/>
-  <text class="lab2" x="152" y="224.0">显存</text>
+  <rect class="band" x="146" y="184" width="490" height="84" rx="8"/>
+  <text class="lab2" x="152" y="230.0">显存</text>
   <line x1="130.0" y1="73.0" x2="144.0" y2="73.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-3-m0)"/>
   <rect class="op" x="212.0" y="46" width="68.8" height="38" rx="6"/>
   <text class="tb" x="246.4" y="62" text-anchor="middle">读第 0 块</text><text class="s" x="246.4" y="77" text-anchor="middle">tl.load</text>
@@ -948,8 +951,8 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。
   <text class="tb" x="514.8" y="62" text-anchor="middle">累加</text><text class="s" x="514.8" y="77" text-anchor="middle">acc += x</text>
   <rect class="op" x="559.2" y="46" width="68.8" height="38" rx="6"/>
   <text class="tb" x="593.6" y="62" text-anchor="middle">归约写回</text><text class="s" x="593.6" y="77" text-anchor="middle">tl.sum</text>
-  <text class="lab2" x="152" y="272">每轮读这一行的 1024 个数（TILE），4 轮读完；acc 每个 thread 8 个数，循环里一直在 register 里；</text>
-  <text class="lab2" x="152" y="287">显存只读 x 一次，只写回一个数。</text>
+  <text class="lab2" x="152" y="284">每轮读这一行的 1024 个数（TILE），4 轮读完；acc 每个 thread 8 个数，循环里一直在 register 里；</text>
+  <text class="lab2" x="152" y="299">显存只读 x 一次，只写回一个数。</text>
   <rect x="263.8" y="110" width="44" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
   <text class="s" x="285.8" y="123" text-anchor="middle">块 0</text>
   <line x1="252.4" y1="86.0" x2="277.8" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m1)"/>
@@ -967,17 +970,17 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。
   <line x1="566.2" y1="138.0" x2="587.6" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m1)"/>
   <path d="M325.2,44 L325.2,37 L514.8,37 L514.8,43" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-3-m2)"/>
   <text class="s" x="420.0" y="33" text-anchor="middle" style="fill: var(--fig-hi)">acc 带到下一轮</text>
-  <rect x="212.4" y="206" width="257.6" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <rect x="234.4" y="214.4" width="24.0" height="8.4" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <rect x="424.0" y="214.4" width="24.0" height="8.4" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="341.2" y="247" text-anchor="middle">x 的第 1 行，64 MiB 里的 16 KiB</text>
-  <rect x="212.4" y="214.4" width="257.6" height="8.4" style="fill: var(--fig-1)" fill-opacity=".18"/>
-  <line x1="246.4" y1="204.0" x2="246.4" y2="86.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-3-m3)"/>
-  <line x1="436.0" y1="204.0" x2="436.0" y2="86.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-3-m3)"/>
-  <rect x="565.6" y="206" width="56.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <rect x="589.6" y="206.0" width="8.0" height="28.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="593.6" y="247" text-anchor="middle">out，16 KiB</text>
-  <line x1="603.6" y1="86.0" x2="603.6" y2="204.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-3-m3)"/>
+  <rect x="212.4" y="212" width="257.6" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <rect x="234.4" y="220.4" width="24.0" height="8.4" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <rect x="424.0" y="220.4" width="24.0" height="8.4" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <text class="s" x="341.2" y="253" text-anchor="middle">x 的第 1 行，64 MiB 里的 16 KiB</text>
+  <rect x="212.4" y="220.4" width="257.6" height="8.4" style="fill: var(--fig-1)" fill-opacity=".18"/>
+  <line x1="246.4" y1="210.0" x2="246.4" y2="86.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-3-m3)"/>
+  <line x1="436.0" y1="210.0" x2="436.0" y2="86.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-3-m3)"/>
+  <rect x="565.6" y="212" width="56.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <rect x="589.6" y="212.0" width="8.0" height="28.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
+  <text class="s" x="593.6" y="253" text-anchor="middle">out，16 KiB</text>
+  <line x1="603.6" y1="86.0" x2="603.6" y2="210.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-3-m3)"/>
 </svg>
 <figcaption><strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32，TILE = 1024），画法同<a href="#fig-t-1">图 2-1</a>。一行 4 块，图里只画第 0 块和第 3 块，中间用 ⋯ 省略；acc 一直留在 register 里，红线表示它带到下一轮，最后 <code>tl.sum</code> 才归约成一个数。</figcaption>
 </figure>
@@ -1022,7 +1025,7 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
 加法满足结合律，分段加完再相加和一次加完是同一个数（浮点数下只差舍入误差），所以每次只读 $A_{IT}$ 和 $B_{TJ}$ 两个小块、算一个小矩阵乘 $A_{IT} B_{TJ}$ 累加起来，最后得到的就是完整的 $C_{IJ}$。ReLU 逐元素作用在累加完的结果上，放在最后做不影响答案。
 
 <figure id="fig-t-4" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 322" width="100%" role="img" aria-label="matmul kernel（2048 × 2048）：C 的每一块一个 program；program 沿 K 一轮读 A、B 各一块进 shared memory，tl.dot 加到 register 里的 acc 上，中间几轮用 ⋯ 省略，最后 ReLU 写回 C 的一块">
+<svg class="fg" viewBox="0 0 640 365" width="100%" role="img" aria-label="matmul kernel（A 1024 × 2048，B 2048 × 512）：C 的每一块一个 program；program (1, 1) 沿 K 一轮读 A 的第 1 个行块、B 的第 1 个列块各一块进 shared memory，tl.dot 加到 register 里的 acc 上，中间几轮用 ⋯ 省略，最后 ReLU 写回 C 的 (1, 1) 块">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -1044,54 +1047,49 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
   </style>
   <defs><marker id="fig-t-4-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-t-4-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-2)"/></marker><marker id="fig-t-4-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker><marker id="fig-t-4-m3" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker></defs>
   <text class="ttl" x="10" y="16">grid</text>
-  <text class="ttl" x="162" y="16">一个 program（pid_m = 1，pid_n = 2）</text>
+  <text class="ttl" x="162" y="16">一个 program（pid_m = 1，pid_n = 1）</text>
   <text class="tb" x="630" y="16" text-anchor="end" style="fill: var(--fig-hi)">分块乘加</text>
-  <rect x="10" y="28" width="36" height="30" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <rect x="50" y="28" width="36" height="30" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <rect x="90" y="28" width="36" height="30" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <rect x="10" y="62" width="36" height="30" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <rect x="50" y="62" width="36" height="30" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <rect x="90" y="62" width="36" height="30" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 30%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="s" x="108" y="81" text-anchor="middle">(1,2)</text>
-  <rect x="10" y="96" width="36" height="30" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <rect x="50" y="96" width="36" height="30" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <rect x="90" y="96" width="36" height="30" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <text class="lab2" x="10" y="146">C 的每一块一个 program</text>
+  <rect x="10" y="28" width="36" height="23" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="50" y="28" width="36" height="23" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="10" y="55" width="36" height="23" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="50" y="55" width="36" height="23" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 30%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="s" x="68" y="70" text-anchor="middle">(1,1)</text>
+  <rect x="10" y="82" width="36" height="23" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="50" y="82" width="36" height="23" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="10" y="109" width="36" height="23" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="50" y="109" width="36" height="23" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="lab2" x="10" y="148">C 的每一块一个 program</text>
   <text class="lab2" x="10" y="168">grid = (M / BM, N / BN)</text>
-  <text class="lab2" x="10" y="183">32 × 32 = 1024 个 program</text>
-  <text class="ttl" x="10" y="204">一个 SM</text>
-  <rect x="12" y="212" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <line x1="17.0" y1="216" x2="17.0" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="21.7" y1="216" x2="21.7" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="26.4" y1="216" x2="26.4" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="31.1" y1="216" x2="31.1" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <rect x="40" y="212" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <line x1="45.0" y1="216" x2="45.0" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="49.7" y1="216" x2="49.7" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="54.4" y1="216" x2="54.4" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="59.1" y1="216" x2="59.1" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <rect x="68" y="212" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <line x1="73.0" y1="216" x2="73.0" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="77.7" y1="216" x2="77.7" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="82.4" y1="216" x2="82.4" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <line x1="87.1" y1="216" x2="87.1" y2="226" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
-  <rect x="96" y="212" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-  <rect x="12" y="234" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-  <rect x="40" y="234" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-  <rect x="68" y="234" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-  <rect x="96" y="234" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-  <rect x="12" y="256" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-  <rect x="40" y="256" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-  <rect x="68" y="256" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-  <rect x="96" y="256" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-  <text class="s" x="10" y="286">每格一个 program（4 warp）</text><text class="s" x="10" y="300">3 × 128 = 384 thread</text><text class="s" x="10" y="314">shared memory 先满</text>
+  <text class="lab2" x="10" y="183">16 × 8 = 128 个 program</text>
+  <text class="lab2" x="10" y="198">比 170 个 SM 少</text>
+  <text class="ttl" x="10" y="219">一个 SM</text>
+  <rect x="12" y="227" width="24" height="18" rx="3" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <line x1="17.0" y1="231" x2="17.0" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="21.7" y1="231" x2="21.7" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="26.4" y1="231" x2="26.4" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <line x1="31.1" y1="231" x2="31.1" y2="241" stroke="currentColor" stroke-opacity=".55" stroke-width="1.6"/>
+  <rect x="40" y="227" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <rect x="68" y="227" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <rect x="96" y="227" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <rect x="12" y="249" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <rect x="40" y="249" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <rect x="68" y="249" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <rect x="96" y="249" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <rect x="12" y="271" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <rect x="40" y="271" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <rect x="68" y="271" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <rect x="96" y="271" width="24" height="18" rx="3" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="10" y="301">每格一个 program（4 warp）</text><text class="s" x="10" y="315">1 × 128 = 128 thread</text>
+  <text class="s" x="10" y="329">program 比 SM 少，</text>
+  <text class="s" x="10" y="343">每个 SM 只分到 1 个</text>
+  <text class="s" x="10" y="357">（最多放得下 3 个）</text>
   <rect class="band" x="146" y="26" width="490" height="66" rx="8"/>
   <text class="lab2" x="152" y="63.0">步骤</text>
   <rect class="band" x="146" y="100" width="490" height="76" rx="8"/>
   <text class="lab2" x="152" y="142.0">片上</text>
-  <rect class="band" x="146" y="184" width="490" height="72" rx="8"/>
-  <text class="lab2" x="152" y="224.0">显存</text>
-  <line x1="130.0" y1="77.0" x2="144.0" y2="77.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-4-m0)"/>
+  <rect class="band" x="146" y="184" width="490" height="116" rx="8"/>
+  <text class="lab2" x="152" y="246.0">显存</text>
+  <line x1="90.0" y1="66.0" x2="144.0" y2="66.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-4-m0)"/>
   <rect class="op" x="212.0" y="46" width="68.8" height="38" rx="6"/>
   <text class="tb" x="246.4" y="62" text-anchor="middle">读 A、B</text><text class="s" x="246.4" y="77" text-anchor="middle">第 0 块</text>
   <rect class="op" x="290.8" y="46" width="68.8" height="38" rx="6"/>
@@ -1103,8 +1101,8 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
   <text class="tb" x="514.8" y="62" text-anchor="middle">乘加</text><text class="s" x="514.8" y="77" text-anchor="middle">tl.dot</text>
   <rect class="op" x="559.2" y="46" width="68.8" height="38" rx="6"/>
   <text class="tb" x="593.6" y="62" text-anchor="middle">ReLU 写回</text><text class="s" x="593.6" y="77" text-anchor="middle">tl.store</text>
-  <text class="lab2" x="152" y="272">A、B 的块（64 × 32）在 shared memory，acc（64 × 64）在 register，每个 thread 32 个数；</text>
-  <text class="lab2" x="152" y="287">K = 2048 按 BK = 32 切成 64 轮，每轮的 A、B 块都从显存读。</text>
+  <text class="lab2" x="152" y="316">A、B 的块在 shared memory，acc（64 × 64）在 register，每个 thread 32 个数；</text>
+  <text class="lab2" x="152" y="331">K = 2048 按 BK = 32 切成 64 轮，每轮都从显存读 A、B 各一块，图里只画第 0 轮的读。</text>
   <rect x="260.8" y="110" width="50" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 26%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/>
   <text class="s" x="285.8" y="123" text-anchor="middle">A、B 块</text>
   <line x1="252.4" y1="86.0" x2="277.8" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
@@ -1122,18 +1120,76 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
   <line x1="566.2" y1="138.0" x2="587.6" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <path d="M325.2,44 L325.2,37 L514.8,37 L514.8,43" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-4-m2)"/>
   <text class="s" x="420.0" y="33" text-anchor="middle" style="fill: var(--fig-hi)">acc 带到下一轮</text>
-  <rect x="212.4" y="206" width="257.6" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <rect x="234.4" y="206.0" width="24.0" height="28.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <rect x="424.0" y="206.0" width="24.0" height="28.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="341.2" y="247" text-anchor="middle">A、B，各 16 MiB</text>
-  <line x1="246.4" y1="204.0" x2="246.4" y2="86.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-4-m3)"/>
-  <line x1="436.0" y1="204.0" x2="436.0" y2="86.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-4-m3)"/>
-  <rect x="563.6" y="206" width="60.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <rect x="587.6" y="214.4" width="16.0" height="9.8" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="593.6" y="247" text-anchor="middle">C，16 MiB</text>
-  <line x1="595.6" y1="86.0" x2="595.6" y2="204.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-4-m3)"/>
+  <rect x="194.4" y="196.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="203.4" y="196.0" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.75" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="194.4" y="205.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="203.4" y="205.0" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.18" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="194.4" y="214.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="203.4" y="214.0" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.18" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="194.4" y="223.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="203.4" y="223.0" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.18" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="194.4" y="232.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="203.4" y="232.0" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.18" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="194.4" y="241.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="203.4" y="241.0" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.18" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="194.4" y="250.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="203.4" y="250.0" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.18" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="194.4" y="259.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="203.4" y="259.0" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.4" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="194.4" y="196" width="18" height="72" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
+  <text class="s" x="203.4" y="281" text-anchor="middle">B [2048, 512]</text>
+  <text class="s" x="203.4" y="294" text-anchor="middle">4 MiB</text>
+  <rect x="224.4" y="212.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="233.4" y="212.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="242.4" y="212.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="251.4" y="212.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="260.4" y="212.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="269.4" y="212.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="278.4" y="212.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="287.4" y="212.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="224.4" y="221.0" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.75" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="233.4" y="221.0" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.18" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="242.4" y="221.0" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.18" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="251.4" y="221.0" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.18" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="260.4" y="221.0" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.18" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="269.4" y="221.0" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.18" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="278.4" y="221.0" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.18" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="287.4" y="221.0" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.4" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="224.4" y="230.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="233.4" y="230.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="242.4" y="230.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="251.4" y="230.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="260.4" y="230.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="269.4" y="230.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="278.4" y="230.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="287.4" y="230.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="224.4" y="239.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="233.4" y="239.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="242.4" y="239.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="251.4" y="239.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="260.4" y="239.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="269.4" y="239.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="278.4" y="239.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="287.4" y="239.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="224.4" y="212" width="72" height="36" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
+  <text class="s" x="260.4" y="261" text-anchor="middle">A [1024, 2048]</text>
+  <text class="s" x="260.4" y="274" text-anchor="middle">8 MiB</text>
+  <line x1="228.9" y1="219.0" x2="229.4" y2="86.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-4-m3)"/>
+  <line x1="207.9" y1="194.0" x2="218.4" y2="86.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-4-m3)"/>
+  <rect x="584.6" y="204.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="593.6" y="204.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="584.6" y="213.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="593.6" y="213.0" width="9" height="9" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.75" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="584.6" y="222.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="593.6" y="222.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="584.6" y="231.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="593.6" y="231.0" width="9" height="9" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".35" stroke-width=".6"/>
+  <rect x="584.6" y="204" width="18" height="36" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
+  <text class="s" x="593.6" y="253" text-anchor="middle">C [1024, 512]</text>
+  <text class="s" x="593.6" y="266" text-anchor="middle">2 MiB</text>
+  <line x1="598.1" y1="86.0" x2="598.1" y2="212.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-4-m3)"/>
 </svg>
-<figcaption><strong>图 2-4</strong> matmul kernel（2048 × 2048 × 2048，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。program (1, 2) 沿 K 走 64 轮，只画第 0 轮和第 63 轮；A、B 的块放在 shared memory，每个 program 占 32 KiB，一个 SM 只放得下 3 个。</figcaption>
+<figcaption><strong>图 2-4</strong> matmul kernel（A 1024 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的 A、B、C 按块示意，块数比实际少，形状比例不变：A 宽、B 高。program (1, 1) 读 A 的第 1 个行块和 B 的第 1 个列块，深色是第 0 轮读的块，浅色是第 63 轮的；结果写回 C 的 (1, 1) 块。</figcaption>
 </figure>
 
 一个 program 负责一个 $C_{IJ}$，grid 是二维的（[图 2-4](#fig-t-4)）。program 沿 K 方向循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上。写回之前在 register 里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
