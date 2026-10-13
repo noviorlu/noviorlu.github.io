@@ -99,7 +99,7 @@ series_order: 1
 <figcaption><strong>图 1-2</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。</figcaption>
 </figure>
 
-5090 是消费级显卡，显存用的是 GDDR7（32 GB，512-bit，28 Gbps，带宽 1,792 GB/s），不是数据中心卡上的 HBM，也没有 ECC 和 NVLink。
+5090 是消费级显卡，显存用的是 GDDR7（32 GB，512-bit，28 Gbps，带宽 1.79e12 B/s），不是数据中心卡上的 HBM，也没有 ECC 和 NVLink。
 
 register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构。
 
@@ -456,7 +456,7 @@ Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的分块。CU
 | matmul | 分块乘加 | A 的一行、B 的一列 | 二维，C 的一块一个 program | 沿 K 循环，累加器存 C 的一块 |
 {#tab-2-2 caption="**表 2-2** 四个例子的 op 类型"}
 
-代码都在 RTX 5090 上和 PyTorch 对照过。[下一篇](/blog/gpu-training-analysis/#rmsnorm)手写的融合 RMSNorm 和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 也都用 Triton 写。
+代码都在 RTX 5090 上和 PyTorch 对照过。每个例子配一张图：左边是 grid，右边是一个 program 的步骤和它读写的存储。图里的「显存」指芯片外的 GDDR7，`tl.load` 和 `tl.store` 读写的就是它；中间经过的 L2 和 L1 cache 由硬件自动管理，kernel 不直接控制，图里不画。「片上」指 kernel 显式用到的 register 和 shared memory。[下一篇](/blog/gpu-training-analysis/#rmsnorm)手写的融合 RMSNorm 和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 也都用 Triton 写。
 
 ### 2.1 GELU：逐元素 {#triton-gelu}
 
@@ -570,6 +570,7 @@ GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函�
   <text class="lab2" x="152" y="142.0">register</text>
   <rect class="band" x="146" y="184" width="490" height="84" rx="8"/>
   <text class="lab2" x="152" y="230.0">显存</text>
+  <text class="s" x="152" y="244.0">GDDR7</text>
   <line x1="130.0" y1="73.0" x2="144.0" y2="73.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-1-m0)"/>
   <rect class="op" x="237.0" y="46" width="84.0" height="38" rx="6"/>
   <text class="tb" x="279.0" y="62" text-anchor="middle">算下标</text><text class="s" x="279.0" y="77" text-anchor="middle">offsets</text>
@@ -602,7 +603,7 @@ GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函�
   <text class="s" x="561.0" y="253" text-anchor="middle">y，32 MiB</text>
   <line x1="557.0" y1="86.0" x2="557.0" y2="210.0" style="stroke: var(--fig-1)" stroke-width="1.4" marker-end="url(#fig-t-1-m2)"/>
 </svg>
-<figcaption><strong>图 2-1</strong> GELU kernel（n = 8M，fp32）。左边是 grid：数组展平成一维、按 BLOCK = 1024 切段，一段一个 program；下面是一个 SM 同时跑几个 program，12 格是上限（1536 个 thread）。右边是 program 1：上面是步骤，中间是 register，下面是显存，箭头指向步骤是读，指向存储是写，画法同<a href="/blog/gpu-training-analysis/#fig-3-4">上一篇的图 3-4</a>。</figcaption>
+<figcaption><strong>图 2-1</strong> GELU kernel（n = 8M，fp32）。左边是 grid：数组展平成一维、按 BLOCK = 1024 切段，一段一个 program；下面是一个 SM 同时跑几个 program，12 格是上限（1536 个 thread）。右边是 program 1：上面是步骤，中间是片上（register、shared memory），下面是显存，即芯片外的 GDDR7，箭头指向步骤是读，指向存储是写，画法同<a href="/blog/gpu-training-analysis/#fig-3-4">上一篇的图 3-4</a>。读写显存都会经过 L2 和 L1 cache，它们由硬件自动管理，图里不画。</figcaption>
 </figure>
 
 逐元素 op 最简单，每个元素各算各的，program 之间不需要配合。把 n 个元素切成每段 BLOCK 个，一段交给一个 program（[图 2-1](#fig-t-1)）。kernel 里先用 `tl.program_id` 算出自己负责的下标，读进来，算完写回：
@@ -758,6 +759,7 @@ def softmax_naive(x):                         # x: [M, N]，按行
   <text class="lab2" x="152" y="142.0">register</text>
   <rect class="band" x="146" y="184" width="490" height="84" rx="8"/>
   <text class="lab2" x="152" y="230.0">显存</text>
+  <text class="s" x="152" y="244.0">GDDR7</text>
   <line x1="130.0" y1="73.0" x2="144.0" y2="73.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-2-m0)"/>
   <rect class="op" x="212.0" y="46" width="75.2" height="38" rx="6"/>
   <text class="tb" x="249.6" y="62" text-anchor="middle">读一行</text><text class="s" x="249.6" y="77" text-anchor="middle">tl.load</text>
@@ -939,6 +941,7 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。
   <text class="lab2" x="152" y="142.0">register</text>
   <rect class="band" x="146" y="184" width="490" height="108" rx="8"/>
   <text class="lab2" x="152" y="242.0">显存</text>
+  <text class="s" x="152" y="256.0">GDDR7</text>
   <line x1="130.0" y1="73.0" x2="144.0" y2="73.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-3-m0)"/>
   <rect class="op" x="212.0" y="46" width="68.8" height="38" rx="6"/>
   <text class="tb" x="246.4" y="62" text-anchor="middle">读第 0 块</text><text class="s" x="246.4" y="77" text-anchor="middle">tl.load</text>
@@ -1220,6 +1223,7 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
   <text class="lab2" x="152" y="142.0">片上</text>
   <rect class="band" x="146" y="184" width="490" height="140" rx="8"/>
   <text class="lab2" x="152" y="258.0">显存</text>
+  <text class="s" x="152" y="272.0">GDDR7</text>
   <line x1="90.0" y1="66.0" x2="144.0" y2="66.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-t-4-m0)"/>
   <rect class="op" x="212.0" y="46" width="68.8" height="38" rx="6"/>
   <text class="tb" x="246.4" y="62" text-anchor="middle">读 A、B</text><text class="s" x="246.4" y="77" text-anchor="middle">第 0 块</text>

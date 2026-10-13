@@ -35,7 +35,7 @@ series_order: 1
 
 {{fig-h-1}}
 
-5090 是消费级显卡，显存用的是 GDDR7（32 GB，512-bit，28 Gbps，带宽 1,792 GB/s），不是数据中心卡上的 HBM，也没有 ECC 和 NVLink。
+5090 是消费级显卡，显存用的是 GDDR7（32 GB，512-bit，28 Gbps，带宽 1.79e12 B/s），不是数据中心卡上的 HBM，也没有 ECC 和 NVLink。
 
 register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构。
 
@@ -107,7 +107,7 @@ Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的分块。CU
 | matmul | 分块乘加 | A 的一行、B 的一列 | 二维，C 的一块一个 program | 沿 K 循环，累加器存 C 的一块 |
 {#tab-2-2 caption="**表 2-2** 四个例子的 op 类型"}
 
-代码都在 RTX 5090 上和 PyTorch 对照过。[下一篇](/blog/gpu-training-analysis/#rmsnorm)手写的融合 RMSNorm 和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 也都用 Triton 写。
+代码都在 RTX 5090 上和 PyTorch 对照过。每个例子配一张图：左边是 grid，右边是一个 program 的步骤和它读写的存储。图里的「显存」指芯片外的 GDDR7，`tl.load` 和 `tl.store` 读写的就是它；中间经过的 L2 和 L1 cache 由硬件自动管理，kernel 不直接控制，图里不画。「片上」指 kernel 显式用到的 register 和 shared memory。[下一篇](/blog/gpu-training-analysis/#rmsnorm)手写的融合 RMSNorm 和之后的 [FlashAttention](/blog/flashattention-1-to-4/) 也都用 Triton 写。
 
 ### 2.1 GELU：逐元素 {#triton-gelu}
 
