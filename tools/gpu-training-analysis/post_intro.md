@@ -279,7 +279,7 @@ A 4096 × 2048、B 2048 × 512 时 Triton 版 203.3 µs，4.23e13 FLOPS，是 fp
 <details class="fold doc aside">
 <summary>matmul 的 tail effect：512 个 program 分两批</summary>
 
-fp32 标称峰值按 170 个 SM × 128 个 CUDA core × 2 FLOPs × 2.41e9 Hz 算。每个 SM 只放 3 个 program，全卡一批 510 个，512 个 program 多出 2 个。实测的时间线上（[图 2-4a](#fig-t-7)），510 个 program 在开头一起开始，各跑 125 到 152 µs；全卡最先跑完的两个 program 在 SM 68 和 SM 135 上，约 125 µs 结束，多出的 2 个这时才开始。152 µs 以后全卡只剩这 2 个 program，另外 168 个 SM 空着，一直等到 200 µs。这 2 个 program 后半段独占一个 SM，只跑了 75 µs，比第一批的中位数 135 µs 快得多。
+fp32 标称峰值按 170 个 SM × 128 个 CUDA core × 2 FLOPs × 2.41e9 Hz 算。每个 SM 只放 3 个 program，全卡一批 510 个，512 个 program 要跑 2 批，第 2 批只有 2 个。实测的时间线上（[图 2-4a](#fig-t-7)），第 1 批的 510 个 program 在开头一起开始，各跑 125 到 152 µs；全卡最先跑完的两个 program 在 SM 68 和 SM 135 上，约 125 µs 结束，多出的 2 个这时才开始。152 µs 以后全卡只剩这 2 个 program，另外 168 个 SM 空着，一直等到 200 µs。这 2 个 program 后半段独占一个 SM，只跑了 75 µs，比第一批的中位数 135 µs 快得多。
 
 A 换成 4032 × 2048 时 504 个 program 一批放下，同一个 kernel 只要 158.3 µs，和 cuBLAS 相当。4096 比 4032 的计算量只多 1.6%，耗时多 28%。打点的开销不大：打点版 210.8 µs 和 162.8 µs，不打点 203.3 µs 和 158.3 µs。
 

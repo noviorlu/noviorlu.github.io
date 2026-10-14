@@ -1366,53 +1366,69 @@ def tri_matmul():
 # ── 图 2-4a matmul 的 512 个 program 怎么分批跑（实测 trace） ─────────────────────
 def mm_wave():
     runs = {r["M"]: r for r in json.load(open(os.path.join(HERE, "mm_wave_trace.json")))}
-    big, small = runs[4096]["trace"], runs[4032]["trace"]
-    late = sorted((a, b, sm, pid) for pid, (a, b, sm) in enumerate(big) if a > 10000)
-    T = max(b for _, b, _ in big) / 1000
-    W1END = max(b for a, b, _ in big if a <= 10000) / 1000                 # 第一批最后一个结束
-    f = F("fig-t-7", 352, f"matmul 的 program 实测时间线：A 4096 × 2048 时 512 个 program，第一批 510 个一起开始；多出的 2 个等到 {late[0][0] / 1000:.1f} µs 才开始，{W1END:.0f} µs 以后全卡只有这 2 个在跑，到 {T:.0f} µs 结束。A 4032 × 2048 时 504 个一批放下，{max(b for _, b, _ in small) / 1000:.0f} µs 结束")
+    cap, NB = 170 * 3, 8                                             # 名额；grid 第二维（N / BN）
+    lid = lambda i: i // NB + (i % NB) * (4096 // 64)               # 存的是 pid_m · 8 + pid_n，换成发射顺序 pid_m + pid_n · 64
+    tr = [(a / 1000, b / 1000, sm, lid(i)) for i, (a, b, sm) in enumerate(runs[4096]["trace"])]
+    small = [(a / 1000, b / 1000) for a, b, _ in runs[4032]["trace"]]
+    T = max(b for b, *_ in [(x[1],) for x in tr])
+    nw = (len(tr) + cap - 1) // cap
+    W2 = [.3, .9]                                                    # 第 1、2 批：越晚越深，和图 2-1a 一样
+    late = sorted(x for x in tr if x[3] >= cap)
+    w1end = max(b for a, b, _, l in tr if l < cap)
+    f = F("fig-t-7", 372, f"matmul 的 512 个 program 在 170 个 SM 上的实测时间线：上面是全卡同时在跑的 program 数，按批次堆叠，最多 510 个；第 1 批 510 个一起开始，第 2 批只有 2 个，等到 {late[0][0]:.0f} µs 才开始，{w1end:.0f} µs 以后全卡只有这 2 个在跑。虚线是 A 4032 × 2048 时 504 个 program 一批跑完的对照。下面是跑了第 2 批的两个 SM 的 3 个名额")
     X0, X1 = 74, 620
     px = lambda t: X0 + t / 210 * (X1 - X0)
-    Y0, Y1 = 176, 50                                                       # 上：同时在跑的 program 数
-    py = lambda c: Y0 - c / 520 * (Y0 - Y1)
-    f.w(f'<text class="lab2" x="{X0}" y="{Y1 - 24}">全卡同时在跑的 program 数；虚线是 170 个 SM × 3 = 510 个名额</text>')
+    Y0, Y1 = 186, 52
+    py = lambda c: Y0 - c / cap * (Y0 - Y1)
     for v in (0, 100, 200, 300, 400, 510):
         f.w(f'<line class="grid" x1="{X0}" y1="{py(v):.1f}" x2="{X1}" y2="{py(v):.1f}"/><text class="tick" x="{X0 - 8}" y="{py(v) + 4:.1f}" text-anchor="end">{v}</text>')
-    f.w(f'<line class="ref" x1="{X0}" y1="{py(510):.1f}" x2="{X1}" y2="{py(510):.1f}"/>')
-    f.w(f'<rect x="{px(W1END):.1f}" y="{Y1}" width="{px(T) - px(W1END):.1f}" height="{Y0 - Y1}" {tint("--fig-hi", 10, "--fig-hi", 0)}/>')
-    f.w(f'<text class="s" x="{(px(W1END) + px(T)) / 2:.1f}" y="{Y1 + 30}" text-anchor="middle" style="fill: var(--fig-hi)">只剩 2 个</text><text class="s" x="{(px(W1END) + px(T)) / 2:.1f}" y="{Y1 + 44}" text-anchor="middle" style="fill: var(--fig-hi)">program</text>')
-    def curve(tr, var, lab, ly, dash=False):
-        ts = sorted({0} | {a for a, _, _ in tr} | {b for _, b, _ in tr})
-        pts = []
-        for t in ts:
-            c = sum(1 for a, b, _ in tr if a <= t < b)
-            pts.append(f"{px(t / 1000):.1f},{py(c):.1f}")
-        d = ' stroke-dasharray="6 4"' if dash else ''
-        f.w(f'<polyline points="{" ".join(pts)}" fill="none" style="stroke: var({var})" stroke-width="2" stroke-linejoin="round"{d}/>')
-        f.w(f'<line x1="{X0 + 24}" y1="{ly - 4}" x2="{X0 + 46}" y2="{ly - 4}" style="stroke: var({var})" stroke-width="2"{d}/><text class="lab" x="{X0 + 54}" y="{ly}">{lab}</text>')
-    curve(small, "--fig-2", f"A 4032 × 2048，504 个 program", Y1 + 70, dash=True)
-    curve(big, "--fig-1", f"A 4096 × 2048，512 个 program", Y1 + 88)
-    # 下：跑多出 2 个 program 的两个 SM，各 3 个名额
-    G0, RH = 222, 11
-    f.w(f'<text class="lab2" x="{X0}" y="{G0 - 10}">A 4096 × 2048 时跑了多出 2 个 program 的两个 SM，每个 3 个名额；一条是一个 program</text>')
+    f.w(f'<text class="lab2" x="{X0}" y="{Y1 - 24}">全卡同时在跑的 program 数，按批次堆叠；虚线是 170 个 SM × 3 = {cap} 个名额</text>')
+    f.w(f'<line class="ref" x1="{X0}" y1="{py(cap):.1f}" x2="{X1}" y2="{py(cap):.1f}"/>')
+    N = 420
+    ts = [T * k / N for k in range(N + 1)]
+    cnt = [[0] * (N + 1) for _ in range(nw)]
+    for a, b, _, l in tr:
+        for k, t in enumerate(ts):
+            if a <= t < b: cnt[l // cap][k] += 1
+    base = [0] * (N + 1)
+    for w in range(nw):
+        top = [base[k] + cnt[w][k] for k in range(N + 1)]
+        pts = [f"{px(t):.1f},{py(c):.1f}" for t, c in zip(ts, top)] + [f"{px(t):.1f},{py(c):.1f}" for t, c in zip(ts[::-1], base[::-1])]
+        lo, hi = w * cap, min(len(tr), (w + 1) * cap) - 1
+        f.w(f'<g class="m"><title>第 {w + 1} 批：program {lo} 到 {hi}，共 {hi - lo + 1} 个</title><polygon points="{" ".join(pts)}" style="fill: var(--fig-1)" fill-opacity="{W2[w]}"/></g>')
+        base = top
+    sp = [f"{px(0):.1f},{py(0):.1f}"]                                # 对照：A 4032 × 2048，504 个 program
+    for t in sorted({a for a, _ in small} | {b for _, b in small}):
+        sp.append(f"{px(t):.1f},{py(sum(1 for a, b in small if a <= t < b)):.1f}")
+    f.w(f'<polyline points="{" ".join(sp)}" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6" stroke-dasharray="5 3"/>')
+    xm = (px(w1end) + px(T)) / 2                                     # 第 2 批只有 2 个，面积看不出来，标一下
+    f.w(f'<text class="s" x="{xm:.1f}" y="{py(0) - 22}" text-anchor="middle">第 2 批：2 个 program</text><text class="s" x="{xm:.1f}" y="{py(0) - 8}" text-anchor="middle">跑到 {T:.0f} µs</text>')
+    # 下：跑了第 2 批的两个 SM，各 3 个名额
+    G0, RH = 232, 11
+    f.w(f'<text class="lab2" x="{X0}" y="{G0 - 10}">跑了第 2 批的两个 SM，每个 3 个名额；一条是一个 program 从第一条指令到写完 C</text>')
     y = G0
-    for a0, b0, sm, pid0 in late:
-        mine = sorted((a, b, pid) for pid, (a, b, s) in enumerate(big) if s == sm)
+    for a0, b0, sm, l0 in late:
+        mine = sorted((a, b, l) for a, b, s, l in tr if s == sm)
         slots = [[] for _ in range(3)]
-        for a, b, pid in mine:
+        for a, b, l in mine:
             k = min(range(3), key=lambda j: slots[j][-1][1] if slots[j] else -1)
-            slots[k].append((a, b, pid))
+            slots[k].append((a, b, l))
         f.w(f'<text class="lab" x="{X0 - 8}" y="{y + 2 * RH - 2}" text-anchor="end">SM {sm}</text>')
         for j in range(3):
-            for a, b, pid in slots[j]:
-                var, op = ("--fig-hi", 1) if a > 10000 else ("--fig-1", .45)
-                f.w(f'<g class="m"><title>program {pid}：{a / 1000:.1f} 到 {b / 1000:.1f} µs</title><rect x="{px(a / 1000):.1f}" y="{y + j * RH + 1}" width="{px(b / 1000) - px(a / 1000) - .6:.1f}" height="{RH - 2}" rx="1.5" style="fill: var({var})" fill-opacity="{op}"/></g>')
+            for a, b, l in slots[j]:
+                f.w(f'<g class="m"><title>program {l}（第 {l // cap + 1} 批）：{a:.1f} 到 {b:.1f} µs</title><rect x="{px(a):.1f}" y="{y + j * RH + 1}" width="{px(b) - px(a) - .6:.1f}" height="{RH - 2}" rx="1.5" style="fill: var(--fig-1)" fill-opacity="{W2[l // cap]}"/></g>')
         y += 3 * RH + 6
     for t in range(0, 211, 25):
         f.w(f'<text class="tick" x="{px(t):.1f}" y="{y + 10}" text-anchor="middle">{t}</text>')
+        f.w(f'<line class="grid" x1="{px(t):.1f}" y1="{Y1}" x2="{px(t):.1f}" y2="{Y0}"/>')
     f.w(f'<text class="lab2" x="{X0 - 8}" y="{y + 10}" text-anchor="end">µs</text>')
-    f.w(f'<rect x="{X0}" y="{y + 24}" width="14" height="9" rx="2" style="fill: var(--fig-1)" fill-opacity=".45"/><text class="s" x="{X0 + 20}" y="{y + 32}">第一批的 program</text>')
-    f.w(f'<rect x="{X0 + 140}" y="{y + 24}" width="14" height="9" rx="2" style="fill: var(--fig-hi)"/><text class="s" x="{X0 + 160}" y="{y + 32}">多出的 2 个，等名额空出来才开始</text>')
+    LY = y + 36
+    f.w(f'<text class="lab2" x="{X0}" y="{LY}">批次</text>')
+    for w in range(nw):
+        lo, hi = w * cap, min(len(tr), (w + 1) * cap) - 1
+        x = X0 + 36 + w * 100
+        f.w(f'<rect x="{x}" y="{LY - 9}" width="12" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity="{W2[w]}"/><text class="lab" x="{x + 17}" y="{LY}">{lo}–{hi}</text>')
+    f.w(f'<line x1="{X0 + 250}" y1="{LY - 4}" x2="{X0 + 272}" y2="{LY - 4}" style="stroke: var(--fig-hi)" stroke-width="1.6" stroke-dasharray="5 3"/><text class="lab" x="{X0 + 280}" y="{LY}">A 4032 × 2048：504 个，一批</text>')
     return f
 
 # ── 图 2-4b matmul 的流水线：一个 warp 每轮等数据和计算的拍数（Nsight Compute 实测的平均值） ──
@@ -1478,7 +1494,7 @@ CAPS = {
  "tri_softmax": '<strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次；每个 program 用的 register 多，一个 SM 只放得下 9 个。',
  "tri_rowsum": '<strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 个 block，代码里 TILE = 1024。颜色由淡到浓是 for 循环读 block 的顺序：第 0 轮后 acc 只有 block 0 的数，最后的 acc 是 4 个 block 逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。',
  "tri_matmul": '<strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 个 row block 和 B 的第 1 个 column block，颜色由淡到浓是沿 K 读 block 的顺序，acc 一轮轮累积，ReLU 后写回 C 的 block (1, 1)。',
- "mm_wave": '<strong>图 2-4a</strong> matmul kernel 的 program 实际怎么分批跑（RTX 5090，fp32，B 2048 × 512）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，写回 C 之后再读一次时间，记录前先清空 L2。悬停可看 program 编号和时间。',
+ "mm_wave": '<strong>图 2-4a</strong> matmul kernel 的 512 个 program 实际怎么分批跑（RTX 5090，fp32，A 4096 × 2048，B 2048 × 512，每个 SM 3 个 program），画法同<a href="#fig-t-5">图 2-1a</a>。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，写回 C 之后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 的发射顺序所在的批次，一批 510 个。悬停可看 program 编号和时间。',
  "mm_pipe_ncu": '<strong>图 2-4b</strong> matmul kernel 一个 warp 的流水线（RTX 5090，fp32，A 4032 × 2048，504 个 program 一批跑完；Nsight Compute 实测，<code>--clock-control none</code>）。每轮的拍数 = 每条指令平均隔几拍 × 每轮的指令数，等数据的拍数 = 每条指令平均等 L2 / 显存几拍 × 每轮的指令数，都是 64 轮的平均值。load 的延迟没法直接测，按不预取时每轮等数据的拍数画。只画前 5 轮。',
  "occ_sweep": '<strong>图 2-5</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。',
  "tile_sweep": '<strong>图 2-6</strong> row sum 的 TILE 和带宽（RTX 5090，fp32，两种形状都是 340 MiB，<code>num_warps=4</code>，每点取 8 次计时的最快值）。悬停可看耗时和每线程的 register 数。',
