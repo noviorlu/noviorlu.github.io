@@ -274,14 +274,14 @@ grid 是二维的：
 
 </div>
 
-A 4096 × 2048、B 2048 × 512 时 Triton 版 203.1 µs，4.23e13 FLOPS，是 fp32 标称峰值 1.05e14 FLOPS 的 40%；cuBLAS（`torch.relu(A @ B)`，关掉 tf32）是 160.3 µs。差距主要来自 tail effect。
+A 4096 × 2048、B 2048 × 512 时 Triton 版 203.3 µs，4.23e13 FLOPS，是 fp32 标称峰值 1.05e14 FLOPS 的 40%；cuBLAS（`torch.relu(A @ B)`，关掉 tf32）是 160.5 µs。差距主要来自 tail effect。
 
 <details class="fold doc aside">
 <summary>matmul 的 tail effect：512 个 program 分两批</summary>
 
 fp32 标称峰值按 170 个 SM × 128 个 CUDA core × 2 FLOPs × 2.41e9 Hz 算。每个 SM 只放 3 个 program，全卡一批 510 个，512 个 program 多出 2 个。实测的时间线上（[图 2-4a](#fig-t-7)），510 个 program 在开头一起开始，各跑 125 到 152 µs；全卡最先跑完的两个 program 在 SM 68 和 SM 135 上，约 125 µs 结束，多出的 2 个这时才开始。152 µs 以后全卡只剩这 2 个 program，另外 168 个 SM 空着，一直等到 200 µs。这 2 个 program 后半段独占一个 SM，只跑了 75 µs，比第一批的中位数 135 µs 快得多。
 
-A 换成 4032 × 2048 时 504 个 program 一批放下，同一个 kernel 只要 157.9 µs，和 cuBLAS 相当。4096 比 4032 的计算量只多 1.6%，耗时多 29%。打点的开销不大：打点版 210.8 µs 和 162.8 µs，不打点 203.1 µs 和 157.9 µs。
+A 换成 4032 × 2048 时 504 个 program 一批放下，同一个 kernel 只要 158.3 µs，和 cuBLAS 相当。4096 比 4032 的计算量只多 1.6%，耗时多 28%。打点的开销不大：打点版 210.8 µs 和 162.8 µs，不打点 203.3 µs 和 158.3 µs。
 
 {{fig-t-7}}
 
@@ -294,7 +294,9 @@ Triton 默认 `num_stages=3`，编译器把这个循环改写成流水线：A、
 
 从编译出的 TTGIR 和 PTX 里能数清楚 A、B 的 block 怎么进出 shared memory。循环前先发出第 0、1 轮的 cp.async；第 $T$ 轮先等第 $T$ 轮的数据到齐，用 ld.shared 读进 register 做乘加，读完马上往刚空出来的槽发第 $T+2$ 轮。A、B 各搬 64 次，每次 8 KiB，一个 program 一共 1 MiB；512 个 program 加起来 512 MiB，而 A、B 本身只有 36 MiB，所以 L2 命中率有 91%，大部分读不用到显存。每轮从 shared memory 读进 register 的是 192 KiB，同一个数平均被读 12 次，这就是前面说的复用。写回之前 acc 还要经 shared memory 换一次排布，让 tl.store 能按连续地址写。
 
-预取藏住了多少 load，要用 Nsight Compute 测（[图 2-4b](#fig-t-6)）。ncu 会统计一个 warp 每两条指令之间平均隔几拍，以及这几拍里在等什么。不预取（`num_stages=1`）时，4.59 拍里有 0.69 拍在等显存或 L2 的数据；预取以后只剩 0.06 拍，load 几乎全藏在上一轮的乘加后面。每个 warp 的等待少了 13%，耗时只少 6%（167.4 µs 到 157.9 µs），因为一个 warp 等 load 的时候，同一个 SMSP 上的其他 warp 本来就能发射，这段等待原本就被藏住了一部分。剩下的时间主要是等 ld.shared 的结果和轮不到发射：FMA 管线只忙了 66%，shared memory 读只用了 55%，两边都没满。每个 SMSP 上只有 3 个 warp，一个 warp 等 ld.shared 时，没有足够多的别的 warp 补上。
+预取藏住了多少 load，用 Nsight Compute 测（[图 2-4b](#fig-t-6)）。ncu 给的是一个 warp 每两条指令之间平均隔几拍、这几拍里在等什么，乘上每轮的指令数（约 1220 条），就是每轮的拍数。不预取（`num_stages=1`）时每轮 5601 拍，其中 852 拍在等 L2 或显存的数据，等到了才能算，一轮接一轮。预取以后每轮 4901 拍，等数据只剩 74 拍：block $k$ 的 load 在两轮之前就发出了，约 852 拍就到，到用的时候早已在 shared memory 里。load 只占一轮的六分之一，提前一轮发其实就够。
+
+每轮少了 13%，整个 kernel 只快 6%（168.2 µs 到 158.3 µs）：一个 warp 等数据的时候，同一个 SMSP 上另外两个 warp 本来就能发射，这段等待原本就被藏住了一部分。剩下的时间主要花在等 ld.shared 的结果和轮不到发射上：FMA 管线只忙了 66%，shared memory 读只用了 55%，两边都没满。每个 SMSP 上只有 3 个 warp，一个 warp 等 ld.shared 时，没有足够多的别的 warp 补上。
 
 {{fig-t-6}}
 

@@ -1415,44 +1415,56 @@ def mm_wave():
     f.w(f'<rect x="{X0 + 140}" y="{y + 24}" width="14" height="9" rx="2" style="fill: var(--fig-hi)"/><text class="s" x="{X0 + 160}" y="{y + 32}">多出的 2 个，等名额空出来才开始</text>')
     return f
 
-# ── 图 2-4b matmul 的 warp 在等什么（Nsight Compute 实测） ──────────────────────────
-def ncu_stall():
+# ── 图 2-4b matmul 的流水线：一个 warp 每轮等数据和计算的拍数（Nsight Compute 实测的平均值） ──
+def mm_pipe_ncu():
     d = json.load(open(os.path.join(HERE, "ncu_matmul.json")))
-    GR = [("等显存 / L2 的数据", "--fig-hi", ["long_scoreboard", "lg_throttle"]),
-          ("等 shared memory 的数据", "--fig-2", ["short_scoreboard", "mio_throttle"]),
-          ("其他（barrier、wait 等）", "--fig-mute", ["barrier", "wait", "math_pipe_throttle", "no_instruction", "branch_resolving", "drain", "misc"]),
-          ("没被调度发出（not selected、dispatch）", "--fig-3", ["not_selected", "dispatch_stall"]),
-          ("发射", "--fig-1", ["selected"])]
-    f = F("fig-t-6", 236, "Nsight Compute 实测 matmul kernel 每个 warp 两条指令之间平均隔几拍、各在等什么：num_stages = 1 时 0.65 拍在等显存 / L2 的数据，num_stages = 3 预取后只剩 0.06 拍，剩下的时间主要花在等 shared memory 和轮不到发射上")
-    X0, X1 = 150, 590
-    px = lambda c: X0 + c / 5 * (X1 - X0)
-    f.w(f'<text class="lab2" x="{X0}" y="18">一个 warp 两条指令之间平均隔几拍，按原因分（A 4032 × 2048，B 2048 × 512）</text>')
-    for c in range(6):
-        f.w(f'<text class="tick" x="{px(c):.1f}" y="160" text-anchor="middle">{c}</text>')
-        for y in (36, 96):
-            f.w(f'<line class="grid" x1="{px(c):.1f}" y1="{y - 4}" x2="{px(c):.1f}" y2="{y + 30}"/>')
-    f.w(f'<line class="grid" x1="{X0}" y1="148" x2="{X1}" y2="148"/>')
-    f.w(f'<text class="lab2" x="{X1}" y="174" text-anchor="end">拍</text>')
-    names = {1: ("num_stages = 1", "不预取"), 3: ("num_stages = 3", "预取，图 2-4")}
-    for k, r in enumerate(x for x in d["runs"] if x["M"] == 4032):
-        y, h = 36 + k * 60, 26
-        n1, n2 = names[r["num_stages"]]
-        f.w(f'<text class="lab" x="8" y="{y + 11}">{n1}</text><text class="lab2" x="8" y="{y + 25}">{n2}</text>')
-        x = 0
-        for lab, var, keys in GR:
-            v = sum(r["stall"][q] for q in keys)
-            tip = "，".join(f"{q} {r['stall'][q]:.2f}" for q in keys if r["stall"][q] >= .005)
-            f.w(f'<g class="m"><title>{lab}：{v:.2f} 拍（{tip}）</title><rect x="{px(x):.1f}" y="{y}" width="{px(x + v) - px(x):.1f}" height="{h}" style="fill: var({var})"/></g>')
-            if px(x + v) - px(x) > 26:
-                on = {"--fig-1": "--fig-on-1", "--fig-hi": "--fig-on-hi", "--fig-mute": "--fig-on-mute", "--fig-2": "--fig-on-2", "--fig-3": "--fig-on-3"}[var]
-                f.w(f'<text class="s" x="{(px(x) + px(x + v)) / 2:.1f}" y="{y + 17}" text-anchor="middle" style="fill: var({on})">{v:.2f}</text>')
-            elif lab.startswith("等显存"):
-                f.w(f'<text class="s" x="{px(x + v) + 3:.1f}" y="{y - 4}" style="fill: var(--fig-hi)">{v:.2f}</text>')
-            x += v
-        f.w(f'<text class="s" x="{px(x) + 6:.1f}" y="{y + 17}">{r["cycles_per_inst"]:.2f}</text>')
-        f.w(f'<text class="lab2" x="{X0}" y="{y + h + 14}">{r["us"]:.1f} µs；FMA 管线忙 {r["fma_pipe_pct"]:.0f}%，shared memory 读 {r["shared_ld_pipe_pct"]:.0f}%，L2 命中 {r["l2_hit_pct"]:.1f}%</text>')
-    legend(f, [(lab, var, "box") for lab, var, _ in GR[:3]], 8, 198, gap=18)
-    legend(f, [(lab, var, "box") for lab, var, _ in GR[3:]], 8, 220, gap=18)
+    run = {r["num_stages"]: r for r in d["runs"] if r["M"] == 4032}
+    wait = lambda r: (r["stall"]["long_scoreboard"] + r["stall"]["lg_throttle"]) * r["inst_per_round"]
+    P1, W1 = run[1]["cycles_per_inst"] * run[1]["inst_per_round"], wait(run[1])     # 不预取：每轮拍数、其中等数据
+    P3, W3 = run[3]["cycles_per_inst"] * run[3]["inst_per_round"], wait(run[3])     # 预取
+    L = W1                                                                           # load 的延迟：按不预取时每轮等数据的拍数画
+    N = 5
+    f = F("fig-t-6", 340, f"matmul 一个 warp 的流水线，条长是 Nsight Compute 测的每轮平均拍数：不预取时每轮 {P1:.0f} 拍，先等数据 {W1:.0f} 拍再计算，一轮接一轮；num_stages = 3 时第 k 个 block 提前两轮发出 load，{L:.0f} 拍后就到了，到用的时候只等 {W3:.0f} 拍，每轮 {P3:.0f} 拍")
+    X0, X1, TMAX = 112, 626, 30000
+    px = lambda t: X0 + t / TMAX * (X1 - X0)
+    RH = 15
+    def bar(x0, x1, y, var, op=1, dash=False, tip=""):
+        st = f'style="fill: none; stroke: var({var})" stroke-opacity=".8" stroke-dasharray="3 2"' if dash else f'style="fill: var({var})" fill-opacity="{op}"'
+        f.w(f'<g class="m"><title>{tip}</title><rect x="{px(x0):.1f}" y="{y + 2}" width="{max(px(x1) - px(x0), .8):.1f}" height="{RH - 4}" rx="2" {st}/></g>')
+    def panel(y0, title, sub):
+        f.w(f'<text class="tb" x="8" y="{y0 - 8}">{title}</text><text class="lab2" x="{X0}" y="{y0 - 8}">{sub}</text>')
+        for k in range(N):
+            f.w(f'<text class="lab" x="8" y="{y0 + k * RH + 11}">block {k}</text>')
+        for t in range(0, TMAX, 5000):
+            f.w(f'<line class="grid" x1="{px(t):.1f}" y1="{y0}" x2="{px(t):.1f}" y2="{y0 + N * RH}"/>')
+    Y1 = 44                                                                          # 不预取
+    panel(Y1, "num_stages = 1", f"不预取：每轮 {P1:.0f} 拍，其中等数据 {W1:.0f} 拍")
+    for k in range(N):
+        t = k * P1
+        bar(t, t + W1, Y1 + k * RH, "--fig-hi", tip=f"block {k}：load 后等数据 {W1:.0f} 拍")
+        bar(t + W1, t + P1, Y1 + k * RH, "--fig-1", .55, tip=f"block {k}：ld.shared 和乘加 {P1 - W1:.0f} 拍")
+    Y3 = Y1 + N * RH + 44                                                            # 预取
+    panel(Y3, "num_stages = 3", f"预取：每轮 {P3:.0f} 拍，其中等数据 {W3:.0f} 拍")
+    for k in range(N):
+        y = Y3 + k * RH
+        issue = 0 if k < 2 else L + (k - 1) * P3                                     # 第 k 轮的 load 在第 k − 2 轮末尾发出
+        start = L + k * P3
+        bar(issue, issue + L, y, "--fig-1", dash=True, tip=f"block {k}：load 在路上，约 {L:.0f} 拍")
+        if issue + L < start:
+            bar(issue + L, start, y, "--fig-2", .25, tip=f"block {k}：已在 shared memory，等着被用")
+        bar(start, start + W3, y, "--fig-hi", tip=f"block {k}：等数据 {W3:.0f} 拍")
+        bar(start + W3, start + P3, y, "--fig-1", .55, tip=f"block {k}：ld.shared 和乘加 {P3 - W3:.0f} 拍")
+    yb = Y3 + N * RH
+    for t in range(0, TMAX, 5000):
+        f.w(f'<text class="tick" x="{px(t):.1f}" y="{yb + 14}" text-anchor="middle">{t}</text>')
+    f.w(f'<text class="lab2" x="{X0 - 8}" y="{yb + 14}" text-anchor="end">拍</text>')
+    ly = yb + 40
+    items = [("--fig-hi", 1, False, "等数据（ncu 的 long scoreboard）"), ("--fig-1", .55, False, "ld.shared 和乘加"),
+             ("--fig-1", 1, True, f"load 在路上（约 {L:.0f} 拍）"), ("--fig-2", .25, False, "已到 shared memory，等着被用")]
+    for k, (var, op, dash, lab) in enumerate(items):
+        x, y = 8 + (k % 2) * 300, ly + (k // 2) * 20
+        st = f'style="fill: none; stroke: var({var})" stroke-dasharray="3 2"' if dash else f'style="fill: var({var})" fill-opacity="{op}"'
+        f.w(f'<rect x="{x}" y="{y - 9}" width="22" height="11" rx="2" {st}/><text class="s" x="{x + 30}" y="{y}">{lab}</text>')
     return f
 
 CAPS = {
@@ -1467,7 +1479,7 @@ CAPS = {
  "tri_rowsum": '<strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 个 block，代码里 TILE = 1024。颜色由淡到浓是 for 循环读 block 的顺序：第 0 轮后 acc 只有 block 0 的数，最后的 acc 是 4 个 block 逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。',
  "tri_matmul": '<strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 个 row block 和 B 的第 1 个 column block，颜色由淡到浓是沿 K 读 block 的顺序，acc 一轮轮累积，ReLU 后写回 C 的 block (1, 1)。',
  "mm_wave": '<strong>图 2-4a</strong> matmul kernel 的 program 实际怎么分批跑（RTX 5090，fp32，B 2048 × 512）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，写回 C 之后再读一次时间，记录前先清空 L2。悬停可看 program 编号和时间。',
- "ncu_stall": '<strong>图 2-4b</strong> matmul kernel 的 warp 在等什么（RTX 5090，fp32，Nsight Compute 实测）。用 A 4032 × 2048 是为了让 504 个 program 一批跑完，不受 tail effect 影响；ncu 不锁频率（<code>--clock-control none</code>），耗时用 do_bench 另测。悬停可看每段包含的 ncu 停顿原因。',
+ "mm_pipe_ncu": '<strong>图 2-4b</strong> matmul kernel 一个 warp 的流水线（RTX 5090，fp32，A 4032 × 2048，504 个 program 一批跑完；Nsight Compute 实测，<code>--clock-control none</code>）。每轮的拍数 = 每条指令平均隔几拍 × 每轮的指令数，等数据的拍数 = 每条指令平均等 L2 / 显存几拍 × 每轮的指令数，都是 64 轮的平均值。load 的延迟没法直接测，按不预取时每轮等数据的拍数画。只画前 5 轮。',
  "occ_sweep": '<strong>图 2-5</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。',
  "tile_sweep": '<strong>图 2-6</strong> row sum 的 TILE 和带宽（RTX 5090，fp32，两种形状都是 340 MiB，<code>num_warps=4</code>，每点取 8 次计时的最快值）。悬停可看耗时和每线程的 register 数。',
  "tpu_core": '<strong>图 A-1</strong> TPU v5p 一个 TensorCore 的结构示意，画法对应<a href="#fig-h-1">图 1-2</a>。规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>，原书也有一张 TensorCore 的结构图。',
@@ -1491,7 +1503,7 @@ CAPS = {
  "ckpt": '<strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。',
  "sweep": '<strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。',
 }
-OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("wave_trace", wave_trace), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("mm_wave", mm_wave), ("ncu_stall", ncu_stall), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
+OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("wave_trace", wave_trace), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("mm_wave", mm_wave), ("mm_pipe_ncu", mm_pipe_ncu), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
        ("flops_vs_time", flops_vs_time), ("share_vs_seq", share_vs_seq), ("peak_memory", peak_memory), ("peak_moment", peak_moment),
        ("rms_eager", rms_eager), ("rms_fused", rms_fused), ("attn_flow", attn_flow), ("layer_donut", layer_donut), ("timelines", timelines),
        ("bf16", bf16), ("ckpt", ckpt), ("sweep", sweep))}

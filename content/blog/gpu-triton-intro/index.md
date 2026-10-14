@@ -1977,14 +1977,14 @@ def matmul_relu(a, b, BM=64, BN=64, BK=32):
 
 </div>
 
-A 4096 × 2048、B 2048 × 512 时 Triton 版 203.1 µs，4.23e13 FLOPS，是 fp32 标称峰值 1.05e14 FLOPS 的 40%；cuBLAS（`torch.relu(A @ B)`，关掉 tf32）是 160.3 µs。差距主要来自 tail effect。
+A 4096 × 2048、B 2048 × 512 时 Triton 版 203.3 µs，4.23e13 FLOPS，是 fp32 标称峰值 1.05e14 FLOPS 的 40%；cuBLAS（`torch.relu(A @ B)`，关掉 tf32）是 160.5 µs。差距主要来自 tail effect。
 
 <details class="fold doc aside">
 <summary>matmul 的 tail effect：512 个 program 分两批</summary>
 
 fp32 标称峰值按 170 个 SM × 128 个 CUDA core × 2 FLOPs × 2.41e9 Hz 算。每个 SM 只放 3 个 program，全卡一批 510 个，512 个 program 多出 2 个。实测的时间线上（[图 2-4a](#fig-t-7)），510 个 program 在开头一起开始，各跑 125 到 152 µs；全卡最先跑完的两个 program 在 SM 68 和 SM 135 上，约 125 µs 结束，多出的 2 个这时才开始。152 µs 以后全卡只剩这 2 个 program，另外 168 个 SM 空着，一直等到 200 µs。这 2 个 program 后半段独占一个 SM，只跑了 75 µs，比第一批的中位数 135 µs 快得多。
 
-A 换成 4032 × 2048 时 504 个 program 一批放下，同一个 kernel 只要 157.9 µs，和 cuBLAS 相当。4096 比 4032 的计算量只多 1.6%，耗时多 29%。打点的开销不大：打点版 210.8 µs 和 162.8 µs，不打点 203.1 µs 和 157.9 µs。
+A 换成 4032 × 2048 时 504 个 program 一批放下，同一个 kernel 只要 158.3 µs，和 cuBLAS 相当。4096 比 4032 的计算量只多 1.6%，耗时多 28%。打点的开销不大：打点版 210.8 µs 和 162.8 µs，不打点 203.3 µs 和 158.3 µs。
 
 <figure id="fig-t-7" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 352" width="100%" role="img" aria-label="matmul 的 program 实测时间线：A 4096 × 2048 时 512 个 program，第一批 510 个一起开始；多出的 2 个等到 124.9 µs 才开始，152 µs 以后全卡只有这 2 个在跑，到 200 µs 结束。A 4032 × 2048 时 504 个一批放下，152 µs 结束">
@@ -2057,10 +2057,12 @@ Triton 默认 `num_stages=3`，编译器把这个循环改写成流水线：A、
 
 从编译出的 TTGIR 和 PTX 里能数清楚 A、B 的 block 怎么进出 shared memory。循环前先发出第 0、1 轮的 cp.async；第 $T$ 轮先等第 $T$ 轮的数据到齐，用 ld.shared 读进 register 做乘加，读完马上往刚空出来的槽发第 $T+2$ 轮。A、B 各搬 64 次，每次 8 KiB，一个 program 一共 1 MiB；512 个 program 加起来 512 MiB，而 A、B 本身只有 36 MiB，所以 L2 命中率有 91%，大部分读不用到显存。每轮从 shared memory 读进 register 的是 192 KiB，同一个数平均被读 12 次，这就是前面说的复用。写回之前 acc 还要经 shared memory 换一次排布，让 tl.store 能按连续地址写。
 
-预取藏住了多少 load，要用 Nsight Compute 测（[图 2-4b](#fig-t-6)）。ncu 会统计一个 warp 每两条指令之间平均隔几拍，以及这几拍里在等什么。不预取（`num_stages=1`）时，4.59 拍里有 0.69 拍在等显存或 L2 的数据；预取以后只剩 0.06 拍，load 几乎全藏在上一轮的乘加后面。每个 warp 的等待少了 13%，耗时只少 6%（167.4 µs 到 157.9 µs），因为一个 warp 等 load 的时候，同一个 SMSP 上的其他 warp 本来就能发射，这段等待原本就被藏住了一部分。剩下的时间主要是等 ld.shared 的结果和轮不到发射：FMA 管线只忙了 66%，shared memory 读只用了 55%，两边都没满。每个 SMSP 上只有 3 个 warp，一个 warp 等 ld.shared 时，没有足够多的别的 warp 补上。
+预取藏住了多少 load，用 Nsight Compute 测（[图 2-4b](#fig-t-6)）。ncu 给的是一个 warp 每两条指令之间平均隔几拍、这几拍里在等什么，乘上每轮的指令数（约 1220 条），就是每轮的拍数。不预取（`num_stages=1`）时每轮 5601 拍，其中 852 拍在等 L2 或显存的数据，等到了才能算，一轮接一轮。预取以后每轮 4901 拍，等数据只剩 74 拍：block $k$ 的 load 在两轮之前就发出了，约 852 拍就到，到用的时候早已在 shared memory 里。load 只占一轮的六分之一，提前一轮发其实就够。
+
+每轮少了 13%，整个 kernel 只快 6%（168.2 µs 到 158.3 µs）：一个 warp 等数据的时候，同一个 SMSP 上另外两个 warp 本来就能发射，这段等待原本就被藏住了一部分。剩下的时间主要花在等 ld.shared 的结果和轮不到发射上：FMA 管线只忙了 66%，shared memory 读只用了 55%，两边都没满。每个 SMSP 上只有 3 个 warp，一个 warp 等 ld.shared 时，没有足够多的别的 warp 补上。
 
 <figure id="fig-t-6" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 236" width="100%" role="img" aria-label="Nsight Compute 实测 matmul kernel 每个 warp 两条指令之间平均隔几拍、各在等什么：num_stages = 1 时 0.65 拍在等显存 / L2 的数据，num_stages = 3 预取后只剩 0.06 拍，剩下的时间主要花在等 shared memory 和轮不到发射上">
+<svg class="fg" viewBox="0 0 640 340" width="100%" role="img" aria-label="matmul 一个 warp 的流水线，条长是 Nsight Compute 测的每轮平均拍数：不预取时每轮 5601 拍，先等数据 852 拍再计算，一轮接一轮；num_stages = 3 时第 k 个 block 提前两轮发出 load，852 拍后就到了，到用的时候只等 74 拍，每轮 4901 拍">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -2080,65 +2082,72 @@ Triton 默认 `num_stages=3`，编译器把这个循环改写成流水线：A、
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
   </style>
-  <text class="lab2" x="150" y="18">一个 warp 两条指令之间平均隔几拍，按原因分（A 4032 × 2048，B 2048 × 512）</text>
-  <text class="tick" x="150.0" y="160" text-anchor="middle">0</text>
-  <line class="grid" x1="150.0" y1="32" x2="150.0" y2="66"/>
-  <line class="grid" x1="150.0" y1="92" x2="150.0" y2="126"/>
-  <text class="tick" x="238.0" y="160" text-anchor="middle">1</text>
-  <line class="grid" x1="238.0" y1="32" x2="238.0" y2="66"/>
-  <line class="grid" x1="238.0" y1="92" x2="238.0" y2="126"/>
-  <text class="tick" x="326.0" y="160" text-anchor="middle">2</text>
-  <line class="grid" x1="326.0" y1="32" x2="326.0" y2="66"/>
-  <line class="grid" x1="326.0" y1="92" x2="326.0" y2="126"/>
-  <text class="tick" x="414.0" y="160" text-anchor="middle">3</text>
-  <line class="grid" x1="414.0" y1="32" x2="414.0" y2="66"/>
-  <line class="grid" x1="414.0" y1="92" x2="414.0" y2="126"/>
-  <text class="tick" x="502.0" y="160" text-anchor="middle">4</text>
-  <line class="grid" x1="502.0" y1="32" x2="502.0" y2="66"/>
-  <line class="grid" x1="502.0" y1="92" x2="502.0" y2="126"/>
-  <text class="tick" x="590.0" y="160" text-anchor="middle">5</text>
-  <line class="grid" x1="590.0" y1="32" x2="590.0" y2="66"/>
-  <line class="grid" x1="590.0" y1="92" x2="590.0" y2="126"/>
-  <line class="grid" x1="150" y1="148" x2="590" y2="148"/>
-  <text class="lab2" x="590" y="174" text-anchor="end">拍</text>
-  <text class="lab" x="8" y="47">num_stages = 1</text><text class="lab2" x="8" y="61">不预取</text>
-  <g class="m"><title>等显存 / L2 的数据：0.69 拍（long_scoreboard 0.69）</title><rect x="150.0" y="36" width="60.7" height="26" style="fill: var(--fig-hi)"/></g>
-  <text class="s" x="180.4" y="53" text-anchor="middle" style="fill: var(--fig-on-hi)">0.69</text>
-  <g class="m"><title>等 shared memory 的数据：0.93 拍（short_scoreboard 0.88，mio_throttle 0.05）</title><rect x="210.7" y="36" width="81.8" height="26" style="fill: var(--fig-2)"/></g>
-  <text class="s" x="251.6" y="53" text-anchor="middle" style="fill: var(--fig-on-2)">0.93</text>
-  <g class="m"><title>其他（barrier、wait 等）：0.49 拍（barrier 0.19，wait 0.23，math_pipe_throttle 0.03，no_instruction 0.04）</title><rect x="292.6" y="36" width="43.1" height="26" style="fill: var(--fig-mute)"/></g>
-  <text class="s" x="314.1" y="53" text-anchor="middle" style="fill: var(--fig-on-mute)">0.49</text>
-  <g class="m"><title>没被调度发出（not selected、dispatch）：1.45 拍（not_selected 0.94，dispatch_stall 0.51）</title><rect x="335.7" y="36" width="127.6" height="26" style="fill: var(--fig-3)"/></g>
-  <text class="s" x="399.5" y="53" text-anchor="middle" style="fill: var(--fig-on-3)">1.45</text>
-  <g class="m"><title>发射：1.00 拍（selected 1.00）</title><rect x="463.3" y="36" width="88.0" height="26" style="fill: var(--fig-1)"/></g>
-  <text class="s" x="507.3" y="53" text-anchor="middle" style="fill: var(--fig-on-1)">1.00</text>
-  <text class="s" x="557.3" y="53">4.59</text>
-  <text class="lab2" x="150" y="76">167.4 µs；FMA 管线忙 60%，shared memory 读 50%，L2 命中 91.4%</text>
-  <text class="lab" x="8" y="107">num_stages = 3</text><text class="lab2" x="8" y="121">预取，图 2-4</text>
-  <g class="m"><title>等显存 / L2 的数据：0.06 拍（long_scoreboard 0.06）</title><rect x="150.0" y="96" width="5.3" height="26" style="fill: var(--fig-hi)"/></g>
-  <text class="s" x="158.3" y="92" style="fill: var(--fig-hi)">0.06</text>
-  <g class="m"><title>等 shared memory 的数据：0.62 拍（short_scoreboard 0.58，mio_throttle 0.04）</title><rect x="155.3" y="96" width="54.6" height="26" style="fill: var(--fig-2)"/></g>
-  <text class="s" x="182.6" y="113" text-anchor="middle" style="fill: var(--fig-on-2)">0.62</text>
-  <g class="m"><title>其他（barrier、wait 等）：0.41 拍（barrier 0.22，wait 0.10，math_pipe_throttle 0.05，no_instruction 0.04）</title><rect x="209.8" y="96" width="36.1" height="26" style="fill: var(--fig-mute)"/></g>
-  <text class="s" x="227.9" y="113" text-anchor="middle" style="fill: var(--fig-on-mute)">0.41</text>
-  <g class="m"><title>没被调度发出（not selected、dispatch）：1.90 拍（not_selected 1.21，dispatch_stall 0.69）</title><rect x="245.9" y="96" width="167.2" height="26" style="fill: var(--fig-3)"/></g>
-  <text class="s" x="329.5" y="113" text-anchor="middle" style="fill: var(--fig-on-3)">1.90</text>
-  <g class="m"><title>发射：1.00 拍（selected 1.00）</title><rect x="413.1" y="96" width="88.0" height="26" style="fill: var(--fig-1)"/></g>
-  <text class="s" x="457.1" y="113" text-anchor="middle" style="fill: var(--fig-on-1)">1.00</text>
-  <text class="s" x="507.1" y="113">3.98</text>
-  <text class="lab2" x="150" y="136">157.9 µs；FMA 管线忙 66%，shared memory 读 55%，L2 命中 91.5%</text>
-  <rect x="8" y="189" width="10" height="10" rx="2" style="fill: var(--fig-hi)"/>
-  <text class="lab" x="24" y="198">等显存 / L2 的数据</text>
-  <rect x="153.6" y="189" width="10" height="10" rx="2" style="fill: var(--fig-2)"/>
-  <text class="lab" x="169.6" y="198">等 shared memory 的数据</text>
-  <rect x="334.6" y="189" width="10" height="10" rx="2" style="fill: var(--fig-mute)"/>
-  <text class="lab" x="350.6" y="198">其他（barrier、wait 等）</text>
-  <rect x="8" y="211" width="10" height="10" rx="2" style="fill: var(--fig-3); stroke: var(--fig-2)"/>
-  <text class="lab" x="24" y="220">没被调度发出（not selected、dispatch）</text>
-  <rect x="282.0" y="211" width="10" height="10" rx="2" style="fill: var(--fig-1)"/>
-  <text class="lab" x="298.0" y="220">发射</text>
+  <text class="tb" x="8" y="36">num_stages = 1</text><text class="lab2" x="112" y="36">不预取：每轮 5601 拍，其中等数据 852 拍</text>
+  <text class="lab" x="8" y="55">block 0</text>
+  <text class="lab" x="8" y="70">block 1</text>
+  <text class="lab" x="8" y="85">block 2</text>
+  <text class="lab" x="8" y="100">block 3</text>
+  <text class="lab" x="8" y="115">block 4</text>
+  <line class="grid" x1="112.0" y1="44" x2="112.0" y2="119"/>
+  <line class="grid" x1="197.7" y1="44" x2="197.7" y2="119"/>
+  <line class="grid" x1="283.3" y1="44" x2="283.3" y2="119"/>
+  <line class="grid" x1="369.0" y1="44" x2="369.0" y2="119"/>
+  <line class="grid" x1="454.7" y1="44" x2="454.7" y2="119"/>
+  <line class="grid" x1="540.3" y1="44" x2="540.3" y2="119"/>
+  <g class="m"><title>block 0：load 后等数据 852 拍</title><rect x="112.0" y="46" width="14.6" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>block 0：ld.shared 和乘加 4749 拍</title><rect x="126.6" y="46" width="81.4" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <g class="m"><title>block 1：load 后等数据 852 拍</title><rect x="208.0" y="61" width="14.6" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>block 1：ld.shared 和乘加 4749 拍</title><rect x="222.6" y="61" width="81.4" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <g class="m"><title>block 2：load 后等数据 852 拍</title><rect x="303.9" y="76" width="14.6" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>block 2：ld.shared 和乘加 4749 拍</title><rect x="318.5" y="76" width="81.4" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <g class="m"><title>block 3：load 后等数据 852 拍</title><rect x="399.9" y="91" width="14.6" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>block 3：ld.shared 和乘加 4749 拍</title><rect x="414.5" y="91" width="81.4" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <g class="m"><title>block 4：load 后等数据 852 拍</title><rect x="495.9" y="106" width="14.6" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>block 4：ld.shared 和乘加 4749 拍</title><rect x="510.5" y="106" width="81.4" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <text class="tb" x="8" y="155">num_stages = 3</text><text class="lab2" x="112" y="155">预取：每轮 4901 拍，其中等数据 74 拍</text>
+  <text class="lab" x="8" y="174">block 0</text>
+  <text class="lab" x="8" y="189">block 1</text>
+  <text class="lab" x="8" y="204">block 2</text>
+  <text class="lab" x="8" y="219">block 3</text>
+  <text class="lab" x="8" y="234">block 4</text>
+  <line class="grid" x1="112.0" y1="163" x2="112.0" y2="238"/>
+  <line class="grid" x1="197.7" y1="163" x2="197.7" y2="238"/>
+  <line class="grid" x1="283.3" y1="163" x2="283.3" y2="238"/>
+  <line class="grid" x1="369.0" y1="163" x2="369.0" y2="238"/>
+  <line class="grid" x1="454.7" y1="163" x2="454.7" y2="238"/>
+  <line class="grid" x1="540.3" y1="163" x2="540.3" y2="238"/>
+  <g class="m"><title>block 0：load 在路上，约 852 拍</title><rect x="112.0" y="165" width="14.6" height="11" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".8" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>block 0：等数据 74 拍</title><rect x="126.6" y="165" width="1.3" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>block 0：ld.shared 和乘加 4827 拍</title><rect x="127.9" y="165" width="82.7" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <g class="m"><title>block 1：load 在路上，约 852 拍</title><rect x="112.0" y="180" width="14.6" height="11" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".8" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>block 1：已在 shared memory，等着被用</title><rect x="126.6" y="180" width="84.0" height="11" rx="2" style="fill: var(--fig-2)" fill-opacity="0.25"/></g>
+  <g class="m"><title>block 1：等数据 74 拍</title><rect x="210.6" y="180" width="1.3" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>block 1：ld.shared 和乘加 4827 拍</title><rect x="211.8" y="180" width="82.7" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <g class="m"><title>block 2：load 在路上，约 852 拍</title><rect x="210.6" y="195" width="14.6" height="11" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".8" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>block 2：已在 shared memory，等着被用</title><rect x="225.2" y="195" width="69.4" height="11" rx="2" style="fill: var(--fig-2)" fill-opacity="0.25"/></g>
+  <g class="m"><title>block 2：等数据 74 拍</title><rect x="294.5" y="195" width="1.3" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>block 2：ld.shared 和乘加 4827 拍</title><rect x="295.8" y="195" width="82.7" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <g class="m"><title>block 3：load 在路上，约 852 拍</title><rect x="294.5" y="210" width="14.6" height="11" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".8" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>block 3：已在 shared memory，等着被用</title><rect x="309.1" y="210" width="69.4" height="11" rx="2" style="fill: var(--fig-2)" fill-opacity="0.25"/></g>
+  <g class="m"><title>block 3：等数据 74 拍</title><rect x="378.5" y="210" width="1.3" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>block 3：ld.shared 和乘加 4827 拍</title><rect x="379.8" y="210" width="82.7" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <g class="m"><title>block 4：load 在路上，约 852 拍</title><rect x="378.5" y="225" width="14.6" height="11" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".8" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>block 4：已在 shared memory，等着被用</title><rect x="393.1" y="225" width="69.4" height="11" rx="2" style="fill: var(--fig-2)" fill-opacity="0.25"/></g>
+  <g class="m"><title>block 4：等数据 74 拍</title><rect x="462.5" y="225" width="1.3" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>block 4：ld.shared 和乘加 4827 拍</title><rect x="463.7" y="225" width="82.7" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <text class="tick" x="112.0" y="252" text-anchor="middle">0</text>
+  <text class="tick" x="197.7" y="252" text-anchor="middle">5000</text>
+  <text class="tick" x="283.3" y="252" text-anchor="middle">10000</text>
+  <text class="tick" x="369.0" y="252" text-anchor="middle">15000</text>
+  <text class="tick" x="454.7" y="252" text-anchor="middle">20000</text>
+  <text class="tick" x="540.3" y="252" text-anchor="middle">25000</text>
+  <text class="lab2" x="104" y="252" text-anchor="end">拍</text>
+  <rect x="8" y="269" width="22" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/><text class="s" x="38" y="278">等数据（ncu 的 long scoreboard）</text>
+  <rect x="308" y="269" width="22" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/><text class="s" x="338" y="278">ld.shared 和乘加</text>
+  <rect x="8" y="289" width="22" height="11" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-dasharray="3 2"/><text class="s" x="38" y="298">load 在路上（约 852 拍）</text>
+  <rect x="308" y="289" width="22" height="11" rx="2" style="fill: var(--fig-2)" fill-opacity="0.25"/><text class="s" x="338" y="298">已到 shared memory，等着被用</text>
 </svg>
-<figcaption><strong>图 2-4b</strong> matmul kernel 的 warp 在等什么（RTX 5090，fp32，Nsight Compute 实测）。用 A 4032 × 2048 是为了让 504 个 program 一批跑完，不受 tail effect 影响；ncu 不锁频率（<code>--clock-control none</code>），耗时用 do_bench 另测。悬停可看每段包含的 ncu 停顿原因。</figcaption>
+<figcaption><strong>图 2-4b</strong> matmul kernel 一个 warp 的流水线（RTX 5090，fp32，A 4032 × 2048，504 个 program 一批跑完；Nsight Compute 实测，<code>--clock-control none</code>）。每轮的拍数 = 每条指令平均隔几拍 × 每轮的指令数，等数据的拍数 = 每条指令平均等 L2 / 显存几拍 × 每轮的指令数，都是 64 轮的平均值。load 的延迟没法直接测，按不预取时每轮等数据的拍数画。只画前 5 轮。</figcaption>
 </figure>
 
 </details>

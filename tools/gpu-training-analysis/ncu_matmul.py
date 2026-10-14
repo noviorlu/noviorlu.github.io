@@ -13,7 +13,8 @@ RUNS = [(4032, 1), (4032, 3), (4096, 3)]                # (M, num_stages)
 METRICS = ["gpu__time_duration.sum", "smsp__average_warp_latency_per_inst_issued.ratio",
            "sm__pipe_fma_cycles_active.avg.pct_of_peak_sustained_active",
            "l1tex__data_pipe_lsu_wavefronts_mem_shared_op_ld.sum.pct_of_peak_sustained_elapsed",
-           "lts__t_sector_hit_rate.pct", "sm__warps_active.avg.per_cycle_active"]
+           "lts__t_sector_hit_rate.pct", "sm__warps_active.avg.per_cycle_active",
+           "smsp__inst_executed.sum", "launch__grid_size", "launch__block_size", "smsp__cycles_elapsed.avg.per_second"]
 STALL = "smsp__average_warps_issue_stalled_{}_per_issue_active.ratio"
 REASONS = ["selected", "not_selected", "dispatch_stall", "short_scoreboard", "mio_throttle", "long_scoreboard", "lg_throttle",
            "barrier", "wait", "math_pipe_throttle", "no_instruction", "branch_resolving", "drain", "misc"]
@@ -46,6 +47,9 @@ def main():
         res.append({"M": M, "num_stages": ns, "us": us, "us_ncu": v[METRICS[0]] / 1e3 if v[METRICS[0]] > 1e4 else v[METRICS[0]],
                     "cycles_per_inst": v[METRICS[1]], "fma_pipe_pct": v[METRICS[2]], "shared_ld_pipe_pct": v[METRICS[3]],
                     "l2_hit_pct": v[METRICS[4]], "warps_per_sm": v[METRICS[5]],
+                    # 每个 warp 每轮执行的指令数：总指令数 / warp 数 / (K / BK)
+                    "inst_per_round": v[METRICS[6]] / (v[METRICS[7]] * v[METRICS[8]] / 32) / (K // 32),
+                    "sm_hz": v[METRICS[9]],
                     "stall": {r: v[STALL.format(r)] for r in REASONS}})
     torch.backends.cuda.matmul.allow_tf32 = False                     # cuBLAS 对照：fp32，不走 tf32
     a, b = torch.randn(4096, K, device="cuda"), torch.randn(K, N, device="cuda")
