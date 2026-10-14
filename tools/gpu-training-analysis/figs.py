@@ -1145,7 +1145,7 @@ def wave_trace():
     return f
 
 # ── 图 2-1 到 2-4 Triton kernel 示意：左边是 grid 和一个 SM，右边是一个 program 的步骤、片上和显存 ─────
-def lanes_fig(fid, label, kind, prog_title, grid, grid_note, ops, chip_lab, notes, mem_y1=268):
+def lanes_fig(fid, label, kind, prog_title, grid, grid_note, ops, chip_lab, notes, mem_y1=268, smem=None, smem_x=204):
     """左边 grid；右边四条泳道：计算单元 / register / shared memory / 显存。
     grid(f) 画左边的 grid 并返回高亮 program 的 y；ops 是步骤，"⋯" 表示省略的几轮。
     返回 (f, cx, put)，put 用来往片上 / 显存泳道放块、画读写箭头。"""
@@ -1170,6 +1170,11 @@ def lanes_fig(fid, label, kind, prog_title, grid, grid_note, ops, chip_lab, note
             f.w(f'<text class="lab2" x="152" y="{(y0 + y1) / 2 + 4 + (k - (t.count(chr(10))) / 2) * 13:.1f}">{line}</text>')
         if t == "显存":                                  # 芯片外的 GDDR7；中间的 L2、L1 cache 由硬件管，不画
             f.w(f'<text class="s" x="152" y="{(y0 + y1) / 2 + 18}">GDDR7</text>')
+        if t.startswith("shared") and smem is not None:    # 这个 program 用了多少 shared memory（residency.json）
+            B = json.load(open(os.path.join(HERE, "residency.json")))[smem]["shared"]
+            txt = f"用 {B // 1024} KiB" if B >= 1024 else f"用 {B} B"
+            xy = (152, (y0 + y1) / 2 + 30) if chip_lab == "matmul" else (smem_x, (y0 + y1) / 2 + 4)   # matmul 泳道高，写在标题下面
+            f.w(f'<text class="s" x="{xy[0]}" y="{xy[1]:.1f}" style="fill: var(--fig-1); opacity: 1; font-weight: 600">{txt}</text>')
     f.arrow(hx, hy, 144, hy, None, width=1.5)
     TR = lambda o: o != "⋯" and o[0] == "@"           # 搬运列：load / store 不经过计算单元，只画成箭头
     n, nd, nt = len(ops), sum(o == "⋯" for o in ops), sum(TR(o) for o in ops)
@@ -1266,7 +1271,7 @@ def tri_gelu():
         "逐元素：y[i] 只依赖 x[i]", "一个 program（pid = 1）", grid_strip,
         ["grid = (cdiv(n, BLOCK),)", "n = 8388608", "8192 个 program"],
         [("offsets", "tl.arange"), ("@", "tl.load"), ("gelu", "tl.exp"), ("@", "tl.store")], "reg",
-        ["每个 program 1024 个元素，每个 thread 8 个，都在 register 里，不用 shared memory；", "offsets 是 load、store 的地址。显存只读 x 一次、写 y 一次。"], mem_y1=308)
+        ["每个 program 1024 个元素，每个 thread 8 个，都在 register 里，不用 shared memory；", "offsets 是 load、store 的地址。显存只读 x 一次、写 y 一次。"], mem_y1=308, smem="gelu")
     MY = p.ROW["m"][0]
     p.chip("offsets", cx[0]); p.down(cx[0], 110)                       # 算下标 → offsets
     p.chip("x 段", cx[1], w=44); p.xfer(cx[1], MY - 2, 130, "tl.load")
@@ -1275,7 +1280,6 @@ def tri_gelu():
     p.xfer(cx[3], 130, MY - 2, "tl.store")
     p.mem("整个 x：32 MiB", cx[1] - 40, cx[1] + 40, [(cx[1] - 10, cx[1] + 10, 0, 1)], "读 4 KiB", cx[1] - 5)
     p.mem("整个 y：32 MiB", cx[3] - 40, cx[3] + 40, [(cx[3] - 10, cx[3] + 10, 0, 1)], "写 4 KiB", cx[3] - 5)
-    f.w(f'<text class="s" x="214" y="{(p.SH[0] + p.SH[1]) / 2 + 4}">不用（0 B）</text>')
     return f
 
 def tri_softmax():
@@ -1284,7 +1288,7 @@ def tri_softmax():
         ["grid = (M,)", "M = 4096 个 program"],
         [("@", "tl.load"), ("sub max", "tl.max"), ("exp", "tl.exp"), ("div sum", "tl.sum"), ("@", "tl.store")], "reg",
         ["中间结果都在 register 里，每个 thread 存这一行的 32 个数；tl.max、tl.sum 先在每个 warp 里归约，",
-         "4 个 warp 的部分结果再经 shared memory 交换（16 B）。显存只读 x 一次、写 y 一次。"], mem_y1=308)
+         "4 个 warp 的部分结果再经 shared memory 交换（16 B）。显存只读 x 一次、写 y 一次。"], mem_y1=308, smem="softmax")
     MY = p.ROW["m"][0]
     p.chip("x 行", cx[0], w=44); p.xfer(cx[0], MY - 2, 130, "tl.load")
     p.up(cx[0] + 14, 110, cx[1] - 16)                                  # 斜箭头离计算单元中线 16，给 shared 的竖箭头让位
@@ -1306,7 +1310,7 @@ def tri_rowsum():
         ["grid = (M,)", "M = 4096 个 program"],
         [("@", "tl.load"), ("add", "acc += x"), "⋯", ("@", "tl.load"), ("add", "acc += x"), ("reduce", "tl.sum"), ("@", "tl.store")], "reg",
         ["图里 TILE = 4（代码里 1024），一行 16 个数分 4 个 block，颜色由淡到浓是 for 循环读的顺序；",
-         "acc 逐位累加，一直在 register 里；最后的 tl.sum 跨 4 个 warp，经 shared memory 交换（16 B）。"], mem_y1=332)
+         "acc 逐位累加，一直在 register 里；最后的 tl.sum 跨 4 个 warp，经 shared memory 交换（16 B）。"], mem_y1=332, smem="row_sum", smem_x=286)
     tiles = [[1, 2, 0, 3], [4, 1, 2, 0], [2, 2, 1, 1], [0, 3, 1, 2]]
     acc0, accN = tiles[0], [sum(c) for c in zip(*tiles)]                      # [7, 8, 4, 6]，和是 25
     OP = [.12, .34, .56, .78]                                                # 第 0 到 3 个 block 的颜色：越晚读越深
@@ -1372,7 +1376,7 @@ def tri_matmul():
         [("@", "cp.async"), ("dot", "tl.dot"), "⋯", ("@", "cp.async"), ("dot", "tl.dot"), ("relu", "tl.maximum"), ("@", "tl.store")], "matmul",
         ["cp.async 把 A、B 的 block 从显存直接搬进 shared memory，tl.dot 从中读 a、b 到 register 做 FMA；",
          "K 按 BK = 32 切成 64 轮（T = 0 … 63），只画 T = 0 和 63；虚线框是正在搬的下一轮；",
-         "写回前 acc 先经 shared memory 换一次排布，再从 register 写回显存。"], mem_y1=372)
+         "写回前 acc 先经 shared memory 换一次排布，再从 register 写回显存。"], mem_y1=372, smem="matmul")
     RAMP = [.12 + .66 * k / 7 for k in range(8)]     # 沿 K 的 for 循环顺序：越晚读越深
     TX = lambda o: 'style="fill: var(--fig-on-1)"' if o > .5 else ''
     gid = "fig-t-4-acc"

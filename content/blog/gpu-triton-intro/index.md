@@ -485,6 +485,7 @@ GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函�
   <rect class="band" x="146" y="184" width="490" height="32" rx="8"/>
   <text class="lab2" x="152" y="197.5">shared</text>
   <text class="lab2" x="152" y="210.5">memory</text>
+  <text class="s" x="204" y="204.0" style="fill: var(--fig-1); opacity: 1; font-weight: 600">用 0 B</text>
   <rect class="band" x="146" y="224" width="490" height="84" rx="8"/>
   <text class="lab2" x="152" y="270.0">显存</text>
   <text class="s" x="152" y="284.0">GDDR7</text>
@@ -516,7 +517,6 @@ GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函�
   <rect x="499.0" y="252" width="80.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <rect x="529.0" y="252.0" width="20.0" height="28.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
   <text class="s" x="539.0" y="293" text-anchor="middle">整个 y：32 MiB</text>
-  <text class="s" x="214" y="204.0">不用（0 B）</text>
 </svg>
 <figcaption><strong>图 2-1</strong> GELU kernel（n = 8388608，fp32）。左边是 grid，数组按 BLOCK = 1024 切段，一段一个 program。右边是 program 1 的数据流，泳道和箭头的含义见正文。显存泳道里的整条是整个 x、y（各 8388608 个 fp32，32 MiB），深色一段是 program 1 读写的 1024 个（4 KiB）；按比例只有整条的 1/8192，图里放大了。</figcaption>
 </figure>
@@ -633,6 +633,7 @@ def softmax_naive(x):                         # x: [M, N]，按行
   <rect class="band" x="146" y="184" width="490" height="32" rx="8"/>
   <text class="lab2" x="152" y="197.5">shared</text>
   <text class="lab2" x="152" y="210.5">memory</text>
+  <text class="s" x="204" y="204.0" style="fill: var(--fig-1); opacity: 1; font-weight: 600">用 16 B</text>
   <rect class="band" x="146" y="224" width="490" height="84" rx="8"/>
   <text class="lab2" x="152" y="270.0">显存</text>
   <text class="s" x="152" y="284.0">GDDR7</text>
@@ -762,6 +763,7 @@ $\mathcal{J}_T$ 是第 $T$ 个 block 的 TILE 个列下标，代码里 TILE 取 
   <rect class="band" x="146" y="184" width="490" height="32" rx="8"/>
   <text class="lab2" x="152" y="197.5">shared</text>
   <text class="lab2" x="152" y="210.5">memory</text>
+  <text class="s" x="286" y="204.0" style="fill: var(--fig-1); opacity: 1; font-weight: 600">用 16 B</text>
   <rect class="band" x="146" y="224" width="490" height="108" rx="8"/>
   <text class="lab2" x="152" y="282.0">显存</text>
   <text class="s" x="152" y="296.0">GDDR7</text>
@@ -1030,6 +1032,7 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
   <rect class="band" x="146" y="148" width="490" height="76" rx="8"/>
   <text class="lab2" x="152" y="183.5">shared</text>
   <text class="lab2" x="152" y="196.5">memory</text>
+  <text class="s" x="152" y="216.0" style="fill: var(--fig-1); opacity: 1; font-weight: 600">用 32 KiB</text>
   <rect class="band" x="146" y="232" width="490" height="140" rx="8"/>
   <text class="lab2" x="152" y="306.0">显存</text>
   <text class="s" x="152" y="320.0">GDDR7</text>
