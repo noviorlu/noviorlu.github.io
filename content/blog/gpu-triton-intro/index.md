@@ -1274,8 +1274,9 @@ $\mathcal{J}_T$ 是第 $T$ 个 block 的 TILE 个列下标，代码里 TILE 取 
   <line x1="305.7" y1="86.0" x2="317.7" y2="140.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m2)"/>
   <line x1="469.0" y1="86.0" x2="491.7" y2="140.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m2)"/>
   <line x1="511.7" y1="140.0" x2="526.3" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m2)"/>
-  <path d="M297.7,44 L297.7,37 L461.0,37 L461.0,43" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-3-m3)"/>
-  <text class="s" x="379.3" y="33" text-anchor="middle" style="fill: var(--fig-hi)">acc 带到下一轮</text>
+  <path d="M297.7,44 L297.7,30 L461.0,30 L461.0,43" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-3-m3)"/>
+  <text class="s halo" x="379.3" y="34" text-anchor="middle">acc 带到下一轮</text>
+  <text class="s" x="379.3" y="34" text-anchor="middle" style="fill: var(--fig-hi)">acc 带到下一轮</text>
   <rect x="596.0" y="112" width="24" height="16" style="fill: var(--fig-1)" fill-opacity=".78"/><text class="s" x="608.0" y="123.5" text-anchor="middle" style="fill: var(--fig-on-1)">25</text>
   <line x1="558.3" y1="86.0" x2="598.0" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m2)"/>
   <rect x="509.3" y="191" width="66" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 40%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/><text class="s" x="542.3" y="204" text-anchor="middle">warp sum</text>
@@ -1536,9 +1537,10 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
   <line x1="305.7" y1="86.0" x2="319.7" y2="109.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <line x1="469.0" y1="86.0" x2="493.7" y2="109.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <line x1="509.7" y1="109.0" x2="526.3" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <path d="M297.7,44 L297.7,37 L461.0,37 L461.0,43" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-4-m2)"/>
-  <text class="s" x="379.3" y="33" text-anchor="middle" style="fill: var(--fig-hi)">acc 带到下一轮</text>
-  <text class="s" x="291.7" y="41" text-anchor="end" style="fill: var(--fig-hi)">T = 0</text><text class="s" x="467.0" y="41" style="fill: var(--fig-hi)">T = 63</text>
+  <path d="M297.7,44 L297.7,30 L461.0,30 L461.0,43" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-4-m2)"/>
+  <text class="s halo" x="379.3" y="34" text-anchor="middle">acc 带到下一轮</text>
+  <text class="s" x="379.3" y="34" text-anchor="middle" style="fill: var(--fig-hi)">acc 带到下一轮</text>
+  <text class="s" x="289.7" y="34" text-anchor="end" style="fill: var(--fig-hi)">T = 0</text><text class="s" x="471.0" y="34" style="fill: var(--fig-hi)">T = 63</text>
   <rect x="585.0" y="111" width="46" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="585.0" y="111" width="46" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
   <text class="s" x="608.0" y="124" text-anchor="middle" style="fill: var(--fig-on-1)">C block</text>
   <line x1="558.3" y1="86.0" x2="594.0" y2="109.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>

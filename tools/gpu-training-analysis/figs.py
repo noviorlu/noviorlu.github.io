@@ -1149,8 +1149,9 @@ def lanes_fig(fid, label, kind, prog_title, grid, grid_note, ops, chip_lab, sm, 
         def up(self, x, y, xo=None, var="--fig-2"):       # 从 (x, y) 读到步骤
             f.arrow(x, y - 2, x if xo is None else xo, OY1 + 2, var, width=1.4)
         def carry(self, xa, xb, txt):                      # 步骤上方的红线：acc 留在 register 里，带过省略的几轮
-            f.path(f"M{xa:.1f},{OY0 - 2} L{xa:.1f},{OY0 - 9} L{xb:.1f},{OY0 - 9} L{xb:.1f},{OY0 - 3}", "--fig-hi", width=1.5)
-            f.w(f'<text class="s" x="{(xa + xb) / 2:.1f}" y="{OY0 - 13}" text-anchor="middle" style="fill: var(--fig-hi)">{txt}</text>')
+            f.path(f"M{xa:.1f},{OY0 - 2} L{xa:.1f},{OY0 - 16} L{xb:.1f},{OY0 - 16} L{xb:.1f},{OY0 - 3}", "--fig-hi", width=1.5)   # 竖段留出箭杆
+            f.w(f'<text class="s halo" x="{(xa + xb) / 2:.1f}" y="{OY0 - 12}" text-anchor="middle">{txt}</text>')
+            f.w(f'<text class="s" x="{(xa + xb) / 2:.1f}" y="{OY0 - 12}" text-anchor="middle" style="fill: var(--fig-hi)">{txt}</text>')
     P = Put(); P.MT, P.SH = MT, MID[1]
     return f, cx, P
 
@@ -1326,7 +1327,7 @@ def tri_matmul():
     chip("acc", A1, 111, 34, RAMP[0]); chip("acc", A2, 111, 34, "grad")
     p.down(cx[1] + 8, 111, A1 - 8); p.down(cx[4] + 8, 111, A2 - 8); p.up(A2 + 8, 111, cx[5] - 16)
     p.carry(cx[1], cx[4], "acc 带到下一轮")
-    f.w(f'<text class="s" x="{cx[1] - 6:.1f}" y="41" text-anchor="end" style="fill: var(--fig-hi)">T = 0</text><text class="s" x="{cx[4] + 6:.1f}" y="41" style="fill: var(--fig-hi)">T = 63</text>')
+    f.w(f'<text class="s" x="{cx[1] - 8:.1f}" y="34" text-anchor="end" style="fill: var(--fig-hi)">T = 0</text><text class="s" x="{cx[4] + 10:.1f}" y="34" style="fill: var(--fig-hi)">T = 63</text>')
     chip("C block", cx[6], 111, 46, RAMP[-1]); p.down(cx[5] + 16, 111, cx[6] - 14)   # ReLU 在 register 里做完
     chip("C block", cx[6] - 22, 176, 46, RAMP[-1])                     # 写回前经 shared memory 换排布：st.shared 下去，ld.shared 回来
     f.arrow(cx[6] - 17, 131, cx[6] - 17, 174, "--fig-2", width=1.4); f.arrow(cx[6] - 8, 174, cx[6] - 8, 131, "--fig-2", width=1.4)
