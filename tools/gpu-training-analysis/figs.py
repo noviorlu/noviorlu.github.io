@@ -1387,8 +1387,13 @@ def mm_wave():
     for t in sorted({a for a, _ in small} | {b for _, b in small}):
         sp.append(f"{px(t):.1f},{py(sum(1 for a, b in small if a <= t < b)):.1f}")
     f.w(f'<polyline points="{" ".join(sp)}" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6" stroke-dasharray="5 3"/>')
-    xm = (px(w1end) + px(T)) / 2                                     # 第 2 批只有 2 个，面积看不出来，标一下
-    f.w(f'<text class="s" x="{xm:.1f}" y="{py(0) - 22}" text-anchor="middle">第 2 批：2 个 program</text><text class="s" x="{xm:.1f}" y="{py(0) - 8}" text-anchor="middle">跑到 {T:.0f} µs</text>')
+    # 第 2 批只有 2 个，按比例只有 1 px 高：沿底边画一条粗线代表它，再用红框圈出来，标注引到框上
+    b0, y0 = late[0][0], py(0)
+    f.w(f'<line x1="{px(b0):.1f}" y1="{y0 - 2:.1f}" x2="{px(T):.1f}" y2="{y0 - 2:.1f}" style="stroke: var(--fig-1)" stroke-opacity="{W2[1]}" stroke-width="4"/>')
+    f.w(f'<rect x="{px(b0) - 4:.1f}" y="{y0 - 10:.1f}" width="{px(T) - px(b0) + 8:.1f}" height="16" rx="5" style="fill: none; stroke: var(--fig-hi)" stroke-width="1.8"/>')
+    xm = (px(w1end) + px(T)) / 2
+    f.w(f'<line x1="{xm:.1f}" y1="{y0 - 40:.1f}" x2="{xm:.1f}" y2="{y0 - 11:.1f}" style="stroke: var(--fig-hi)" stroke-width="1.2"/>')
+    f.w(f'<text class="s" x="{xm:.1f}" y="{y0 - 58:.1f}" text-anchor="middle" style="fill: var(--fig-hi)">第 2 批（510–511）：2 个 program</text><text class="s" x="{xm:.1f}" y="{y0 - 44:.1f}" text-anchor="middle" style="fill: var(--fig-hi)">{b0:.0f} µs 开始，跑到 {T:.0f} µs</text>')
     # 下：跑了第 2 批的两个 SM，各 3 个名额
     G0, RH = 232, 11
     f.w(f'<text class="lab2" x="{X0}" y="{G0 - 10}">跑了第 2 批的两个 SM，每个 3 个名额；一条是一个 program 从第一条指令到写完 C</text>')
@@ -1480,7 +1485,7 @@ CAPS = {
  "tri_softmax": '<strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。',
  "tri_rowsum": '<strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 个 block，代码里 TILE = 1024。颜色由淡到浓是 for 循环读 block 的顺序：第 0 轮后 acc 只有 block 0 的数，最后的 acc 是 4 个 block 逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。',
  "tri_matmul": '<strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 个 row block 和 B 的第 1 个 column block，颜色由淡到浓是沿 K 读 block 的顺序，acc 一轮轮累积，ReLU 后写回 C 的 block (1, 1)。',
- "mm_wave": '<strong>图 B-3</strong> matmul kernel 的 512 个 program 实际怎么分批跑（RTX 5090，fp32，A 4096 × 2048，B 2048 × 512，每个 SM 3 个 program），画法同<a href="#fig-t-5">图 B-2</a>。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，写回 C 之后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 的发射顺序所在的批次，一批 510 个。悬停可看 program 编号和时间。',
+ "mm_wave": '<strong>图 B-3</strong> matmul kernel 的 512 个 program 实际怎么分批跑（RTX 5090，fp32，A 4096 × 2048，B 2048 × 512，每个 SM 3 个 program），画法同<a href="#fig-t-5">图 B-2</a>。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，写回 C 之后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 的发射顺序所在的批次，一批 510 个。第 2 批只有 2 个，按比例只有 1 像素高，图里画成底边上的一条粗线并用红框圈出。悬停可看 program 编号和时间。',
  "mm_pipe_ncu": '<strong>图 2-4a</strong> matmul kernel 一个 warp 的流水线（RTX 5090，fp32，A 4032 × 2048，504 个 program 一批跑完；Nsight Compute 实测，<code>--clock-control none</code>）。每轮的拍数 = 每条指令平均隔几拍 × 每轮的指令数，等数据的拍数 = 每条指令平均等 L2 / 显存几拍 × 每轮的指令数，都是 64 轮的平均值。load 的延迟没法直接测，按不预取时每轮等数据的拍数画。只画前 5 轮。',
  "occ_sweep": '<strong>图 2-5</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。',
  "tile_sweep": '<strong>图 2-6</strong> row sum 的 TILE 和带宽（RTX 5090，fp32，两种形状都是 340 MiB，<code>num_warps=4</code>，每点取 8 次计时的最快值）。悬停可看耗时和每线程的 register 数。',
