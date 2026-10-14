@@ -1,4 +1,4 @@
-"""GELU 的 8192 个 program 在 170 个 SM 上什么时候开始、什么时候结束（RTX 5090，图 2-2 的数据）。
+"""GELU 的 8192 个 program 在 170 个 SM 上什么时候开始、什么时候结束（RTX 5090，图 2-1a 的数据）。
 
 kernel 和 triton_tutorial.py 里的 gelu_kernel 一样，只是每个 program 开头读一次 %globaltimer 和 %smid，
 写回显存后再读一次 %globaltimer，三个数记到 trace[pid]。记录前先写 256 MB 把 L2 清掉，x、y 都从显存读写。
@@ -26,7 +26,8 @@ def gelu_traced(x_ptr, y_ptr, t_ptr, n, BLOCK: tl.constexpr):
     x = tl.load(x_ptr + offsets, mask=mask)
     a = 0.79788456 * (x + 0.044715 * x * x * x)
     e = tl.exp(2 * a)
-    y = 0.5 * x * (1 + (e - 1) / (e + 1))
+    t = 1 - 2 / (e + 1)                       # tanh(a)
+    y = 0.5 * x * (1 + t)
     tl.store(y_ptr + offsets, y, mask=mask)
     t1 = _asm_u64("mov.u64 $0, %globaltimer;", z)
     o = tl.arange(0, 1)

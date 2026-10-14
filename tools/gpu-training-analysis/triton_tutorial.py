@@ -15,10 +15,11 @@ def gelu_kernel(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
     offsets = pid * BLOCK + tl.arange(0, BLOCK)  # 这个 program 负责的 BLOCK 个下标
     mask = offsets < n                        # 最后一个 program 可能越界
     x = tl.load(x_ptr + offsets, mask=mask)   # 从显存读到 register
-    # tanh 近似：0.5·x·(1 + tanh(√(2/π)·(x + 0.044715·x³)))，tanh(a) = (e^{2a} − 1)/(e^{2a} + 1)
+    # tanh 近似：0.5·x·(1 + tanh(√(2/π)·(x + 0.044715·x³)))；tanh(a) = 1 − 2/(e^{2a} + 1)，e^{2a} 溢出成 inf 时仍得 1
     a = 0.79788456 * (x + 0.044715 * x * x * x)
     e = tl.exp(2 * a)
-    y = 0.5 * x * (1 + (e - 1) / (e + 1))
+    t = 1 - 2 / (e + 1)                       # tanh(a)
+    y = 0.5 * x * (1 + t)
     tl.store(y_ptr + offsets, y, mask=mask)   # 写回显存
 # post:end
 
@@ -73,7 +74,7 @@ def row_sum_kernel(x_ptr, out_ptr, N, TILE: tl.constexpr):
     for start in range(0, N, TILE):           # 行比 TILE 长：一块一块串行读
         cols = start + tl.arange(0, TILE)
         acc += tl.load(x_ptr + row * N + cols, mask=cols < N, other=0.0)
-    tl.store(out_ptr + row, tl.sum(acc, axis=0))  # 最后只做一次跨线程归约
+    tl.store(out_ptr + row, tl.sum(acc, axis=0))  # 最后只做一次跨 thread 归约
 # post:end
 
 
@@ -145,5 +146,17 @@ if __name__ == "__main__":
     A, B = torch.randn(1000, 700, device=dev), torch.randn(700, 900, device=dev)
     torch.backends.cuda.matmul.allow_tf32 = False
     print("matmul_relu", (matmul_relu(A, B) - torch.relu(A @ B)).abs().max().item())
-    t0, t1, t2 = bench(lambda: softmax_naive(X)), bench(lambda: softmax(X)), bench(lambda: torch.softmax(X, 1))
-    print(f"softmax 4096x4096: naive {t0:.0f} us, triton {t1:.0f} us ({t0 / t1:.2f}x), torch.softmax {t2:.0f} us")
+
+    # 计时：do_bench 每次调用前写 256 MB 清掉 L2，取平均；带宽按读写的总字节数算，FLOPS 按 2MNK 算
+    us = lambda f: triton.testing.do_bench(f) * 1e3
+    x = torch.randn(8388608, device=dev)
+    for name, f in (("triton", lambda: gelu(x)), ("torch", lambda: torch.nn.functional.gelu(x, approximate="tanh"))):
+        t = us(f); print(f"gelu n=8388608 {name}: {t:.1f} us, {2 * x.numel() * 4 / t / 1e-6:.2e} B/s")
+    for name, f, rw in (("eager", lambda: softmax_naive(X), 8 * X.numel()), ("triton", lambda: softmax(X), 2 * X.numel()),
+                        ("torch", lambda: torch.softmax(X, 1), 2 * X.numel())):
+        t = us(f); print(f"softmax 4096x4096 {name}: {t:.1f} us, {rw * 4 / t / 1e-6:.2e} B/s")
+    for name, f in (("triton", lambda: row_sum(X)), ("torch", lambda: X.sum(1))):
+        t = us(f); print(f"row_sum 4096x4096 {name}: {t:.1f} us, {X.numel() * 4 / t / 1e-6:.2e} B/s")
+    A, B = torch.randn(4096, 2048, device=dev), torch.randn(2048, 512, device=dev)
+    for name, f in (("triton", lambda: matmul_relu(A, B)), ("torch", lambda: torch.relu(A @ B))):
+        t = us(f); print(f"matmul_relu 4096x2048x512 {name}: {t:.1f} us, {2 * 4096 * 2048 * 512 / t / 1e-6:.2e} FLOPS")
