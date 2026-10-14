@@ -1034,14 +1034,23 @@ def wave_trace():
         lo, hi = w * cap, min(len(tr), (w + 1) * cap) - 1
         f.w(f'<g class="m"><title>第 {w + 1} 批：program {lo} 到 {hi}，共 {hi - lo + 1} 个</title><polygon points="{" ".join(pts)}" style="fill: var(--fig-1)" fill-opacity="{W5[w]}"/></g>')
         base = top
-    peak = max(base)
+    # bubble：第一个 program 结束到最后一个 program 开始之间，曲线和名额上限之间的空档；之后是 tail
+    t1, t2 = min(b for _, b, _ in tr) / 1000, max(a for a, _, _ in tr) / 1000
+    seg = [(t, c) for t, c in zip(ts, base) if t1 <= t <= t2]
+    pts = [f"{px(t):.1f},{py(c):.1f}" for t, c in seg] + [f"{px(t2):.1f},{py(cap):.1f}", f"{px(t1):.1f},{py(cap):.1f}"]
+    f.w(f'<polygon points="{" ".join(pts)}" style="fill: var(--fig-hi)" fill-opacity=".28"/>')
+    tb, cb = max(seg, key=lambda x: cap - x[1])                       # 空档最大的地方放标注
+    f.w(f'<text class="s halo" x="{px(tb):.1f}" y="{(py(cap) + py(cb)) / 2 + 4:.1f}" text-anchor="middle">bubble</text><text class="s" x="{px(tb):.1f}" y="{(py(cap) + py(cb)) / 2 + 4:.1f}" text-anchor="middle" style="fill: var(--fig-hi)">bubble</text>')
+    f.path(f"M{px(t2):.1f},{Y1 - 4} L{px(t2):.1f},{Y1 - 9} L{px(T):.1f},{Y1 - 9} L{px(T):.1f},{Y1 - 4}", "--fig-hi", width=1.2, head=False)
+    f.w(f'<text class="s" x="{(px(t2) + px(T)) / 2:.1f}" y="{Y1 - 12}" text-anchor="middle" style="fill: var(--fig-hi)">tail</text>')
     # 下：一个 SM 的 12 个名额（选跑了最后一批的 SM）
     last = (nw - 1) * cap
     sm = tr[last][2]
     mine = sorted((a / 1000, b / 1000, pid) for pid, (a, b, s) in enumerate(tr) if s == sm)
     slots = [[] for _ in range(12)]
     for a, b, pid in mine:
-        k = min(range(12), key=lambda j: (slots[j][-1][1] if slots[j] else -1) if not slots[j] or slots[j][-1][1] <= a else 1e9)
+        free = [j for j in range(12) if not slots[j] or slots[j][-1][1] <= a]          # 能用的名额里挑最晚空出来的，空档按最短算
+        k = max(free, key=lambda j: slots[j][-1][1] if slots[j] else -1) if free else min(range(12), key=lambda j: slots[j][-1][1])
         slots[k].append((a, b, pid))
     G0, RH = 246, 9
     f.w(f'<text class="lab2" x="{X0}" y="{G0 - 12}">SM {sm} 的 12 个名额，一条是一个 program 从第一条指令到最后一条 store 发出；这个 SM 一共跑了 {len(mine)} 个</text>')
@@ -1050,6 +1059,10 @@ def wave_trace():
         if j % 3 == 0: f.w(f'<text class="tick" x="{X0 - 8}" y="{y + RH - 1}" text-anchor="end">{j}</text>')
         for a, b, pid in slots[j]:
             f.w(f'<g class="m"><title>program {pid}（第 {pid // cap + 1} 批）：{a:.2f} 到 {b:.2f} µs</title><rect x="{px(a):.1f}" y="{y + 1}" width="{max(px(b) - px(a) - .6, .8):.1f}" height="{RH - 2}" rx="1.5" style="fill: var(--fig-1)" fill-opacity="{W5[pid // cap]}"/></g>')
+    gap = max(((slots[j][i][1], slots[j][i + 1][0], j) for j in range(12) for i in range(len(slots[j]) - 1)), key=lambda g: g[1] - g[0])
+    ga, gb, gj = gap
+    f.w(f'<rect x="{px(ga) - 2:.1f}" y="{G0 + gj * RH - 1}" width="{px(gb) - px(ga) + 4:.1f}" height="{RH + 2}" rx="3" style="fill: none; stroke: var(--fig-hi)" stroke-width="1.6"/>')
+    f.w(f'<text class="s" x="{(px(ga) + px(gb)) / 2:.1f}" y="{G0 + gj * RH + RH - 1}" text-anchor="middle" style="fill: var(--fig-hi)">bubble</text>')
     GB = G0 + 12 * RH
     for t in range(0, int(T) + 1, 5):
         f.w(f'<text class="tick" x="{px(t):.1f}" y="{GB + 15}" text-anchor="middle">{t}</text>')
@@ -1483,7 +1496,7 @@ CAPS = {
  "hw_smsp": '<strong>图 1-4</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。',
  "cuda_model": '<strong>图 1-5</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。',
  "tri_gelu": '<strong>图 2-1</strong> GELU kernel（n = 8388608，fp32）。左边是 grid，数组按 BLOCK = 1024 切段，一段一个 program。右边是 program 1 的数据流，泳道和箭头的含义见正文。',
- "wave_trace": '<strong>图 B-2</strong> GELU 的 8192 个 program 实际怎么分批跑（RTX 5090，n = 8388608，fp32，每个 program 4 个 warp）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，store 发出后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 编号所在的批次，一批 2040 个。悬停可看 program 编号和时间。',
+ "wave_trace": '<strong>图 B-2</strong> GELU 的 8192 个 program 实际怎么分批跑（RTX 5090，n = 8388608，fp32，每个 program 4 个 warp）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，store 发出后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 编号所在的批次，一批 2040 个。浅红色是 bubble：名额上没有 program 在执行指令；最后一个 program 开始以后是 tail。下面的名额是按开始、结束时间排出来的，红框是这个 SM 上最长的一段空档。悬停可看 program 编号和时间。',
  "tri_softmax": '<strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。',
  "tri_rowsum": '<strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 个 block，代码里 TILE = 1024。颜色由淡到浓是 for 循环读 block 的顺序：第 0 轮后 acc 只有 block 0 的数，最后的 acc 是 4 个 block 逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。',
  "tri_matmul": '<strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 个 row block 和 B 的第 1 个 column block，颜色由淡到浓是沿 K 读 block 的顺序，acc 一轮轮累积，ReLU 后写回 C 的 block (1, 1)。',
