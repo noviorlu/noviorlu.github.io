@@ -1002,6 +1002,67 @@ def tile_sweep():
         f.w(f'<line x1="{px(1024) + 24:.1f}" y1="{ly - 4}" x2="{px(1024) + 46:.1f}" y2="{ly - 4}" style="stroke: var({var})" stroke-width="2"/><text class="lab" x="{px(1024) + 54:.1f}" y="{ly}">{lab}</text>')
     return f
 
+# ── 图 2-2 GELU 的 8192 个 program 怎么分批跑（实测 trace） ──────────────────────
+def wave_trace():
+    d = json.load(open(os.path.join(HERE, "wave_trace.json")))
+    tr, cap = d["trace"], 170 * 12
+    T = max(b for _, b, _ in tr) / 1000                              # µs
+    W5 = [.14, .32, .5, .68, .9]                                     # 第 1 到 5 批：越晚越深
+    nw = (len(tr) + cap - 1) // cap
+    f = F("fig-t-5", 404, f"GELU 的 {len(tr)} 个 program 在 170 个 SM 上的实测时间线：上面是全卡同时在跑的 program 数，按批次堆叠，最多 {cap} 个；下面是一个 SM 的 12 个名额，前一个 program 结束就换下一个进来，批次之间没有清楚的分界，最后一批只有 {len(tr) - (nw - 1) * cap} 个")
+    X0, X1 = 74, 620
+    px = lambda t: X0 + t / T * (X1 - X0)
+    # 上：全卡同时在跑的 program 数，按批次堆叠
+    Y0, Y1 = 200, 52
+    py = lambda c: Y0 - c / cap * (Y0 - Y1)
+    for v in (0, 500, 1000, 1500, 2040):
+        f.w(f'<line class="grid" x1="{X0}" y1="{py(v):.1f}" x2="{X1}" y2="{py(v):.1f}"/><text class="tick" x="{X0 - 8}" y="{py(v) + 4:.1f}" text-anchor="end">{v}</text>')
+    f.w(f'<text class="lab2" x="{X0}" y="{Y1 - 24}">全卡同时在跑的 program 数，按批次堆叠；虚线是 170 个 SM × 12 = {cap} 个名额</text>')
+    f.w(f'<line class="ref" x1="{X0}" y1="{py(cap):.1f}" x2="{X1}" y2="{py(cap):.1f}"/>')
+    N = 230
+    ts = [T * k / N for k in range(N + 1)]
+    cnt = [[0] * (N + 1) for _ in range(nw)]
+    for pid, (a, b, _) in enumerate(tr):
+        a, b, w = a / 1000, b / 1000, pid // cap
+        for k, t in enumerate(ts):
+            if a <= t < b: cnt[w][k] += 1
+    base = [0] * (N + 1)
+    for w in range(nw):
+        top = [base[k] + cnt[w][k] for k in range(N + 1)]
+        pts = [f"{px(t):.1f},{py(c):.1f}" for t, c in zip(ts, top)] + [f"{px(t):.1f},{py(c):.1f}" for t, c in zip(ts[::-1], base[::-1])]
+        lo, hi = w * cap, min(len(tr), (w + 1) * cap) - 1
+        f.w(f'<g class="m"><title>第 {w + 1} 批：program {lo} 到 {hi}，共 {hi - lo + 1} 个</title><polygon points="{" ".join(pts)}" style="fill: var(--fig-1)" fill-opacity="{W5[w]}"/></g>')
+        base = top
+    peak = max(base)
+    # 下：一个 SM 的 12 个名额（选跑了最后一批的 SM）
+    last = (nw - 1) * cap
+    sm = tr[last][2]
+    mine = sorted((a / 1000, b / 1000, pid) for pid, (a, b, s) in enumerate(tr) if s == sm)
+    slots = [[] for _ in range(12)]
+    for a, b, pid in mine:
+        k = min(range(12), key=lambda j: (slots[j][-1][1] if slots[j] else -1) if not slots[j] or slots[j][-1][1] <= a else 1e9)
+        slots[k].append((a, b, pid))
+    G0, RH = 246, 9
+    f.w(f'<text class="lab2" x="{X0}" y="{G0 - 12}">SM {sm} 的 12 个名额，一条是一个 program 从第一条指令到最后一条 store 发出；这个 SM 一共跑了 {len(mine)} 个</text>')
+    for j in range(12):
+        y = G0 + j * RH
+        if j % 3 == 0: f.w(f'<text class="tick" x="{X0 - 8}" y="{y + RH - 1}" text-anchor="end">{j}</text>')
+        for a, b, pid in slots[j]:
+            f.w(f'<g class="m"><title>program {pid}（第 {pid // cap + 1} 批）：{a:.2f} 到 {b:.2f} µs</title><rect x="{px(a):.1f}" y="{y + 1}" width="{max(px(b) - px(a) - .6, .8):.1f}" height="{RH - 2}" rx="1.5" style="fill: var(--fig-1)" fill-opacity="{W5[pid // cap]}"/></g>')
+    GB = G0 + 12 * RH
+    for t in range(0, int(T) + 1, 5):
+        f.w(f'<text class="tick" x="{px(t):.1f}" y="{GB + 15}" text-anchor="middle">{t}</text>')
+        f.w(f'<line class="grid" x1="{px(t):.1f}" y1="{Y1}" x2="{px(t):.1f}" y2="{Y0}"/>')
+    f.w(f'<text class="lab2" x="{X0 - 8}" y="{GB + 15}" text-anchor="end">µs</text>')
+    f.w(f'<text class="lab2" x="{X0 - 44}" y="{G0 + 6 * RH + 4}" text-anchor="middle" transform="rotate(-90 {X0 - 44} {G0 + 6 * RH})">名额</text>')
+    LX, LY = X0, GB + 40
+    f.w(f'<text class="lab2" x="{LX}" y="{LY}">批次</text>')
+    for w in range(nw):
+        lo, hi = w * cap, min(len(tr), (w + 1) * cap) - 1
+        x = LX + 36 + w * 108
+        f.w(f'<rect x="{x}" y="{LY - 9}" width="12" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity="{W5[w]}"/><text class="lab" x="{x + 17}" y="{LY}">{lo}–{hi}</text>')
+    return f
+
 # ── 图 2-1 到 2-4 Triton kernel 示意：左边是 grid 和一个 SM，右边是一个 program 的步骤、片上和显存 ─────
 def lanes_fig(fid, label, kind, prog_title, grid, grid_note, ops, chip_lab, sm, notes, mem_y1=268):
     """左边 grid + 一个 SM；右边三条泳道：program 的步骤 / 片上 / 显存。
@@ -1305,9 +1366,10 @@ CAPS = {
  "hw_smsp": '<strong>图 1-4</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 把 FP32 和 INT32 合成同一批核，同一拍只能做其中一种。',
  "cuda_model": '<strong>图 1-5</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。',
  "tri_gelu": '<strong>图 2-1</strong> GELU kernel（n = 8388608，fp32）。左边是 grid：数组展平成一维、按 BLOCK = 1024 切段，一段一个 program；下面是一个 SM 同时跑几个 program，12 格是上限（1536 个 thread）。右边是 program 1：最上面是计算单元，下面依次是 register、shared memory 和显存（芯片外的 GDDR7）。箭头是数据流：tl.load 从显存直接读进 register，tl.store 从 register 直接写回显存，计算单元只从 register 读、写回 register。读写显存都会经过 L2 和 L1 cache，由硬件自动管理，图里不画。',
- "tri_softmax": '<strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次；每个 program 用的 register 多，一个 SM 只放得下 9 个。',
- "tri_rowsum": '<strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 块，代码里 TILE = 1024。颜色由淡到浓是 for 循环读块的顺序：第 0 轮后 acc 只有第 0 块的数，最后的 acc 是 4 块逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。',
- "tri_matmul": '<strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的 A、B、C 按形状比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 行和 B 的第 1 列，颜色由淡到浓是 for 循环沿 K 读块的顺序：第 0 轮读最淡的块，第 63 轮读最浓的；acc 一轮轮累积，最后铺满整条渐变，ReLU 后写回 C 的 (1, 1) 块。512 个 program 分到 170 个 SM，每个 SM 放 3 个，正好一批。',
+ "wave_trace": '<strong>图 2-2</strong> GELU 的 8192 个 program 实际怎么分批跑（RTX 5090，n = 8388608，fp32，每个 program 4 个 warp）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，store 发出后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 编号所在的批次，一批 2040 个。悬停可看 program 编号和时间。',
+ "tri_softmax": '<strong>图 2-3</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次；每个 program 用的 register 多，一个 SM 只放得下 9 个。',
+ "tri_rowsum": '<strong>图 2-4</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 块，代码里 TILE = 1024。颜色由淡到浓是 for 循环读块的顺序：第 0 轮后 acc 只有第 0 块的数，最后的 acc 是 4 块逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。',
+ "tri_matmul": '<strong>图 2-5</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的 A、B、C 按形状比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 行和 B 的第 1 列，颜色由淡到浓是 for 循环沿 K 读块的顺序：第 0 轮读最淡的块，第 63 轮读最浓的；acc 一轮轮累积，最后铺满整条渐变，ReLU 后写回 C 的 (1, 1) 块。512 个 program 分到 170 个 SM，每个 SM 放 3 个，一批 510 个，剩下 2 个要等第二批。',
  "occ_sweep": '<strong>图 2-5</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。',
  "tile_sweep": '<strong>图 2-6</strong> row sum 的 TILE 和带宽（RTX 5090，fp32，两种形状都是 340 MiB，<code>num_warps=4</code>，每点取 8 次计时的最快值）。悬停可看耗时和每线程的 register 数。',
  "tpu_core": '<strong>图 A-1</strong> TPU v5p 一个 TensorCore 的结构示意，画法对应<a href="#fig-h-1">图 1-2</a>。规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>，原书也有一张 TensorCore 的结构图。',
@@ -1331,7 +1393,7 @@ CAPS = {
  "ckpt": '<strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。',
  "sweep": '<strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。',
 }
-OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
+OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("wave_trace", wave_trace), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
        ("flops_vs_time", flops_vs_time), ("share_vs_seq", share_vs_seq), ("peak_memory", peak_memory), ("peak_moment", peak_moment),
        ("rms_eager", rms_eager), ("rms_fused", rms_fused), ("attn_flow", attn_flow), ("layer_donut", layer_donut), ("timelines", timelines),
        ("bf16", bf16), ("ckpt", ckpt), ("sweep", sweep))}

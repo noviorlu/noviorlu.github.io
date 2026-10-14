@@ -127,11 +127,17 @@ GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函�
 {{code:triton_tutorial.py:gelu_kernel}}
 ```
 
-启动时只要定 grid，也就是 program 的个数。program 个数和 SM 个数无关：5090 有 170 个 SM，program 多于 SM 时，GPU 会一批一批地调度。
+启动时只要定 grid，也就是 program 的个数。program 个数和 SM 个数无关：5090 有 170 个 SM，program 多于 SM 能同时放下的数量时，GPU 会一批一批地调度，下面会看到实测的样子。
 
 ```python {role="grid" tag="一段一个 program"}
 {{code:triton_tutorial.py:gelu_launch}}
 ```
+
+program 编译后就是 CUDA 的一个 block，一个 SM 能同时驻留几个，看[表 1-2](#tab-1-2) 里哪条上限先用完。GELU 一个 program 4 个 warp，SM 最多驻留 48 个 warp，所以一个 SM 同时放 12 个 program，block 上限 24 用不满；register 和 shared memory 也都够。全卡一次放得下 170 × 12 = 2040 个，8192 个 program 要 8192 / 2040 = 4.02 批，也就是 5 批，第 5 批只有 32 个。
+
+{{fig-t-5}}
+
+实测的时间线（[图 2-2](#fig-t-5)）上，批次之间没有分界。一个 program 跑完，它的名额马上换下一个 program 进来，所以第 2 批在 1.8 µs 就开始了，第 1 批到 11.6 µs 才全部跑完。同一批里的 program 都在抢显存带宽，耗时从 3.5 µs 到 12.8 µs 不等（10% 和 90% 分位）。37 µs 时最后一个 program 开始，之后没有新的 program 补进来，名额一个个空出来，在跑的 program 从 1400 个左右降到 0，这段约 8 µs，占整个 kernel 的 18%，叫 tail effect。program 多、每个都很短时，这段尾巴就短。
 
 Triton 会把 kernel 编译成 PTX，PTX 描述的是单个线程的指令。下面是 GELU 的 PTX 节选：
 
@@ -164,7 +170,7 @@ softmax 在 eager 下要 5 个 kernel，和[下一篇](/blog/gpu-training-analys
 
 {{fig-t-2}}
 
-如果一个 program 处理一整行（[图 2-2](#fig-t-2)），max、exp、求和、除都可以在 register 里做完，只读 MN、写 MN，读写量是原来的 1/4：
+如果一个 program 处理一整行（[图 2-3](#fig-t-2)），max、exp、求和、除都可以在 register 里做完，只读 MN、写 MN，读写量是原来的 1/4：
 
 ```python {role="program" tag="处理第 row 行"}
 {{code:triton_tutorial.py:softmax_kernel}}
@@ -178,7 +184,7 @@ softmax 在 eager 下要 5 个 kernel，和[下一篇](/blog/gpu-training-analys
 
 在 5090 上对 4096 × 4096 的 fp32 输入实测，eager 版 249 µs，Triton 版 80 µs，快了 3.1 倍，和 `torch.softmax`（79 µs）相当。
 
-图 2-2 里的 warp max、warp sum 是 shared memory 在这个 kernel 里唯一的用处：`tl.max`、`tl.sum` 先在每个 warp 里用 shuffle 交换 register 归约，4 个 warp 的部分结果再经 shared memory 交换，一共 16 B。什么时候值得把数据整块放进 shared memory，[2.4 节](#triton-matmul)再讲。
+[图 2-3](#fig-t-2) 里的 warp max、warp sum 是 shared memory 在这个 kernel 里唯一的用处：`tl.max`、`tl.sum` 先在每个 warp 里用 shuffle 交换 register 归约，4 个 warp 的部分结果再经 shared memory 交换，一共 16 B。什么时候值得把数据整块放进 shared memory，[2.4 节](#triton-matmul)再讲。
 
 这个写法要求 BLOCK ≥ N，也就是一行能一次装进一个 program。行再长，program 就只能沿行一块一块地读，读过的块要留下一个中间结果。下一节先看最简单的按行归约：求和。
 
@@ -188,7 +194,7 @@ row sum 对 `[M, N]` 的输入每行求和：
 
 <p align="center">$s_i = \sum_{j=1}^{N} x_{ij} = \sum_{T} \ \sum_{j \in \mathcal{J}_T} x_{ij}$</p>
 
-$\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。加法满足结合律，先把每块加起来再相加，和一次加完是同一个数（浮点数下只差舍入误差），所以 program 可以沿行一块一块地读，每读一块就加到累加器上（[图 2-3](#fig-t-3)）。
+$\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。加法满足结合律，先把每块加起来再相加，和一次加完是同一个数（浮点数下只差舍入误差），所以 program 可以沿行一块一块地读，每读一块就加到累加器上（[图 2-4](#fig-t-3)）。
 
 {{fig-t-3}}
 
@@ -222,7 +228,7 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
 
 {{fig-t-4}}
 
-一个 program 负责一个 $C_{IJ}$，grid 是二维的（[图 2-4](#fig-t-4)）。program 沿 K 方向循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上。写回之前在 register 里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
+一个 program 负责一个 $C_{IJ}$，grid 是二维的（[图 2-5](#fig-t-4)）。program 沿 K 方向循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上。写回之前在 register 里做 ReLU，激活函数就不需要单独一个 kernel 再读写一遍 C：
 
 <div class="nv-key">
 
