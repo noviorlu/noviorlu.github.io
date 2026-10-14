@@ -10,7 +10,7 @@ series: ["GPU training optimization"]
 series_order: 1
 ---
 
-这个系列讲怎么让 Transformer 训练在 GPU 上跑得更快。这一篇先打基础：[第 1 节](#hardware)介绍 GPU 的硬件，包括数据存在哪几层、一个 SM 里有什么、CUDA 的执行层级怎么对应到硬件；[第 2 节](#triton)用四个例子介绍 Triton，后面两篇的 kernel 都用它写。TPU 和 GPU 的对照放在 [Appendix A](#tpu)，program 怎么排到 SM 上跑（驻留上限、warp 调度、wave）放在 [Appendix B](#sched)。
+这个系列讲怎么让 Transformer 训练在 GPU 上跑得更快。这一篇先打基础：[第 1 节](#hardware)介绍 GPU 的硬件，包括数据存在哪几层、一个 SM 里有什么、CUDA 的执行层级怎么对应到硬件；[第 2 节](#triton)用四个例子介绍 Triton，后面两篇的 kernel 都用它写。TPU 和 GPU 的对照放在 [Appendix A](#tpu)，program 怎么排到 SM 上跑（驻留上限、warp 调度、wave）放在 [Appendix B](#sched)，几代 NVIDIA GPU 的规格对比放在 [Appendix C](#specs)。
 
 下一篇[谁偷走了 5090 的算力和显存](/blog/gpu-training-analysis/)用这些知识在 RTX 5090 上拆解一步训练的时间和显存，第三篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 讲 attention 的 IO-aware kernel。
 
@@ -285,7 +285,7 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 <figcaption><strong>图 1-4</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。</figcaption>
 </figure>
 
-[第 2 节](#triton) kernel 图里的「register」就是这块 register file，「计算单元」指其中的 CUDA core 和 Tensor core。
+[第 2 节](#triton) kernel 图里的「register」就是这块 register file，「计算单元」指其中的 CUDA core 和 Tensor core。几代 GPU 的规格对比见 [Appendix C](#specs)。
 
 这些是硬件提供的资源。register 按 thread 分配，shared memory 按 block 分配，要知道一个 kernel 怎么用这些资源，得先看 CUDA 怎么把 thread 组织起来。
 
@@ -1845,22 +1845,7 @@ block 放到 SM 上以后就一直驻留，直到它的 thread 全部跑完。�
 | matmul | 96 | 32 KiB | 3 | shared memory |
 {#tab-b-2 caption="**表 B-2** 第 2 节四个 kernel 每个 SM 能放几个 program" note="形状和正文一样（softmax 的 N = 4096，matmul 的 BM = BN = 64、BK = 32），每个 program 都是 4 个 warp。register 和 shared memory 读自编译出的 kernel，每个 SM 放几个用 <code>cuOccupancyMaxActiveBlocksPerMultiprocessor</code> 算。"}
 
-几代 GPU 的对比见[表 B-3](#tab-b-3)。5090 的 SM 最多，但每个 SM 能驻留的 warp 和 block 比数据中心卡少四分之一，L1 + shared 只有 H100、B200 的一半。
-
-| | A100 | H100 | B200 | RTX 5090 |
-|:--|--:|--:|--:|--:|
-| SM 数 | 108 | 132 | 148 | 170 |
-| L2 | 40 MB | 50 MB | — | 96 MB |
-| 显存 | 80 GB HBM2e | 80 GB HBM3 | 192 GB HBM3e | 32 GB GDDR7 |
-| 显存带宽 | 2.0e12 B/s | 3.35e12 B/s | 8e12 B/s | 1.79e12 B/s |
-| 每 SM 的 CUDA core | 64 | 128 | 128 | 128 |
-| 每 SM 的 Tensor core | 4 | 4 | 4 | 4 |
-| 每 SM 的 L1 + shared | 192 KB | 256 KB | 256 KB | 128 KB |
-| 每 SM 的 register | 256 KB | 256 KB | 256 KB | 256 KB |
-| 每 SMSP 最多驻留 warp | 16 | 16 | 16 | 12 |
-| 每 SM 最多驻留 warp | 64 | 64 | 64 | 48 |
-| 每 SM 最多驻留 block | 32 | 32 | 32 | 24 |
-{#tab-b-3 caption="**表 B-3** 几代 NVIDIA GPU 的规格和驻留上限" note="来自 NVIDIA 各代架构白皮书、产品规格（A100 80GB SXM，H100 SXM）和 CUDA Programming Guide 的 compute capability 表（8.0、9.0、10.0、12.0）。B200 的 L2 没有找到可靠的公开数字，暂缺。"}
+几代 GPU 的规格和驻留上限对比见 [Appendix C](#specs)。
 
 驻留只说明 program 占住了名额，不说明它在跑。同一时刻真正在发射指令的，是每个 SMSP 的调度器挑中的那一个 warp。
 
@@ -2194,14 +2179,40 @@ program 少而每个都重时，尾巴更明显。matmul 每个 SM 只放 3 个 
 
 A 换成 4032 × 2048 时，504 个 program 一批放下，同一个 kernel 只要 158.3 µs，和 cuBLAS 的 160.5 µs 相当。4096 比 4032 的计算量只多 1.6%，耗时多 28%。打点的开销不大：打点版 210.8 µs 和 162.8 µs，不打点 203.3 µs 和 158.3 µs。
 
+
+---
+
+## Appendix C 几代 NVIDIA GPU 的规格 {#specs}
+
+正文和 Appendix B 都只用 RTX 5090 的数。[表 C-1](#tab-c-1) 把它和三代数据中心卡放在一起，硬件规格、标称峰值和驻留上限都在一张表里。
+
+| | A100 | H100 | B200 | RTX 5090 |
+|:--|--:|--:|--:|--:|
+| SM 数 | 108 | 132 | 148 | 170 |
+| 每 SM 的 CUDA core | 64 | 128 | 128 | 128 |
+| 每 SM 的 Tensor core | 4 | 4 | 4 | 4 |
+| fp32 峰值（CUDA core） | 1.95e13 FLOPS | 6.7e13 FLOPS | 7.5e13 FLOPS | 1.05e14 FLOPS |
+| bf16 峰值（Tensor core，dense） | 3.12e14 FLOPS | 9.89e14 FLOPS | 2.25e15 FLOPS | 2.1e14 FLOPS |
+| L2 | 40 MB | 50 MB | — | 96 MB |
+| 显存 | 80 GB HBM2e | 80 GB HBM3 | 192 GB HBM3e | 32 GB GDDR7 |
+| 显存带宽 | 2.0e12 B/s | 3.35e12 B/s | 8e12 B/s | 1.79e12 B/s |
+| 每 SM 的 L1 + shared | 192 KB | 256 KB | 256 KB | 128 KB |
+| 每 SM 的 register | 256 KB | 256 KB | 256 KB | 256 KB |
+| 每 SMSP 最多驻留 warp | 16 | 16 | 16 | 12 |
+| 每 SM 最多驻留 warp | 64 | 64 | 64 | 48 |
+| 每 SM 最多驻留 block | 32 | 32 | 32 | 24 |
+{#tab-c-1 caption="**表 C-1** 几代 NVIDIA GPU 的规格和驻留上限" note="A100 是 80GB SXM，H100 是 SXM，B200 按 HGX B200 的单卡算。峰值都是标称值，不含 structural sparsity，bf16 按 fp32 累加。规格来自 NVIDIA 各代架构白皮书和产品页，驻留上限来自 CUDA Programming Guide 的 compute capability 表（8.0、9.0、10.0、12.0）。B200 的 L2 没有找到可靠的公开数字，暂缺。"}
+
+5090 的 SM 最多，fp32 峰值比 H100 还高；但每个 SM 能驻留的 warp 和 block 比数据中心卡少四分之一，L1 + shared 只有 H100、B200 的一半，bf16 的 Tensor core 峰值也只有 H100 的约五分之一。
+
 ---
 
 ## References {#references}
 
 1. Gholami, Yao, Kim, Hooper, Mahoney, Keutzer. [AI and Memory Wall](https://arxiv.org/abs/2403.14123). IEEE Micro, 2024. 图 1-1。
 2. NVIDIA. [NVIDIA RTX Blackwell GPU Architecture](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)（白皮书）。RTX 5090 的存储层级和 SM 结构，图 1-2、图 1-3。
-3. NVIDIA. [NVIDIA A100 Tensor Core GPU Architecture](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)、[NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)、[NVIDIA Blackwell Architecture](https://resources.nvidia.com/en-us-blackwell-architecture)。表 B-3 的 A100、H100、B200 一列。
-4. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、block、register 和 shared memory 上限，表 B-1、表 B-3，CUDA 执行层级。
+3. NVIDIA. [NVIDIA A100 Tensor Core GPU Architecture](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)、[NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)、[NVIDIA Blackwell Architecture](https://resources.nvidia.com/en-us-blackwell-architecture)。表 C-1 的 A100、H100、B200 一列；峰值另参考 [A100](https://www.nvidia.com/en-us/data-center/a100/)、[H100](https://www.nvidia.com/en-us/data-center/h100/) 产品页和 [HGX](https://www.nvidia.com/en-us/data-center/hgx/) 平台页（B200 的单卡数按 8 卡的 dense 值除以 8）。
+4. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、block、register 和 shared memory 上限，表 B-1、表 C-1，CUDA 执行层级。
 5. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 停顿原因的定义，图 2-4a。
 6. Austin et al. [How to Scale Your Model](https://jax-ml.github.io/scaling-book/gpus/), Google DeepMind, 2025. Appendix A 的 TPU v5p 规格、systolic array 的数据流和表 A-1。
 7. Jouppi et al. [In-Datacenter Performance Analysis of a Tensor Processing Unit](https://arxiv.org/abs/1704.04760). ISCA 2017. 第一代 TPU 和它的 systolic array。
