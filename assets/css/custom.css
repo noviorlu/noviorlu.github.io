@@ -494,9 +494,9 @@ ul.flex.flex-row.mt-8.justify-center a.bg-primary-200 { background: var(--nv-acc
 .nv-article__lead { margin: 16px 0 0; font-size: 18px; line-height: 1.75; color: var(--nv-text-2); }
 .nv-article__meta { margin-top: 18px; font-size: 14px; color: var(--nv-text-3); }
 .nv-article__header .nv-chips { margin-top: 16px; }
-.nv-hero { margin: 32px 0 0; }
+.nv-hero { margin: 32px 0 0; max-width: var(--nv-measure); }
 .nv-hero img {
-  display: block; width: 100%; height: auto; aspect-ratio: 16 / 7; object-fit: cover;
+  display: block; width: 100%; height: auto; aspect-ratio: 2 / 1; object-fit: cover;
   border-radius: 16px; border: 1px solid var(--nv-border); background: var(--nv-surface-3);
 }
 .nv-hero figcaption { margin-top: 8px; text-align: center; font-size: 13px; color: var(--nv-text-3); }
