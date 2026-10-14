@@ -71,7 +71,7 @@ def softmax(x):
 def row_sum_kernel(x_ptr, out_ptr, N, TILE: tl.constexpr):
     row = tl.program_id(0)
     acc = tl.zeros([TILE], dtype=tl.float32)  # TILE 路部分和，不是一个标量
-    for start in range(0, N, TILE):           # 行比 TILE 长：一块一块串行读
+    for start in range(0, N, TILE):           # 行比 TILE 长：一个 block 一个 block 串行读
         cols = start + tl.arange(0, TILE)
         acc += tl.load(x_ptr + row * N + cols, mask=cols < N, other=0.0)
     tl.store(out_ptr + row, tl.sum(acc, axis=0))  # 最后只做一次跨 thread 归约
@@ -92,14 +92,14 @@ def row_sum(x, TILE=1024):
 def matmul_relu_kernel(a_ptr, b_ptr, c_ptr, M, N, K,
                        sam, sak, sbk, sbn, scm, scn,
                        BM: tl.constexpr, BN: tl.constexpr, BK: tl.constexpr):
-    pid_m, pid_n = tl.program_id(0), tl.program_id(1)   # 负责 C 的第 (pid_m, pid_n) 块
+    pid_m, pid_n = tl.program_id(0), tl.program_id(1)   # 负责 C 的第 (pid_m, pid_n) 个 block
     rm = pid_m * BM + tl.arange(0, BM)
     rn = pid_n * BN + tl.arange(0, BN)
     rk = tl.arange(0, BK)
     a_ptrs = a_ptr + rm[:, None] * sam + rk[None, :] * sak  # [BM, BK] 的指针
     b_ptrs = b_ptr + rk[:, None] * sbk + rn[None, :] * sbn  # [BK, BN] 的指针
     acc = tl.zeros([BM, BN], dtype=tl.float32)
-    for k in range(0, K, BK):                 # 沿 K 一块一块乘加
+    for k in range(0, K, BK):                 # 沿 K 一个 block 一个 block 乘加
         a = tl.load(a_ptrs, mask=(rm[:, None] < M) & (rk[None, :] + k < K), other=0.0)
         b = tl.load(b_ptrs, mask=(rk[:, None] + k < K) & (rn[None, :] < N), other=0.0)
         acc += tl.dot(a, b, input_precision="ieee")  # fp32 默认会走 tf32，这里要求精确的 fp32

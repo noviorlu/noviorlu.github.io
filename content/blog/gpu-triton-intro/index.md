@@ -31,7 +31,7 @@ series_order: 1
 <figcaption><strong>图 1-1</strong> 峰值算力与 DRAM、互联带宽 20 年来的增长，纵轴是相对 1997 年的倍数（对数轴）。图来自 Gholami 等人的 <a href="https://arxiv.org/abs/2403.14123">AI and Memory Wall</a>（IEEE Micro，2024）。</figcaption>
 </figure>
 
-数据离计算单元越近，读写越快，容量也越小（[图 1-2](#fig-h-1)）。每个 SM 里有 register 和 L1 / shared memory，所有 SM 共享芯片上的 L2，显存在芯片外面。L1 和 L2 由硬件当作 cache 自动管理，kernel 能自己安排的只有 shared memory 和 register。所以 kernel 优化的套路都一样：把一块数据读进 shared memory 或 register，在片上多算几次，再写回显存。[第 2 节](#triton)的分块矩阵乘、[下一篇](/blog/gpu-training-analysis/)的算子融合和 [FlashAttention](/blog/flashattention-1-to-4/) 都是这个思路。
+数据离计算单元越近，读写越快，容量也越小（[图 1-2](#fig-h-1)）。每个 SM 里有 register 和 L1 / shared memory，所有 SM 共享芯片上的 L2，显存在芯片外面。L1 和 L2 由硬件当作 cache 自动管理，kernel 能自己安排的只有 shared memory 和 register。所以 kernel 优化的套路都一样：把一个 block 的数据读进 shared memory 或 register，在片上多算几次，再写回显存。[第 2 节](#triton)的 block 矩阵乘、[下一篇](/blog/gpu-training-analysis/)的算子融合和 [FlashAttention](/blog/flashattention-1-to-4/) 都是这个思路。
 
 <figure id="fig-h-1" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="RTX 5090 的存储层级：每个 SM 里有 256 KB register 和 128 KB L1/shared memory，170 个 SM 共享芯片上的 96 MB L2，芯片外是 32 GB GDDR7 显存，带宽 1.79e12 B/s">
@@ -105,7 +105,7 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 
 ### 1.2 一个 SM 里有什么 {#hw-sm}
 
-每个 SM 分成 4 个 SMSP（SM sub-partition），每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core（做 FP32 和 INT32 运算）和一个 Tensor core，4 个 SMSP 共享一块 L1 / shared memory（[图 1-3](#fig-h-2)）。
+每个 SM 分成 4 个 SMSP（SM sub-partition），每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core（做 FP32 和 INT32 运算）和一个 Tensor core，4 个 SMSP 共享 L1 / shared memory（[图 1-3](#fig-h-2)）。
 
 <figure id="fig-h-2" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 236" width="100%" role="img" aria-label="RTX 5090 的一个 SM：4 个 SMSP，每个有 1 个 warp 调度器、64 KB register、32 个 CUDA core 和 1 个 Tensor core；4 个 SMSP 共享 128 KB 的 L1/shared memory">
@@ -176,7 +176,7 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 <figcaption><strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core 和 1 个 Tensor core，4 个 SMSP 共享 L1 / shared memory。</figcaption>
 </figure>
 
-[图 1-4](#fig-h-9) 把一个 SMSP 展开。[第 2 节](#triton) kernel 图里的「计算单元」指其中的 CUDA core 和 Tensor core，「register」就是这块 64 KB 的 register file。
+[图 1-4](#fig-h-9) 把一个 SMSP 展开。[第 2 节](#triton) kernel 图里的「计算单元」指其中的 CUDA core 和 Tensor core，「register」就是这个 64 KB 的 register file。
 
 <figure id="fig-h-9" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 322" width="100%" role="img" aria-label="RTX 5090 一个 SMSP 的结构：L0 指令 cache、warp scheduler 和 dispatch，64 KB register file，32 个 CUDA core（FP32/INT32）和 1 个 Tensor core，4 个 LD/ST 和 SFU；下面接 SM 共享的 128 KB L1 / shared memory">
@@ -345,7 +345,7 @@ CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 
   <path d="M74 86 L20 126 M108 86 L370 126" stroke="currentColor" stroke-opacity=".3" stroke-dasharray="3 3" fill="none"/>
   <text class="lab" x="32" y="143">block（Triton 的 program）</text>
   <rect x="32" y="150" width="326" height="16" rx="3" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="195" y="162" text-anchor="middle">shared memory：块内共享，可以同步</text>
+  <text class="s" x="195" y="162" text-anchor="middle">shared memory：block 内共享，可以同步</text>
   <rect x="32" y="172" width="76" height="16" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
   <text class="s" x="70" y="184" text-anchor="middle">warp 0</text>
   <rect x="115" y="172" width="76" height="16" rx="3" style="fill: color-mix(in srgb, var(--fig-2) 18%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
@@ -543,13 +543,13 @@ block 放到 SM 上以后就一直驻留，直到它的 thread 全部跑完。�
 <figcaption><strong>图 1-6</strong> 一个 SM 上驻留 3 个 block（B0、B1、B2）时的某一拍。格子里写的是这个 warp 属于哪个 block，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。</figcaption>
 </figure>
 
-block 之间不能直接共享数据，只能通过显存交换，而这正是最慢的一层。所以要尽量把会重复读的数据放进同一个 block 里处理，这就是分块（tiling）。在 CUDA 里分块要自己管 shared memory 和 thread 同步，[第 2 节](#triton)的 Triton 把这部分交给编译器。
+block 之间不能直接共享数据，只能通过显存交换，而这正是最慢的一层。所以要尽量把会重复读的数据放进同一个 block 里处理，这就是 tiling。在 CUDA 里做 tiling 要自己管 shared memory 和 thread 同步，[第 2 节](#triton)的 Triton 把这部分交给编译器。
 
 ---
 
 ## 2 Triton：按 block 写 kernel {#triton}
 
-Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的分块。CUDA 要写清楚每个 thread 做什么，shared memory 和同步都要自己管；Triton 只写一个 block 做什么：把一块数据读进来，在片上算完，再写回显存，块内怎么分给 thread、要不要经过 shared memory 由编译器决定。Triton 把一个 block 叫作一个 program（[表 2-1](#tab-2-1)）。
+Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的 tiling。CUDA 要写清楚每个 thread 做什么，shared memory 和同步都要自己管；Triton 只写一个 block 做什么：把一个 block 的数据读进来，在片上算完，再写回显存，block 内怎么分给 thread、要不要经过 shared memory 由编译器决定。Triton 把一个 block 叫作一个 program（[表 2-1](#tab-2-1)）。
 
 | CUDA | Triton | 写法 | 能否直接控制 |
 |:--|:--|:--|:--|
@@ -560,14 +560,14 @@ Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的分块。CU
 | shared memory | 由编译器分配 | 没有对应语句 | 不能 |
 {#tab-2-1 caption="**表 2-1** CUDA 概念在 Triton 里的对应"}
 
-下面四个例子由浅入深。grid 怎么切，看一个输出依赖哪些输入；program 里要不要循环，看这些输入能不能一次装进 register，装不下就要一块一块读，用一个累加器（accumulator）存中间结果：
+下面四个例子由浅入深。grid 怎么切，看一个输出依赖哪些输入；program 里要不要循环，看这些输入能不能一次装进 register，装不下就要一个 block 一个 block 地读，用一个累加器（accumulator）存中间结果：
 
 | op | 类型 | 一个输出依赖 | grid 怎么切 | program 里 |
 |:--|:--|:--|:--|:--|
 | GELU | 逐元素 | 同位置的一个输入 | 展平成一维，按 BLOCK 切段 | 不循环 |
 | softmax | 按行归约 | 整行（max 和 sum） | 一行一个 program | 不循环，整行一次读进来 |
 | row sum | 按行归约 | 整行（sum） | 一行一个 program | 沿行循环，累加器存部分和 |
-| matmul | 分块乘加 | A 的一行、B 的一列 | 二维，C 的一块一个 program | 沿 K 循环，累加器存 C 的一块 |
+| matmul | block 乘加 | A 的一行、B 的一列 | 二维，C 的一个 block 一个 program | 沿 K 循环，累加器存 C 的一个 block |
 {#tab-2-2 caption="**表 2-2** 四个例子的 op 类型"}
 
 代码都在 RTX 5090 上和 PyTorch 对照过。每个例子配一张数据流图：左边是 grid，右边从上到下是计算单元、register、shared memory 和显存（芯片外的 GDDR7）。`tl.load` 和 `tl.store` 在显存和 register 或 shared memory 之间直接搬数据，计算单元只读写 register。中间经过的 L2 和 L1 cache 由硬件自动管理，图里不画。
@@ -758,7 +758,7 @@ n = 8388608 时 Triton 版 45.2 µs，读写共 64 MiB，有效带宽 1.49e12 B/
 
 全卡一次放得下 170 × 12 = 2040 个 program，8192 个要 5 批，第 5 批只有 32 个。实测的时间线上批次之间却没有分界（[图 2-1a](#fig-t-5)）：一个 program 跑完，它的名额马上换下一个进来，第 2 批在 2.6 µs 就开始了，第 1 批到 15.4 µs 才全部跑完。同一批的 program 都在抢显存带宽，耗时从 4.2 µs 到 11.9 µs 不等（10% 和 90% 分位）。36.5 µs 时最后一个 program 开始，之后名额一个个空出来，在跑的 program 从 1400 个左右降到 0，这段约 10 µs，占整个 kernel 的 22%，叫 tail effect。打点的开销很小：打点版 46.9 µs，不打点 45.2 µs。
 
-program 少而每个都重时，尾巴更明显。[2.4 节](#triton-matmul)的 matmul 每个 SM 只放 3 个 program，全卡一批 510 个：A 是 4032 × 2048 时 504 个 program 一批放下，157.9 µs；A 是 4096 × 2048 时 512 个，多出的 2 个要单独跑一批，203.1 µs。计算量只多 1.6%，耗时多 29%。
+program 少而每个都重时尾巴更明显，[2.4 节](#triton-matmul)的 matmul 就是这样（[图 2-4a](#fig-t-7)）。
 
 <figure id="fig-t-5" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 404" width="100%" role="img" aria-label="GELU 的 8192 个 program 在 170 个 SM 上的实测时间线：上面是全卡同时在跑的 program 数，按批次堆叠，最多 2040 个；下面是一个 SM 的 12 个名额，前一个 program 结束就换下一个进来，批次之间没有清楚的分界，最后一批只有 32 个">
@@ -1084,20 +1084,20 @@ def softmax(x):
 
 4096 × 4096 的 fp32 输入，eager 版 246.9 µs，Triton 版 92.4 µs，快 2.7 倍，和 `torch.softmax`（92.3 µs）持平，有效带宽 1.45e12 B/s，是显存带宽的 81%。eager 版读写量是 4 倍，慢得却不到 4 倍：按读写量算它的带宽是 2.17e12 B/s，超过了显存带宽，说明 64 MiB 的中间结果有一部分直接在 96 MB 的 L2 里命中了。
 
-[图 2-2](#fig-t-2) 里的 warp max、warp sum 是 shared memory 在这个 kernel 里唯一的用处：`tl.max`、`tl.sum` 先在每个 warp 内用 shuffle 归约，4 个 warp 的部分结果再经 shared memory 交换，一共 16 B。整块数据什么时候值得放进 shared memory，[2.4 节](#triton-matmul)再讲。
+[图 2-2](#fig-t-2) 里的 warp max、warp sum 是 shared memory 在这个 kernel 里唯一的用处：`tl.max`、`tl.sum` 先在每个 warp 内用 shuffle 归约，4 个 warp 的部分结果再经 shared memory 交换，一共 16 B。把一整个 block 的数据放进 shared memory 什么时候值得，[2.4 节](#triton-matmul)再讲。
 
-这个写法要求 BLOCK ≥ N，也就是一行能一次装进一个 program。行再长，program 就只能沿行一块一块地读，读过的块要留下一个中间结果。下一节先看最简单的按行归约：求和。
+这个写法要求 BLOCK ≥ N，也就是一行能一次装进一个 program。行再长，program 就只能沿行一个 block 一个 block 地读，读过的 block 要留下一个中间结果。下一节先看最简单的按行归约：求和。
 
-### 2.3 Row sum：按行归约，分块累加 {#triton-rowsum}
+### 2.3 Row sum：按行归约，按 block 累加 {#triton-rowsum}
 
 row sum 对 `[M, N]` 的输入每行求和：
 
 <p align="center">$s_i = \sum_{j=1}^{N} x_{ij} = \sum_{T} \ \sum_{j \in \mathcal{J}_T} x_{ij}$</p>
 
-$\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。加法满足结合律，先把每块加起来再相加，和一次加完是同一个数（浮点数下只差舍入误差），所以 program 可以沿行一块一块地读，每读一块就加到累加器上（[图 2-3](#fig-t-3)）。
+$\mathcal{J}_T$ 是第 $T$ 个 block 的 TILE 个列下标，代码里 TILE 取 1024。加法满足结合律，先把每个 block 加起来再相加，和一次加完是同一个数（浮点数下只差舍入误差），所以 program 可以沿行一个 block 一个 block 地读，每读一个 block 就加到累加器上（[图 2-3](#fig-t-3)）。
 
 <figure id="fig-t-3" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 380" width="100%" role="img" aria-label="row sum kernel：一行一个 program；tl.load 一轮把一块从显存直接读进 register，计算单元把它加到 acc 上，颜色深浅是 for 循环的顺序；acc 一直留在 register 里，最后归约成一个数，tl.store 写回">
+<svg class="fg" viewBox="0 0 640 380" width="100%" role="img" aria-label="row sum kernel：一行一个 program；tl.load 一轮把一个 block 从显存直接读进 register，计算单元把它加到 acc 上，颜色深浅是 for 循环的顺序；acc 一直留在 register 里，最后归约成一个数，tl.store 写回">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -1120,7 +1120,7 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。
   <defs><marker id="fig-t-3-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-t-3-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker><marker id="fig-t-3-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-2)"/></marker><marker id="fig-t-3-m3" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker></defs>
   <text class="ttl" x="10" y="16">grid</text>
   <text class="ttl" x="162" y="16">一个 program（pid = 1）</text>
-  <text class="tb" x="630" y="16" text-anchor="end" style="fill: var(--fig-hi)">按行归约，分块累加</text>
+  <text class="tb" x="630" y="16" text-anchor="end" style="fill: var(--fig-hi)">按行归约，按 block 累加</text>
   <rect x="10" y="28" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
   <text class="t" x="69" y="46" text-anchor="middle">行 0</text>
   <rect x="10" y="60" width="118" height="26" rx="5" style="fill: color-mix(in srgb, var(--fig-1) 30%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
@@ -1213,7 +1213,7 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。
   <text class="tb" x="461.0" y="62" text-anchor="middle">add</text><text class="s" x="461.0" y="77" text-anchor="middle">acc += x</text>
   <rect class="op" x="506.7" y="46" width="71.3" height="38" rx="6"/>
   <text class="tb" x="542.3" y="62" text-anchor="middle">reduce</text><text class="s" x="542.3" y="77" text-anchor="middle">tl.sum</text>
-  <text class="lab2" x="152" y="348">图里 TILE = 4（代码里 1024），一行 16 个数分 4 块，颜色由淡到浓是 for 循环读的顺序；</text>
+  <text class="lab2" x="152" y="348">图里 TILE = 4（代码里 1024），一行 16 个数分 4 个 block，颜色由淡到浓是 for 循环读的顺序；</text>
   <text class="lab2" x="152" y="363">acc 逐位累加，一直在 register 里；最后的 tl.sum 跨 4 个 warp，经 shared memory 交换（16 B）。</text>
   <defs><linearGradient id="fig-t-3-acc" x1="0" x2="1" y1="0" y2="0"><stop offset="0.00" style="stop-color: var(--fig-1)" stop-opacity="0.12"/><stop offset="0.33" style="stop-color: var(--fig-1)" stop-opacity="0.34"/><stop offset="0.67" style="stop-color: var(--fig-1)" stop-opacity="0.56"/><stop offset="1.00" style="stop-color: var(--fig-1)" stop-opacity="0.78"/></linearGradient></defs>
   <rect x="210.0" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
@@ -1228,7 +1228,7 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。
   <rect x="243.0" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
   <rect x="243.0" y="112" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
   <text class="s" x="248.5" y="123.5" text-anchor="middle" style="opacity: .9">3</text>
-  <text class="s" x="210.0" y="107">块 0</text>
+  <text class="s" x="210.0" y="107">block 0</text>
   <line x1="232.0" y1="254.0" x2="232.0" y2="130.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-3-m1)"/>
   <text class="s" x="236.0" y="196.0" text-anchor="start" style="fill: var(--fig-1)">tl.load</text>
   <rect x="373.3" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.78"/>
@@ -1243,7 +1243,7 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。
   <rect x="406.3" y="112" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.78"/>
   <rect x="406.3" y="112" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
   <text class="s" x="411.8" y="123.5" text-anchor="middle" style="fill: var(--fig-on-1)">2</text>
-  <text class="s" x="373.3" y="107">块 3</text>
+  <text class="s" x="373.3" y="107">block 3</text>
   <line x1="395.3" y1="254.0" x2="395.3" y2="130.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-3-m1)"/>
   <text class="s" x="399.3" y="196.0" text-anchor="start" style="fill: var(--fig-1)">tl.load</text>
   <line x1="246.0" y1="108.0" x2="281.7" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m2)"/>
@@ -1366,10 +1366,10 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。
   <line x1="313.7" y1="238" x2="313.7" y2="286" style="stroke: var(--fig-1)" stroke-width="1.2"/>
   <line x1="368.1" y1="238" x2="368.1" y2="286" style="stroke: var(--fig-1)" stroke-width="1.2"/>
   <text class="s" x="426.6" y="265.5">行 1</text>
-  <text class="s" x="232.0" y="298" text-anchor="middle">块 0</text>
-  <text class="s" x="286.4" y="298" text-anchor="middle">块 1</text>
-  <text class="s" x="340.9" y="298" text-anchor="middle">块 2</text>
-  <text class="s" x="395.3" y="298" text-anchor="middle">块 3</text>
+  <text class="s" x="232.0" y="298" text-anchor="middle">block 0</text>
+  <text class="s" x="286.4" y="298" text-anchor="middle">block 1</text>
+  <text class="s" x="340.9" y="298" text-anchor="middle">block 2</text>
+  <text class="s" x="395.3" y="298" text-anchor="middle">block 3</text>
   <text class="s" x="313.7" y="312" text-anchor="middle">x [4096, 4096]，64 MiB</text>
   <rect x="600.0" y="238" width="16" height="16" fill="none"/><rect x="600.0" y="238" width="16" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
   <rect x="600.0" y="254" width="16" height="16" style="fill: var(--fig-1)" fill-opacity=".78"/><rect x="600.0" y="254" width="16" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
@@ -1380,7 +1380,7 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。
   <line x1="608.0" y1="130.0" x2="608.0" y2="253.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-3-m1)"/>
   <text class="s" x="604.0" y="152.0" text-anchor="end" style="fill: var(--fig-1)">tl.store</text>
 </svg>
-<figcaption><strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 块，代码里 TILE = 1024。颜色由淡到浓是 for 循环读块的顺序：第 0 轮后 acc 只有第 0 块的数，最后的 acc 是 4 块逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。</figcaption>
+<figcaption><strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 个 block，代码里 TILE = 1024。颜色由淡到浓是 for 循环读 block 的顺序：第 0 轮后 acc 只有 block 0 的数，最后的 acc 是 4 个 block 逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。</figcaption>
 </figure>
 
 累加器 `acc` 是一个长度为 TILE 的向量，不是一个数：循环里每个 thread 只加自己负责的几个位置，thread 之间不需要通信；循环结束后，`tl.sum` 再做一次跨 thread 归约，把 TILE 个部分和加成一个数。
@@ -1390,7 +1390,7 @@ $\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。
 def row_sum_kernel(x_ptr, out_ptr, N, TILE: tl.constexpr):
     row = tl.program_id(0)
     acc = tl.zeros([TILE], dtype=tl.float32)  # TILE 路部分和，不是一个标量
-    for start in range(0, N, TILE):           # 行比 TILE 长：一块一块串行读
+    for start in range(0, N, TILE):           # 行比 TILE 长：一个 block 一个 block 串行读
         cols = start + tl.arange(0, TILE)
         acc += tl.load(x_ptr + row * N + cols, mask=cols < N, other=0.0)
     tl.store(out_ptr + row, tl.sum(acc, axis=0))  # 最后只做一次跨 thread 归约
@@ -1408,24 +1408,24 @@ def row_sum(x, TILE=1024):
 
 4096 × 4096 时 54.6 µs，有效带宽 1.23e12 B/s，是显存带宽的 69%，比 `x.sum(1)`（50.8 µs）慢 7%。
 
-softmax 不能直接这样分块。$e^{x_{ij} - m_i}$ 要先知道整行的最大值 $m_i$，读完整行才知道。分块时累加器里要同时存目前的最大值和部分和，最大值变大时把已有的部分和乘上 $e^{m_{\text{old}} - m_{\text{new}}}$ 修正，这就是 online softmax，[FlashAttention](/blog/flashattention-1-to-4/) 那篇会讲。
+softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行的最大值 $m_i$，读完整行才知道。按 block 读时，累加器里要同时存目前的最大值和部分和，最大值变大时把已有的部分和乘上 $e^{m_{\text{old}} - m_{\text{new}}}$ 修正，这就是 online softmax，[FlashAttention](/blog/flashattention-1-to-4/) 那篇会讲。
 
-前面三个例子里每个数只读一次，分块只是为了把工作分给不同的 program。矩阵乘不同：A 的每个元素要和 B 的一整列相乘，分块是为了让读进片上的数据被多次使用。它也要沿 K 循环，累加器是 C 的一块。
+前面三个例子里每个数只读一次，切 block 只是为了把工作分给不同的 program。矩阵乘不同：A 的每个元素要和 B 的一整列相乘，切 block 是为了让读进片上的数据被多次使用。它也要沿 K 循环，累加器是 C 的一个 block。
 
-### 2.4 Matmul：分块乘加，顺手融合 ReLU {#triton-matmul}
+### 2.4 Matmul：block 乘加，顺手融合 ReLU {#triton-matmul}
 
 `[M, K] × [K, N]` 的矩阵乘再接 ReLU：
 
 <p align="center">$C_{ij} = \max\left(0,\ \sum_{k=1}^{K} A_{ik} B_{kj}\right)$</p>
 
-把 M、N、K 分别按 BM、BN、BK 切块，记 $A_{IT}$ 是 A 的第 $I$ 个行块、第 $T$ 个列块（BM × BK），$B_{TJ}$、$C_{IJ}$ 同理。$C_{IJ}$ 只用到 A 的第 $I$ 个行块和 B 的第 $J$ 个列块，不同的 $C_{IJ}$ 可以交给不同的 program。对 $k$ 的求和再按 BK 分段，$\mathcal{K}_T$ 是第 $T$ 段的 BK 个下标：
+把 M、N、K 分别按 BM、BN、BK 切成 block，记 $A_{IT}$ 是 A 的第 $I$ 个 row block 和第 $T$ 个 column block 交叉处的 block（BM × BK），$B_{TJ}$、$C_{IJ}$ 同理。$C_{IJ}$ 只用到 A 的第 $I$ 个 row block 和 B 的第 $J$ 个 column block，不同的 $C_{IJ}$ 可以交给不同的 program。对 $k$ 的求和再按 BK 分段，$\mathcal{K}_T$ 是第 $T$ 段的 BK 个下标：
 
 <p align="center">$\sum_{k=1}^{K} A_{ik} B_{kj} = \sum_{T=1}^{K/\mathrm{BK}} \ \sum_{k \in \mathcal{K}_T} A_{ik} B_{kj}, \qquad C_{IJ} = \max\left(0,\ \sum_{T} A_{IT}\, B_{TJ}\right)$</p>
 
-和 row sum 一样，分段加完再相加等于一次加完，所以每轮只读 $A_{IT}$、$B_{TJ}$ 两个小块，乘完累加，最后就是完整的 $C_{IJ}$。ReLU 逐元素作用在累加完的结果上，放在最后做。
+和 row sum 一样，分段加完再相加等于一次加完，所以每轮只读 $A_{IT}$、$B_{TJ}$ 两个 block，乘完累加，最后就是完整的 $C_{IJ}$。ReLU 逐元素作用在累加完的结果上，放在最后做。
 
 <figure id="fig-t-4" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 435" width="100%" role="img" aria-label="matmul kernel（A 4096 × 2048，B 2048 × 512）：C 的每一块一个 program；program (1, 1) 沿 K 一轮用 cp.async 把 A、B 各一块从显存直接搬进 shared memory，tl.dot 从 shared memory 读一小片进 register 做乘加，acc 留在 register 里，中间几轮用 ⋯ 省略，最后 ReLU 后 tl.store 写回 C 的 (1, 1) 块">
+<svg class="fg" viewBox="0 0 640 435" width="100%" role="img" aria-label="matmul kernel（A 4096 × 2048，B 2048 × 512）：C 的每个 block 一个 program；program (1, 1) 沿 K 一轮用 cp.async 把 A、B 各一个 block 从显存直接搬进 shared memory，tl.dot 从 shared memory 读一小片进 register 做乘加，acc 留在 register 里，中间几轮用 ⋯ 省略，最后 ReLU 后 tl.store 写回 C 的 block (1, 1)">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -1448,7 +1448,7 @@ softmax 不能直接这样分块。$e^{x_{ij} - m_i}$ 要先知道整行的最�
   <defs><marker id="fig-t-4-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-t-4-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-2)"/></marker><marker id="fig-t-4-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker><marker id="fig-t-4-m3" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker></defs>
   <text class="ttl" x="10" y="16">grid</text>
   <text class="ttl" x="162" y="16">一个 program（pid_m = 1，pid_n = 1）</text>
-  <text class="tb" x="630" y="16" text-anchor="end" style="fill: var(--fig-hi)">分块乘加</text>
+  <text class="tb" x="630" y="16" text-anchor="end" style="fill: var(--fig-hi)">block 乘加</text>
   <rect x="10" y="28" width="36" height="23" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
   <rect x="50" y="28" width="36" height="23" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
   <rect x="10" y="55" width="36" height="23" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
@@ -1458,7 +1458,7 @@ softmax 不能直接这样分块。$e^{x_{ij} - m_i}$ 要先知道整行的最�
   <rect x="50" y="82" width="36" height="23" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
   <rect x="10" y="109" width="36" height="23" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
   <rect x="50" y="109" width="36" height="23" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <text class="lab2" x="10" y="148">C 的每一块一个 program</text>
+  <text class="lab2" x="10" y="148">每个 C block 一个 program</text>
   <text class="lab2" x="10" y="168">grid = (M / BM, N / BN)</text>
   <text class="lab2" x="10" y="183">64 × 8 = 512 个 program</text>
   <text class="ttl" x="10" y="204">一个 SM</text>
@@ -1507,23 +1507,23 @@ softmax 不能直接这样分块。$e^{x_{ij} - m_i}$ 要先知道整行的最�
   <text class="tb" x="461.0" y="62" text-anchor="middle">dot</text><text class="s" x="461.0" y="77" text-anchor="middle">tl.dot</text>
   <rect class="op" x="506.7" y="46" width="71.3" height="38" rx="6"/>
   <text class="tb" x="542.3" y="62" text-anchor="middle">relu</text><text class="s" x="542.3" y="77" text-anchor="middle">tl.maximum</text>
-  <text class="lab2" x="152" y="388">cp.async 把 A、B 块从显存直接搬进 shared memory，tl.dot 从中读 a、b 到 register 做 FMA；</text>
-  <text class="lab2" x="152" y="403">K = 2048 按 BK = 32 切成 64 轮，图里只画第 0 轮和第 63 轮；虚线框是正在搬的下一轮；</text>
+  <text class="lab2" x="152" y="388">cp.async 把 A、B 的 block 从显存直接搬进 shared memory，tl.dot 从中读 a、b 到 register 做 FMA；</text>
+  <text class="lab2" x="152" y="403">K 按 BK = 32 切成 64 轮（T = 0 … 63），只画 T = 0 和 63；虚线框是正在搬的下一轮；</text>
   <text class="lab2" x="152" y="418">写回前 acc 先经 shared memory 换一次排布，再从 register 写回显存。</text>
   <defs><linearGradient id="fig-t-4-acc" x1="0" x2="1" y1="0" y2="0"><stop offset="0.00" style="stop-color: var(--fig-1)" stop-opacity="0.12"/><stop offset="0.14" style="stop-color: var(--fig-1)" stop-opacity="0.21"/><stop offset="0.29" style="stop-color: var(--fig-1)" stop-opacity="0.31"/><stop offset="0.43" style="stop-color: var(--fig-1)" stop-opacity="0.40"/><stop offset="0.57" style="stop-color: var(--fig-1)" stop-opacity="0.50"/><stop offset="0.71" style="stop-color: var(--fig-1)" stop-opacity="0.59"/><stop offset="0.86" style="stop-color: var(--fig-1)" stop-opacity="0.69"/><stop offset="1.00" style="stop-color: var(--fig-1)" stop-opacity="0.78"/></linearGradient></defs>
-  <rect x="203.0" y="158" width="30" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="203.0" y="158" width="30" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
-  <text class="s" x="218.0" y="171" text-anchor="middle" >A 块</text>
-  <rect x="245.0" y="190" width="34" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="245.0" y="190" width="34" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
-  <text class="s" x="262.0" y="203" text-anchor="middle" >B 块</text>
+  <rect x="195.0" y="158" width="46" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="195.0" y="158" width="46" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
+  <text class="s" x="218.0" y="171" text-anchor="middle" >A block</text>
+  <rect x="239.0" y="190" width="46" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="239.0" y="190" width="46" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
+  <text class="s" x="262.0" y="203" text-anchor="middle" >B block</text>
   <rect x="249.0" y="111" width="34" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="249.0" y="111" width="34" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
   <text class="s" x="266.0" y="124" text-anchor="middle" >a、b</text>
   <line x1="224.0" y1="156.0" x2="258.0" y2="131.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <line x1="268.0" y1="188.0" x2="272.0" y2="131.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <line x1="280.0" y1="109.0" x2="281.7" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <rect x="366.3" y="158" width="30" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="366.3" y="158" width="30" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
-  <text class="s" x="381.3" y="171" text-anchor="middle" style="fill: var(--fig-on-1)">A 块</text>
-  <rect x="408.3" y="190" width="34" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="408.3" y="190" width="34" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
-  <text class="s" x="425.3" y="203" text-anchor="middle" style="fill: var(--fig-on-1)">B 块</text>
+  <rect x="358.3" y="158" width="46" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="358.3" y="158" width="46" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
+  <text class="s" x="381.3" y="171" text-anchor="middle" style="fill: var(--fig-on-1)">A block</text>
+  <rect x="402.3" y="190" width="46" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="402.3" y="190" width="46" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
+  <text class="s" x="425.3" y="203" text-anchor="middle" style="fill: var(--fig-on-1)">B block</text>
   <rect x="412.3" y="111" width="34" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="412.3" y="111" width="34" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
   <text class="s" x="429.3" y="124" text-anchor="middle" style="fill: var(--fig-on-1)">a、b</text>
   <line x1="387.3" y1="156.0" x2="421.3" y2="131.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
@@ -1538,15 +1538,16 @@ softmax 不能直接这样分块。$e^{x_{ij} - m_i}$ 要先知道整行的最�
   <line x1="509.7" y1="109.0" x2="526.3" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <path d="M297.7,44 L297.7,37 L461.0,37 L461.0,43" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-4-m2)"/>
   <text class="s" x="379.3" y="33" text-anchor="middle" style="fill: var(--fig-hi)">acc 带到下一轮</text>
-  <rect x="590.0" y="111" width="36" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="590.0" y="111" width="36" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
-  <text class="s" x="608.0" y="124" text-anchor="middle" style="fill: var(--fig-on-1)">C 块</text>
+  <text class="s" x="291.7" y="41" text-anchor="end" style="fill: var(--fig-hi)">T = 0</text><text class="s" x="467.0" y="41" style="fill: var(--fig-hi)">T = 63</text>
+  <rect x="585.0" y="111" width="46" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="585.0" y="111" width="46" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
+  <text class="s" x="608.0" y="124" text-anchor="middle" style="fill: var(--fig-on-1)">C block</text>
   <line x1="558.3" y1="86.0" x2="594.0" y2="109.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
-  <rect x="579.0" y="176" width="30" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="579.0" y="176" width="30" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
-  <text class="s" x="594.0" y="189" text-anchor="middle" style="fill: var(--fig-on-1)">C 块</text>
+  <rect x="563.0" y="176" width="46" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="563.0" y="176" width="46" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
+  <text class="s" x="586.0" y="189" text-anchor="middle" style="fill: var(--fig-on-1)">C block</text>
   <line x1="591.0" y1="131.0" x2="591.0" y2="174.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <line x1="600.0" y1="174.0" x2="600.0" y2="131.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <rect x="285.7" y="172" width="74" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-dasharray="3 2" stroke-opacity=".7"/>
-  <text class="s" x="322.7" y="185" text-anchor="middle">第 1 轮 A、B</text><text class="s" x="322.7" y="203" text-anchor="middle">正在搬</text>
+  <text class="s" x="322.7" y="185" text-anchor="middle">T = 1 的 A、B</text><text class="s" x="322.7" y="203" text-anchor="middle">正在搬</text>
   <rect x="202.0" y="244" width="6" height="6" fill="none"/>
   <rect x="202.0" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="208.0" y="244" width="6" height="6" fill="none"/>
@@ -1913,7 +1914,7 @@ softmax 不能直接这样分块。$e^{x_{ij} - m_i}$ 要先知道整行的最�
   <text class="s" x="630.0" y="366.0" text-anchor="end">8 MiB</text>
   <line x1="618.0" y1="131.0" x2="608.0" y2="249.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-4-m3)"/>
   <text class="s" x="606.0" y="226" text-anchor="end" style="fill: var(--fig-1)">tl.store</text>
-  <text class="s" x="276.0" y="296">for 循环沿 K 读块的顺序</text>
+  <text class="s" x="276.0" y="296">沿 K 第 T 轮读的 block：T = 0 … 63</text>
   <rect x="276.0" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.12" stroke-opacity=".4" stroke-width=".6"/>
   <rect x="288.0" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.21" stroke-opacity=".4" stroke-width=".6"/>
   <rect x="300.0" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.31" stroke-opacity=".4" stroke-width=".6"/>
@@ -1922,26 +1923,27 @@ softmax 不能直接这样分块。$e^{x_{ij} - m_i}$ 要先知道整行的最�
   <rect x="336.0" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.59" stroke-opacity=".4" stroke-width=".6"/>
   <rect x="348.0" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.69" stroke-opacity=".4" stroke-width=".6"/>
   <rect x="360.0" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.78" stroke-opacity=".4" stroke-width=".6"/>
-  <text class="s" x="276.0" y="325">第 0 轮</text><text class="s" x="372.0" y="325" text-anchor="end">第 63 轮</text>
+  <text class="s" x="276.0" y="325">T = 0</text><text class="s" x="372.0" y="325" text-anchor="end">T = 63</text>
+  <text class="s" x="276.0" y="342">每轮读 A 的 64 × 32、B 的 32 × 64（BK = 32）；</text><text class="s" x="276.0" y="356">图里一格 256 列，是 8 轮</text>
 </svg>
-<figcaption><strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 行块和 B 的第 1 列块，颜色由淡到浓是沿 K 读块的顺序，acc 一轮轮累积，ReLU 后写回 C 的 (1, 1) 块。</figcaption>
+<figcaption><strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 个 row block 和 B 的第 1 个 column block，颜色由淡到浓是沿 K 读 block 的顺序，acc 一轮轮累积，ReLU 后写回 C 的 block (1, 1)。</figcaption>
 </figure>
 
 一个 program 负责一个 $C_{IJ}$（[图 2-4](#fig-t-4)），沿 K 循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上；写回前在 register 里做 ReLU，激活函数不用再单独一个 kernel 读写一遍 C：
 
-```python {role="program" tag="算 C 的第 (pid_m, pid_n) 块"}
+```python {role="program" tag="算 C 的第 (pid_m, pid_n) 个 block"}
 @triton.jit
 def matmul_relu_kernel(a_ptr, b_ptr, c_ptr, M, N, K,
                        sam, sak, sbk, sbn, scm, scn,
                        BM: tl.constexpr, BN: tl.constexpr, BK: tl.constexpr):
-    pid_m, pid_n = tl.program_id(0), tl.program_id(1)   # 负责 C 的第 (pid_m, pid_n) 块
+    pid_m, pid_n = tl.program_id(0), tl.program_id(1)   # 负责 C 的第 (pid_m, pid_n) 个 block
     rm = pid_m * BM + tl.arange(0, BM)
     rn = pid_n * BN + tl.arange(0, BN)
     rk = tl.arange(0, BK)
     a_ptrs = a_ptr + rm[:, None] * sam + rk[None, :] * sak  # [BM, BK] 的指针
     b_ptrs = b_ptr + rk[:, None] * sbk + rn[None, :] * sbn  # [BK, BN] 的指针
     acc = tl.zeros([BM, BN], dtype=tl.float32)
-    for k in range(0, K, BK):                 # 沿 K 一块一块乘加
+    for k in range(0, K, BK):                 # 沿 K 一个 block 一个 block 乘加
         a = tl.load(a_ptrs, mask=(rm[:, None] < M) & (rk[None, :] + k < K), other=0.0)
         b = tl.load(b_ptrs, mask=(rk[:, None] + k < K) & (rn[None, :] < N), other=0.0)
         acc += tl.dot(a, b, input_precision="ieee")  # fp32 默认会走 tf32，这里要求精确的 fp32
@@ -1954,7 +1956,7 @@ def matmul_relu_kernel(a_ptr, b_ptr, c_ptr, M, N, K,
 
 grid 是二维的：
 
-```python {role="grid" tag="C 的每一块一个 program，二维"}
+```python {role="grid" tag="C 的每个 block 一个 program，二维"}
 def matmul_relu(a, b, BM=64, BN=64, BK=32):
     M, K = a.shape
     _, N = b.shape
@@ -1966,22 +1968,96 @@ def matmul_relu(a, b, BM=64, BN=64, BK=32):
 
 <div class="nv-key">
 
-**shared memory 什么时候值得用**：一是同一份数据要被读很多次（复用），二是 thread 之间要交换大量数据。
+**shared memory 什么时候值得用**：满足下面任一条。
 
-matmul 两条都满足：A 的一块要和 B 块的 64 列都乘一遍，`tl.dot` 还要把 A、B 块重新分给不同的 thread，所以 A、B 块放在 shared memory 里，每个 program 32 KiB。softmax 和 row sum 两条都不满足：每个数只被一个 thread 读一次，thread 之间只交换 4 个 warp 的部分结果（16 B），把数据整块放进 shared memory 只会多搬一趟。代价是 shared memory 用得越多，一个 SM 能同时放的 program 越少：每个 SM 的上限是 100 KiB，matmul 每个 program 占 32 KiB，再加每个 block 保留的 1 KiB，只放得下 3 个（3 × 33 = 99 KiB）。
+- **复用**：同一份数据要被读很多次。matmul 里 A 的一个 block 要和 B 的 block 的 64 列都乘一遍；softmax 和 row sum 里每个数只被一个 thread 读一次。
+- **交换**：thread 之间要交换大量数据。matmul 里 `tl.dot` 要把 A、B 的 block 重新分给不同的 thread；softmax 和 row sum 只交换 4 个 warp 的部分结果（16 B）。
+
+所以 matmul 把 A、B 的 block 放在 shared memory 里，每个 program 32 KiB；softmax 和 row sum 两条都不满足，把整个 block 放进 shared memory 只会多搬一趟。代价是 shared memory 用得越多，一个 SM 能同时放的 program 越少：每个 SM 的上限是 100 KiB，matmul 每个 program 占 32 KiB，再加每个 block 保留的 1 KiB，只放得下 3 个（3 × 33 = 99 KiB）。
 
 </div>
 
-A 4096 × 2048、B 2048 × 512 时 Triton 版 203.1 µs，4.23e13 FLOPS，是 fp32 标称峰值的 40%（170 个 SM × 128 个 CUDA core × 2 FLOPs × 2.41e9 Hz = 1.05e14 FLOPS）；cuBLAS（`torch.relu(A @ B)`，关掉 tf32）是 160.3 µs。差距主要是 tail effect：A 少 64 行、504 个 program 一批放下时，同一个 kernel 只要 157.9 µs（见 2.1 节旁注里的 [图 2-1a](#fig-t-5) 下方）。
+A 4096 × 2048、B 2048 × 512 时 Triton 版 203.1 µs，4.23e13 FLOPS，是 fp32 标称峰值 1.05e14 FLOPS 的 40%；cuBLAS（`torch.relu(A @ B)`，关掉 tf32）是 160.3 µs。差距主要来自 tail effect。
 
-Triton 默认 `num_stages=3`，编译器把这个循环改写成流水线：A、B 各开两个槽，算第 $T$ 轮时，第 $T+1$ 轮的块已经在搬了。
+<details class="fold doc aside">
+<summary>matmul 的 tail effect：512 个 program 分两批</summary>
+
+fp32 标称峰值按 170 个 SM × 128 个 CUDA core × 2 FLOPs × 2.41e9 Hz 算。每个 SM 只放 3 个 program，全卡一批 510 个，512 个 program 多出 2 个。实测的时间线上（[图 2-4a](#fig-t-7)），510 个 program 在开头一起开始，各跑 125 到 152 µs；全卡最先跑完的两个 program 在 SM 68 和 SM 135 上，约 125 µs 结束，多出的 2 个这时才开始。152 µs 以后全卡只剩这 2 个 program，另外 168 个 SM 空着，一直等到 200 µs。这 2 个 program 后半段独占一个 SM，只跑了 75 µs，比第一批的中位数 135 µs 快得多。
+
+A 换成 4032 × 2048 时 504 个 program 一批放下，同一个 kernel 只要 157.9 µs，和 cuBLAS 相当。4096 比 4032 的计算量只多 1.6%，耗时多 29%。打点的开销不大：打点版 210.8 µs 和 162.8 µs，不打点 203.1 µs 和 157.9 µs。
+
+<figure id="fig-t-7" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 352" width="100%" role="img" aria-label="matmul 的 program 实测时间线：A 4096 × 2048 时 512 个 program，第一批 510 个一起开始；多出的 2 个等到 124.9 µs 才开始，152 µs 以后全卡只有这 2 个在跑，到 200 µs 结束。A 4032 × 2048 时 504 个一批放下，152 µs 结束">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <text class="lab2" x="74" y="26">全卡同时在跑的 program 数；虚线是 170 个 SM × 3 = 510 个名额</text>
+  <line class="grid" x1="74" y1="176.0" x2="620" y2="176.0"/><text class="tick" x="66" y="180.0" text-anchor="end">0</text>
+  <line class="grid" x1="74" y1="151.8" x2="620" y2="151.8"/><text class="tick" x="66" y="155.8" text-anchor="end">100</text>
+  <line class="grid" x1="74" y1="127.5" x2="620" y2="127.5"/><text class="tick" x="66" y="131.5" text-anchor="end">200</text>
+  <line class="grid" x1="74" y1="103.3" x2="620" y2="103.3"/><text class="tick" x="66" y="107.3" text-anchor="end">300</text>
+  <line class="grid" x1="74" y1="79.1" x2="620" y2="79.1"/><text class="tick" x="66" y="83.1" text-anchor="end">400</text>
+  <line class="grid" x1="74" y1="52.4" x2="620" y2="52.4"/><text class="tick" x="66" y="56.4" text-anchor="end">510</text>
+  <line class="ref" x1="74" y1="52.4" x2="620" y2="52.4"/>
+  <rect x="470.4" y="50" width="124.0" height="126" style="fill: color-mix(in srgb, var(--fig-hi) 10%, transparent); stroke: var(--fig-hi)" stroke-width="0"/>
+  <text class="s" x="532.4" y="80" text-anchor="middle" style="fill: var(--fig-hi)">只剩 2 个</text><text class="s" x="532.4" y="94" text-anchor="middle" style="fill: var(--fig-hi)">program</text>
+  <polyline points="74.0,168.2 74.1,53.9 355.6,54.1 356.0,54.4 356.5,54.6 356.5,55.1 356.9,55.3 357.0,55.6 357.1,55.8 357.2,56.1 357.3,56.3 357.7,56.5 357.9,56.8 398.9,57.0 399.9,57.8 400.2,58.2 401.1,58.7 401.5,59.0 401.6,59.4 402.1,59.7 402.6,59.9 402.9,60.2 403.2,60.4 403.6,60.7 403.9,61.1 404.2,61.4 404.3,61.6 404.4,61.9 404.5,62.1 404.6,62.8 404.6,63.3 404.7,64.1 404.8,64.5 404.9,65.0 405.0,65.8 405.2,66.0 405.4,66.7 405.5,67.0 405.6,67.4 405.6,67.7 405.7,68.2 405.8,68.7 406.1,69.1 406.1,69.4 406.2,69.9 406.3,70.1 406.5,70.4 406.6,70.6 406.6,71.1 406.7,72.3 406.8,72.8 406.9,73.0 407.0,73.3 407.0,73.7 407.1,74.0 407.2,74.2 407.3,74.5 407.5,74.7 407.5,75.4 407.7,75.9 407.9,76.2 408.0,76.9 408.0,77.1 408.1,77.4 408.2,77.9 408.3,78.1 408.4,78.3 408.5,78.6 408.6,79.1 408.8,79.6 409.0,80.0 409.3,80.3 409.4,80.5 409.5,80.8 409.5,81.0 409.6,81.5 409.7,81.7 409.8,82.0 409.9,82.7 410.0,83.0 410.1,83.7 410.2,83.9 410.7,84.2 411.1,84.7 411.5,84.9 413.9,85.1 415.7,85.4 416.0,85.6 416.1,86.1 416.2,86.3 416.4,86.6 416.6,86.8 416.7,87.1 416.9,87.3 417.2,88.0 417.4,88.3 417.5,88.5 417.7,88.8 417.9,89.0 418.3,89.3 418.4,89.5 418.5,90.0 418.6,90.5 418.9,90.7 419.0,90.9 419.1,91.7 419.4,92.4 419.6,92.6 419.7,92.9 419.9,93.1 419.9,93.4 420.0,93.6 420.1,93.9 420.4,94.1 420.4,94.8 420.5,95.1 420.7,95.6 421.2,96.0 421.4,96.5 421.5,96.8 421.6,97.2 421.8,97.5 421.9,97.7 422.0,98.0 422.1,98.7 422.3,99.2 422.4,99.9 422.4,100.9 422.6,101.4 422.7,101.9 422.8,103.1 422.9,103.3 422.9,103.8 423.0,105.5 423.1,105.7 423.2,106.2 423.3,106.7 423.4,106.9 423.4,107.2 423.5,107.4 423.7,107.7 423.9,108.9 423.9,109.4 424.1,109.8 424.2,110.6 424.3,111.5 424.4,111.8 424.4,112.3 424.5,112.5 424.6,112.8 424.7,113.5 424.9,114.0 424.9,114.2 425.0,114.7 425.1,114.9 425.2,115.4 425.3,115.7 425.4,116.2 425.5,116.4 425.6,116.9 425.8,117.1 425.9,117.4 425.9,117.6 426.3,117.8 426.4,118.1 426.7,118.3 426.8,118.6 427.0,118.8 427.1,119.1 427.4,119.5 427.5,119.8 427.7,120.0 428.0,120.3 428.1,120.5 428.2,120.8 428.4,121.0 428.5,121.2 428.7,121.7 428.8,122.0 428.8,122.5 428.9,122.7 429.0,122.9 429.2,123.4 429.7,123.9 429.9,124.4 430.5,124.6 430.8,124.9 431.2,125.1 432.8,125.6 433.2,125.8 433.3,126.1 433.6,126.3 433.8,126.6 434.0,126.8 434.1,127.1 434.3,127.3 434.4,127.5 434.8,128.0 434.8,128.3 435.1,128.5 435.2,128.8 435.6,129.0 435.8,129.5 436.0,129.7 436.2,130.0 436.3,130.2 436.9,130.4 437.4,130.7 437.6,130.9 437.7,131.2 438.0,131.4 438.2,131.7 438.7,132.1 438.7,132.4 438.8,132.6 439.1,132.9 439.2,133.1 439.3,133.4 439.7,133.6 439.9,133.8 440.0,134.1 440.1,134.3 440.2,134.6 440.4,134.8 441.2,135.5 441.9,135.8 442.0,136.0 442.5,136.3 443.2,136.5 443.6,136.7 443.8,137.0 443.9,137.2 444.1,137.7 444.2,138.2 444.3,138.4 444.4,138.7 444.5,138.9 444.8,139.2 445.2,139.4 445.5,139.7 447.7,139.9 448.0,140.4 448.2,140.6 448.2,141.1 448.3,141.3 448.6,141.6 448.7,141.8 448.9,142.8 449.0,143.3 449.1,143.5 449.2,144.3 449.3,144.5 449.5,144.7 449.6,145.2 449.6,145.5 449.7,146.0 449.8,146.2 450.0,146.4 450.1,146.9 450.2,147.4 450.4,148.1 450.5,148.6 450.6,149.6 450.6,150.3 450.7,150.8 450.8,151.3 450.9,152.0 451.1,153.0 451.1,153.2 451.2,153.5 451.3,154.2 451.5,154.4 451.6,154.7 451.6,155.6 451.8,156.6 451.9,156.9 452.1,157.8 452.2,158.3 452.3,158.6 452.4,158.8 452.6,159.3 452.8,159.5 453.1,159.8 453.3,160.2 453.6,160.7 453.7,161.0 453.8,161.2 453.9,161.7 454.0,162.4 454.1,162.7 454.2,163.2 454.5,163.6 454.7,164.1 455.4,164.4 459.8,164.6 460.1,164.9 460.2,165.1 460.4,165.3 460.5,165.6 460.5,165.8 460.7,166.1 460.8,166.3 460.9,166.6 461.2,166.8 461.3,167.0 461.6,167.3 461.7,167.5 461.8,167.8 462.0,168.0 462.5,168.2 463.2,168.5 463.5,168.7 463.5,169.0 463.6,169.2 463.8,169.5 463.9,169.7 464.2,169.9 464.3,170.4 464.4,170.7 464.5,170.9 464.5,171.2 464.6,171.6 464.8,171.9 465.2,172.1 466.5,172.4 467.0,172.6 467.1,173.1 467.3,173.3 467.5,173.6 467.5,174.1 467.6,174.3 467.7,174.8 467.9,175.3 468.1,175.5 468.2,176.0" fill="none" style="stroke: var(--fig-2)" stroke-width="2" stroke-linejoin="round" stroke-dasharray="6 4"/>
+  <line x1="98" y1="116" x2="120" y2="116" style="stroke: var(--fig-2)" stroke-width="2" stroke-dasharray="6 4"/><text class="lab" x="128" y="120">A 4032 × 2048，504 个 program</text>
+  <polyline points="74.0,102.3 74.1,52.4 398.2,52.9 398.5,53.2 398.6,53.4 398.7,53.2 399.1,53.4 399.3,53.2 399.6,53.4 399.6,53.6 399.9,53.9 400.6,54.1 400.8,54.4 401.1,54.6 401.1,54.8 401.4,55.1 402.5,55.3 403.0,55.6 403.1,55.8 403.5,56.1 403.6,56.3 403.7,56.8 403.9,57.0 404.1,57.3 404.2,57.5 404.4,57.8 404.9,58.0 405.1,58.2 405.2,58.7 405.3,59.2 405.5,59.4 405.6,59.9 405.9,60.2 406.0,60.9 406.1,61.1 406.3,61.4 406.6,61.6 406.8,62.4 406.9,63.3 407.0,63.8 407.1,64.1 407.2,64.5 407.3,64.8 407.5,65.3 407.5,66.0 407.6,66.7 407.7,67.9 407.8,68.2 407.9,68.7 408.0,69.1 408.0,69.6 408.1,70.1 408.2,70.6 408.3,71.6 408.4,72.1 408.5,72.3 408.6,72.8 408.7,73.3 409.0,73.5 409.0,74.0 409.1,74.2 409.3,74.7 409.4,75.0 409.5,75.2 409.5,76.2 409.6,76.4 409.8,76.7 410.0,77.1 410.0,77.4 410.5,77.6 410.6,77.9 410.7,78.1 411.0,78.3 411.1,78.6 411.2,79.1 411.4,79.3 411.5,79.6 412.0,79.8 412.1,80.3 412.5,80.5 412.7,80.8 412.8,81.0 413.0,81.5 417.3,81.7 417.5,82.0 417.7,82.2 417.9,82.5 418.1,82.7 418.2,83.0 418.4,83.4 418.5,83.7 418.7,83.9 418.9,84.2 418.9,84.4 419.0,84.7 419.1,85.4 419.2,85.6 419.4,85.9 419.4,86.3 419.5,86.6 419.6,86.8 419.7,87.1 419.8,87.3 419.9,87.6 420.0,87.8 420.2,88.0 420.4,88.3 420.5,88.8 420.8,89.0 420.9,89.3 420.9,89.5 421.0,90.0 421.2,90.2 421.4,90.5 421.5,90.7 422.1,90.9 422.3,91.4 422.4,91.9 422.6,92.2 422.7,92.9 422.9,93.1 423.0,93.9 423.3,94.6 423.4,95.3 423.4,95.8 423.5,96.3 423.6,96.8 423.8,97.0 423.9,97.7 423.9,98.7 424.0,98.9 424.1,99.4 424.2,100.4 424.3,100.9 424.4,101.6 424.4,102.1 424.5,103.3 424.6,104.0 424.8,104.5 424.9,105.2 424.9,105.7 425.0,106.9 425.1,107.4 425.3,109.1 425.4,109.4 425.4,109.6 425.5,109.8 425.6,110.3 425.7,110.6 425.8,111.3 425.9,111.5 425.9,112.3 426.0,112.8 426.1,113.2 426.2,113.7 426.3,114.0 426.5,114.2 427.0,114.5 427.3,114.7 427.4,114.9 427.7,115.2 428.3,115.4 428.3,115.7 428.4,115.9 428.5,116.6 428.6,116.9 428.8,117.1 428.9,117.8 429.0,118.3 429.3,118.6 429.4,119.1 429.7,119.3 429.8,119.5 429.8,119.8 430.1,120.0 430.2,120.3 430.8,120.5 430.9,120.8 431.2,121.0 431.3,121.5 431.6,121.7 431.7,122.0 432.3,122.2 433.1,122.5 433.2,122.7 434.7,122.9 435.6,123.2 436.0,123.4 436.2,124.4 436.9,124.6 437.1,124.9 437.2,125.1 437.4,125.4 437.7,125.8 437.9,126.1 438.0,126.3 438.6,126.6 438.7,127.1 439.1,127.3 439.7,127.5 439.8,127.8 440.0,128.0 440.1,128.5 440.2,128.8 440.2,129.0 440.5,129.2 440.6,129.5 440.7,129.7 440.8,130.0 440.9,130.4 441.2,131.2 441.3,132.1 441.7,132.4 441.9,132.9 442.0,133.1 442.2,133.4 442.2,133.6 442.3,133.8 442.7,134.1 442.9,134.3 443.8,134.6 444.1,134.8 444.7,135.1 444.8,135.8 445.2,136.0 445.3,136.3 445.4,137.0 446.1,137.2 448.4,137.5 448.6,137.7 448.7,138.0 449.1,138.2 449.1,138.4 449.2,138.7 449.4,138.9 449.5,139.2 449.6,139.4 449.8,139.9 449.9,140.1 450.0,140.4 450.1,140.6 450.3,141.1 450.6,141.8 450.7,142.1 450.8,142.6 450.9,142.8 451.0,143.0 451.1,143.8 451.1,144.5 451.2,146.0 451.4,146.9 451.5,147.4 451.6,147.7 451.7,148.4 451.8,148.6 451.9,148.9 452.0,149.6 452.1,150.1 452.2,150.6 452.4,151.3 452.5,151.5 452.6,151.8 452.6,152.3 452.7,153.0 452.8,153.7 452.9,153.9 453.1,154.2 453.1,154.4 453.2,154.7 453.4,155.2 453.5,155.4 453.6,155.6 453.7,155.9 453.8,156.6 453.9,156.9 454.0,157.1 454.1,157.3 454.1,157.6 454.2,157.8 454.3,158.1 454.6,158.3 454.6,158.8 454.7,159.0 455.1,159.3 455.4,159.5 455.6,159.8 455.8,160.0 455.9,160.2 456.0,160.5 456.1,160.7 456.1,161.0 456.2,161.2 456.3,161.9 456.5,162.4 457.1,162.9 457.1,163.2 457.2,163.4 461.2,163.6 461.8,163.9 462.2,164.1 462.7,164.4 463.1,164.6 463.5,164.9 463.5,165.1 463.6,165.6 463.7,166.1 463.8,166.6 464.0,167.0 464.3,167.5 465.0,167.8 465.0,168.0 465.5,168.2 466.2,168.5 466.3,168.7 466.4,169.0 466.6,169.2 466.7,169.5 466.8,169.7 466.9,169.9 467.0,170.2 467.0,170.4 467.1,170.7 467.2,171.4 467.3,171.6 468.1,172.1 468.4,172.4 468.5,172.6 468.9,172.8 469.0,173.1 469.0,173.3 469.2,173.6 469.4,173.8 469.5,174.1 469.6,174.5 469.8,174.8 470.1,175.0 470.2,175.3 470.4,175.5 594.2,175.8 594.4,176.0" fill="none" style="stroke: var(--fig-1)" stroke-width="2" stroke-linejoin="round"/>
+  <line x1="98" y1="134" x2="120" y2="134" style="stroke: var(--fig-1)" stroke-width="2"/><text class="lab" x="128" y="138">A 4096 × 2048，512 个 program</text>
+  <text class="lab2" x="74" y="212">A 4096 × 2048 时跑了多出 2 个 program 的两个 SM，每个 3 个名额；一条是一个 program</text>
+  <text class="lab" x="66" y="242" text-anchor="end">SM 135</text>
+  <g class="m"><title>program 216：0.0 到 124.7 µs</title><rect x="74.0" y="223" width="323.6" height="9" rx="1.5" style="fill: var(--fig-1)" fill-opacity="0.45"/></g>
+  <g class="m"><title>program 503：124.9 到 200.2 µs</title><rect x="398.7" y="223" width="195.1" height="9" rx="1.5" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>program 43：0.0 到 135.1 µs</title><rect x="74.0" y="234" width="350.7" height="9" rx="1.5" style="fill: var(--fig-1)" fill-opacity="0.45"/></g>
+  <g class="m"><title>program 381：0.0 到 149.3 µs</title><rect x="74.1" y="245" width="387.5" height="9" rx="1.5" style="fill: var(--fig-1)" fill-opacity="0.45"/></g>
+  <text class="lab" x="66" y="281" text-anchor="end">SM 68</text>
+  <g class="m"><title>program 160：0.0 到 124.8 µs</title><rect x="74.0" y="262" width="323.9" height="9" rx="1.5" style="fill: var(--fig-1)" fill-opacity="0.45"/></g>
+  <g class="m"><title>program 511：125.1 到 200.1 µs</title><rect x="399.3" y="262" width="194.3" height="9" rx="1.5" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>program 498：0.0 到 134.4 µs</title><rect x="74.0" y="273" width="348.8" height="9" rx="1.5" style="fill: var(--fig-1)" fill-opacity="0.45"/></g>
+  <g class="m"><title>program 325：0.0 到 148.9 µs</title><rect x="74.1" y="284" width="386.5" height="9" rx="1.5" style="fill: var(--fig-1)" fill-opacity="0.45"/></g>
+  <text class="tick" x="74.0" y="310" text-anchor="middle">0</text>
+  <text class="tick" x="139.0" y="310" text-anchor="middle">25</text>
+  <text class="tick" x="204.0" y="310" text-anchor="middle">50</text>
+  <text class="tick" x="269.0" y="310" text-anchor="middle">75</text>
+  <text class="tick" x="334.0" y="310" text-anchor="middle">100</text>
+  <text class="tick" x="399.0" y="310" text-anchor="middle">125</text>
+  <text class="tick" x="464.0" y="310" text-anchor="middle">150</text>
+  <text class="tick" x="529.0" y="310" text-anchor="middle">175</text>
+  <text class="tick" x="594.0" y="310" text-anchor="middle">200</text>
+  <text class="lab2" x="66" y="310" text-anchor="end">µs</text>
+  <rect x="74" y="324" width="14" height="9" rx="2" style="fill: var(--fig-1)" fill-opacity=".45"/><text class="s" x="94" y="332">第一批的 program</text>
+  <rect x="214" y="324" width="14" height="9" rx="2" style="fill: var(--fig-hi)"/><text class="s" x="234" y="332">多出的 2 个，等名额空出来才开始</text>
+</svg>
+<figcaption><strong>图 2-4a</strong> matmul kernel 的 program 实际怎么分批跑（RTX 5090，fp32，B 2048 × 512）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，写回 C 之后再读一次时间，记录前先清空 L2。悬停可看 program 编号和时间。</figcaption>
+</figure>
+
+</details>
+
+Triton 默认 `num_stages=3`，编译器把这个循环改写成流水线：A、B 各开两个槽，算第 $T$ 轮时，第 $T+1$ 轮的 block 已经在搬了。
 
 <details class="fold doc aside">
 <summary>matmul 的 load 藏住了吗：PTX 计数和 Nsight Compute 实测</summary>
 
-从编译出的 TTGIR 和 PTX 里能数清楚 A、B 块怎么进出 shared memory。循环前先发出第 0、1 轮的 cp.async；第 $T$ 轮先等第 $T$ 轮的数据到齐，用 ld.shared 读进 register 做乘加，读完马上往刚空出来的槽发第 $T+2$ 轮。A、B 各搬 64 次，每次 8 KiB，一个 program 一共 1 MiB；512 个 program 加起来 512 MiB，而 A、B 本身只有 36 MiB，所以 L2 命中率有 91%，大部分读不用到显存。每轮从 shared memory 读进 register 的是 192 KiB，同一个数平均被读 12 次，这就是前面说的复用。写回之前 acc 还要经 shared memory 换一次排布，让 tl.store 能按连续地址写。
+从编译出的 TTGIR 和 PTX 里能数清楚 A、B 的 block 怎么进出 shared memory。循环前先发出第 0、1 轮的 cp.async；第 $T$ 轮先等第 $T$ 轮的数据到齐，用 ld.shared 读进 register 做乘加，读完马上往刚空出来的槽发第 $T+2$ 轮。A、B 各搬 64 次，每次 8 KiB，一个 program 一共 1 MiB；512 个 program 加起来 512 MiB，而 A、B 本身只有 36 MiB，所以 L2 命中率有 91%，大部分读不用到显存。每轮从 shared memory 读进 register 的是 192 KiB，同一个数平均被读 12 次，这就是前面说的复用。写回之前 acc 还要经 shared memory 换一次排布，让 tl.store 能按连续地址写。
 
-预取藏住了多少 load，要用 Nsight Compute 测（[图 2-4a](#fig-t-6)）。ncu 会统计一个 warp 每两条指令之间平均隔几拍，以及这几拍里在等什么。不预取（`num_stages=1`）时，4.59 拍里有 0.69 拍在等显存或 L2 的数据；预取以后只剩 0.06 拍，load 几乎全藏在上一轮的乘加后面。每个 warp 的等待少了 13%，耗时只少 6%（167.4 µs 到 157.9 µs），因为一个 warp 等 load 的时候，同一个 SMSP 上的其他 warp 本来就能发射，这段等待原本就被藏住了一部分。剩下的时间主要是等 ld.shared 的结果和轮不到发射：FMA 管线只忙了 66%，shared memory 读只用了 55%，两边都没满。每个 SMSP 上只有 3 个 warp，一个 warp 等 ld.shared 时，没有足够多的别的 warp 补上。
+预取藏住了多少 load，要用 Nsight Compute 测（[图 2-4b](#fig-t-6)）。ncu 会统计一个 warp 每两条指令之间平均隔几拍，以及这几拍里在等什么。不预取（`num_stages=1`）时，4.59 拍里有 0.69 拍在等显存或 L2 的数据；预取以后只剩 0.06 拍，load 几乎全藏在上一轮的乘加后面。每个 warp 的等待少了 13%，耗时只少 6%（167.4 µs 到 157.9 µs），因为一个 warp 等 load 的时候，同一个 SMSP 上的其他 warp 本来就能发射，这段等待原本就被藏住了一部分。剩下的时间主要是等 ld.shared 的结果和轮不到发射：FMA 管线只忙了 66%，shared memory 读只用了 55%，两边都没满。每个 SMSP 上只有 3 个 warp，一个 warp 等 ld.shared 时，没有足够多的别的 warp 补上。
 
 <figure id="fig-t-6" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 236" width="100%" role="img" aria-label="Nsight Compute 实测 matmul kernel 每个 warp 两条指令之间平均隔几拍、各在等什么：num_stages = 1 时 0.65 拍在等显存 / L2 的数据，num_stages = 3 预取后只剩 0.06 拍，剩下的时间主要花在等 shared memory 和轮不到发射上">
@@ -2062,23 +2138,20 @@ Triton 默认 `num_stages=3`，编译器把这个循环改写成流水线：A、
   <rect x="282.0" y="211" width="10" height="10" rx="2" style="fill: var(--fig-1)"/>
   <text class="lab" x="298.0" y="220">发射</text>
 </svg>
-<figcaption><strong>图 2-4a</strong> matmul kernel 的 warp 在等什么（RTX 5090，fp32，Nsight Compute 实测）。用 A 4032 × 2048 是为了让 504 个 program 一批跑完，不受 tail effect 影响；ncu 不锁频率（<code>--clock-control none</code>），耗时用 do_bench 另测。悬停可看每段包含的 ncu 停顿原因。</figcaption>
+<figcaption><strong>图 2-4b</strong> matmul kernel 的 warp 在等什么（RTX 5090，fp32，Nsight Compute 实测）。用 A 4032 × 2048 是为了让 504 个 program 一批跑完，不受 tail effect 影响；ncu 不锁频率（<code>--clock-control none</code>），耗时用 do_bench 另测。悬停可看每段包含的 ncu 停顿原因。</figcaption>
 </figure>
 
 </details>
 
 fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 矩阵乘差 0.1 左右；要和 PyTorch（关掉 tf32）对上，得加 `input_precision="ieee"`，这时 `tl.dot` 编译成 CUDA core 上的 `fma.rn.f32x2`，不走 Tensor core。
 
-第 2 节的四个例子是同一个模式：program 把一块数据读进 register，在片上做完能做的计算，再写回显存。[下一篇](/blog/gpu-training-analysis/)在 5090 上拆解一步训练的时间和显存，用的就是这个模式：把 RMSNorm 的几个 kernel 融合成一个，少读写一遍中间结果。
+第 2 节的四个例子是同一个模式：program 把一个 block 的数据读进 register，在片上做完能做的计算，再写回显存。[下一篇](/blog/gpu-training-analysis/)在 5090 上拆解一步训练的时间和显存，用的就是这个模式：把 RMSNorm 的几个 kernel 融合成一个，少读写一遍中间结果。
 
 ---
 
 ## 附录 A TPU：更大的矩阵单元，更简单的控制 {#tpu}
 
-正文的 GPU 靠 kernel 自己分块来复用数据。TPU 面对同样的带宽问题，思路是把控制逻辑做轻，把矩阵乘单元做大。
-
-<details class="fold doc">
-<summary>TPU v5p 的 TensorCore、systolic array 和术语对照</summary>
+正文的 GPU 靠 kernel 自己切 block 来复用数据。TPU 面对同样的带宽问题，思路是把控制逻辑做轻，把矩阵乘单元做大。
 
 [图 A-1](#fig-h-3) 是 TPU v5p 的一个 TensorCore：Scalar unit 取指令、发给 VPU 和 MXU，整个核只有这一路控制，没有 warp 和调度器之间的切换；VPU 做逐元素运算和归约；矩阵乘交给 4 个 MXU，每个是 128 × 128 的 systolic array。片上存储只有 VMEM 和 VREG 两层，VMEM 是编译器管理的 scratchpad，不是硬件 cache，数据什么时候从 HBM 搬进来、搬多少，都由编译器（XLA）提前排好。
 
@@ -2138,7 +2211,7 @@ fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 矩阵�
 <figcaption><strong>图 A-1</strong> TPU v5p 一个 TensorCore 的结构示意，画法对应<a href="#fig-h-1">图 1-2</a>。规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>，原书也有一张 TensorCore 的结构图。</figcaption>
 </figure>
 
-MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 A-2](#fig-h-4)）。GPU 上每个 CUDA core 做一次乘加，要从 register file 读两个数、写回一个；一个数被用很多次，得靠 kernel 自己分块，先搬进 shared memory 和 register 再反复读，[2.4 节](#triton-matmul)的 matmul 就是这样写的。systolic array 把复用做进了硬件：权重先装进 128 × 128 个格子，固定不动；输入 x 从左边进入，每拍向右传一格，经过的每一格把它乘上自己的权重，加到从上面传下来的部分和上，再把部分和往下传。一个 x 从 VMEM 读一次，在一行里被 128 个格子用到；稳定以后每拍从左边进 128 个数、从底部出 128 个结果，阵列里同时做 16384 次乘加，中间结果都不经过 register file。
+MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 A-2](#fig-h-4)）。GPU 上每个 CUDA core 做一次乘加，要从 register file 读两个数、写回一个；一个数被用很多次，得靠 kernel 自己切 block，先搬进 shared memory 和 register 再反复读，[2.4 节](#triton-matmul)的 matmul 就是这样写的。systolic array 把复用做进了硬件：权重先装进 128 × 128 个格子，固定不动；输入 x 从左边进入，每拍向右传一格，经过的每一格把它乘上自己的权重，加到从上面传下来的部分和上，再把部分和往下传。一个 x 从 VMEM 读一次，在一行里被 128 个格子用到；稳定以后每拍从左边进 128 个数、从底部出 128 个结果，阵列里同时做 16384 次乘加，中间结果都不经过 register file。
 
 <figure id="fig-h-4" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 334" width="100%" role="img" aria-label="GPU 的 CUDA core 每次乘加都从 register file 读两个数、写回一个；TPU 的 MXU 是 systolic array，权重固定在格子里，x 每拍向右流一格，部分和每拍向下流一格，只有边上读写">
@@ -2186,7 +2259,7 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 A-2](#fig-h-
   <line x1="219.0" y1="87.0" x2="219.0" y2="148.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.3" marker-end="url(#fig-h-4-m0)"/>
   <line x1="231.0" y1="149.0" x2="231.0" y2="89.0" style="stroke: var(--fig-hi)" stroke-width="1.3" marker-end="url(#fig-h-4-m1)"/>
   <text class="lab" x="20" y="212">每次乘加读 2 个数、写回 1 个</text>
-  <text class="lab2" x="20" y="234">一个数要被用很多次，得靠 kernel 自己分块：</text>
+  <text class="lab2" x="20" y="234">一个数要被用很多次，得靠 kernel 自己切 block：</text>
   <text class="lab2" x="20" y="250">先搬进 shared memory / register，再反复读</text>
   <text class="ttl" x="300" y="22">TPU：MXU 是 systolic array（示意 4 × 4，实际 128 × 128）</text>
   <text class="lab2" x="300" y="40">W 先装进格子固定不动；x 每拍右移一格，部分和每拍下移一格</text>
@@ -2279,8 +2352,6 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 A-2](#fig-h-
 | 显存 | HBM | 大容量主存 | 32 GB GDDR7 | 95 GB |
 {#tab-a-1 caption="**表 A-1** GPU 与 TPU 的术语对照" note="RTX 5090 的片上存储是 170 个 SM 加起来的总量。TPU 一列参考 Google 的 <a href=\"https://jax-ml.github.io/scaling-book/gpus/\">How to Scale Your Model</a>。"}
 
-</details>
-
 ---
 
 ## References {#references}
@@ -2289,7 +2360,7 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 A-2](#fig-h-
 2. NVIDIA. [NVIDIA RTX Blackwell GPU Architecture](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)（白皮书）。RTX 5090 的存储层级和 SM 结构，图 1-2、图 1-3。
 3. NVIDIA. [NVIDIA A100 Tensor Core GPU Architecture](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)、[NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)、[NVIDIA Blackwell Architecture](https://resources.nvidia.com/en-us-blackwell-architecture)。表 1-1a 的 A100、H100、B200 一列。
 4. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、block、register 和 shared memory 上限，表 1-1、表 1-1a，CUDA 执行层级。
-5. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 停顿原因的定义，图 2-4a。
+5. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 停顿原因的定义，图 2-4b。
 6. Austin et al. [How to Scale Your Model](https://jax-ml.github.io/scaling-book/gpus/), Google DeepMind, 2025. 附录 A 的 TPU v5p 规格、systolic array 的数据流和表 A-1。
 7. Jouppi et al. [In-Datacenter Performance Analysis of a Tensor Processing Unit](https://arxiv.org/abs/1704.04760). ISCA 2017. 第一代 TPU 和它的 systolic array。
 8. Kung. [Why Systolic Architectures?](https://doi.org/10.1109/MC.1982.1653825). IEEE Computer, 1982.

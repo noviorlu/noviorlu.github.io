@@ -1,4 +1,4 @@
-"""用 Nsight Compute 测 matmul kernel 在 num_stages = 1 和 3 时 warp 在等什么（RTX 5090，图 2-4a 的数据）。
+"""用 Nsight Compute 测 matmul kernel 在 num_stages = 1 和 3 时 warp 在等什么（RTX 5090，图 2-4b 的数据）。
 
 A 4032 × 2048、B 2048 × 512：504 个 program，每个 SM 3 个时正好一批，不受 tail effect 影响；
 另测一次 A 4096 × 2048（512 个 program，多出 2 个要单独跑一批）对照 tail effect。

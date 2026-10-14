@@ -31,7 +31,7 @@ series_order: 1
 <figcaption><strong>图 1-1</strong> 峰值算力与 DRAM、互联带宽 20 年来的增长，纵轴是相对 1997 年的倍数（对数轴）。图来自 Gholami 等人的 <a href="https://arxiv.org/abs/2403.14123">AI and Memory Wall</a>（IEEE Micro，2024）。</figcaption>
 </figure>
 
-数据离计算单元越近，读写越快，容量也越小（[图 1-2](#fig-h-1)）。每个 SM 里有 register 和 L1 / shared memory，所有 SM 共享芯片上的 L2，显存在芯片外面。L1 和 L2 由硬件当作 cache 自动管理，kernel 能自己安排的只有 shared memory 和 register。所以 kernel 优化的套路都一样：把一块数据读进 shared memory 或 register，在片上多算几次，再写回显存。[第 2 节](#triton)的分块矩阵乘、[下一篇](/blog/gpu-training-analysis/)的算子融合和 [FlashAttention](/blog/flashattention-1-to-4/) 都是这个思路。
+数据离计算单元越近，读写越快，容量也越小（[图 1-2](#fig-h-1)）。每个 SM 里有 register 和 L1 / shared memory，所有 SM 共享芯片上的 L2，显存在芯片外面。L1 和 L2 由硬件当作 cache 自动管理，kernel 能自己安排的只有 shared memory 和 register。所以 kernel 优化的套路都一样：把一个 block 的数据读进 shared memory 或 register，在片上多算几次，再写回显存。[第 2 节](#triton)的 block 矩阵乘、[下一篇](/blog/gpu-training-analysis/)的算子融合和 [FlashAttention](/blog/flashattention-1-to-4/) 都是这个思路。
 
 {{fig-h-1}}
 
@@ -41,11 +41,11 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 
 ### 1.2 一个 SM 里有什么 {#hw-sm}
 
-每个 SM 分成 4 个 SMSP（SM sub-partition），每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core（做 FP32 和 INT32 运算）和一个 Tensor core，4 个 SMSP 共享一块 L1 / shared memory（[图 1-3](#fig-h-2)）。
+每个 SM 分成 4 个 SMSP（SM sub-partition），每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core（做 FP32 和 INT32 运算）和一个 Tensor core，4 个 SMSP 共享 L1 / shared memory（[图 1-3](#fig-h-2)）。
 
 {{fig-h-2}}
 
-[图 1-4](#fig-h-9) 把一个 SMSP 展开。[第 2 节](#triton) kernel 图里的「计算单元」指其中的 CUDA core 和 Tensor core，「register」就是这块 64 KB 的 register file。
+[图 1-4](#fig-h-9) 把一个 SMSP 展开。[第 2 节](#triton) kernel 图里的「计算单元」指其中的 CUDA core 和 Tensor core，「register」就是这个 64 KB 的 register file。
 
 {{fig-h-9}}
 
@@ -93,13 +93,13 @@ block 放到 SM 上以后就一直驻留，直到它的 thread 全部跑完。�
 
 {{fig-h-6}}
 
-block 之间不能直接共享数据，只能通过显存交换，而这正是最慢的一层。所以要尽量把会重复读的数据放进同一个 block 里处理，这就是分块（tiling）。在 CUDA 里分块要自己管 shared memory 和 thread 同步，[第 2 节](#triton)的 Triton 把这部分交给编译器。
+block 之间不能直接共享数据，只能通过显存交换，而这正是最慢的一层。所以要尽量把会重复读的数据放进同一个 block 里处理，这就是 tiling。在 CUDA 里做 tiling 要自己管 shared memory 和 thread 同步，[第 2 节](#triton)的 Triton 把这部分交给编译器。
 
 ---
 
 ## 2 Triton：按 block 写 kernel {#triton}
 
-Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的分块。CUDA 要写清楚每个 thread 做什么，shared memory 和同步都要自己管；Triton 只写一个 block 做什么：把一块数据读进来，在片上算完，再写回显存，块内怎么分给 thread、要不要经过 shared memory 由编译器决定。Triton 把一个 block 叫作一个 program（[表 2-1](#tab-2-1)）。
+Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的 tiling。CUDA 要写清楚每个 thread 做什么，shared memory 和同步都要自己管；Triton 只写一个 block 做什么：把一个 block 的数据读进来，在片上算完，再写回显存，block 内怎么分给 thread、要不要经过 shared memory 由编译器决定。Triton 把一个 block 叫作一个 program（[表 2-1](#tab-2-1)）。
 
 | CUDA | Triton | 写法 | 能否直接控制 |
 |:--|:--|:--|:--|
@@ -110,14 +110,14 @@ Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的分块。CU
 | shared memory | 由编译器分配 | 没有对应语句 | 不能 |
 {#tab-2-1 caption="**表 2-1** CUDA 概念在 Triton 里的对应"}
 
-下面四个例子由浅入深。grid 怎么切，看一个输出依赖哪些输入；program 里要不要循环，看这些输入能不能一次装进 register，装不下就要一块一块读，用一个累加器（accumulator）存中间结果：
+下面四个例子由浅入深。grid 怎么切，看一个输出依赖哪些输入；program 里要不要循环，看这些输入能不能一次装进 register，装不下就要一个 block 一个 block 地读，用一个累加器（accumulator）存中间结果：
 
 | op | 类型 | 一个输出依赖 | grid 怎么切 | program 里 |
 |:--|:--|:--|:--|:--|
 | GELU | 逐元素 | 同位置的一个输入 | 展平成一维，按 BLOCK 切段 | 不循环 |
 | softmax | 按行归约 | 整行（max 和 sum） | 一行一个 program | 不循环，整行一次读进来 |
 | row sum | 按行归约 | 整行（sum） | 一行一个 program | 沿行循环，累加器存部分和 |
-| matmul | 分块乘加 | A 的一行、B 的一列 | 二维，C 的一块一个 program | 沿 K 循环，累加器存 C 的一块 |
+| matmul | block 乘加 | A 的一行、B 的一列 | 二维，C 的一个 block 一个 program | 沿 K 循环，累加器存 C 的一个 block |
 {#tab-2-2 caption="**表 2-2** 四个例子的 op 类型"}
 
 代码都在 RTX 5090 上和 PyTorch 对照过。每个例子配一张数据流图：左边是 grid，右边从上到下是计算单元、register、shared memory 和显存（芯片外的 GDDR7）。`tl.load` 和 `tl.store` 在显存和 register 或 shared memory 之间直接搬数据，计算单元只读写 register。中间经过的 L2 和 L1 cache 由硬件自动管理，图里不画。
@@ -151,7 +151,7 @@ n = 8388608 时 Triton 版 45.2 µs，读写共 64 MiB，有效带宽 1.49e12 B/
 
 全卡一次放得下 170 × 12 = 2040 个 program，8192 个要 5 批，第 5 批只有 32 个。实测的时间线上批次之间却没有分界（[图 2-1a](#fig-t-5)）：一个 program 跑完，它的名额马上换下一个进来，第 2 批在 2.6 µs 就开始了，第 1 批到 15.4 µs 才全部跑完。同一批的 program 都在抢显存带宽，耗时从 4.2 µs 到 11.9 µs 不等（10% 和 90% 分位）。36.5 µs 时最后一个 program 开始，之后名额一个个空出来，在跑的 program 从 1400 个左右降到 0，这段约 10 µs，占整个 kernel 的 22%，叫 tail effect。打点的开销很小：打点版 46.9 µs，不打点 45.2 µs。
 
-program 少而每个都重时，尾巴更明显。[2.4 节](#triton-matmul)的 matmul 每个 SM 只放 3 个 program，全卡一批 510 个：A 是 4032 × 2048 时 504 个 program 一批放下，157.9 µs；A 是 4096 × 2048 时 512 个，多出的 2 个要单独跑一批，203.1 µs。计算量只多 1.6%，耗时多 29%。
+program 少而每个都重时尾巴更明显，[2.4 节](#triton-matmul)的 matmul 就是这样（[图 2-4a](#fig-t-7)）。
 
 {{fig-t-5}}
 
@@ -205,17 +205,17 @@ $y_{ij}$ 要用到第 $i$ 行全部 N 个数。eager 下 softmax 要 5 个 kerne
 
 4096 × 4096 的 fp32 输入，eager 版 246.9 µs，Triton 版 92.4 µs，快 2.7 倍，和 `torch.softmax`（92.3 µs）持平，有效带宽 1.45e12 B/s，是显存带宽的 81%。eager 版读写量是 4 倍，慢得却不到 4 倍：按读写量算它的带宽是 2.17e12 B/s，超过了显存带宽，说明 64 MiB 的中间结果有一部分直接在 96 MB 的 L2 里命中了。
 
-[图 2-2](#fig-t-2) 里的 warp max、warp sum 是 shared memory 在这个 kernel 里唯一的用处：`tl.max`、`tl.sum` 先在每个 warp 内用 shuffle 归约，4 个 warp 的部分结果再经 shared memory 交换，一共 16 B。整块数据什么时候值得放进 shared memory，[2.4 节](#triton-matmul)再讲。
+[图 2-2](#fig-t-2) 里的 warp max、warp sum 是 shared memory 在这个 kernel 里唯一的用处：`tl.max`、`tl.sum` 先在每个 warp 内用 shuffle 归约，4 个 warp 的部分结果再经 shared memory 交换，一共 16 B。把一整个 block 的数据放进 shared memory 什么时候值得，[2.4 节](#triton-matmul)再讲。
 
-这个写法要求 BLOCK ≥ N，也就是一行能一次装进一个 program。行再长，program 就只能沿行一块一块地读，读过的块要留下一个中间结果。下一节先看最简单的按行归约：求和。
+这个写法要求 BLOCK ≥ N，也就是一行能一次装进一个 program。行再长，program 就只能沿行一个 block 一个 block 地读，读过的 block 要留下一个中间结果。下一节先看最简单的按行归约：求和。
 
-### 2.3 Row sum：按行归约，分块累加 {#triton-rowsum}
+### 2.3 Row sum：按行归约，按 block 累加 {#triton-rowsum}
 
 row sum 对 `[M, N]` 的输入每行求和：
 
 <p align="center">$s_i = \sum_{j=1}^{N} x_{ij} = \sum_{T} \ \sum_{j \in \mathcal{J}_T} x_{ij}$</p>
 
-$\mathcal{J}_T$ 是第 $T$ 块的 TILE 个列下标，代码里 TILE 取 1024。加法满足结合律，先把每块加起来再相加，和一次加完是同一个数（浮点数下只差舍入误差），所以 program 可以沿行一块一块地读，每读一块就加到累加器上（[图 2-3](#fig-t-3)）。
+$\mathcal{J}_T$ 是第 $T$ 个 block 的 TILE 个列下标，代码里 TILE 取 1024。加法满足结合律，先把每个 block 加起来再相加，和一次加完是同一个数（浮点数下只差舍入误差），所以 program 可以沿行一个 block 一个 block 地读，每读一个 block 就加到累加器上（[图 2-3](#fig-t-3)）。
 
 {{fig-t-3}}
 
@@ -233,54 +233,68 @@ grid 和 softmax 一样，一行一个 program：
 
 4096 × 4096 时 54.6 µs，有效带宽 1.23e12 B/s，是显存带宽的 69%，比 `x.sum(1)`（50.8 µs）慢 7%。
 
-softmax 不能直接这样分块。$e^{x_{ij} - m_i}$ 要先知道整行的最大值 $m_i$，读完整行才知道。分块时累加器里要同时存目前的最大值和部分和，最大值变大时把已有的部分和乘上 $e^{m_{\text{old}} - m_{\text{new}}}$ 修正，这就是 online softmax，[FlashAttention](/blog/flashattention-1-to-4/) 那篇会讲。
+softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行的最大值 $m_i$，读完整行才知道。按 block 读时，累加器里要同时存目前的最大值和部分和，最大值变大时把已有的部分和乘上 $e^{m_{\text{old}} - m_{\text{new}}}$ 修正，这就是 online softmax，[FlashAttention](/blog/flashattention-1-to-4/) 那篇会讲。
 
-前面三个例子里每个数只读一次，分块只是为了把工作分给不同的 program。矩阵乘不同：A 的每个元素要和 B 的一整列相乘，分块是为了让读进片上的数据被多次使用。它也要沿 K 循环，累加器是 C 的一块。
+前面三个例子里每个数只读一次，切 block 只是为了把工作分给不同的 program。矩阵乘不同：A 的每个元素要和 B 的一整列相乘，切 block 是为了让读进片上的数据被多次使用。它也要沿 K 循环，累加器是 C 的一个 block。
 
-### 2.4 Matmul：分块乘加，顺手融合 ReLU {#triton-matmul}
+### 2.4 Matmul：block 乘加，顺手融合 ReLU {#triton-matmul}
 
 `[M, K] × [K, N]` 的矩阵乘再接 ReLU：
 
 <p align="center">$C_{ij} = \max\left(0,\ \sum_{k=1}^{K} A_{ik} B_{kj}\right)$</p>
 
-把 M、N、K 分别按 BM、BN、BK 切块，记 $A_{IT}$ 是 A 的第 $I$ 个行块、第 $T$ 个列块（BM × BK），$B_{TJ}$、$C_{IJ}$ 同理。$C_{IJ}$ 只用到 A 的第 $I$ 个行块和 B 的第 $J$ 个列块，不同的 $C_{IJ}$ 可以交给不同的 program。对 $k$ 的求和再按 BK 分段，$\mathcal{K}_T$ 是第 $T$ 段的 BK 个下标：
+把 M、N、K 分别按 BM、BN、BK 切成 block，记 $A_{IT}$ 是 A 的第 $I$ 个 row block 和第 $T$ 个 column block 交叉处的 block（BM × BK），$B_{TJ}$、$C_{IJ}$ 同理。$C_{IJ}$ 只用到 A 的第 $I$ 个 row block 和 B 的第 $J$ 个 column block，不同的 $C_{IJ}$ 可以交给不同的 program。对 $k$ 的求和再按 BK 分段，$\mathcal{K}_T$ 是第 $T$ 段的 BK 个下标：
 
 <p align="center">$\sum_{k=1}^{K} A_{ik} B_{kj} = \sum_{T=1}^{K/\mathrm{BK}} \ \sum_{k \in \mathcal{K}_T} A_{ik} B_{kj}, \qquad C_{IJ} = \max\left(0,\ \sum_{T} A_{IT}\, B_{TJ}\right)$</p>
 
-和 row sum 一样，分段加完再相加等于一次加完，所以每轮只读 $A_{IT}$、$B_{TJ}$ 两个小块，乘完累加，最后就是完整的 $C_{IJ}$。ReLU 逐元素作用在累加完的结果上，放在最后做。
+和 row sum 一样，分段加完再相加等于一次加完，所以每轮只读 $A_{IT}$、$B_{TJ}$ 两个 block，乘完累加，最后就是完整的 $C_{IJ}$。ReLU 逐元素作用在累加完的结果上，放在最后做。
 
 {{fig-t-4}}
 
 一个 program 负责一个 $C_{IJ}$（[图 2-4](#fig-t-4)），沿 K 循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上；写回前在 register 里做 ReLU，激活函数不用再单独一个 kernel 读写一遍 C：
 
-```python {role="program" tag="算 C 的第 (pid_m, pid_n) 块"}
+```python {role="program" tag="算 C 的第 (pid_m, pid_n) 个 block"}
 {{code:triton_tutorial.py:matmul_kernel}}
 ```
 
 grid 是二维的：
 
-```python {role="grid" tag="C 的每一块一个 program，二维"}
+```python {role="grid" tag="C 的每个 block 一个 program，二维"}
 {{code:triton_tutorial.py:matmul_launch}}
 ```
 
 <div class="nv-key">
 
-**shared memory 什么时候值得用**：一是同一份数据要被读很多次（复用），二是 thread 之间要交换大量数据。
+**shared memory 什么时候值得用**：满足下面任一条。
 
-matmul 两条都满足：A 的一块要和 B 块的 64 列都乘一遍，`tl.dot` 还要把 A、B 块重新分给不同的 thread，所以 A、B 块放在 shared memory 里，每个 program 32 KiB。softmax 和 row sum 两条都不满足：每个数只被一个 thread 读一次，thread 之间只交换 4 个 warp 的部分结果（16 B），把数据整块放进 shared memory 只会多搬一趟。代价是 shared memory 用得越多，一个 SM 能同时放的 program 越少：每个 SM 的上限是 100 KiB，matmul 每个 program 占 32 KiB，再加每个 block 保留的 1 KiB，只放得下 3 个（3 × 33 = 99 KiB）。
+- **复用**：同一份数据要被读很多次。matmul 里 A 的一个 block 要和 B 的 block 的 64 列都乘一遍；softmax 和 row sum 里每个数只被一个 thread 读一次。
+- **交换**：thread 之间要交换大量数据。matmul 里 `tl.dot` 要把 A、B 的 block 重新分给不同的 thread；softmax 和 row sum 只交换 4 个 warp 的部分结果（16 B）。
+
+所以 matmul 把 A、B 的 block 放在 shared memory 里，每个 program 32 KiB；softmax 和 row sum 两条都不满足，把整个 block 放进 shared memory 只会多搬一趟。代价是 shared memory 用得越多，一个 SM 能同时放的 program 越少：每个 SM 的上限是 100 KiB，matmul 每个 program 占 32 KiB，再加每个 block 保留的 1 KiB，只放得下 3 个（3 × 33 = 99 KiB）。
 
 </div>
 
-A 4096 × 2048、B 2048 × 512 时 Triton 版 203.1 µs，4.23e13 FLOPS，是 fp32 标称峰值的 40%（170 个 SM × 128 个 CUDA core × 2 FLOPs × 2.41e9 Hz = 1.05e14 FLOPS）；cuBLAS（`torch.relu(A @ B)`，关掉 tf32）是 160.3 µs。差距主要是 tail effect：A 少 64 行、504 个 program 一批放下时，同一个 kernel 只要 157.9 µs（见 2.1 节旁注里的 [图 2-1a](#fig-t-5) 下方）。
+A 4096 × 2048、B 2048 × 512 时 Triton 版 203.1 µs，4.23e13 FLOPS，是 fp32 标称峰值 1.05e14 FLOPS 的 40%；cuBLAS（`torch.relu(A @ B)`，关掉 tf32）是 160.3 µs。差距主要来自 tail effect。
 
-Triton 默认 `num_stages=3`，编译器把这个循环改写成流水线：A、B 各开两个槽，算第 $T$ 轮时，第 $T+1$ 轮的块已经在搬了。
+<details class="fold doc aside">
+<summary>matmul 的 tail effect：512 个 program 分两批</summary>
+
+fp32 标称峰值按 170 个 SM × 128 个 CUDA core × 2 FLOPs × 2.41e9 Hz 算。每个 SM 只放 3 个 program，全卡一批 510 个，512 个 program 多出 2 个。实测的时间线上（[图 2-4a](#fig-t-7)），510 个 program 在开头一起开始，各跑 125 到 152 µs；全卡最先跑完的两个 program 在 SM 68 和 SM 135 上，约 125 µs 结束，多出的 2 个这时才开始。152 µs 以后全卡只剩这 2 个 program，另外 168 个 SM 空着，一直等到 200 µs。这 2 个 program 后半段独占一个 SM，只跑了 75 µs，比第一批的中位数 135 µs 快得多。
+
+A 换成 4032 × 2048 时 504 个 program 一批放下，同一个 kernel 只要 157.9 µs，和 cuBLAS 相当。4096 比 4032 的计算量只多 1.6%，耗时多 29%。打点的开销不大：打点版 210.8 µs 和 162.8 µs，不打点 203.1 µs 和 157.9 µs。
+
+{{fig-t-7}}
+
+</details>
+
+Triton 默认 `num_stages=3`，编译器把这个循环改写成流水线：A、B 各开两个槽，算第 $T$ 轮时，第 $T+1$ 轮的 block 已经在搬了。
 
 <details class="fold doc aside">
 <summary>matmul 的 load 藏住了吗：PTX 计数和 Nsight Compute 实测</summary>
 
-从编译出的 TTGIR 和 PTX 里能数清楚 A、B 块怎么进出 shared memory。循环前先发出第 0、1 轮的 cp.async；第 $T$ 轮先等第 $T$ 轮的数据到齐，用 ld.shared 读进 register 做乘加，读完马上往刚空出来的槽发第 $T+2$ 轮。A、B 各搬 64 次，每次 8 KiB，一个 program 一共 1 MiB；512 个 program 加起来 512 MiB，而 A、B 本身只有 36 MiB，所以 L2 命中率有 91%，大部分读不用到显存。每轮从 shared memory 读进 register 的是 192 KiB，同一个数平均被读 12 次，这就是前面说的复用。写回之前 acc 还要经 shared memory 换一次排布，让 tl.store 能按连续地址写。
+从编译出的 TTGIR 和 PTX 里能数清楚 A、B 的 block 怎么进出 shared memory。循环前先发出第 0、1 轮的 cp.async；第 $T$ 轮先等第 $T$ 轮的数据到齐，用 ld.shared 读进 register 做乘加，读完马上往刚空出来的槽发第 $T+2$ 轮。A、B 各搬 64 次，每次 8 KiB，一个 program 一共 1 MiB；512 个 program 加起来 512 MiB，而 A、B 本身只有 36 MiB，所以 L2 命中率有 91%，大部分读不用到显存。每轮从 shared memory 读进 register 的是 192 KiB，同一个数平均被读 12 次，这就是前面说的复用。写回之前 acc 还要经 shared memory 换一次排布，让 tl.store 能按连续地址写。
 
-预取藏住了多少 load，要用 Nsight Compute 测（[图 2-4a](#fig-t-6)）。ncu 会统计一个 warp 每两条指令之间平均隔几拍，以及这几拍里在等什么。不预取（`num_stages=1`）时，4.59 拍里有 0.69 拍在等显存或 L2 的数据；预取以后只剩 0.06 拍，load 几乎全藏在上一轮的乘加后面。每个 warp 的等待少了 13%，耗时只少 6%（167.4 µs 到 157.9 µs），因为一个 warp 等 load 的时候，同一个 SMSP 上的其他 warp 本来就能发射，这段等待原本就被藏住了一部分。剩下的时间主要是等 ld.shared 的结果和轮不到发射：FMA 管线只忙了 66%，shared memory 读只用了 55%，两边都没满。每个 SMSP 上只有 3 个 warp，一个 warp 等 ld.shared 时，没有足够多的别的 warp 补上。
+预取藏住了多少 load，要用 Nsight Compute 测（[图 2-4b](#fig-t-6)）。ncu 会统计一个 warp 每两条指令之间平均隔几拍，以及这几拍里在等什么。不预取（`num_stages=1`）时，4.59 拍里有 0.69 拍在等显存或 L2 的数据；预取以后只剩 0.06 拍，load 几乎全藏在上一轮的乘加后面。每个 warp 的等待少了 13%，耗时只少 6%（167.4 µs 到 157.9 µs），因为一个 warp 等 load 的时候，同一个 SMSP 上的其他 warp 本来就能发射，这段等待原本就被藏住了一部分。剩下的时间主要是等 ld.shared 的结果和轮不到发射：FMA 管线只忙了 66%，shared memory 读只用了 55%，两边都没满。每个 SMSP 上只有 3 个 warp，一个 warp 等 ld.shared 时，没有足够多的别的 warp 补上。
 
 {{fig-t-6}}
 
@@ -288,22 +302,19 @@ Triton 默认 `num_stages=3`，编译器把这个循环改写成流水线：A、
 
 fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 矩阵乘差 0.1 左右；要和 PyTorch（关掉 tf32）对上，得加 `input_precision="ieee"`，这时 `tl.dot` 编译成 CUDA core 上的 `fma.rn.f32x2`，不走 Tensor core。
 
-第 2 节的四个例子是同一个模式：program 把一块数据读进 register，在片上做完能做的计算，再写回显存。[下一篇](/blog/gpu-training-analysis/)在 5090 上拆解一步训练的时间和显存，用的就是这个模式：把 RMSNorm 的几个 kernel 融合成一个，少读写一遍中间结果。
+第 2 节的四个例子是同一个模式：program 把一个 block 的数据读进 register，在片上做完能做的计算，再写回显存。[下一篇](/blog/gpu-training-analysis/)在 5090 上拆解一步训练的时间和显存，用的就是这个模式：把 RMSNorm 的几个 kernel 融合成一个，少读写一遍中间结果。
 
 ---
 
 ## 附录 A TPU：更大的矩阵单元，更简单的控制 {#tpu}
 
-正文的 GPU 靠 kernel 自己分块来复用数据。TPU 面对同样的带宽问题，思路是把控制逻辑做轻，把矩阵乘单元做大。
-
-<details class="fold doc">
-<summary>TPU v5p 的 TensorCore、systolic array 和术语对照</summary>
+正文的 GPU 靠 kernel 自己切 block 来复用数据。TPU 面对同样的带宽问题，思路是把控制逻辑做轻，把矩阵乘单元做大。
 
 [图 A-1](#fig-h-3) 是 TPU v5p 的一个 TensorCore：Scalar unit 取指令、发给 VPU 和 MXU，整个核只有这一路控制，没有 warp 和调度器之间的切换；VPU 做逐元素运算和归约；矩阵乘交给 4 个 MXU，每个是 128 × 128 的 systolic array。片上存储只有 VMEM 和 VREG 两层，VMEM 是编译器管理的 scratchpad，不是硬件 cache，数据什么时候从 HBM 搬进来、搬多少，都由编译器（XLA）提前排好。
 
 {{fig-h-3}}
 
-MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 A-2](#fig-h-4)）。GPU 上每个 CUDA core 做一次乘加，要从 register file 读两个数、写回一个；一个数被用很多次，得靠 kernel 自己分块，先搬进 shared memory 和 register 再反复读，[2.4 节](#triton-matmul)的 matmul 就是这样写的。systolic array 把复用做进了硬件：权重先装进 128 × 128 个格子，固定不动；输入 x 从左边进入，每拍向右传一格，经过的每一格把它乘上自己的权重，加到从上面传下来的部分和上，再把部分和往下传。一个 x 从 VMEM 读一次，在一行里被 128 个格子用到；稳定以后每拍从左边进 128 个数、从底部出 128 个结果，阵列里同时做 16384 次乘加，中间结果都不经过 register file。
+MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 A-2](#fig-h-4)）。GPU 上每个 CUDA core 做一次乘加，要从 register file 读两个数、写回一个；一个数被用很多次，得靠 kernel 自己切 block，先搬进 shared memory 和 register 再反复读，[2.4 节](#triton-matmul)的 matmul 就是这样写的。systolic array 把复用做进了硬件：权重先装进 128 × 128 个格子，固定不动；输入 x 从左边进入，每拍向右传一格，经过的每一格把它乘上自己的权重，加到从上面传下来的部分和上，再把部分和往下传。一个 x 从 VMEM 读一次，在一行里被 128 个格子用到；稳定以后每拍从左边进 128 个数、从底部出 128 个结果，阵列里同时做 16384 次乘加，中间结果都不经过 register file。
 
 {{fig-h-4}}
 
@@ -320,8 +331,6 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 A-2](#fig-h-
 | 显存 | HBM | 大容量主存 | 32 GB GDDR7 | 95 GB |
 {#tab-a-1 caption="**表 A-1** GPU 与 TPU 的术语对照" note="RTX 5090 的片上存储是 170 个 SM 加起来的总量。TPU 一列参考 Google 的 <a href=\"https://jax-ml.github.io/scaling-book/gpus/\">How to Scale Your Model</a>。"}
 
-</details>
-
 ---
 
 ## References {#references}
@@ -330,7 +339,7 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 A-2](#fig-h-
 2. NVIDIA. [NVIDIA RTX Blackwell GPU Architecture](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)（白皮书）。RTX 5090 的存储层级和 SM 结构，图 1-2、图 1-3。
 3. NVIDIA. [NVIDIA A100 Tensor Core GPU Architecture](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)、[NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)、[NVIDIA Blackwell Architecture](https://resources.nvidia.com/en-us-blackwell-architecture)。表 1-1a 的 A100、H100、B200 一列。
 4. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、block、register 和 shared memory 上限，表 1-1、表 1-1a，CUDA 执行层级。
-5. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 停顿原因的定义，图 2-4a。
+5. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 停顿原因的定义，图 2-4b。
 6. Austin et al. [How to Scale Your Model](https://jax-ml.github.io/scaling-book/gpus/), Google DeepMind, 2025. 附录 A 的 TPU v5p 规格、systolic array 的数据流和表 A-1。
 7. Jouppi et al. [In-Datacenter Performance Analysis of a Tensor Processing Unit](https://arxiv.org/abs/1704.04760). ISCA 2017. 第一代 TPU 和它的 systolic array。
 8. Kung. [Why Systolic Architectures?](https://doi.org/10.1109/MC.1982.1653825). IEEE Computer, 1982.
