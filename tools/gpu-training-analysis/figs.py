@@ -811,7 +811,7 @@ def hw_smsp():
     notes = [("①", ["warp scheduler：每拍从驻留的", "warp 里挑一个就绪的；dispatch", "把它的一条指令发给 32 个 thread"]),
              ("②", ["register：这个 SMSP 上所有驻留的", "thread 分着用，每个最多 255 个"]),
              ("③", ["FP32 / INT32 核：一条加法、乘法", "或 FMA，32 个 thread 各用一个核；", "同一拍只能做 FP32 或 INT32"]),
-             ("④", ["Tensor core：一条指令算一个", "小矩阵乘，tl.dot 走它"]),
+             ("④", ["Tensor core：一条指令算一个", "小矩阵乘，tl.dot 默认走它"]),
              ("⑤", ["LD/ST：load / store，在 register", "和 L1 / shared memory、显存之间", "搬数据"]),
              ("⑥", ["SFU：exp、rsqrt、sin 这类特殊函数"])]
     y = 34
@@ -1303,8 +1303,9 @@ def tri_matmul():
         (3, "shared memory 先满"),
         ["cp.async：两次 tl.load 把 A 块、B 块从显存直接搬进 shared memory，不经过 register；",
          "乘加：tl.dot 从 shared memory 读一小片 a、b 到 register，计算单元做 FMA，加到 acc 上；",
-         "num_stages = 3：shared memory 里放两份 A、B 块（共 32 KiB），算第 T 轮时第 T+1 轮已经在搬；",
-         "K = 2048 按 BK = 32 切成 64 轮，图里只画第 0 轮的 cp.async。"], mem_y1=372)
+         "num_stages = 3：A、B 各两个槽（共 32 KiB），算第 T 轮时第 T+1 轮在搬，读完马上搬第 T+2 轮；",
+         "K = 2048 按 BK = 32 切成 64 轮，A、B 各搬 64 次，图里只画第 0 轮，每一轮见图 2-6；",
+         "写回前 acc 先经 shared memory 换一次排布（16 KiB），再从 register 写回显存。"], mem_y1=372)
     RAMP = [.12 + .66 * k / 7 for k in range(8)]     # 沿 K 的 for 循环顺序：越晚读越深
     TX = lambda o: 'style="fill: var(--fig-on-1)"' if o > .5 else ''
     gid = "fig-t-4-acc"
@@ -1327,7 +1328,9 @@ def tri_matmul():
     chip("acc", A1, 111, 34, RAMP[0]); chip("acc", A2, 111, 34, "grad")
     p.down(cx[1] + 8, 111, A1 - 8); p.down(cx[4] + 8, 111, A2 - 8); p.up(A2 + 8, 111, cx[5] - 16)
     p.carry(cx[1], cx[4], "acc 带到下一轮")
-    chip("C 块", cx[6], 111, 30, RAMP[-1]); p.down(cx[5] + 16, 111, cx[6] - 12)   # ReLU 在 register 里做完
+    chip("C 块", cx[6], 111, 36, RAMP[-1]); p.down(cx[5] + 16, 111, cx[6] - 14)   # ReLU 在 register 里做完
+    chip("C 块", cx[6] - 14, 176, 30, RAMP[-1])                     # 写回前经 shared memory 换排布：st.shared 下去，ld.shared 回来
+    f.arrow(cx[6] - 17, 131, cx[6] - 17, 174, "--fig-2", width=1.4); f.arrow(cx[6] - 8, 174, cx[6] - 8, 131, "--fig-2", width=1.4)
     PX = (cx[0] + 47 + cx[3] - 29) / 2                                # 另一份 shared buffer：第 1 轮的 A、B 块正在搬
     f.w(f'<rect x="{PX - 37:.1f}" y="172" width="74" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-dasharray="3 2" stroke-opacity=".7"/>')
     f.w(f'<text class="s" x="{PX:.1f}" y="185" text-anchor="middle">第 1 轮 A、B</text><text class="s" x="{PX:.1f}" y="203" text-anchor="middle">正在搬</text>')
@@ -1351,12 +1354,76 @@ def tri_matmul():
     p.xfer(BX + 9, BY, 210, "cp.async", xo=cx[0] + 33, ly=228)
     CX, CY = cx[6] - 9, 244                          # C [4096, 512]：16 × 2 格，写回 (1, 1)
     mat(CX, CY, 16, 2, {(1, 1): RAMP[-1]}, ["C [4096, 512]", "8 MiB"], "end", 630)
-    p.xfer(cx[6], 131, CY + S - 1, "tl.store", left=True, ly=196)
+    p.xfer(cx[6] + 10, 131, CY + S - 1, "", xo=cx[6])
+    f.w(f'<text class="s" x="{cx[6] - 2:.1f}" y="226" text-anchor="end" style="fill: var(--fig-1)">tl.store</text>')
     lx, ly = BX + 18, BY + 58                         # 图例：渐变是 for 循环沿 K 读块的顺序
     f.w(f'<text class="s" x="{lx}" y="{ly - 6}">for 循环沿 K 读块的顺序</text>')
     for k, o in enumerate(RAMP):
         f.w(f'<rect x="{lx + k * 12}" y="{ly}" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="{o:.2f}" stroke-opacity=".4" stroke-width=".6"/>')
     f.w(f'<text class="s" x="{lx}" y="{ly + 23}">第 0 轮</text><text class="s" x="{lx + 96}" y="{ly + 23}" text-anchor="end">第 63 轮</text>')
+    return f
+
+# ── 图 2-6 matmul 的 shared memory 流水线：每一轮往哪个槽搬哪一块（按编译出的 TTGIR / PTX） ──
+def mm_pipe():
+    f = F("fig-t-6", 346, "matmul 的 shared memory 里 A、B 各有两个槽：循环前先发出第 0、1 轮的 cp.async；第 i 轮等第 i 轮到齐，ld.shared 读进 register 做 dot，第 i + 1 轮还在搬，读完就往同一个槽发第 i + 2 轮；第 62、63 轮不再搬；循环后 acc 经 shared memory 换排布再写回显存")
+    R = lambda r: .12 + .66 * r / 63                     # 和图 2-5 一样：第 r 轮的颜色，越晚越深
+    TX = lambda o: 'style="fill: var(--fig-on-1)"' if o > .5 else ''
+    cols = ["循环前", "第 0 轮", "第 1 轮", "第 2 轮", "⋯", "第 62 轮", "第 63 轮", "循环后"]
+    it = [None, 0, 1, 2, None, 62, 63, None]
+    X0, CW = 96, 67
+    cxs = [X0 + CW * k + CW / 2 for k in range(8)]
+    rows = [("A 槽 0", 0), ("A 槽 1", 1), ("B 槽 0", 0), ("B 槽 1", 1)]
+    RY = [70, 98, 132, 160]; RH = 22
+    for k, c in enumerate(cols):
+        f.w(f'<text class="tb" x="{cxs[k]:.1f}" y="18" text-anchor="middle">{c}</text>')
+    f.w(f'<line x1="{X0}" y1="26" x2="{X0 + 8 * CW - 6}" y2="26" stroke="currentColor" stroke-opacity=".5" stroke-width="1.2" marker-end="url(#{f.marker(None)})"/>')
+    # 第一行：这一轮发出的 cp.async（显存 → shared memory）
+    f.w(f'<text class="lab2" x="8" y="48">cp.async</text><text class="lab2" x="8" y="61">显存 → shared</text>')
+    send = ["第 0、1 轮", "第 2 轮", "第 3 轮", "第 4 轮", "", "不搬", "不搬", "st.shared"]
+    for k, t in enumerate(send):
+        if t: f.w(f'<text class="s" x="{cxs[k]:.1f}" y="54" text-anchor="middle" {"" if "不" not in t else "opacity=.6"}>{t}</text>')
+    f.w(f'<text class="s" x="{cxs[4]:.1f}" y="120" text-anchor="middle">⋯</text>')
+    def cell(x, y, w, r, dash=False, bold=False, txt=None):
+        o = R(r) if r is not None else 0
+        fill = f'style="fill: var(--fig-1)" fill-opacity="{o:.2f}"' if r is not None and not dash else 'fill="none"'
+        d = ' stroke-dasharray="3 2"' if dash else ''
+        sw = 2 if bold else 1
+        f.w(f'<rect x="{x:.1f}" y="{y}" width="{w:.1f}" height="{RH}" rx="3" {fill}/><rect x="{x:.1f}" y="{y}" width="{w:.1f}" height="{RH}" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="{.9 if bold else .6}" stroke-width="{sw}"{d}/>')
+        t = str(r) if txt is None else txt
+        f.w(f'<text class="s" x="{x + w / 2:.1f}" y="{y + 15}" text-anchor="middle" {TX(o) if not dash else ""}>{t}</text>')
+    for (name, s), y in zip(rows, RY):
+        f.w(f'<text class="lab" x="8" y="{y + 15}">{name}</text>')
+        W, L = 58, None
+        cell(cxs[0] - W / 2, y, W, s, dash=True)                               # 循环前：第 0、1 轮刚发出
+        for k in (1, 2, 3, 5, 6):
+            i, x = it[k], cxs[k] - W / 2
+            if i % 2 == s:                                                      # 这一轮读的槽：读完马上发 i + 2
+                cell(x, y, 27, i, bold=True)
+                if i + 2 <= 63: cell(x + 31, y, 27, i + 2, dash=True)
+                else: cell(x + 31, y, 27, None, txt="—")
+            elif i + 1 <= 63: cell(x, y, W, i + 1, dash=True)                   # 另一个槽：第 i + 1 轮在搬
+            else: cell(x, y, W, None, txt="—")
+    f.w(f'<line x1="{X0}" y1="{(RY[1] + RH + RY[2]) / 2:.1f}" x2="{X0 + 7 * CW}" y2="{(RY[1] + RH + RY[2]) / 2:.1f}" class="grid"/>')
+    cy0, cy1 = RY[0], RY[3] + RH                                                # 循环后：acc 经 shared memory 换排布
+    x = cxs[7] - 30
+    f.w(f'<rect x="{x}" y="{cy0}" width="60" height="{cy1 - cy0}" rx="4" {tint("--fig-1", 10)}/>')
+    for k, t in enumerate(["C 块", "64 × 64", "16 KiB", "换排布"]):
+        f.w(f'<text class="s" x="{cxs[7]:.1f}" y="{cy0 + 40 + k * 16}" text-anchor="middle">{t}</text>')
+    # 下面两行：ld.shared 读哪一轮、计算单元做什么
+    f.w(f'<text class="lab2" x="8" y="{RY[3] + 50}">ld.shared</text><text class="lab2" x="8" y="{RY[3] + 63}">shared → register</text>')
+    f.w(f'<text class="lab2" x="8" y="{RY[3] + 88}">计算单元</text>')
+    for k in (1, 2, 3, 5, 6):
+        f.w(f'<text class="s" x="{cxs[k]:.1f}" y="{RY[3] + 56}" text-anchor="middle">第 {it[k]} 轮</text>')
+        f.w(f'<text class="s" x="{cxs[k]:.1f}" y="{RY[3] + 88}" text-anchor="middle">dot</text>')
+    f.w(f'<text class="s" x="{cxs[7]:.1f}" y="{RY[3] + 56}" text-anchor="middle">C 块</text><text class="s" x="{cxs[7]:.1f}" y="{RY[3] + 88}" text-anchor="middle">relu</text>')
+    ly = RY[3] + 116
+    cell(8, ly - 15, 22, 5); f.w(f'<text class="s" x="36" y="{ly}">已在 shared memory</text>')
+    cell(150, ly - 15, 22, 5, bold=True); f.w(f'<text class="s" x="178" y="{ly}">这一轮 ld.shared 读的槽</text>')
+    cell(318, ly - 15, 22, 5, dash=True); f.w(f'<text class="s" x="346" y="{ly}">cp.async 已发出，还在搬；数字是第几轮</text>')
+    for k, t in enumerate(["显存 → shared memory：A、B 各搬 64 次，每次 8 KiB（每个 thread 4 条 16 B 的 cp.async），一个 program 共 1 MiB。",
+                           "shared memory → register：每轮每个 thread 192 条 ld.shared、读 1536 B，128 个 thread 共读 192 KiB，",
+                           "是 A、B 两块（16 KiB）的 12 倍。循环后 relu 过的 acc 先写进 shared memory 换排布，再读回 register，tl.store 写回显存。"]):
+        f.w(f'<text class="lab2" x="8" y="{ly + 24 + k * 16}">{t}</text>')
     return f
 
 CAPS = {
@@ -1370,6 +1437,7 @@ CAPS = {
  "tri_softmax": '<strong>图 2-3</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次；每个 program 用的 register 多，一个 SM 只放得下 9 个。',
  "tri_rowsum": '<strong>图 2-4</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 块，代码里 TILE = 1024。颜色由淡到浓是 for 循环读块的顺序：第 0 轮后 acc 只有第 0 块的数，最后的 acc 是 4 块逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。',
  "tri_matmul": '<strong>图 2-5</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的 A、B、C 按形状比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 行和 B 的第 1 列，颜色由淡到浓是 for 循环沿 K 读块的顺序：第 0 轮读最淡的块，第 63 轮读最浓的；acc 一轮轮累积，最后铺满整条渐变，ReLU 后写回 C 的 (1, 1) 块。512 个 program 分到 170 个 SM，每个 SM 放 3 个，一批 510 个，剩下 2 个要等第二批。',
+ "mm_pipe": '<strong>图 2-6</strong> matmul kernel 的 shared memory 流水线，按编译出的 TTGIR 和 PTX 画（<code>num_stages=3</code>，K = 2048 按 BK = 32 切成 64 轮）。A、B 各两个槽，共 32 KiB；颜色深浅是第几轮，和<a href="#fig-t-4">图 2-5</a> 一样。第 62、63 轮的 cp.async 被 mask 掉，不读显存。',
  "occ_sweep": '<strong>图 2-5</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。',
  "tile_sweep": '<strong>图 2-6</strong> row sum 的 TILE 和带宽（RTX 5090，fp32，两种形状都是 340 MiB，<code>num_warps=4</code>，每点取 8 次计时的最快值）。悬停可看耗时和每线程的 register 数。',
  "tpu_core": '<strong>图 A-1</strong> TPU v5p 一个 TensorCore 的结构示意，画法对应<a href="#fig-h-1">图 1-2</a>。规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>，原书也有一张 TensorCore 的结构图。',
@@ -1393,7 +1461,7 @@ CAPS = {
  "ckpt": '<strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。',
  "sweep": '<strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。',
 }
-OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("wave_trace", wave_trace), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
+OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("wave_trace", wave_trace), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("mm_pipe", mm_pipe), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
        ("flops_vs_time", flops_vs_time), ("share_vs_seq", share_vs_seq), ("peak_memory", peak_memory), ("peak_moment", peak_moment),
        ("rms_eager", rms_eager), ("rms_fused", rms_fused), ("attn_flow", attn_flow), ("layer_donut", layer_donut), ("timelines", timelines),
        ("bf16", bf16), ("ckpt", ckpt), ("sweep", sweep))}

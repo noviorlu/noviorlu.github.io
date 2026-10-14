@@ -270,7 +270,7 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
   <text class="lab2" x="400" y="155">同一拍只能做 FP32 或 INT32</text>
   <text class="s" x="384" y="178" text-anchor="start" style="fill: var(--fig-hi)">④</text>
   <text class="lab2" x="400" y="178">Tensor core：一条指令算一个</text>
-  <text class="lab2" x="400" y="193">小矩阵乘，tl.dot 走它</text>
+  <text class="lab2" x="400" y="193">小矩阵乘，tl.dot 默认走它</text>
   <text class="s" x="384" y="216" text-anchor="start" style="fill: var(--fig-hi)">⑤</text>
   <text class="lab2" x="400" y="216">LD/ST：load / store，在 register</text>
   <text class="lab2" x="400" y="231">和 L1 / shared memory、显存之间</text>
@@ -1399,7 +1399,7 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
 加法满足结合律，分段加完再相加和一次加完是同一个数（浮点数下只差舍入误差），所以每次只读 $A_{IT}$ 和 $B_{TJ}$ 两个小块、算一个小矩阵乘 $A_{IT} B_{TJ}$ 累加起来，最后得到的就是完整的 $C_{IJ}$。ReLU 逐元素作用在累加完的结果上，放在最后做不影响答案。
 
 <figure id="fig-t-4" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 450" width="100%" role="img" aria-label="matmul kernel（A 4096 × 2048，B 2048 × 512）：C 的每一块一个 program；program (1, 1) 沿 K 一轮用 cp.async 把 A、B 各一块从显存直接搬进 shared memory，tl.dot 从 shared memory 读一小片进 register 做乘加，acc 留在 register 里，中间几轮用 ⋯ 省略，最后 ReLU 后 tl.store 写回 C 的 (1, 1) 块">
+<svg class="fg" viewBox="0 0 640 465" width="100%" role="img" aria-label="matmul kernel（A 4096 × 2048，B 2048 × 512）：C 的每一块一个 program；program (1, 1) 沿 K 一轮用 cp.async 把 A、B 各一块从显存直接搬进 shared memory，tl.dot 从 shared memory 读一小片进 register 做乘加，acc 留在 register 里，中间几轮用 ⋯ 省略，最后 ReLU 后 tl.store 写回 C 的 (1, 1) 块">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -1483,8 +1483,9 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
   <text class="tb" x="542.3" y="62" text-anchor="middle">relu</text><text class="s" x="542.3" y="77" text-anchor="middle">tl.maximum</text>
   <text class="lab2" x="152" y="388">cp.async：两次 tl.load 把 A 块、B 块从显存直接搬进 shared memory，不经过 register；</text>
   <text class="lab2" x="152" y="403">乘加：tl.dot 从 shared memory 读一小片 a、b 到 register，计算单元做 FMA，加到 acc 上；</text>
-  <text class="lab2" x="152" y="418">num_stages = 3：shared memory 里放两份 A、B 块（共 32 KiB），算第 T 轮时第 T+1 轮已经在搬；</text>
-  <text class="lab2" x="152" y="433">K = 2048 按 BK = 32 切成 64 轮，图里只画第 0 轮的 cp.async。</text>
+  <text class="lab2" x="152" y="418">num_stages = 3：A、B 各两个槽（共 32 KiB），算第 T 轮时第 T+1 轮在搬，读完马上搬第 T+2 轮；</text>
+  <text class="lab2" x="152" y="433">K = 2048 按 BK = 32 切成 64 轮，A、B 各搬 64 次，图里只画第 0 轮，每一轮见图 2-6；</text>
+  <text class="lab2" x="152" y="448">写回前 acc 先经 shared memory 换一次排布（16 KiB），再从 register 写回显存。</text>
   <defs><linearGradient id="fig-t-4-acc" x1="0" x2="1" y1="0" y2="0"><stop offset="0.00" style="stop-color: var(--fig-1)" stop-opacity="0.12"/><stop offset="0.14" style="stop-color: var(--fig-1)" stop-opacity="0.21"/><stop offset="0.29" style="stop-color: var(--fig-1)" stop-opacity="0.31"/><stop offset="0.43" style="stop-color: var(--fig-1)" stop-opacity="0.40"/><stop offset="0.57" style="stop-color: var(--fig-1)" stop-opacity="0.50"/><stop offset="0.71" style="stop-color: var(--fig-1)" stop-opacity="0.59"/><stop offset="0.86" style="stop-color: var(--fig-1)" stop-opacity="0.69"/><stop offset="1.00" style="stop-color: var(--fig-1)" stop-opacity="0.78"/></linearGradient></defs>
   <rect x="203.0" y="158" width="30" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="203.0" y="158" width="30" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
   <text class="s" x="218.0" y="171" text-anchor="middle" >A 块</text>
@@ -1513,9 +1514,13 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
   <line x1="509.7" y1="109.0" x2="526.3" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <path d="M297.7,44 L297.7,37 L461.0,37 L461.0,43" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-4-m2)"/>
   <text class="s" x="379.3" y="33" text-anchor="middle" style="fill: var(--fig-hi)">acc 带到下一轮</text>
-  <rect x="593.0" y="111" width="30" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="593.0" y="111" width="30" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
+  <rect x="590.0" y="111" width="36" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="590.0" y="111" width="36" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
   <text class="s" x="608.0" y="124" text-anchor="middle" style="fill: var(--fig-on-1)">C 块</text>
-  <line x1="558.3" y1="86.0" x2="596.0" y2="109.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <line x1="558.3" y1="86.0" x2="594.0" y2="109.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <rect x="579.0" y="176" width="30" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="579.0" y="176" width="30" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
+  <text class="s" x="594.0" y="189" text-anchor="middle" style="fill: var(--fig-on-1)">C 块</text>
+  <line x1="591.0" y1="131.0" x2="591.0" y2="174.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
+  <line x1="600.0" y1="174.0" x2="600.0" y2="131.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <rect x="285.7" y="172" width="74" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-dasharray="3 2" stroke-opacity=".7"/>
   <text class="s" x="322.7" y="185" text-anchor="middle">第 1 轮 A、B</text><text class="s" x="322.7" y="203" text-anchor="middle">正在搬</text>
   <rect x="202.0" y="244" width="6" height="6" fill="none"/>
@@ -1882,8 +1887,8 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
   <rect x="599.0" y="244" width="12" height="96" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
   <text class="s" x="630.0" y="353.0" text-anchor="end">C [4096, 512]</text>
   <text class="s" x="630.0" y="366.0" text-anchor="end">8 MiB</text>
-  <line x1="608.0" y1="131.0" x2="608.0" y2="249.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-4-m3)"/>
-  <text class="s" x="604.0" y="196.0" text-anchor="end" style="fill: var(--fig-1)">tl.store</text>
+  <line x1="618.0" y1="131.0" x2="608.0" y2="249.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-4-m3)"/>
+  <text class="s" x="606.0" y="226" text-anchor="end" style="fill: var(--fig-1)">tl.store</text>
   <text class="s" x="276.0" y="296">for 循环沿 K 读块的顺序</text>
   <rect x="276.0" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.12" stroke-opacity=".4" stroke-width=".6"/>
   <rect x="288.0" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.21" stroke-opacity=".4" stroke-width=".6"/>
@@ -1943,7 +1948,156 @@ def matmul_relu(a, b, BM=64, BN=64, BK=32):
     return c
 ```
 
-fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 的矩阵乘差 0.1 左右；要和 PyTorch（关掉 tf32）对上，需要 `input_precision="ieee"`。
+A、B 块具体怎么进出 shared memory，看编译出的 TTGIR 和 PTX 就能数清楚（[图 2-6](#fig-t-6)）。`num_stages=3` 让编译器把循环改写成流水线：A、B 各开两个槽，循环前先发出第 0、1 轮的 cp.async；第 $T$ 轮先等第 $T$ 轮的数据到齐，用 ld.shared 读进 register 做乘加，这时第 $T+1$ 轮还在搬，读完马上往刚空出来的槽发第 $T+2$ 轮。A、B 各从显存搬 64 次，每次 8 KiB，一个 program 一共 1 MiB；每轮从 shared memory 读进 register 的是 192 KiB，同一个数平均被读 12 次，这就是前面说的复用。写回之前 acc 还要经 shared memory 换一次排布，让 tl.store 能按连续地址写。
+
+<figure id="fig-t-6" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 346" width="100%" role="img" aria-label="matmul 的 shared memory 里 A、B 各有两个槽：循环前先发出第 0、1 轮的 cp.async；第 i 轮等第 i 轮到齐，ld.shared 读进 register 做 dot，第 i + 1 轮还在搬，读完就往同一个槽发第 i + 2 轮；第 62、63 轮不再搬；循环后 acc 经 shared memory 换排布再写回显存">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <defs><marker id="fig-t-6-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
+  <text class="tb" x="129.5" y="18" text-anchor="middle">循环前</text>
+  <text class="tb" x="196.5" y="18" text-anchor="middle">第 0 轮</text>
+  <text class="tb" x="263.5" y="18" text-anchor="middle">第 1 轮</text>
+  <text class="tb" x="330.5" y="18" text-anchor="middle">第 2 轮</text>
+  <text class="tb" x="397.5" y="18" text-anchor="middle">⋯</text>
+  <text class="tb" x="464.5" y="18" text-anchor="middle">第 62 轮</text>
+  <text class="tb" x="531.5" y="18" text-anchor="middle">第 63 轮</text>
+  <text class="tb" x="598.5" y="18" text-anchor="middle">循环后</text>
+  <line x1="96" y1="26" x2="626" y2="26" stroke="currentColor" stroke-opacity=".5" stroke-width="1.2" marker-end="url(#fig-t-6-m0)"/>
+  <text class="lab2" x="8" y="48">cp.async</text><text class="lab2" x="8" y="61">显存 → shared</text>
+  <text class="s" x="129.5" y="54" text-anchor="middle" >第 0、1 轮</text>
+  <text class="s" x="196.5" y="54" text-anchor="middle" >第 2 轮</text>
+  <text class="s" x="263.5" y="54" text-anchor="middle" >第 3 轮</text>
+  <text class="s" x="330.5" y="54" text-anchor="middle" >第 4 轮</text>
+  <text class="s" x="464.5" y="54" text-anchor="middle" opacity=.6>不搬</text>
+  <text class="s" x="531.5" y="54" text-anchor="middle" opacity=.6>不搬</text>
+  <text class="s" x="598.5" y="54" text-anchor="middle" >st.shared</text>
+  <text class="s" x="397.5" y="120" text-anchor="middle">⋯</text>
+  <text class="lab" x="8" y="85">A 槽 0</text>
+  <rect x="100.5" y="70" width="58.0" height="22" rx="3" fill="none"/><rect x="100.5" y="70" width="58.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="129.5" y="85" text-anchor="middle" >0</text>
+  <rect x="167.5" y="70" width="27.0" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="167.5" y="70" width="27.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.9" stroke-width="2"/>
+  <text class="s" x="181.0" y="85" text-anchor="middle" >0</text>
+  <rect x="198.5" y="70" width="27.0" height="22" rx="3" fill="none"/><rect x="198.5" y="70" width="27.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="212.0" y="85" text-anchor="middle" >2</text>
+  <rect x="234.5" y="70" width="58.0" height="22" rx="3" fill="none"/><rect x="234.5" y="70" width="58.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="263.5" y="85" text-anchor="middle" >2</text>
+  <rect x="301.5" y="70" width="27.0" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity="0.14"/><rect x="301.5" y="70" width="27.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.9" stroke-width="2"/>
+  <text class="s" x="315.0" y="85" text-anchor="middle" >2</text>
+  <rect x="332.5" y="70" width="27.0" height="22" rx="3" fill="none"/><rect x="332.5" y="70" width="27.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="346.0" y="85" text-anchor="middle" >4</text>
+  <rect x="435.5" y="70" width="27.0" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity="0.77"/><rect x="435.5" y="70" width="27.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.9" stroke-width="2"/>
+  <text class="s" x="449.0" y="85" text-anchor="middle" style="fill: var(--fig-on-1)">62</text>
+  <rect x="466.5" y="70" width="27.0" height="22" rx="3" fill="none"/><rect x="466.5" y="70" width="27.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1"/>
+  <text class="s" x="480.0" y="85" text-anchor="middle" >—</text>
+  <rect x="502.5" y="70" width="58.0" height="22" rx="3" fill="none"/><rect x="502.5" y="70" width="58.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1"/>
+  <text class="s" x="531.5" y="85" text-anchor="middle" >—</text>
+  <text class="lab" x="8" y="113">A 槽 1</text>
+  <rect x="100.5" y="98" width="58.0" height="22" rx="3" fill="none"/><rect x="100.5" y="98" width="58.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="129.5" y="113" text-anchor="middle" >1</text>
+  <rect x="167.5" y="98" width="58.0" height="22" rx="3" fill="none"/><rect x="167.5" y="98" width="58.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="196.5" y="113" text-anchor="middle" >1</text>
+  <rect x="234.5" y="98" width="27.0" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity="0.13"/><rect x="234.5" y="98" width="27.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.9" stroke-width="2"/>
+  <text class="s" x="248.0" y="113" text-anchor="middle" >1</text>
+  <rect x="265.5" y="98" width="27.0" height="22" rx="3" fill="none"/><rect x="265.5" y="98" width="27.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="279.0" y="113" text-anchor="middle" >3</text>
+  <rect x="301.5" y="98" width="58.0" height="22" rx="3" fill="none"/><rect x="301.5" y="98" width="58.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="330.5" y="113" text-anchor="middle" >3</text>
+  <rect x="435.5" y="98" width="58.0" height="22" rx="3" fill="none"/><rect x="435.5" y="98" width="58.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="464.5" y="113" text-anchor="middle" >63</text>
+  <rect x="502.5" y="98" width="27.0" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="502.5" y="98" width="27.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.9" stroke-width="2"/>
+  <text class="s" x="516.0" y="113" text-anchor="middle" style="fill: var(--fig-on-1)">63</text>
+  <rect x="533.5" y="98" width="27.0" height="22" rx="3" fill="none"/><rect x="533.5" y="98" width="27.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1"/>
+  <text class="s" x="547.0" y="113" text-anchor="middle" >—</text>
+  <text class="lab" x="8" y="147">B 槽 0</text>
+  <rect x="100.5" y="132" width="58.0" height="22" rx="3" fill="none"/><rect x="100.5" y="132" width="58.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="129.5" y="147" text-anchor="middle" >0</text>
+  <rect x="167.5" y="132" width="27.0" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="167.5" y="132" width="27.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.9" stroke-width="2"/>
+  <text class="s" x="181.0" y="147" text-anchor="middle" >0</text>
+  <rect x="198.5" y="132" width="27.0" height="22" rx="3" fill="none"/><rect x="198.5" y="132" width="27.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="212.0" y="147" text-anchor="middle" >2</text>
+  <rect x="234.5" y="132" width="58.0" height="22" rx="3" fill="none"/><rect x="234.5" y="132" width="58.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="263.5" y="147" text-anchor="middle" >2</text>
+  <rect x="301.5" y="132" width="27.0" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity="0.14"/><rect x="301.5" y="132" width="27.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.9" stroke-width="2"/>
+  <text class="s" x="315.0" y="147" text-anchor="middle" >2</text>
+  <rect x="332.5" y="132" width="27.0" height="22" rx="3" fill="none"/><rect x="332.5" y="132" width="27.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="346.0" y="147" text-anchor="middle" >4</text>
+  <rect x="435.5" y="132" width="27.0" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity="0.77"/><rect x="435.5" y="132" width="27.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.9" stroke-width="2"/>
+  <text class="s" x="449.0" y="147" text-anchor="middle" style="fill: var(--fig-on-1)">62</text>
+  <rect x="466.5" y="132" width="27.0" height="22" rx="3" fill="none"/><rect x="466.5" y="132" width="27.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1"/>
+  <text class="s" x="480.0" y="147" text-anchor="middle" >—</text>
+  <rect x="502.5" y="132" width="58.0" height="22" rx="3" fill="none"/><rect x="502.5" y="132" width="58.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1"/>
+  <text class="s" x="531.5" y="147" text-anchor="middle" >—</text>
+  <text class="lab" x="8" y="175">B 槽 1</text>
+  <rect x="100.5" y="160" width="58.0" height="22" rx="3" fill="none"/><rect x="100.5" y="160" width="58.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="129.5" y="175" text-anchor="middle" >1</text>
+  <rect x="167.5" y="160" width="58.0" height="22" rx="3" fill="none"/><rect x="167.5" y="160" width="58.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="196.5" y="175" text-anchor="middle" >1</text>
+  <rect x="234.5" y="160" width="27.0" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity="0.13"/><rect x="234.5" y="160" width="27.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.9" stroke-width="2"/>
+  <text class="s" x="248.0" y="175" text-anchor="middle" >1</text>
+  <rect x="265.5" y="160" width="27.0" height="22" rx="3" fill="none"/><rect x="265.5" y="160" width="27.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="279.0" y="175" text-anchor="middle" >3</text>
+  <rect x="301.5" y="160" width="58.0" height="22" rx="3" fill="none"/><rect x="301.5" y="160" width="58.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="330.5" y="175" text-anchor="middle" >3</text>
+  <rect x="435.5" y="160" width="58.0" height="22" rx="3" fill="none"/><rect x="435.5" y="160" width="58.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="464.5" y="175" text-anchor="middle" >63</text>
+  <rect x="502.5" y="160" width="27.0" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="502.5" y="160" width="27.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.9" stroke-width="2"/>
+  <text class="s" x="516.0" y="175" text-anchor="middle" style="fill: var(--fig-on-1)">63</text>
+  <rect x="533.5" y="160" width="27.0" height="22" rx="3" fill="none"/><rect x="533.5" y="160" width="27.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1"/>
+  <text class="s" x="547.0" y="175" text-anchor="middle" >—</text>
+  <line x1="96" y1="126.0" x2="565" y2="126.0" class="grid"/>
+  <rect x="568.5" y="70" width="60" height="112" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="s" x="598.5" y="110" text-anchor="middle">C 块</text>
+  <text class="s" x="598.5" y="126" text-anchor="middle">64 × 64</text>
+  <text class="s" x="598.5" y="142" text-anchor="middle">16 KiB</text>
+  <text class="s" x="598.5" y="158" text-anchor="middle">换排布</text>
+  <text class="lab2" x="8" y="210">ld.shared</text><text class="lab2" x="8" y="223">shared → register</text>
+  <text class="lab2" x="8" y="248">计算单元</text>
+  <text class="s" x="196.5" y="216" text-anchor="middle">第 0 轮</text>
+  <text class="s" x="196.5" y="248" text-anchor="middle">dot</text>
+  <text class="s" x="263.5" y="216" text-anchor="middle">第 1 轮</text>
+  <text class="s" x="263.5" y="248" text-anchor="middle">dot</text>
+  <text class="s" x="330.5" y="216" text-anchor="middle">第 2 轮</text>
+  <text class="s" x="330.5" y="248" text-anchor="middle">dot</text>
+  <text class="s" x="464.5" y="216" text-anchor="middle">第 62 轮</text>
+  <text class="s" x="464.5" y="248" text-anchor="middle">dot</text>
+  <text class="s" x="531.5" y="216" text-anchor="middle">第 63 轮</text>
+  <text class="s" x="531.5" y="248" text-anchor="middle">dot</text>
+  <text class="s" x="598.5" y="216" text-anchor="middle">C 块</text><text class="s" x="598.5" y="248" text-anchor="middle">relu</text>
+  <rect x="8.0" y="261" width="22.0" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity="0.17"/><rect x="8.0" y="261" width="22.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1"/>
+  <text class="s" x="19.0" y="276" text-anchor="middle" >5</text>
+  <text class="s" x="36" y="276">已在 shared memory</text>
+  <rect x="150.0" y="261" width="22.0" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity="0.17"/><rect x="150.0" y="261" width="22.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.9" stroke-width="2"/>
+  <text class="s" x="161.0" y="276" text-anchor="middle" >5</text>
+  <text class="s" x="178" y="276">这一轮 ld.shared 读的槽</text>
+  <rect x="318.0" y="261" width="22.0" height="22" rx="3" fill="none"/><rect x="318.0" y="261" width="22.0" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="329.0" y="276" text-anchor="middle" >5</text>
+  <text class="s" x="346" y="276">cp.async 已发出，还在搬；数字是第几轮</text>
+  <text class="lab2" x="8" y="300">显存 → shared memory：A、B 各搬 64 次，每次 8 KiB（每个 thread 4 条 16 B 的 cp.async），一个 program 共 1 MiB。</text>
+  <text class="lab2" x="8" y="316">shared memory → register：每轮每个 thread 192 条 ld.shared、读 1536 B，128 个 thread 共读 192 KiB，</text>
+  <text class="lab2" x="8" y="332">是 A、B 两块（16 KiB）的 12 倍。循环后 relu 过的 acc 先写进 shared memory 换排布，再读回 register，tl.store 写回显存。</text>
+</svg>
+<figcaption><strong>图 2-6</strong> matmul kernel 的 shared memory 流水线，按编译出的 TTGIR 和 PTX 画（<code>num_stages=3</code>，K = 2048 按 BK = 32 切成 64 轮）。A、B 各两个槽，共 32 KiB；颜色深浅是第几轮，和<a href="#fig-t-4">图 2-5</a> 一样。第 62、63 轮的 cp.async 被 mask 掉，不读显存。</figcaption>
+</figure>
+
+fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 的矩阵乘差 0.1 左右；要和 PyTorch（关掉 tf32）对上，需要 `input_precision="ieee"`。这样 `tl.dot` 就不走 Tensor core 了，PTX 里是 `fma.rn.f32x2`，在 FP32 核上算，每个 thread 每轮 512 条，一条算两个 FMA。
 
 第 2 节的四个例子是同一个模式：program 把一块数据读进 register，在片上做完能做的计算，再写回显存。[下一篇](/blog/gpu-training-analysis/)在 5090 上拆解一步训练的时间和显存，用的就是这个模式：把 RMSNorm 的几个 kernel 融合成一个，少读写一遍中间结果。
 

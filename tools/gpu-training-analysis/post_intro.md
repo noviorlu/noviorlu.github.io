@@ -248,7 +248,11 @@ grid 是二维的，C 的每一块一个 program：
 {{code:triton_tutorial.py:matmul_launch}}
 ```
 
-fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 的矩阵乘差 0.1 左右；要和 PyTorch（关掉 tf32）对上，需要 `input_precision="ieee"`。
+A、B 块具体怎么进出 shared memory，看编译出的 TTGIR 和 PTX 就能数清楚（[图 2-6](#fig-t-6)）。`num_stages=3` 让编译器把循环改写成流水线：A、B 各开两个槽，循环前先发出第 0、1 轮的 cp.async；第 $T$ 轮先等第 $T$ 轮的数据到齐，用 ld.shared 读进 register 做乘加，这时第 $T+1$ 轮还在搬，读完马上往刚空出来的槽发第 $T+2$ 轮。A、B 各从显存搬 64 次，每次 8 KiB，一个 program 一共 1 MiB；每轮从 shared memory 读进 register 的是 192 KiB，同一个数平均被读 12 次，这就是前面说的复用。写回之前 acc 还要经 shared memory 换一次排布，让 tl.store 能按连续地址写。
+
+{{fig-t-6}}
+
+fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 的矩阵乘差 0.1 左右；要和 PyTorch（关掉 tf32）对上，需要 `input_precision="ieee"`。这样 `tl.dot` 就不走 Tensor core 了，PTX 里是 `fma.rn.f32x2`，在 FP32 核上算，每个 thread 每轮 512 条，一条算两个 FMA。
 
 第 2 节的四个例子是同一个模式：program 把一块数据读进 register，在片上做完能做的计算，再写回显存。[下一篇](/blog/gpu-training-analysis/)在 5090 上拆解一步训练的时间和显存，用的就是这个模式：把 RMSNorm 的几个 kernel 融合成一个，少读写一遍中间结果。
 
