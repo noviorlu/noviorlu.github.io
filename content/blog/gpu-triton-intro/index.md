@@ -1059,7 +1059,7 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
   <defs><linearGradient id="fig-t-4-acc" x1="0" x2="1" y1="0" y2="0"><stop offset="0.00" style="stop-color: var(--fig-1)" stop-opacity="0.12"/><stop offset="0.14" style="stop-color: var(--fig-1)" stop-opacity="0.21"/><stop offset="0.29" style="stop-color: var(--fig-1)" stop-opacity="0.31"/><stop offset="0.43" style="stop-color: var(--fig-1)" stop-opacity="0.40"/><stop offset="0.57" style="stop-color: var(--fig-1)" stop-opacity="0.50"/><stop offset="0.71" style="stop-color: var(--fig-1)" stop-opacity="0.59"/><stop offset="0.86" style="stop-color: var(--fig-1)" stop-opacity="0.69"/><stop offset="1.00" style="stop-color: var(--fig-1)" stop-opacity="0.78"/></linearGradient></defs>
   <rect x="285.7" y="103" width="344.3" height="21" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
   <rect x="226.0" y="128" width="223.0" height="21" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
-  <line x1="542.3" y1="106" x2="542.3" y2="121" style="stroke: var(--fig-2)" stroke-dasharray="2 2"/>
+  <rect x="542.3" y="103" width="87.7" height="21" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
   <text class="s" x="354.3" y="117" text-anchor="middle">acc <tspan style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">16 KB</tspan></text>
   <text class="s" x="586.2" y="117" text-anchor="middle">C block <tspan style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">16 KB</tspan></text>
   <text class="s" x="346.3" y="142" text-anchor="middle">a、b <tspan style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">各 8 KB</tspan></text>
@@ -1458,7 +1458,7 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
   <text class="s" x="630.0" y="365.0" text-anchor="end">C [4096, 512]</text>
   <text class="s" x="630.0" y="378.0" text-anchor="end">整个 8 MB</text>
   <line x1="618.0" y1="126.0" x2="608.0" y2="261.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-4-m3)"/>
-  <text class="s" x="606.0" y="248" text-anchor="end" style="fill: var(--fig-1)">tl.store</text>
+  <text class="s" x="606.0" y="248" text-anchor="end" style="fill: var(--fig-1)">tl.store：写 16 KB</text>
   <text class="s" x="276.0" y="308">沿 K 第 T 轮读的 block：T = 0 … 63</text>
   <rect x="276.0" y="314" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.12" stroke-opacity=".4" stroke-width=".6"/>
   <rect x="288.0" y="314" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.21" stroke-opacity=".4" stroke-width=".6"/>

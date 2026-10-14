@@ -1411,7 +1411,7 @@ def tri_matmul():
     # register 里两块：acc（上，ReLU 之后就是 C block）和 a、b（下，每轮从 shared memory 覆盖）
     AY0, BY0, RH_ = 103, 128, 21
     membar(f, cx[1] - 12, cx[6] + 22, AY0, RH_); membar(f, cx[0] - 6, cx[4] - 12, BY0, RH_)
-    f.w(f'<line x1="{cx[5]:.1f}" y1="{AY0 + 3}" x2="{cx[5]:.1f}" y2="{AY0 + RH_ - 3}" style="stroke: var(--fig-2)" stroke-dasharray="2 2"/>')
+    f.w(f'<rect x="{cx[5]:.1f}" y="{AY0}" width="{cx[6] + 22 - cx[5]:.1f}" height="{RH_}" rx="5" {tint("--fig-2", 45, sw=1.2)}/>')   # ReLU 写出的 C block：同一块 register，换了新内容
     f.w(f'<text class="s" x="{cx[2]:.1f}" y="{AY0 + 14}" text-anchor="middle">acc <tspan {SZ}>16 KB</tspan></text>')
     f.w(f'<text class="s" x="{(cx[5] + cx[6] + 22) / 2:.1f}" y="{AY0 + 14}" text-anchor="middle">C block <tspan {SZ}>16 KB</tspan></text>')
     f.w(f'<text class="s" x="{cx[2] - 8:.1f}" y="{BY0 + 14}" text-anchor="middle">a、b <tspan {SZ}>各 8 KB</tspan></text>')
@@ -1467,7 +1467,7 @@ def tri_matmul():
     CX, CY = cx[6] - 9, 256                          # C [4096, 512]：16 × 2 格，写回 (1, 1)
     mat(CX, CY, 16, 2, {(1, 1): RAMP[-1]}, ["C [4096, 512]", "整个 8 MB"], "end", 630)
     p.xfer(cx[6] + 10, AY0 + RH_ + 2, CY + S - 1, "", xo=cx[6])
-    f.w(f'<text class="s" x="{cx[6] - 2:.1f}" y="248" text-anchor="end" style="fill: var(--fig-1)">tl.store</text>')
+    f.w(f'<text class="s" x="{cx[6] - 2:.1f}" y="248" text-anchor="end" style="fill: var(--fig-1)">tl.store：写 16 KB</text>')
     lx, ly = BX + 18, BY + 58                         # 图例：渐变是 for 循环沿 K 读 block 的顺序
     f.w(f'<text class="s" x="{lx}" y="{ly - 6}">沿 K 第 T 轮读的 block：T = 0 … 63</text>')
     for k, o in enumerate(RAMP):
