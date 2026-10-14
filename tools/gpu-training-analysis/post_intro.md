@@ -10,7 +10,7 @@ series: ["GPU training optimization"]
 series_order: 1
 ---
 
-这个系列讲怎么让 Transformer 训练在 GPU 上跑得更快。这一篇先打基础：[第 1 节](#hardware)介绍 GPU 的硬件，包括数据存在哪几层、一个 SM 里有什么、CUDA 的执行层级怎么对应到硬件；[第 2 节](#triton)用四个例子介绍 Triton，后面两篇的 kernel 都用它写。TPU 和 GPU 的对照放在[附录 A](#tpu)。
+这个系列讲怎么让 Transformer 训练在 GPU 上跑得更快。这一篇先打基础：[第 1 节](#hardware)介绍 GPU 的硬件，包括数据存在哪几层、一个 SM 里有什么、CUDA 的执行层级怎么对应到硬件；[第 2 节](#triton)用四个例子介绍 Triton，后面两篇的 kernel 都用它写。program 怎么排到 SM 上跑（驻留上限、warp 调度、wave）放在[附录 A](#sched)，TPU 和 GPU 的对照放在[附录 B](#tpu)。
 
 下一篇[谁偷走了 5090 的算力和显存](/blog/gpu-training-analysis/)用这些知识在 RTX 5090 上拆解一步训练的时间和显存，第三篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 讲 attention 的 IO-aware kernel。
 
@@ -45,53 +45,17 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 
 {{fig-h-2}}
 
-[图 1-4](#fig-h-9) 把一个 SMSP 展开。[第 2 节](#triton) kernel 图里的「计算单元」指其中的 CUDA core 和 Tensor core，「register」就是这个 64 KB 的 register file。
-
-{{fig-h-9}}
+[第 2 节](#triton) kernel 图里的「计算单元」指 SMSP 里的 CUDA core 和 Tensor core，「register」就是 SMSP 的 register file，每个 64 KB。
 
 这些是硬件提供的资源。register 按 thread 分配，shared memory 按 block 分配，要知道一个 kernel 怎么用这些资源，得先看 CUDA 怎么把 thread 组织起来。
 
 ### 1.3 编程模型：thread、warp、block、grid {#hw-model}
 
-CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 warp 的 32 个 thread 同一时刻执行同一条指令。thread 往上分四层：thread、warp（32 个 thread）、block（也叫 CTA，若干个 warp）、grid（一次 kernel 启动的全部 block），每层跑在哪个硬件上见[图 1-5](#fig-h-5)。
+CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 warp 的 32 个 thread 同一时刻执行同一条指令。thread 往上分四层：thread、warp（32 个 thread）、block（也叫 CTA，若干个 warp）、grid（一次 kernel 启动的全部 block），每层跑在哪个硬件上见[图 1-4](#fig-h-5)。
 
 {{fig-h-5}}
 
-block 放到 SM 上以后就一直驻留，直到它的 thread 全部跑完。一个 SM 能同时驻留多少，由几条硬件上限决定（[表 1-1](#tab-1-1)），哪条先用完就卡在哪条。warp 的上限分摊到每个 SMSP 的调度器；block 的上限记在整个 SM 上，因为一个 block 的 shared memory 和同步由 4 个 SMSP 共用。
-
-| 资源 | RTX 5090 每个 SM 的上限 |
-|:--|:--|
-| 驻留 warp | 48 个（每个 SMSP 12 个），即 1536 个 thread |
-| 驻留 block | 24 个 |
-| register | 65536 个 32-bit（256 KB），每个 thread 最多 255 个 |
-| shared memory | 100 KiB，每个 block 另占 1 KiB |
-{#tab-1-1 caption="**表 1-1** RTX 5090 一个 SM 的驻留上限" note="用 <code>cuDeviceGetAttribute</code> 在 5090 上读出，和 CUDA Programming Guide 里 compute capability 12.0 的数一致。"}
-
-<details class="fold doc aside">
-<summary>几代 NVIDIA GPU 的规格和驻留上限</summary>
-
-| | A100 | H100 | B200 | RTX 5090 |
-|:--|--:|--:|--:|--:|
-| SM 数 | 108 | 132 | 148 | 170 |
-| L2 | 40 MB | 50 MB | — | 96 MB |
-| 显存 | 80 GB HBM2e | 80 GB HBM3 | 192 GB HBM3e | 32 GB GDDR7 |
-| 显存带宽 | 2.0e12 B/s | 3.35e12 B/s | 8e12 B/s | 1.79e12 B/s |
-| 每 SM 的 CUDA core | 64 | 128 | 128 | 128 |
-| 每 SM 的 Tensor core | 4 | 4 | 4 | 4 |
-| 每 SM 的 L1 + shared | 192 KB | 256 KB | 256 KB | 128 KB |
-| 每 SM 的 register | 256 KB | 256 KB | 256 KB | 256 KB |
-| 每 SMSP 最多驻留 warp | 16 | 16 | 16 | 12 |
-| 每 SM 最多驻留 warp | 64 | 64 | 64 | 48 |
-| 每 SM 最多驻留 block | 32 | 32 | 32 | 24 |
-{#tab-1-1a caption="**表 1-1a** 几代 NVIDIA GPU 的规格和驻留上限" note="来自 NVIDIA 各代架构白皮书、产品规格（A100 80GB SXM，H100 SXM）和 CUDA Programming Guide 的 compute capability 表（8.0、9.0、10.0、12.0）。B200 的 L2 没有找到可靠的公开数字，暂缺。"}
-
-5090 的 SM 最多，但每个 SM 能驻留的 warp 和 block 比数据中心卡少四分之一，L1 + shared 只有 H100、B200 的一半。
-
-</details>
-
-一个 block 的 warp 按编号轮流分到 4 个 SMSP。驻留不等于在跑：一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp。所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态，所以同时驻留的 warp 越多，访存延迟越容易藏住（[图 1-6](#fig-h-6)）。
-
-{{fig-h-6}}
+block 放到 SM 上以后一直驻留到跑完。一个 SM 同时驻留多个 block，每个 SMSP 的调度器每拍从驻留的 warp 里挑一个就绪的发射；一个 warp 等显存数据要几百个周期，这段时间里调度器就发别的 warp，所以同时驻留的 warp 越多，访存延迟越容易藏住。一个 SM 能放几个 block、block 多于全卡的名额时怎么分批跑，见[附录 A](#sched)。
 
 block 之间不能直接共享数据，只能通过显存交换，而这正是最慢的一层。所以要尽量把会重复读的数据放进同一个 block 里处理，这就是 tiling。在 CUDA 里做 tiling 要自己管 shared memory 和 thread 同步，[第 2 节](#triton)的 Triton 把这部分交给编译器。
 
@@ -142,20 +106,9 @@ GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函�
 {{code:triton_tutorial.py:gelu_launch}}
 ```
 
-program 编译后就是 CUDA 的一个 block。一个 SM 能同时驻留几个，看[表 1-1](#tab-1-1) 里哪条上限先用完：GELU 一个 program 4 个 warp，SM 最多驻留 48 个 warp，所以同时放 12 个（[图 2-1](#fig-t-1) 左下），block 上限 24 用不满。
+program 编译后就是 CUDA 的一个 block。8192 个 program 远多于 170 个 SM，GPU 会把它们一批一批地排到 SM 上，每个 SM 同时跑 12 个，怎么排见[附录 A](#sched)。
 
 n = 8388608 时 Triton 版 45.2 µs，读写共 64 MiB，有效带宽 1.49e12 B/s，是显存带宽的 83%，和 PyTorch 的 `F.gelu(x, approximate="tanh")`（45.9 µs）持平。
-
-<details class="fold doc aside">
-<summary>8192 个 program 怎么分批跑：实测时间线</summary>
-
-全卡一次放得下 170 × 12 = 2040 个 program，8192 个要 5 批，第 5 批只有 32 个。实测的时间线上批次之间却没有分界（[图 2-1a](#fig-t-5)）：一个 program 跑完，它的名额马上换下一个进来，第 2 批在 2.6 µs 就开始了，第 1 批到 15.4 µs 才全部跑完。同一批的 program 都在抢显存带宽，耗时从 4.2 µs 到 11.9 µs 不等（10% 和 90% 分位）。36.5 µs 时最后一个 program 开始，之后名额一个个空出来，在跑的 program 从 1400 个左右降到 0，这段约 10 µs，占整个 kernel 的 22%，叫 tail effect。打点的开销很小：打点版 46.9 µs，不打点 45.2 µs。
-
-program 少而每个都重时尾巴更明显，[2.4 节](#triton-matmul)的 matmul 就是这样（[图 2-4a](#fig-t-7)）。
-
-{{fig-t-5}}
-
-</details>
 
 <details class="fold doc aside">
 <summary>GELU 编译成的 PTX</summary>
@@ -270,22 +223,11 @@ grid 是二维的：
 - **复用**：同一份数据要被读很多次。matmul 里 A 的一个 block 要和 B 的 block 的 64 列都乘一遍；softmax 和 row sum 里每个数只被一个 thread 读一次。
 - **交换**：thread 之间要交换大量数据。matmul 里 `tl.dot` 要把 A、B 的 block 重新分给不同的 thread；softmax 和 row sum 只交换 4 个 warp 的部分结果（16 B）。
 
-所以 matmul 把 A、B 的 block 放在 shared memory 里，每个 program 32 KiB；softmax 和 row sum 两条都不满足，把整个 block 放进 shared memory 只会多搬一趟。代价是 shared memory 用得越多，一个 SM 能同时放的 program 越少：每个 SM 的上限是 100 KiB，matmul 每个 program 占 32 KiB，再加每个 block 保留的 1 KiB，只放得下 3 个（3 × 33 = 99 KiB）。
+所以 matmul 把 A、B 的 block 放在 shared memory 里，每个 program 32 KiB；softmax 和 row sum 两条都不满足，把整个 block 放进 shared memory 只会多搬一趟。代价是 shared memory 用得越多，一个 SM 能同时放的 program 越少：每个 SM 的上限是 100 KiB，matmul 每个 program 占 32 KiB，再加每个 block 保留的 1 KiB，只放得下 3 个（3 × 33 = 99 KiB，见[附录 A.1](#sched-limits)）。
 
 </div>
 
-A 4096 × 2048、B 2048 × 512 时 Triton 版 203.3 µs，4.23e13 FLOPS，是 fp32 标称峰值 1.05e14 FLOPS 的 40%；cuBLAS（`torch.relu(A @ B)`，关掉 tf32）是 160.5 µs。差距主要来自 tail effect。
-
-<details class="fold doc aside">
-<summary>matmul 的 tail effect：512 个 program 分两批</summary>
-
-fp32 标称峰值按 170 个 SM × 128 个 CUDA core × 2 FLOPs × 2.41e9 Hz 算。每个 SM 只放 3 个 program，全卡一批 510 个，512 个 program 要跑 2 批，第 2 批只有 2 个。实测的时间线上（[图 2-4a](#fig-t-7)），第 1 批的 510 个 program 在开头一起开始，各跑 125 到 152 µs；全卡最先跑完的两个 program 在 SM 68 和 SM 135 上，约 125 µs 结束，多出的 2 个这时才开始。152 µs 以后全卡只剩这 2 个 program，另外 168 个 SM 空着，一直等到 200 µs。这 2 个 program 后半段独占一个 SM，只跑了 75 µs，比第一批的中位数 135 µs 快得多。
-
-A 换成 4032 × 2048 时 504 个 program 一批放下，同一个 kernel 只要 158.3 µs，和 cuBLAS 相当。4096 比 4032 的计算量只多 1.6%，耗时多 28%。打点的开销不大：打点版 210.8 µs 和 162.8 µs，不打点 203.3 µs 和 158.3 µs。
-
-{{fig-t-7}}
-
-</details>
+A 4096 × 2048、B 2048 × 512 时 Triton 版 203.3 µs，4.23e13 FLOPS，是 fp32 标称峰值 1.05e14 FLOPS（170 个 SM × 128 个 CUDA core × 2 FLOPs × 2.41e9 Hz）的 40%；cuBLAS（`torch.relu(A @ B)`，关掉 tf32）是 160.5 µs。差距主要来自 tail effect：每个 SM 只放 3 个 program，512 个 program 要分两批跑，第二批只有 2 个，它们跑的时候另外 168 个 SM 都空着（见[附录 A.3](#sched-wave)）。
 
 Triton 默认 `num_stages=3`，编译器把这个循环改写成流水线：A、B 各开两个槽，算第 $T$ 轮时，第 $T+1$ 轮的 block 已经在搬了。
 
@@ -294,7 +236,7 @@ Triton 默认 `num_stages=3`，编译器把这个循环改写成流水线：A、
 
 从编译出的 TTGIR 和 PTX 里能数清楚 A、B 的 block 怎么进出 shared memory。循环前先发出第 0、1 轮的 cp.async；第 $T$ 轮先等第 $T$ 轮的数据到齐，用 ld.shared 读进 register 做乘加，读完马上往刚空出来的槽发第 $T+2$ 轮。A、B 各搬 64 次，每次 8 KiB，一个 program 一共 1 MiB；512 个 program 加起来 512 MiB，而 A、B 本身只有 36 MiB，所以 L2 命中率有 91%，大部分读不用到显存。每轮从 shared memory 读进 register 的是 192 KiB，同一个数平均被读 12 次，这就是前面说的复用。写回之前 acc 还要经 shared memory 换一次排布，让 tl.store 能按连续地址写。
 
-预取藏住了多少 load，用 Nsight Compute 测（[图 2-4b](#fig-t-6)）。ncu 给的是一个 warp 每两条指令之间平均隔几拍、这几拍里在等什么，乘上每轮的指令数（约 1220 条），就是每轮的拍数。不预取（`num_stages=1`）时每轮 5601 拍，其中 852 拍在等 L2 或显存的数据，等到了才能算，一轮接一轮。预取以后每轮 4901 拍，等数据只剩 74 拍：block $k$ 的 load 在两轮之前就发出了，约 852 拍就到，到用的时候早已在 shared memory 里。load 只占一轮的六分之一，提前一轮发其实就够。
+预取藏住了多少 load，用 Nsight Compute 测（[图 2-4a](#fig-t-6)）。ncu 给的是一个 warp 每两条指令之间平均隔几拍、这几拍里在等什么，乘上每轮的指令数（约 1220 条），就是每轮的拍数。不预取（`num_stages=1`）时每轮 5601 拍，其中 852 拍在等 L2 或显存的数据，等到了才能算，一轮接一轮。预取以后每轮 4901 拍，等数据只剩 74 拍：block $k$ 的 load 在两轮之前就发出了，约 852 拍就到，到用的时候早已在 shared memory 里。load 只占一轮的六分之一，提前一轮发其实就够。
 
 每轮少了 13%，整个 kernel 只快 6%（168.2 µs 到 158.3 µs）：一个 warp 等数据的时候，同一个 SMSP 上另外两个 warp 本来就能发射，这段等待原本就被藏住了一部分。剩下的时间主要花在等 ld.shared 的结果和轮不到发射上：FMA 管线只忙了 66%，shared memory 读只用了 55%，两边都没满。每个 SMSP 上只有 3 个 warp，一个 warp 等 ld.shared 时，没有足够多的别的 warp 补上。
 
@@ -308,19 +250,88 @@ fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 矩阵�
 
 ---
 
-## 附录 A TPU：更大的矩阵单元，更简单的控制 {#tpu}
+## 附录 A 调度：program 怎么排到 SM 上跑 {#sched}
+
+正文只用到一个结论：一个 SM 同时驻留多个 program，一个 warp 等数据时调度器换别的 warp 发射。这个附录把它展开：一个 SM 能同时放几个 program（[A.1](#sched-limits)），驻留的 warp 怎么轮流发射（[A.2](#sched-warp)），program 多于全卡的名额时怎么分批跑（[A.3](#sched-wave)）。
+
+### A.1 驻留上限 {#sched-limits}
+
+block 放到 SM 上以后就一直驻留，直到它的 thread 全部跑完。一个 SM 能同时驻留多少，由四条硬件上限决定（[表 A-1](#tab-a-1)），哪条先用完就卡在哪条。warp 的上限分摊到每个 SMSP 的调度器；block 的上限记在整个 SM 上，因为一个 block 的 shared memory 和同步由 4 个 SMSP 共用。
+
+| 资源 | RTX 5090 每个 SM 的上限 |
+|:--|:--|
+| 驻留 warp | 48 个（每个 SMSP 12 个），即 1536 个 thread |
+| 驻留 block | 24 个 |
+| register | 65536 个 32-bit（256 KB），每个 thread 最多 255 个 |
+| shared memory | 100 KiB，每个 block 另占 1 KiB |
+{#tab-a-1 caption="**表 A-1** RTX 5090 一个 SM 的驻留上限" note="用 <code>cuDeviceGetAttribute</code> 在 5090 上读出，和 CUDA Programming Guide 里 compute capability 12.0 的数一致。"}
+
+第 2 节的四个 kernel 卡在不同的上限上（[表 A-2](#tab-a-2)）。GELU 和 row sum 用的 register 少、几乎不用 shared memory，卡在 48 个 warp 上：每个 program 4 个 warp，放 12 个。softmax 把一整行 4096 个数放在 register 里，每个 thread 55 个 register（按 56 分配），一个 program 7168 个，65536 / 7168 = 9.1，放 9 个。matmul 每个 program 要 32 KiB shared memory，加上每个 block 保留的 1 KiB，100 KiB 只放得下 3 个；它的 register 允许放 5 个，用不满。
+
+| kernel | register / thread | shared memory / program | 每个 SM 放 | 卡在 |
+|:--|--:|--:|--:|:--|
+| GELU | 31 | 0 | 12 | warp |
+| softmax | 55 | 16 B | 9 | register |
+| row sum | 23 | 16 B | 12 | warp |
+| matmul | 96 | 32 KiB | 3 | shared memory |
+{#tab-a-2 caption="**表 A-2** 第 2 节四个 kernel 每个 SM 能放几个 program" note="形状和正文一样（softmax 的 N = 4096，matmul 的 BM = BN = 64、BK = 32），每个 program 都是 4 个 warp。register 和 shared memory 读自编译出的 kernel，每个 SM 放几个用 <code>cuOccupancyMaxActiveBlocksPerMultiprocessor</code> 算。"}
+
+几代 GPU 的对比见[表 A-3](#tab-a-3)。5090 的 SM 最多，但每个 SM 能驻留的 warp 和 block 比数据中心卡少四分之一，L1 + shared 只有 H100、B200 的一半。
+
+| | A100 | H100 | B200 | RTX 5090 |
+|:--|--:|--:|--:|--:|
+| SM 数 | 108 | 132 | 148 | 170 |
+| L2 | 40 MB | 50 MB | — | 96 MB |
+| 显存 | 80 GB HBM2e | 80 GB HBM3 | 192 GB HBM3e | 32 GB GDDR7 |
+| 显存带宽 | 2.0e12 B/s | 3.35e12 B/s | 8e12 B/s | 1.79e12 B/s |
+| 每 SM 的 CUDA core | 64 | 128 | 128 | 128 |
+| 每 SM 的 Tensor core | 4 | 4 | 4 | 4 |
+| 每 SM 的 L1 + shared | 192 KB | 256 KB | 256 KB | 128 KB |
+| 每 SM 的 register | 256 KB | 256 KB | 256 KB | 256 KB |
+| 每 SMSP 最多驻留 warp | 16 | 16 | 16 | 12 |
+| 每 SM 最多驻留 warp | 64 | 64 | 64 | 48 |
+| 每 SM 最多驻留 block | 32 | 32 | 32 | 24 |
+{#tab-a-3 caption="**表 A-3** 几代 NVIDIA GPU 的规格和驻留上限" note="来自 NVIDIA 各代架构白皮书、产品规格（A100 80GB SXM，H100 SXM）和 CUDA Programming Guide 的 compute capability 表（8.0、9.0、10.0、12.0）。B200 的 L2 没有找到可靠的公开数字，暂缺。"}
+
+驻留只说明 program 占住了名额，不说明它在跑。同一时刻真正在发射指令的，是每个 SMSP 的调度器挑中的那一个 warp。
+
+### A.2 warp 调度：驻留不等于在跑 {#sched-warp}
+
+一个 block 的 warp 按编号轮流分到 4 个 SMSP，每个 SMSP 有自己的 warp scheduler、register file 和 32 个 CUDA core（[图 A-1](#fig-h-9)）。调度器每拍从驻留的 warp 里挑一个就绪的，发出它的一条指令。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp。所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态，所以同时驻留的 warp 越多，访存延迟越容易藏住（[图 A-2](#fig-h-6)）。
+
+{{fig-h-9}}
+
+{{fig-h-6}}
+
+名额是有限的。grid 里的 program 多于全卡的名额时，GPU 只能一批一批地往 SM 上排。
+
+### A.3 wave 和 tail effect {#sched-wave}
+
+GELU 每个 SM 放 12 个 program，全卡一次放得下 170 × 12 = 2040 个，8192 个要 5 批，第 5 批只有 32 个。实测的时间线上批次之间却没有分界（[图 A-3](#fig-t-5)）：一个 program 跑完，它的名额马上换下一个进来，第 2 批在 2.6 µs 就开始了，第 1 批到 15.4 µs 才全部跑完。同一批的 program 都在抢显存带宽，耗时从 4.2 µs 到 11.9 µs 不等（10% 和 90% 分位）。36.5 µs 时最后一个 program 开始，之后名额一个个空出来，在跑的 program 从 1400 个左右降到 0，这段约 10 µs，占整个 kernel 的 22%，叫 tail effect。打点的开销很小：打点版 46.9 µs，不打点 45.2 µs。
+
+{{fig-t-5}}
+
+program 少而每个都重时，尾巴更明显。matmul 每个 SM 只放 3 个 program，全卡一批 510 个，512 个 program 要跑 2 批，第 2 批只有 2 个（[图 A-4](#fig-t-7)）。第 1 批的 510 个 program 在开头一起开始，各跑 125 到 152 µs；全卡最先跑完的两个在 SM 68 和 SM 135 上，约 125 µs 结束，第 2 批的 2 个这时才开始。152 µs 以后全卡只剩这 2 个 program，另外 168 个 SM 空着，一直等到 200 µs。这 2 个 program 后半段独占一个 SM，只跑了 75 µs，比第 1 批的中位数 135 µs 快得多。
+
+{{fig-t-7}}
+
+A 换成 4032 × 2048 时，504 个 program 一批放下，同一个 kernel 只要 158.3 µs，和 cuBLAS 的 160.5 µs 相当。4096 比 4032 的计算量只多 1.6%，耗时多 28%。打点的开销不大：打点版 210.8 µs 和 162.8 µs，不打点 203.3 µs 和 158.3 µs。
+
+---
+
+## 附录 B TPU：更大的矩阵单元，更简单的控制 {#tpu}
 
 正文的 GPU 靠 kernel 自己切 block 来复用数据。TPU 面对同样的带宽问题，思路是把控制逻辑做轻，把矩阵乘单元做大。
 
-[图 A-1](#fig-h-3) 是 TPU v5p 的一个 TensorCore：Scalar unit 取指令、发给 VPU 和 MXU，整个核只有这一路控制，没有 warp 和调度器之间的切换；VPU 做逐元素运算和归约；矩阵乘交给 4 个 MXU，每个是 128 × 128 的 systolic array。片上存储只有 VMEM 和 VREG 两层，VMEM 是编译器管理的 scratchpad，不是硬件 cache，数据什么时候从 HBM 搬进来、搬多少，都由编译器（XLA）提前排好。
+[图 B-1](#fig-h-3) 是 TPU v5p 的一个 TensorCore：Scalar unit 取指令、发给 VPU 和 MXU，整个核只有这一路控制，没有 warp 和调度器之间的切换；VPU 做逐元素运算和归约；矩阵乘交给 4 个 MXU，每个是 128 × 128 的 systolic array。片上存储只有 VMEM 和 VREG 两层，VMEM 是编译器管理的 scratchpad，不是硬件 cache，数据什么时候从 HBM 搬进来、搬多少，都由编译器（XLA）提前排好。
 
 {{fig-h-3}}
 
-MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 A-2](#fig-h-4)）。GPU 上每个 CUDA core 做一次乘加，要从 register file 读两个数、写回一个；一个数被用很多次，得靠 kernel 自己切 block，先搬进 shared memory 和 register 再反复读，[2.4 节](#triton-matmul)的 matmul 就是这样写的。systolic array 把复用做进了硬件：权重先装进 128 × 128 个格子，固定不动；输入 x 从左边进入，每拍向右传一格，经过的每一格把它乘上自己的权重，加到从上面传下来的部分和上，再把部分和往下传。一个 x 从 VMEM 读一次，在一行里被 128 个格子用到；稳定以后每拍从左边进 128 个数、从底部出 128 个结果，阵列里同时做 16384 次乘加，中间结果都不经过 register file。
+MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 B-2](#fig-h-4)）。GPU 上每个 CUDA core 做一次乘加，要从 register file 读两个数、写回一个；一个数被用很多次，得靠 kernel 自己切 block，先搬进 shared memory 和 register 再反复读，[2.4 节](#triton-matmul)的 matmul 就是这样写的。systolic array 把复用做进了硬件：权重先装进 128 × 128 个格子，固定不动；输入 x 从左边进入，每拍向右传一格，经过的每一格把它乘上自己的权重，加到从上面传下来的部分和上，再把部分和往下传。一个 x 从 VMEM 读一次，在一行里被 128 个格子用到；稳定以后每拍从左边进 128 个数、从底部出 128 个结果，阵列里同时做 16384 次乘加，中间结果都不经过 register file。
 
 {{fig-h-4}}
 
-代价是形状要规整。矩阵的维度要是 128 的倍数才能填满阵列，小矩阵和不规则的计算会浪费格子；数据流由编译器提前排好，也不能像 GPU 那样靠切换 warp 应付不确定的访存延迟。多卡之间怎么互联是另一个大区别，超出了本文的范围。两边术语的对应见[表 A-1](#tab-a-1)。
+代价是形状要规整。矩阵的维度要是 128 的倍数才能填满阵列，小矩阵和不规则的计算会浪费格子；数据流由编译器提前排好，也不能像 GPU 那样靠切换 warp 应付不确定的访存延迟。多卡之间怎么互联是另一个大区别，超出了本文的范围。两边术语的对应见[表 B-1](#tab-b-1)。
 
 | GPU | TPU | 作用 | RTX 5090 | TPU v5p |
 |:--|:--|:--|--:|--:|
@@ -331,7 +342,7 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 A-2](#fig-h-
 | register | VREG | vector register | 42.5 MB | 512 KB |
 | Tensor core | MXU | 矩阵乘单元 | 680 | 8 |
 | 显存 | HBM | 大容量主存 | 32 GB GDDR7 | 95 GB |
-{#tab-a-1 caption="**表 A-1** GPU 与 TPU 的术语对照" note="RTX 5090 的片上存储是 170 个 SM 加起来的总量。TPU 一列参考 Google 的 <a href=\"https://jax-ml.github.io/scaling-book/gpus/\">How to Scale Your Model</a>。"}
+{#tab-b-1 caption="**表 B-1** GPU 与 TPU 的术语对照" note="RTX 5090 的片上存储是 170 个 SM 加起来的总量。TPU 一列参考 Google 的 <a href=\"https://jax-ml.github.io/scaling-book/gpus/\">How to Scale Your Model</a>。"}
 
 ---
 
@@ -339,10 +350,10 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 A-2](#fig-h-
 
 1. Gholami, Yao, Kim, Hooper, Mahoney, Keutzer. [AI and Memory Wall](https://arxiv.org/abs/2403.14123). IEEE Micro, 2024. 图 1-1。
 2. NVIDIA. [NVIDIA RTX Blackwell GPU Architecture](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)（白皮书）。RTX 5090 的存储层级和 SM 结构，图 1-2、图 1-3。
-3. NVIDIA. [NVIDIA A100 Tensor Core GPU Architecture](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)、[NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)、[NVIDIA Blackwell Architecture](https://resources.nvidia.com/en-us-blackwell-architecture)。表 1-1a 的 A100、H100、B200 一列。
-4. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、block、register 和 shared memory 上限，表 1-1、表 1-1a，CUDA 执行层级。
-5. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 停顿原因的定义，图 2-4b。
-6. Austin et al. [How to Scale Your Model](https://jax-ml.github.io/scaling-book/gpus/), Google DeepMind, 2025. 附录 A 的 TPU v5p 规格、systolic array 的数据流和表 A-1。
+3. NVIDIA. [NVIDIA A100 Tensor Core GPU Architecture](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)、[NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)、[NVIDIA Blackwell Architecture](https://resources.nvidia.com/en-us-blackwell-architecture)。表 A-3 的 A100、H100、B200 一列。
+4. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、block、register 和 shared memory 上限，表 A-1、表 A-3，CUDA 执行层级。
+5. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 停顿原因的定义，图 2-4a。
+6. Austin et al. [How to Scale Your Model](https://jax-ml.github.io/scaling-book/gpus/), Google DeepMind, 2025. 附录 B 的 TPU v5p 规格、systolic array 的数据流和表 B-1。
 7. Jouppi et al. [In-Datacenter Performance Analysis of a Tensor Processing Unit](https://arxiv.org/abs/1704.04760). ISCA 2017. 第一代 TPU 和它的 systolic array。
 8. Kung. [Why Systolic Architectures?](https://doi.org/10.1109/MC.1982.1653825). IEEE Computer, 1982.
 9. Tillet, Kung, Cox. [Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations](https://doi.org/10.1145/3315508.3329973). MAPL 2019.

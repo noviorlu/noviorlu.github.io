@@ -1,0 +1,26 @@
+{
+ "gelu": {
+  "warps": 4,
+  "regs": 31,
+  "shared": 0,
+  "per_sm": 12
+ },
+ "softmax": {
+  "warps": 4,
+  "regs": 55,
+  "shared": 16,
+  "per_sm": 9
+ },
+ "row_sum": {
+  "warps": 4,
+  "regs": 23,
+  "shared": 16,
+  "per_sm": 12
+ },
+ "matmul": {
+  "warps": 4,
+  "regs": 96,
+  "shared": 32768,
+  "per_sm": 3
+ }
+}
