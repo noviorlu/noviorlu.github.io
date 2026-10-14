@@ -826,7 +826,7 @@ def hw_smsp():
 def residency():
     R = json.load(open(os.path.join(HERE, "residency.json")))
     L = R["limits"]
-    f = F("fig-t-8", 590, "第 2 节图里的一个 program 是一个 CUDA block：4 个 warp、128 个 thread。放上 SM 时占 4 个 warp 名额、1 个 block 名额、128 × 每个 thread 的 register、shared memory 加 1 KiB；四个 kernel 各画四根条，哪条先用完就放几个：GELU 和 row sum 卡在 warp，softmax 卡在 register，matmul 卡在 shared memory")
+    f = F("fig-t-8", 590, "第 2 节图里的一个 program 是一个 CUDA block：4 个 warp、128 个 thread。放上 SM 时占 4 个 warp 名额、1 个 program 名额、128 × 每个 thread 的 register、shared memory 加 1 KiB；四个 kernel 各画四根条，哪条先用完就放几个：GELU 和 row sum 卡在 warp，softmax 卡在 register，matmul 卡在 shared memory")
     # 上：grid 的一格 → 一个 program = 一个 CUDA block → 上 SM 要占的四样
     f.w('<text class="ttl" x="10" y="16">第 2 节图里的 grid</text>')
     for k, lab in enumerate(("0", "1", "2")):
@@ -846,13 +846,13 @@ def residency():
     f.arrow(424, 71, 440, 71, None, width=1.6)
     f.w(f'<rect x="444" y="24" width="186" height="94" rx="8" class="op"/>')
     f.w('<text class="tb" x="456" y="42">放上 SM 时要占四样</text>')
-    for k, lab in enumerate(("① 4 个 warp 名额", "② 1 个 block 名额", "③ register：128 × 每 thread 个数", "④ shared memory：用量 + 1 KiB")):
+    for k, lab in enumerate(("① 4 个 warp 名额", "② 1 个 program 名额", "③ register：128 × 每 thread 个数", "④ shared memory：用量 + 1 KiB")):
         f.w(f'<text class="s" x="456" y="{60 + k * 15}">{lab}</text>')
     # 下：四个 kernel，各四根条
     X0, BW = 156, 312
     NAMES = (("gelu", "GELU", "fig-t-1", "2-1"), ("softmax", "softmax", "fig-t-2", "2-2"),
              ("row_sum", "row sum", "fig-t-3", "2-3"), ("matmul", "matmul", "fig-t-4", "2-4"))
-    BARS = (("warps", "warp 名额", f'{L["warps"]}'), ("blocks", "block 名额", f'{L["blocks"]}'),
+    BARS = (("warps", "warp 名额", f'{L["warps"]}'), ("blocks", "program 名额", f'{L["blocks"]}'),
             ("regs", "register", f'{L["regs"]}'), ("shared", "shared memory", f'{L["shared"] // 1024} KiB'))
     def amt(key, v):
         return (f"{v} B" if v < 2048 else f"{v // 1024} KiB") if key == "shared" else f"{v}"
@@ -890,10 +890,10 @@ def residency():
     return f
 
 def warp_slots():
-    f = F("fig-h-6", 300, "一个 SM 上驻留 3 个 block、每个 4 个 warp 时的某一拍：每个 SMSP 有 3 个 warp，分别来自 3 个 block；每个调度器这一拍最多发射一个，SMSP 2 的 3 个都在等数据，调度器空转")
+    f = F("fig-h-6", 300, "一个 SM 上驻留 3 个 program、每个 4 个 warp 时的某一拍：每个 SMSP 有 3 个 warp，分别来自 3 个 program；每个调度器这一拍最多发射一个，SMSP 2 的 3 个都在等数据，调度器空转")
     f.w(f'<rect x="10" y="10" width="620" height="246" rx="12" {tint("--fig-1", 6, sw=1.4)}/>')
     f.w('<text class="tb" x="24" y="32">一个 SM 的驻留情况</text>')
-    f.w('<text class="lab2" x="616" y="32" text-anchor="end">整个 SM 最多驻留 24 个 block、48 个 warp</text>')
+    f.w('<text class="lab2" x="616" y="32" text-anchor="end">整个 SM 最多驻留 24 个 program、48 个 warp</text>')
     ST = {"I": 'style="fill: var(--fig-hi)"', "R": 'style="fill: var(--fig-2)"', "W": 'style="fill: var(--fig-1)" fill-opacity=".55"',
           "-": 'style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"'}
     for k in range(4):
@@ -911,9 +911,9 @@ def warp_slots():
             c = state[q] if q < len(state) else "-"
             f.w(f'<rect x="{sx}" y="{sy}" width="28" height="22" rx="3" {ST[c]}/>')
             if c != "-":
-                f.w(f'<text class="s" x="{sx + 14}" y="{sy + 15}" text-anchor="middle">B{q}</text>')
+                f.w(f'<text class="s" x="{sx + 14}" y="{sy + 15}" text-anchor="middle">P{q}</text>')
     f.w(f'<rect x="24" y="218" width="594" height="28" rx="6" {tint("--fig-2", 22)}/>')
-    f.w('<text class="s" x="321" y="236" text-anchor="middle">B0、B1、B2 各有 4 个 warp：warp 0 到 3 依次分到 SMSP 0 到 3</text>')
+    f.w('<text class="s" x="321" y="236" text-anchor="middle">P0、P1、P2 各有 4 个 warp：warp 0 到 3 依次分到 SMSP 0 到 3</text>')
     lx = 96
     for c, lab in (("I", "正在发射"), ("R", "就绪，没被选中"), ("W", "等数据"), ("-", "空槽")):
         f.w(f'<rect x="{lx}" y="272" width="17" height="10" rx="2" {ST[c]}/><text class="lab2" x="{lx + 24}" y="281">{lab}</text>')
@@ -1562,7 +1562,7 @@ CAPS = {
  "hw_hierarchy": '<strong>图 1-2</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。',
  "hw_sm": '<strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core 和 1 个 Tensor core，4 个 SMSP 共享 L1 / shared memory。',
  "residency": '<strong>图 B-1</strong> 第 2 节四个 kernel 的 program 怎么放上一个 SM（RTX 5090，形状同正文，每个 program 4 个 warp）。上面：第 2 节图里 grid 的一格是一个 program，也就是一个 CUDA block，放上 SM 时要占四样东西。下面每个 kernel 四根条，对应<a href="#tab-b-1">表 B-1</a> 的四条上限，条长是这条上限的总量；深色一格是一个实际放进去的 program 占的量，虚线框是只看这一条还能再放的，红框是先用完的那条，它决定了一个 SM 放几个。register 和 shared memory 读自编译出的 kernel；register 以 warp 为单位按 256 个分配，摊到每个 thread 是 8 的倍数，shared memory 按 128 B 取整。四条取最小的结果和 <code>cuOccupancyMaxActiveBlocksPerMultiprocessor</code> 算出的一致。softmax 和 row sum 的 16 B shared memory 用来让 4 个 warp 交换归约的部分结果。',
- "warp_slots": '<strong>图 B-2</strong> 一个 SM 上驻留 3 个 block（B0、B1、B2）时的某一拍。格子里写的是这个 warp 属于哪个 block，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。',
+ "warp_slots": '<strong>图 B-2</strong> 一个 SM 上驻留 3 个 program（P0、P1、P2）时的某一拍。格子里写的是这个 warp 属于哪个 program，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。',
  "hw_smsp": '<strong>图 1-4</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。',
  "cuda_model": '<strong>图 1-5</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。',
  "tri_gelu": '<strong>图 2-1</strong> GELU kernel（n = 8388608，fp32）。左边是 grid，数组按 BLOCK = 1024 切段，一段一个 program。右边是 program 1 的数据流，泳道和箭头的含义见正文。显存泳道里的整条是整个 x、y（各 8388608 个 fp32，32 MiB），深色一段是 program 1 读写的 1024 个（4 KiB）；按比例只有整条的 1/8192，图里放大了。',

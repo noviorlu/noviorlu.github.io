@@ -289,21 +289,21 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 A-2](#fig-h-
 
 ### B.1 驻留上限 {#sched-limits}
 
-block 放到 SM 上以后就一直驻留，直到它的 thread 全部跑完。一个 SM 能同时驻留多少，由四条硬件上限决定（[表 B-1](#tab-b-1)），哪条先用完就卡在哪条。warp 的上限分摊到每个 SMSP 的调度器；block 的上限记在整个 SM 上，因为一个 block 的 shared memory 和同步由 4 个 SMSP 共用。
+program（也就是 CUDA block）放到 SM 上以后就一直驻留，直到它的 thread 全部跑完。一个 SM 能同时驻留多少，由四条硬件上限决定（[表 B-1](#tab-b-1)），哪条先用完就卡在哪条。warp 的上限分摊到每个 SMSP 的调度器；program 的上限记在整个 SM 上，因为一个 program 的 shared memory 和同步由 4 个 SMSP 共用。
 
 | 资源 | RTX 5090 每个 SM 的上限 |
 |:--|:--|
 | 驻留 warp | 48 个（每个 SMSP 12 个），即 1536 个 thread |
-| 驻留 block | 24 个 |
+| 驻留 program（CUDA block） | 24 个 |
 | register | 65536 个 32-bit（256 KB），每个 thread 最多 255 个 |
-| shared memory | 100 KiB，每个 block 另占 1 KiB |
+| shared memory | 100 KiB，每个 program 另占 1 KiB |
 {#tab-b-1 caption="**表 B-1** RTX 5090 一个 SM 的驻留上限" note="用 <code>cuDeviceGetAttribute</code> 在 5090 上读出，和 CUDA Programming Guide 里 compute capability 12.0 的数一致。"}
 
-第 2 节的图画的是一个 program 怎么读写数据。放到 SM 上时，一个 program 就是一个 CUDA block：4 个 warp、128 个 thread，每个 thread 带着自己的 register，整个 program 共用一块 shared memory。所以它在 SM 上要占四样东西，正好对应表 B-1 的四条上限：4 个 warp 名额，1 个 block 名额，128 × 每个 thread 的 register 数，shared memory 的用量再加 1 KiB 保留。每条上限各自能放下几个 program，取最小的那个，就是一个 SM 实际放几个（[图 B-1](#fig-t-8)）。
+第 2 节的图画的是一个 program 怎么读写数据。放到 SM 上时，一个 program 就是一个 CUDA block：4 个 warp、128 个 thread，每个 thread 带着自己的 register，整个 program 共用一块 shared memory。所以它在 SM 上要占四样东西，正好对应表 B-1 的四条上限：4 个 warp 名额，1 个 program 名额，128 × 每个 thread 的 register 数，shared memory 的用量再加 1 KiB 保留。每条上限各自能放下几个 program，取最小的那个，就是一个 SM 实际放几个（[图 B-1](#fig-t-8)）。
 
 {{fig-t-8}}
 
-GELU 和 row sum 用的 register 少、几乎不用 shared memory，先用完的是 warp 名额：48 / 4 = 12。softmax 把一整行 4096 个数放在 register 里，每个 thread 55 个，按 56 分配，一个 program 占 56 × 128 = 7168 个，65536 / 7168 = 9.1，只放得下 9 个，比 warp 名额允许的 12 个少。matmul 的 `tl.dot` 要把 A、B 的 block 先放进 shared memory，一个 program 32 KiB，加上保留的 1 KiB 是 33 KiB，100 KiB 只放得下 3 个；按 register 能放 5 个，用不满。block 名额有 24 个，四个 kernel 都用不完。
+GELU 和 row sum 用的 register 少、几乎不用 shared memory，先用完的是 warp 名额：48 / 4 = 12。softmax 把一整行 4096 个数放在 register 里，每个 thread 55 个，按 56 分配，一个 program 占 56 × 128 = 7168 个，65536 / 7168 = 9.1，只放得下 9 个，比 warp 名额允许的 12 个少。matmul 的 `tl.dot` 要把 A、B 的 block 先放进 shared memory，一个 program 32 KiB，加上保留的 1 KiB 是 33 KiB，100 KiB 只放得下 3 个；按 register 能放 5 个，用不满。program 名额有 24 个，四个 kernel 都用不完。
 
 几代 GPU 的规格和驻留上限对比见 [Appendix C](#specs)。
 
@@ -311,7 +311,7 @@ GELU 和 row sum 用的 register 少、几乎不用 shared memory，先用完的
 
 ### B.2 warp 调度：驻留不等于在跑 {#sched-warp}
 
-一个 block 的 warp 按编号轮流分到 4 个 SMSP，每个 SMSP 有自己的 warp scheduler、register file 和 32 个 CUDA core（[图 1-4](#fig-h-9)）。调度器每拍从驻留的 warp 里挑一个就绪的，发出它的一条指令。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp。所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态，所以同时驻留的 warp 越多，访存延迟越容易藏住（[图 B-2](#fig-h-6)）。
+一个 program 的 warp 按编号轮流分到 4 个 SMSP，每个 SMSP 有自己的 warp scheduler、register file 和 32 个 CUDA core（[图 1-4](#fig-h-9)）。调度器每拍从驻留的 warp 里挑一个就绪的，发出它的一条指令。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp。所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态，所以同时驻留的 warp 越多，访存延迟越容易藏住（[图 B-2](#fig-h-6)）。
 
 {{fig-h-6}}
 

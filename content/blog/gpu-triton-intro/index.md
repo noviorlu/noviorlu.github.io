@@ -1829,20 +1829,20 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 A-2](#fig-h-
 
 ### B.1 驻留上限 {#sched-limits}
 
-block 放到 SM 上以后就一直驻留，直到它的 thread 全部跑完。一个 SM 能同时驻留多少，由四条硬件上限决定（[表 B-1](#tab-b-1)），哪条先用完就卡在哪条。warp 的上限分摊到每个 SMSP 的调度器；block 的上限记在整个 SM 上，因为一个 block 的 shared memory 和同步由 4 个 SMSP 共用。
+program（也就是 CUDA block）放到 SM 上以后就一直驻留，直到它的 thread 全部跑完。一个 SM 能同时驻留多少，由四条硬件上限决定（[表 B-1](#tab-b-1)），哪条先用完就卡在哪条。warp 的上限分摊到每个 SMSP 的调度器；program 的上限记在整个 SM 上，因为一个 program 的 shared memory 和同步由 4 个 SMSP 共用。
 
 | 资源 | RTX 5090 每个 SM 的上限 |
 |:--|:--|
 | 驻留 warp | 48 个（每个 SMSP 12 个），即 1536 个 thread |
-| 驻留 block | 24 个 |
+| 驻留 program（CUDA block） | 24 个 |
 | register | 65536 个 32-bit（256 KB），每个 thread 最多 255 个 |
-| shared memory | 100 KiB，每个 block 另占 1 KiB |
+| shared memory | 100 KiB，每个 program 另占 1 KiB |
 {#tab-b-1 caption="**表 B-1** RTX 5090 一个 SM 的驻留上限" note="用 <code>cuDeviceGetAttribute</code> 在 5090 上读出，和 CUDA Programming Guide 里 compute capability 12.0 的数一致。"}
 
-第 2 节的图画的是一个 program 怎么读写数据。放到 SM 上时，一个 program 就是一个 CUDA block：4 个 warp、128 个 thread，每个 thread 带着自己的 register，整个 program 共用一块 shared memory。所以它在 SM 上要占四样东西，正好对应表 B-1 的四条上限：4 个 warp 名额，1 个 block 名额，128 × 每个 thread 的 register 数，shared memory 的用量再加 1 KiB 保留。每条上限各自能放下几个 program，取最小的那个，就是一个 SM 实际放几个（[图 B-1](#fig-t-8)）。
+第 2 节的图画的是一个 program 怎么读写数据。放到 SM 上时，一个 program 就是一个 CUDA block：4 个 warp、128 个 thread，每个 thread 带着自己的 register，整个 program 共用一块 shared memory。所以它在 SM 上要占四样东西，正好对应表 B-1 的四条上限：4 个 warp 名额，1 个 program 名额，128 × 每个 thread 的 register 数，shared memory 的用量再加 1 KiB 保留。每条上限各自能放下几个 program，取最小的那个，就是一个 SM 实际放几个（[图 B-1](#fig-t-8)）。
 
 <figure id="fig-t-8" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 590" width="100%" role="img" aria-label="第 2 节图里的一个 program 是一个 CUDA block：4 个 warp、128 个 thread。放上 SM 时占 4 个 warp 名额、1 个 block 名额、128 × 每个 thread 的 register、shared memory 加 1 KiB；四个 kernel 各画四根条，哪条先用完就放几个：GELU 和 row sum 卡在 warp，softmax 卡在 register，matmul 卡在 shared memory">
+<svg class="fg" viewBox="0 0 640 590" width="100%" role="img" aria-label="第 2 节图里的一个 program 是一个 CUDA block：4 个 warp、128 个 thread。放上 SM 时占 4 个 warp 名额、1 个 program 名额、128 × 每个 thread 的 register、shared memory 加 1 KiB；四个 kernel 各画四根条，哪条先用完就放几个：GELU 和 row sum 卡在 warp，softmax 卡在 register，matmul 卡在 shared memory">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -1888,7 +1888,7 @@ block 放到 SM 上以后就一直驻留，直到它的 thread 全部跑完。�
   <rect x="444" y="24" width="186" height="94" rx="8" class="op"/>
   <text class="tb" x="456" y="42">放上 SM 时要占四样</text>
   <text class="s" x="456" y="60">① 4 个 warp 名额</text>
-  <text class="s" x="456" y="75">② 1 个 block 名额</text>
+  <text class="s" x="456" y="75">② 1 个 program 名额</text>
   <text class="s" x="456" y="90">③ register：128 × 每 thread 个数</text>
   <text class="s" x="456" y="105">④ shared memory：用量 + 1 KiB</text>
   <rect x="10" y="136" width="620" height="96" rx="10" style="fill: color-mix(in srgb, var(--fig-1) 5%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
@@ -1911,7 +1911,7 @@ block 放到 SM 上以后就一直驻留，直到它的 thread 全部跑完。�
   <rect x="442.00" y="164" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
   <rect x="154" y="162" width="316" height="16" rx="3" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/>
   <text class="s" style="fill: var(--fig-hi); opacity: 1; font-weight: 600" x="476" y="174">每个占 4，最多 12 个</text>
-  <text class="s" x="22" y="190">block 名额</text><text class="s" x="150" y="190" text-anchor="end">24</text>
+  <text class="s" x="22" y="190">program 名额</text><text class="s" x="150" y="190" text-anchor="end">24</text>
   <rect x="156" y="180" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
   <rect x="312.0" y="180.5" width="156.0" height="11" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/>
   <text class="s" x="390.0" y="189.5" text-anchor="middle" style="font-size: 9.5px">还能放 12 个</text>
@@ -1980,7 +1980,7 @@ block 放到 SM 上以后就一直驻留，直到它的 thread 全部跑完。�
   <rect x="338.00" y="268" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
   <rect x="364.00" y="268" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
   <text class="s" x="476" y="278">每个占 4，最多 12 个</text>
-  <text class="s" x="22" y="294">block 名额</text><text class="s" x="150" y="294" text-anchor="end">24</text>
+  <text class="s" x="22" y="294">program 名额</text><text class="s" x="150" y="294" text-anchor="end">24</text>
   <rect x="156" y="284" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
   <rect x="273.0" y="284.5" width="195.0" height="11" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/>
   <text class="s" x="370.5" y="293.5" text-anchor="middle" style="font-size: 9.5px">还能放 15 个</text>
@@ -2041,7 +2041,7 @@ block 放到 SM 上以后就一直驻留，直到它的 thread 全部跑完。�
   <rect x="442.00" y="372" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
   <rect x="154" y="370" width="316" height="16" rx="3" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/>
   <text class="s" style="fill: var(--fig-hi); opacity: 1; font-weight: 600" x="476" y="382">每个占 4，最多 12 个</text>
-  <text class="s" x="22" y="398">block 名额</text><text class="s" x="150" y="398" text-anchor="end">24</text>
+  <text class="s" x="22" y="398">program 名额</text><text class="s" x="150" y="398" text-anchor="end">24</text>
   <rect x="156" y="388" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
   <rect x="312.0" y="388.5" width="156.0" height="11" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/>
   <text class="s" x="390.0" y="397.5" text-anchor="middle" style="font-size: 9.5px">还能放 12 个</text>
@@ -2104,7 +2104,7 @@ block 放到 SM 上以后就一直驻留，直到它的 thread 全部跑完。�
   <rect x="182.00" y="476" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
   <rect x="208.00" y="476" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
   <text class="s" x="476" y="486">每个占 4，最多 12 个</text>
-  <text class="s" x="22" y="502">block 名额</text><text class="s" x="150" y="502" text-anchor="end">24</text>
+  <text class="s" x="22" y="502">program 名额</text><text class="s" x="150" y="502" text-anchor="end">24</text>
   <rect x="156" y="492" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
   <rect x="195.0" y="492.5" width="273.0" height="11" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/>
   <text class="s" x="331.5" y="501.5" text-anchor="middle" style="font-size: 9.5px">还能放 21 个</text>
@@ -2134,7 +2134,7 @@ block 放到 SM 上以后就一直驻留，直到它的 thread 全部跑完。�
 <figcaption><strong>图 B-1</strong> 第 2 节四个 kernel 的 program 怎么放上一个 SM（RTX 5090，形状同正文，每个 program 4 个 warp）。上面：第 2 节图里 grid 的一格是一个 program，也就是一个 CUDA block，放上 SM 时要占四样东西。下面每个 kernel 四根条，对应<a href="#tab-b-1">表 B-1</a> 的四条上限，条长是这条上限的总量；深色一格是一个实际放进去的 program 占的量，虚线框是只看这一条还能再放的，红框是先用完的那条，它决定了一个 SM 放几个。register 和 shared memory 读自编译出的 kernel；register 以 warp 为单位按 256 个分配，摊到每个 thread 是 8 的倍数，shared memory 按 128 B 取整。四条取最小的结果和 <code>cuOccupancyMaxActiveBlocksPerMultiprocessor</code> 算出的一致。softmax 和 row sum 的 16 B shared memory 用来让 4 个 warp 交换归约的部分结果。</figcaption>
 </figure>
 
-GELU 和 row sum 用的 register 少、几乎不用 shared memory，先用完的是 warp 名额：48 / 4 = 12。softmax 把一整行 4096 个数放在 register 里，每个 thread 55 个，按 56 分配，一个 program 占 56 × 128 = 7168 个，65536 / 7168 = 9.1，只放得下 9 个，比 warp 名额允许的 12 个少。matmul 的 `tl.dot` 要把 A、B 的 block 先放进 shared memory，一个 program 32 KiB，加上保留的 1 KiB 是 33 KiB，100 KiB 只放得下 3 个；按 register 能放 5 个，用不满。block 名额有 24 个，四个 kernel 都用不完。
+GELU 和 row sum 用的 register 少、几乎不用 shared memory，先用完的是 warp 名额：48 / 4 = 12。softmax 把一整行 4096 个数放在 register 里，每个 thread 55 个，按 56 分配，一个 program 占 56 × 128 = 7168 个，65536 / 7168 = 9.1，只放得下 9 个，比 warp 名额允许的 12 个少。matmul 的 `tl.dot` 要把 A、B 的 block 先放进 shared memory，一个 program 32 KiB，加上保留的 1 KiB 是 33 KiB，100 KiB 只放得下 3 个；按 register 能放 5 个，用不满。program 名额有 24 个，四个 kernel 都用不完。
 
 几代 GPU 的规格和驻留上限对比见 [Appendix C](#specs)。
 
@@ -2142,10 +2142,10 @@ GELU 和 row sum 用的 register 少、几乎不用 shared memory，先用完的
 
 ### B.2 warp 调度：驻留不等于在跑 {#sched-warp}
 
-一个 block 的 warp 按编号轮流分到 4 个 SMSP，每个 SMSP 有自己的 warp scheduler、register file 和 32 个 CUDA core（[图 1-4](#fig-h-9)）。调度器每拍从驻留的 warp 里挑一个就绪的，发出它的一条指令。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp。所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态，所以同时驻留的 warp 越多，访存延迟越容易藏住（[图 B-2](#fig-h-6)）。
+一个 program 的 warp 按编号轮流分到 4 个 SMSP，每个 SMSP 有自己的 warp scheduler、register file 和 32 个 CUDA core（[图 1-4](#fig-h-9)）。调度器每拍从驻留的 warp 里挑一个就绪的，发出它的一条指令。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp。所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态，所以同时驻留的 warp 越多，访存延迟越容易藏住（[图 B-2](#fig-h-6)）。
 
 <figure id="fig-h-6" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="一个 SM 上驻留 3 个 block、每个 4 个 warp 时的某一拍：每个 SMSP 有 3 个 warp，分别来自 3 个 block；每个调度器这一拍最多发射一个，SMSP 2 的 3 个都在等数据，调度器空转">
+<svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="一个 SM 上驻留 3 个 program、每个 4 个 warp 时的某一拍：每个 SMSP 有 3 个 warp，分别来自 3 个 program；每个调度器这一拍最多发射一个，SMSP 2 的 3 个都在等数据，调度器空转">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -2167,18 +2167,18 @@ GELU 和 row sum 用的 register 少、几乎不用 shared memory，先用完的
   </style>
   <rect x="10" y="10" width="620" height="246" rx="12" style="fill: color-mix(in srgb, var(--fig-1) 6%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <text class="tb" x="24" y="32">一个 SM 的驻留情况</text>
-  <text class="lab2" x="616" y="32" text-anchor="end">整个 SM 最多驻留 24 个 block、48 个 warp</text>
+  <text class="lab2" x="616" y="32" text-anchor="end">整个 SM 最多驻留 24 个 program、48 个 warp</text>
   <rect x="24" y="44" width="141" height="164" rx="8" class="op"/>
   <text class="tb" x="94" y="62" text-anchor="middle">SMSP 0</text>
   <rect x="34" y="70" width="121" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <text class="s" x="94" y="85" text-anchor="middle">warp 调度器</text>
   <text class="s" x="94" y="110" text-anchor="middle">最多驻留 12 个 warp</text>
   <rect x="31" y="118" width="28" height="22" rx="3" style="fill: var(--fig-hi)"/>
-  <text class="s" x="45" y="133" text-anchor="middle">B0</text>
+  <text class="s" x="45" y="133" text-anchor="middle">P0</text>
   <rect x="64" y="118" width="28" height="22" rx="3" style="fill: var(--fig-2)"/>
-  <text class="s" x="78" y="133" text-anchor="middle">B1</text>
+  <text class="s" x="78" y="133" text-anchor="middle">P1</text>
   <rect x="97" y="118" width="28" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="111" y="133" text-anchor="middle">B2</text>
+  <text class="s" x="111" y="133" text-anchor="middle">P2</text>
   <rect x="130" y="118" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
   <rect x="31" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
   <rect x="64" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
@@ -2194,11 +2194,11 @@ GELU 和 row sum 用的 register 少、几乎不用 shared memory，先用完的
   <text class="s" x="245" y="85" text-anchor="middle">warp 调度器</text>
   <text class="s" x="245" y="110" text-anchor="middle">最多驻留 12 个 warp</text>
   <rect x="182" y="118" width="28" height="22" rx="3" style="fill: var(--fig-hi)"/>
-  <text class="s" x="196" y="133" text-anchor="middle">B0</text>
+  <text class="s" x="196" y="133" text-anchor="middle">P0</text>
   <rect x="215" y="118" width="28" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="229" y="133" text-anchor="middle">B1</text>
+  <text class="s" x="229" y="133" text-anchor="middle">P1</text>
   <rect x="248" y="118" width="28" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="262" y="133" text-anchor="middle">B2</text>
+  <text class="s" x="262" y="133" text-anchor="middle">P2</text>
   <rect x="281" y="118" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
   <rect x="182" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
   <rect x="215" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
@@ -2215,11 +2215,11 @@ GELU 和 row sum 用的 register 少、几乎不用 shared memory，先用完的
   <text class="s" x="396" y="85" text-anchor="middle">warp 调度器</text>
   <text class="s" x="396" y="110" text-anchor="middle">最多驻留 12 个 warp</text>
   <rect x="333" y="118" width="28" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="347" y="133" text-anchor="middle">B0</text>
+  <text class="s" x="347" y="133" text-anchor="middle">P0</text>
   <rect x="366" y="118" width="28" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="380" y="133" text-anchor="middle">B1</text>
+  <text class="s" x="380" y="133" text-anchor="middle">P1</text>
   <rect x="399" y="118" width="28" height="22" rx="3" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="413" y="133" text-anchor="middle">B2</text>
+  <text class="s" x="413" y="133" text-anchor="middle">P2</text>
   <rect x="432" y="118" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
   <rect x="333" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
   <rect x="366" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
@@ -2235,11 +2235,11 @@ GELU 和 row sum 用的 register 少、几乎不用 shared memory，先用完的
   <text class="s" x="547" y="85" text-anchor="middle">warp 调度器</text>
   <text class="s" x="547" y="110" text-anchor="middle">最多驻留 12 个 warp</text>
   <rect x="484" y="118" width="28" height="22" rx="3" style="fill: var(--fig-hi)"/>
-  <text class="s" x="498" y="133" text-anchor="middle">B0</text>
+  <text class="s" x="498" y="133" text-anchor="middle">P0</text>
   <rect x="517" y="118" width="28" height="22" rx="3" style="fill: var(--fig-2)"/>
-  <text class="s" x="531" y="133" text-anchor="middle">B1</text>
+  <text class="s" x="531" y="133" text-anchor="middle">P1</text>
   <rect x="550" y="118" width="28" height="22" rx="3" style="fill: var(--fig-2)"/>
-  <text class="s" x="564" y="133" text-anchor="middle">B2</text>
+  <text class="s" x="564" y="133" text-anchor="middle">P2</text>
   <rect x="583" y="118" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
   <rect x="484" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
   <rect x="517" y="146" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
@@ -2250,13 +2250,13 @@ GELU 和 row sum 用的 register 少、几乎不用 shared memory，先用完的
   <rect x="550" y="174" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
   <rect x="583" y="174" width="28" height="22" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/>
   <rect x="24" y="218" width="594" height="28" rx="6" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="321" y="236" text-anchor="middle">B0、B1、B2 各有 4 个 warp：warp 0 到 3 依次分到 SMSP 0 到 3</text>
+  <text class="s" x="321" y="236" text-anchor="middle">P0、P1、P2 各有 4 个 warp：warp 0 到 3 依次分到 SMSP 0 到 3</text>
   <rect x="96" y="272" width="17" height="10" rx="2" style="fill: var(--fig-hi)"/><text class="lab2" x="120" y="281">正在发射</text>
   <rect x="200" y="272" width="17" height="10" rx="2" style="fill: var(--fig-2)"/><text class="lab2" x="224" y="281">就绪，没被选中</text>
   <rect x="343" y="272" width="17" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity=".55"/><text class="lab2" x="367" y="281">等数据</text>
   <rect x="434" y="272" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/><text class="lab2" x="458" y="281">空槽</text>
 </svg>
-<figcaption><strong>图 B-2</strong> 一个 SM 上驻留 3 个 block（B0、B1、B2）时的某一拍。格子里写的是这个 warp 属于哪个 block，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。</figcaption>
+<figcaption><strong>图 B-2</strong> 一个 SM 上驻留 3 个 program（P0、P1、P2）时的某一拍。格子里写的是这个 warp 属于哪个 program，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。</figcaption>
 </figure>
 
 名额是有限的。grid 里的 program 多于全卡的名额时，GPU 只能一批一批地往 SM 上排。
