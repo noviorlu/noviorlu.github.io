@@ -1308,7 +1308,7 @@ def tri_softmax():
         f.w(f'<line x1="{cx[k]:.1f}" y1="{BY0 + 3}" x2="{cx[k]:.1f}" y2="{BY0 + 17}" style="stroke: var(--fig-2)" stroke-dasharray="2 2"/>')
     for t, a, b in (("x", 0, 1), ("x − m", 1, 2), ("e", 2, 3), ("y", 3, 4)):
         f.w(f'<text class="s" x="{(cx[a] + cx[b]) / 2:.1f}" y="{BY0 + 13}" text-anchor="middle">{t}</text>')
-    f.w(f'<text class="s" x="{(cx[1] + cx[3]) / 2:.1f}" y="{BY1 - 5}" text-anchor="middle" style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">整行 16 KB，每一步都改写这一块</text>')
+    f.w(f'<text class="s" x="{cx[2]:.1f}" y="{BY1 - 5}" text-anchor="middle" style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">整行，16 KB</text>')
     p.xfer(cx[0], MY - 2, BY1 + 2, "tl.load", left=True)
     for k in (1, 2, 3):                                                # 读左边的旧值，写回右边
         f.arrow(cx[k] - 22, BY0 - 2, cx[k] - 22, 86, "--fig-2", width=1.4)
@@ -1319,7 +1319,7 @@ def tri_softmax():
     for k, t in [(1, "warp max"), (3, "warp sum")]:             # 跨 warp 归约经 shared memory
         y0 = p.ROW["s"][0]
         f.w(f'<rect x="{cx[k] - 40:.1f}" y="{y0}" width="80" height="18" rx="4" {tint("--fig-3", 40)}/><text class="s" x="{cx[k]:.1f}" y="{y0 + 13}" text-anchor="middle">{t}，16 B</text>')
-        f.arrow(cx[k] - 5, 146, cx[k] - 5, y0 - 2, "--fig-2", width=1.3); f.arrow(cx[k] + 5, y0 - 2, cx[k] + 5, 146, "--fig-2", width=1.3)   # 各 warp 的部分结果：register ⇄ shared
+        over(f, cx[k] - 5, 86, cx[k] - 5, y0 - 2, width=1.3); over(f, cx[k] + 5, y0 - 2, cx[k] + 5, 86, width=1.3)   # 归约这一步自己经 shared memory 交换各 warp 的部分结果
     return f
 
 def tri_rowsum():
@@ -1350,7 +1350,7 @@ def tri_rowsum():
     # register 里两块：acc（上，从第 0 轮的 add 活到 tl.sum）和 x（下，每轮 tl.load 覆盖）；格子是这块在那个时刻存的值
     AY0, XY0, BH = 102, 140, 32
     SZ = 'style="font-size: 9.5px; fill: var(--fig-1); opacity: 1"'
-    membar(f, cx[1] - 18, cx[5] + 22, AY0, BH); membar(f, cx[0] - 34, cx[3] + 34, XY0, BH)
+    membar(f, cx[1] - 18, cx[5] - 12, AY0, BH); membar(f, cx[0] - 34, cx[3] + 34, XY0, BH)
     f.w(f'<text class="s" x="{cx[2] - 12:.1f}" y="{AY0 + 11}" {SZ}>acc，4 KB</text><text class="s" x="{cx[0] + 28:.1f}" y="{XY0 + 11}" {SZ}>x，4 KB</text>')
     for k, c in [(0, cx[0]), (3, cx[3])]:
         cells(c - 22, XY0 + 14, tiles[k], OP[k])
@@ -1360,13 +1360,13 @@ def tri_rowsum():
     over(f, cx[3] + 14, XY0 - 2, cx[4] - 16, 86)                                     # 最后一轮：x → add，从 acc 上面穿过
     A1, A2 = cx[1] + 22, cx[4] + 22
     cells(A1 - 22, AY0 + 14, acc0, OP[0]); cells(A2 - 22, AY0 + 14, accN, "grad")
-    p.down(cx[1] + 8, AY0, A1 - 10); p.down(cx[4] + 8, AY0, A2 - 10); p.up(cx[5] - 16, AY0, cx[5] - 16)
+    p.down(cx[1] + 8, AY0, A1 - 10); p.down(cx[4] + 8, AY0, A2 - 10); p.up(cx[5] - 22, AY0, cx[5] - 22)
     p.carry(cx[1], cx[4], "acc 带到下一轮")
     f.w(f'<rect x="{cx[6] - 12:.1f}" y="112" width="24" height="16" style="fill: var(--fig-1)" fill-opacity=".78"/><text class="s" x="{cx[6]:.1f}" y="123.5" text-anchor="middle" style="fill: var(--fig-on-1)">25</text>')
-    p.down(cx[5] + 16, 110, cx[6] - 10)                                       # 归约 → 25
-    y0 = p.ROW["s"][0]                                                       # tl.sum 跨 4 个 warp：各 warp 的部分和从 acc 那块经 shared memory 交换
+    p.down(cx[5] + 22, 110, cx[6] - 10)                                       # 归约 → 25
+    y0 = p.ROW["s"][0]                                                       # tl.sum 跨 4 个 warp：reduce 把各 warp 的部分和经 shared memory 交换
     f.w(f'<rect x="{cx[5] - 40:.1f}" y="{y0}" width="80" height="18" rx="4" {tint("--fig-3", 40)}/><text class="s" x="{cx[5]:.1f}" y="{y0 + 13}" text-anchor="middle">warp sum，16 B</text>')
-    f.arrow(cx[5] + 4, AY0 + BH + 2, cx[5] + 4, y0 - 2, "--fig-2", width=1.3); f.arrow(cx[5] + 14, y0 - 2, cx[5] + 14, AY0 + BH + 2, "--fig-2", width=1.3)
+    f.arrow(cx[5] - 2, 86, cx[5] - 2, y0 - 2, "--fig-2", width=1.3); f.arrow(cx[5] + 8, y0 - 2, cx[5] + 8, 86, "--fig-2", width=1.3)
     # 显存：x 画 3 行，第 1 行 16 个数按 block 着色；out 第 1 位写 25
     for r in range(3):
         for k in range(4):

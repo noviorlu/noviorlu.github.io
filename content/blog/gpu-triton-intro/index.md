@@ -657,7 +657,7 @@ def softmax_naive(x):                         # x: [M, N]，按行
   <text class="s" x="373.0" y="125" text-anchor="middle">x − m</text>
   <text class="s" x="467.0" y="125" text-anchor="middle">e</text>
   <text class="s" x="550.0" y="125" text-anchor="middle">y</text>
-  <text class="s" x="420.0" y="139" text-anchor="middle" style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">整行 16 KB，每一步都改写这一块</text>
+  <text class="s" x="420.0" y="139" text-anchor="middle" style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">整行，16 KB</text>
   <line x1="254.0" y1="250.0" x2="254.0" y2="146.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-2-m1)"/>
   <text class="s" x="250.0" y="202.0" text-anchor="end" style="fill: var(--fig-1)">tl.load</text>
   <line x1="304.0" y1="110.0" x2="304.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m2)"/>
@@ -677,11 +677,15 @@ def softmax_naive(x):                         # x: [M, N]，按行
   <rect x="550.0" y="260.4" width="72.0" height="7.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
   <text class="s" x="586.0" y="293" text-anchor="middle">整个 y：64 MB</text>
   <rect x="286.0" y="191" width="80" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 40%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/><text class="s" x="326.0" y="204" text-anchor="middle">warp max，16 B</text>
-  <line x1="321.0" y1="146.0" x2="321.0" y2="189.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
-  <line x1="331.0" y1="189.0" x2="331.0" y2="146.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
+  <line x1="321.0" y1="86.0" x2="321.0" y2="189.0" style="stroke: var(--nv-bg, #fff)" stroke-width="5"/>
+  <line x1="321.0" y1="86.0" x2="321.0" y2="189.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
+  <line x1="331.0" y1="189.0" x2="331.0" y2="86.0" style="stroke: var(--nv-bg, #fff)" stroke-width="5"/>
+  <line x1="331.0" y1="189.0" x2="331.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
   <rect x="474.0" y="191" width="80" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 40%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/><text class="s" x="514.0" y="204" text-anchor="middle">warp sum，16 B</text>
-  <line x1="509.0" y1="146.0" x2="509.0" y2="189.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
-  <line x1="519.0" y1="189.0" x2="519.0" y2="146.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
+  <line x1="509.0" y1="86.0" x2="509.0" y2="189.0" style="stroke: var(--nv-bg, #fff)" stroke-width="5"/>
+  <line x1="509.0" y1="86.0" x2="509.0" y2="189.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
+  <line x1="519.0" y1="189.0" x2="519.0" y2="86.0" style="stroke: var(--nv-bg, #fff)" stroke-width="5"/>
+  <line x1="519.0" y1="189.0" x2="519.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
 </svg>
 <figcaption><strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。显存泳道里的方块是整个 x、y（各 64 MB），深色一条是 program 1 读写的那一行（4096 个 fp32，16 KB），按比例只有 1/4096，图里放大了。</figcaption>
 </figure>
@@ -782,7 +786,7 @@ $\mathcal{J}_T$ 是第 $T$ 个 block 的 TILE 个列下标，代码里 TILE 取 
   <text class="lab2" x="152" y="363">x、acc 各是一块 register，横向是时间：每轮 tl.load 把新的 block 覆盖进 x，acc 原地累加；</text>
   <text class="lab2" x="152" y="378">最后的 tl.sum 跨 4 个 warp，经 shared memory 交换。</text>
   <defs><linearGradient id="fig-t-3-acc" x1="0" x2="1" y1="0" y2="0"><stop offset="0.00" style="stop-color: var(--fig-1)" stop-opacity="0.12"/><stop offset="0.33" style="stop-color: var(--fig-1)" stop-opacity="0.34"/><stop offset="0.67" style="stop-color: var(--fig-1)" stop-opacity="0.56"/><stop offset="1.00" style="stop-color: var(--fig-1)" stop-opacity="0.78"/></linearGradient></defs>
-  <rect x="279.7" y="102" width="284.7" height="32" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
+  <rect x="279.7" y="102" width="250.7" height="32" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
   <rect x="198.0" y="140" width="231.3" height="32" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
   <text class="s" x="342.3" y="113" style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">acc，4 KB</text><text class="s" x="260.0" y="151" style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">x，4 KB</text>
   <rect x="210.0" y="154" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
@@ -840,15 +844,15 @@ $\mathcal{J}_T$ 是第 $T$ 个 block 的 TILE 个列下标，代码里 TILE 取 
   <text class="s" x="499.5" y="127.5" text-anchor="middle" style="fill: var(--fig-on-1)">6</text>
   <line x1="305.7" y1="86.0" x2="309.7" y2="100.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m2)"/>
   <line x1="469.0" y1="86.0" x2="473.0" y2="100.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m2)"/>
-  <line x1="526.3" y1="100.0" x2="526.3" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m2)"/>
+  <line x1="520.3" y1="100.0" x2="520.3" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m2)"/>
   <path d="M297.7,44 L297.7,30 L461.0,30 L461.0,43" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-t-3-m3)"/>
   <text class="s halo" x="379.3" y="34" text-anchor="middle">acc 带到下一轮</text>
   <text class="s" x="379.3" y="34" text-anchor="middle" style="fill: var(--fig-hi)">acc 带到下一轮</text>
   <rect x="596.0" y="112" width="24" height="16" style="fill: var(--fig-1)" fill-opacity=".78"/><text class="s" x="608.0" y="123.5" text-anchor="middle" style="fill: var(--fig-on-1)">25</text>
-  <line x1="558.3" y1="86.0" x2="598.0" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m2)"/>
+  <line x1="564.3" y1="86.0" x2="598.0" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-3-m2)"/>
   <rect x="502.3" y="191" width="80" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 40%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/><text class="s" x="542.3" y="204" text-anchor="middle">warp sum，16 B</text>
-  <line x1="546.3" y1="136.0" x2="546.3" y2="189.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-3-m2)"/>
-  <line x1="556.3" y1="189.0" x2="556.3" y2="136.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-3-m2)"/>
+  <line x1="540.3" y1="86.0" x2="540.3" y2="189.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-3-m2)"/>
+  <line x1="550.3" y1="189.0" x2="550.3" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-3-m2)"/>
   <rect x="204.8" y="238" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
   <rect x="218.4" y="238" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
   <rect x="232.0" y="238" width="13.6" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity="0.18" stroke-width=".6"/>
