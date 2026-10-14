@@ -826,7 +826,7 @@ def hw_smsp():
 def residency():
     R = json.load(open(os.path.join(HERE, "residency.json")))
     L = R["limits"]
-    f = F("fig-t-8", 590, "第 2 节图里的一个 program 是一个 CUDA block：4 个 warp、128 个 thread。放上 SM 时占 4 个 warp 名额、1 个 program 名额、128 × 每个 thread 的 register、shared memory 加 1 KiB；四个 kernel 各画四根条，哪条先用完就放几个：GELU 和 row sum 卡在 warp，softmax 卡在 register，matmul 卡在 shared memory")
+    f = F("fig-t-8", 590, "第 2 节图里的一个 program 是一个 CUDA block：4 个 warp、128 个 thread。放上 SM 时占 4 个 warp 名额、1 个 program 名额、128 × 每个 thread 的 register、shared memory 加 1 KB；四个 kernel 各画四根条，哪条先用完就放几个：GELU 和 row sum 卡在 warp，softmax 卡在 register，matmul 卡在 shared memory")
     # 上：grid 的一格 → 一个 program = 一个 CUDA block → 上 SM 要占的四样
     f.w('<text class="ttl" x="10" y="16">第 2 节图里的 grid</text>')
     for k, lab in enumerate(("0", "1", "2")):
@@ -846,20 +846,20 @@ def residency():
     f.arrow(424, 71, 440, 71, None, width=1.6)
     f.w(f'<rect x="444" y="24" width="186" height="94" rx="8" class="op"/>')
     f.w('<text class="tb" x="456" y="42">放上 SM 时要占四样</text>')
-    for k, lab in enumerate(("① 4 个 warp 名额", "② 1 个 program 名额", "③ register：128 × 每 thread 个数", "④ shared memory：用量 + 1 KiB")):
+    for k, lab in enumerate(("① 4 个 warp 名额", "② 1 个 program 名额", "③ register：128 × 每 thread 个数", "④ shared memory：用量 + 1 KB")):
         f.w(f'<text class="s" x="456" y="{60 + k * 15}">{lab}</text>')
     # 下：四个 kernel，各四根条
     X0, BW = 156, 312
     NAMES = (("gelu", "GELU", "fig-t-1", "2-1"), ("softmax", "softmax", "fig-t-2", "2-2"),
              ("row_sum", "row sum", "fig-t-3", "2-3"), ("matmul", "matmul", "fig-t-4", "2-4"))
     BARS = (("warps", "warp 名额", f'{L["warps"]}'), ("blocks", "program 名额", f'{L["blocks"]}'),
-            ("regs", "register", f'{L["regs"]}'), ("shared", "shared memory", f'{L["shared"] // 1024} KiB'))
+            ("regs", "register", f'{L["regs"]}'), ("shared", "shared memory", f'{L["shared"] // 1024} KB'))
     def amt(key, v):
-        return (f"{v} B" if v < 2048 else f"{v // 1024} KiB") if key == "shared" else f"{v}"
+        return (f"{v} B" if v < 2048 else f"{v // 1024} KB") if key == "shared" else f"{v}"
     for i, (key, name, fid, num) in enumerate(NAMES):
         r = R[key]; y0 = 136 + i * 104; n = r["per_sm"]
         alloc = r["use"]["regs"] // (32 * r["warps"])
-        sh = "0 B" if r["shared"] == 0 else (f'{r["shared"]} B' if r["shared"] < 1024 else f'{r["shared"] // 1024} KiB')
+        sh = "0 B" if r["shared"] == 0 else (f'{r["shared"]} B' if r["shared"] < 1024 else f'{r["shared"] // 1024} KB')
         bind = min(r["max"], key=lambda k: r["max"][k])
         f.w(f'<rect x="10" y="{y0}" width="620" height="96" rx="10" {tint("--fig-1", 5, sw=1)}/>')
         f.w(f'<text class="tb" x="22" y="{y0 + 18}">{name}（<a href="#{fid}">图 {num}</a>）</text>')
@@ -1172,7 +1172,7 @@ def lanes_fig(fid, label, kind, prog_title, grid, grid_note, ops, chip_lab, note
             f.w(f'<text class="s" x="152" y="{(y0 + y1) / 2 + 18}">GDDR7</text>')
         if t.startswith("shared") and smem is not None:    # 这个 program 用了多少 shared memory（residency.json）
             B = json.load(open(os.path.join(HERE, "residency.json")))[smem]["shared"]
-            txt = f"用 {B // 1024} KiB" if B >= 1024 else f"用 {B} B"
+            txt = f"用 {B // 1024} KB" if B >= 1024 else f"用 {B} B"
             xy = (152, (y0 + y1) / 2 + 30) if chip_lab == "matmul" else (smem_x, (y0 + y1) / 2 + 4)   # matmul 泳道高，写在标题下面
             f.w(f'<text class="s" x="{xy[0]}" y="{xy[1]:.1f}" style="fill: var(--fig-1); opacity: 1; font-weight: 600">{txt}</text>')
     f.arrow(hx, hy, 144, hy, None, width=1.5)
@@ -1284,13 +1284,13 @@ def tri_gelu():
         [("offsets", "tl.arange"), ("@", "tl.load"), ("gelu", "tl.exp"), ("@", "tl.store")], "reg",
         ["每个 program 1024 个元素，每个 thread 8 个，都在 register 里，不用 shared memory；", "offsets 是 load、store 的地址。显存只读 x 一次、写 y 一次。"], mem_y1=308, smem="gelu")
     MY = p.ROW["m"][0]
-    p.chip("offsets", cx[0], size="4 KiB"); p.down(cx[0], 110)                       # 算下标 → offsets
-    p.chip("x 段", cx[1], w=44, size="4 KiB"); p.xfer(cx[1], MY - 2, 140, "tl.load")
+    p.chip("offsets", cx[0], size="4 KB"); p.down(cx[0], 110)                       # 算下标 → offsets
+    p.chip("x 段", cx[1], w=44, size="4 KB"); p.xfer(cx[1], MY - 2, 140, "tl.load")
     p.up(cx[1] + 14, 110, cx[2] - 16)                                  # x 段 → GELU
-    p.chip("y 段", cx[3], w=44, size="4 KiB"); p.down(cx[2] + 16, 110, cx[3] - 14)   # GELU → y 段
+    p.chip("y 段", cx[3], w=44, size="4 KB"); p.down(cx[2] + 16, 110, cx[3] - 14)   # GELU → y 段
     p.xfer(cx[3], 140, MY - 2, "tl.store")
-    p.mem("整个 x：32 MiB", cx[1] - 40, cx[1] + 40, [(cx[1] - 10, cx[1] + 10, 0, 1)], "读 4 KiB", cx[1] - 5)
-    p.mem("整个 y：32 MiB", cx[3] - 40, cx[3] + 40, [(cx[3] - 10, cx[3] + 10, 0, 1)], "写 4 KiB", cx[3] - 5)
+    p.mem("整个 x：32 MB", cx[1] - 40, cx[1] + 40, [(cx[1] - 10, cx[1] + 10, 0, 1)], "读 4 KB", cx[1] - 5)
+    p.mem("整个 y：32 MB", cx[3] - 40, cx[3] + 40, [(cx[3] - 10, cx[3] + 10, 0, 1)], "写 4 KB", cx[3] - 5)
     return f
 
 def tri_softmax():
@@ -1308,13 +1308,13 @@ def tri_softmax():
         f.w(f'<line x1="{cx[k]:.1f}" y1="{BY0 + 3}" x2="{cx[k]:.1f}" y2="{BY0 + 17}" style="stroke: var(--fig-2)" stroke-dasharray="2 2"/>')
     for t, a, b in (("x", 0, 1), ("x − m", 1, 2), ("e", 2, 3), ("y", 3, 4)):
         f.w(f'<text class="s" x="{(cx[a] + cx[b]) / 2:.1f}" y="{BY0 + 13}" text-anchor="middle">{t}</text>')
-    f.w(f'<text class="s" x="{(cx[1] + cx[3]) / 2:.1f}" y="{BY1 - 5}" text-anchor="middle" style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">整行 16 KiB，每一步都改写这一块</text>')
+    f.w(f'<text class="s" x="{(cx[1] + cx[3]) / 2:.1f}" y="{BY1 - 5}" text-anchor="middle" style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">整行 16 KB，每一步都改写这一块</text>')
     p.xfer(cx[0], MY - 2, BY1 + 2, "tl.load", left=True)
     for k in (1, 2, 3):                                                # 读左边的旧值，写回右边
         f.arrow(cx[k] - 22, BY0 - 2, cx[k] - 22, 86, "--fig-2", width=1.4)
         f.arrow(cx[k] + 22, 86, cx[k] + 22, BY0 - 2, "--fig-2", width=1.4)
     p.xfer(cx[4], BY1 + 2, MY - 2, "tl.store")
-    for nm, k, part in [("整个 x：64 MiB", 0, "读 1 行，16 KiB"), ("整个 y：64 MiB", 4, "写 1 行，16 KiB")]:
+    for nm, k, part in [("整个 x：64 MB", 0, "读 1 行，16 KB"), ("整个 y：64 MB", 4, "写 1 行，16 KB")]:
         p.mem(nm, cx[k] - 36, cx[k] + 36, [(cx[k] - 36, cx[k] + 36, .3, .25)], part, cx[k] - 5)
     for k, t in [(1, "warp max"), (3, "warp sum")]:             # 跨 warp 归约经 shared memory
         y0 = p.ROW["s"][0]
@@ -1351,7 +1351,7 @@ def tri_rowsum():
     AY0, XY0, BH = 102, 140, 32
     SZ = 'style="font-size: 9.5px; fill: var(--fig-1); opacity: 1"'
     membar(f, cx[1] - 18, cx[5] + 22, AY0, BH); membar(f, cx[0] - 34, cx[3] + 34, XY0, BH)
-    f.w(f'<text class="s" x="{cx[2] - 12:.1f}" y="{AY0 + 11}" {SZ}>acc，4 KiB</text><text class="s" x="{cx[0] + 28:.1f}" y="{XY0 + 11}" {SZ}>x，4 KiB</text>')
+    f.w(f'<text class="s" x="{cx[2] - 12:.1f}" y="{AY0 + 11}" {SZ}>acc，4 KB</text><text class="s" x="{cx[0] + 28:.1f}" y="{XY0 + 11}" {SZ}>x，4 KB</text>')
     for k, c in [(0, cx[0]), (3, cx[3])]:
         cells(c - 22, XY0 + 14, tiles[k], OP[k])
         p.xfer(c, Y + RH, XY0 + BH + 2, "tl.load")
@@ -1382,7 +1382,7 @@ def tri_rowsum():
     f.w(f'<text class="s" x="{xa + 4 * w + 4:.1f}" y="{Y + RH + 11.5}">行 1</text>')
     for k in range(4):
         f.w(f'<text class="s" x="{xa + k * w + w / 2:.1f}" y="{Y + 3 * RH + 12}" text-anchor="middle">block {k}</text>')
-    f.w(f'<text class="s" x="{xa + 2 * w:.1f}" y="{Y + 3 * RH + 26}" text-anchor="middle">整个 x [4096, 4096]：64 MiB；program 1 只读行 1，16 KiB</text>')
+    f.w(f'<text class="s" x="{xa + 2 * w:.1f}" y="{Y + 3 * RH + 26}" text-anchor="middle">整个 x [4096, 4096]：64 MB；program 1 只读行 1，16 KB</text>')
     ox = cx[6] - 8
     for r in range(3):
         st = 'style="fill: var(--fig-1)" fill-opacity=".78"' if r == 1 else 'fill="none"'
@@ -1412,9 +1412,9 @@ def tri_matmul():
     AY0, BY0, RH_ = 103, 128, 21
     membar(f, cx[1] - 12, cx[6] + 22, AY0, RH_); membar(f, cx[0] - 6, cx[4] - 12, BY0, RH_)
     f.w(f'<line x1="{cx[5]:.1f}" y1="{AY0 + 3}" x2="{cx[5]:.1f}" y2="{AY0 + RH_ - 3}" style="stroke: var(--fig-2)" stroke-dasharray="2 2"/>')
-    f.w(f'<text class="s" x="{cx[2]:.1f}" y="{AY0 + 14}" text-anchor="middle">acc <tspan {SZ}>16 KiB</tspan></text>')
-    f.w(f'<text class="s" x="{(cx[5] + cx[6] + 22) / 2:.1f}" y="{AY0 + 14}" text-anchor="middle">C block <tspan {SZ}>16 KiB</tspan></text>')
-    f.w(f'<text class="s" x="{cx[2] - 8:.1f}" y="{BY0 + 14}" text-anchor="middle">a、b <tspan {SZ}>各 8 KiB</tspan></text>')
+    f.w(f'<text class="s" x="{cx[2]:.1f}" y="{AY0 + 14}" text-anchor="middle">acc <tspan {SZ}>16 KB</tspan></text>')
+    f.w(f'<text class="s" x="{(cx[5] + cx[6] + 22) / 2:.1f}" y="{AY0 + 14}" text-anchor="middle">C block <tspan {SZ}>16 KB</tspan></text>')
+    f.w(f'<text class="s" x="{cx[2] - 8:.1f}" y="{BY0 + 14}" text-anchor="middle">a、b <tspan {SZ}>各 8 KB</tspan></text>')
     f.arrow(cx[1] - 22, BY0 - 2, cx[1] - 22, 86, "--fig-2", width=1.4)        # 第 0 轮：a、b → dot（acc 这时还没开始）
     f.arrow(cx[1] + 14, 86, cx[1] + 14, AY0 - 2, "--fig-2", width=1.4)        # dot → acc
     over(f, cx[4] - 22, BY0 - 2, cx[4] - 22, 86)                               # 最后一轮：a、b → dot，从 acc 上面穿过
@@ -1422,11 +1422,11 @@ def tri_matmul():
     f.arrow(cx[5] - 14, AY0 - 2, cx[5] - 14, 86, "--fig-2", width=1.4); f.arrow(cx[5] + 14, 86, cx[5] + 14, AY0 - 2, "--fig-2", width=1.4)   # ReLU：读 acc，写 C block
     p.carry(cx[1], cx[4], "acc 带到下一轮")
     f.w(f'<text class="s" x="{cx[1] - 8:.1f}" y="34" text-anchor="end" style="fill: var(--fig-hi)">T = 0</text><text class="s" x="{cx[4] + 10:.1f}" y="34" style="fill: var(--fig-hi)">T = 63</text>')
-    # shared memory 一块 32 KiB，分两个槽轮流用：槽 0 放偶数轮、槽 1 放奇数轮；循环结束后 C block 换排布也用这一块
+    # shared memory 一块 32 KB，分两个槽轮流用：槽 0 放偶数轮、槽 1 放奇数轮；循环结束后 C block 换排布也用这一块
     SY0, SY1, CW = 166, 232, 34
     S1, S0 = (SY0 + 4, SY0 + 30), (SY0 + 36, SY0 + 62)               # 槽 1 在上、槽 0 在下
     membar(f, cx[0] - 22, cx[6] - 2, SY0, SY1 - SY0)
-    def ab(x0, row, o, dash=False):                                  # 一个槽里的 A、B block，各 8 KiB
+    def ab(x0, row, o, dash=False):                                  # 一个槽里的 A、B block，各 8 KB
         y0, y1 = row
         for k, nm in enumerate("AB"):
             x = x0 + k * CW
@@ -1434,11 +1434,11 @@ def tri_matmul():
             d = ' stroke-dasharray="3 2"' if dash else ''
             f.w(f'<rect x="{x:.1f}" y="{y0}" width="{CW}" height="{y1 - y0}" rx="3" {st}/><rect x="{x:.1f}" y="{y0}" width="{CW}" height="{y1 - y0}" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"{d}/>')
             tx = TX(o) if not dash else ''
-            f.w(f'<text class="s" x="{x + CW / 2:.1f}" y="{y0 + 11}" text-anchor="middle" {tx}>{nm}</text><text class="s" x="{x + CW / 2:.1f}" y="{y0 + 22}" text-anchor="middle" style="font-size: 9.5px" {tx}>8 KiB</text>')
+            f.w(f'<text class="s" x="{x + CW / 2:.1f}" y="{y0 + 11}" text-anchor="middle" {tx}>{nm}</text><text class="s" x="{x + CW / 2:.1f}" y="{y0 + 22}" text-anchor="middle" style="font-size: 9.5px" {tx}>8 KB</text>')
     T0X, T1X, T63X = cx[0] - 16, cx[0] + 62, cx[3] - 22
     ab(T0X, S0, RAMP[0]); ab(T63X, S1, RAMP[-1])
     f.w(f'<rect x="{T1X:.1f}" y="{S1[0]}" width="{2 * CW}" height="{S1[1] - S1[0]}" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7" stroke-dasharray="3 2"/>')   # 第 1 轮的 A、B 正在搬进槽 1
-    f.w(f'<text class="s" x="{T1X + CW:.1f}" y="{S1[0] + 11}" text-anchor="middle" style="font-size: 9.5px">T = 1，16 KiB</text><text class="s" x="{T1X + CW:.1f}" y="{S1[0] + 22}" text-anchor="middle" style="font-size: 9.5px">正在搬</text>')
+    f.w(f'<text class="s" x="{T1X + CW:.1f}" y="{S1[0] + 11}" text-anchor="middle" style="font-size: 9.5px">T = 1，16 KB</text><text class="s" x="{T1X + CW:.1f}" y="{S1[0] + 22}" text-anchor="middle" style="font-size: 9.5px">正在搬</text>')
     f.w(f'<text class="s" x="{cx[4] + 4:.1f}" y="{S1[0] + 16}">槽 1</text><text class="s" x="{cx[4] + 4:.1f}" y="{S0[0] + 16}">槽 0</text>')
     over(f, T0X + CW, S0[0] - 2, T0X + CW, BY0 + RH_ + 2)               # 第 0 轮：槽 0 → a、b，从槽 1 上面穿过
     f.arrow(T63X + CW, S1[0] - 2, T63X + CW, BY0 + RH_ + 2, "--fig-2", width=1.4)   # 最后一轮：槽 1 → a、b
@@ -1459,13 +1459,13 @@ def tri_matmul():
         for k, t in enumerate(labels):
             f.w(f'<text class="s" x="{lx:.1f}" y="{ly + k * 13:.1f}" text-anchor="{anchor}">{t}</text>')
     AX, AY = cx[0] - 30, 256                         # A [4096, 2048]：16 × 8 格，第 1 行，K 从左往右
-    mat(AX, AY, 16, 8, {(1, c): RAMP[c] for c in range(8)}, ["A [4096, 2048]", "整个 32 MiB"])
+    mat(AX, AY, 16, 8, {(1, c): RAMP[c] for c in range(8)}, ["A [4096, 2048]", "整个 32 MB"])
     BX, BY = cx[0] + 26, 256                         # B [2048, 512]：8 × 2 格，第 1 列，K 从上往下
-    mat(BX, BY, 8, 2, {(r, 1): RAMP[r] for r in range(8)}, ["B [2048, 512]", "整个 4 MiB"], "start", BX + 18, BY + 14)
+    mat(BX, BY, 8, 2, {(r, 1): RAMP[r] for r in range(8)}, ["B [2048, 512]", "整个 4 MB"], "start", BX + 18, BY + 14)
     p.xfer(AX + 3, AY + S, S0[1] + 2, "", xo=T0X + CW / 2)                   # cp.async：显存 → shared memory
     p.xfer(BX + 9, BY, S0[1] + 2, "cp.async", xo=T0X + CW * 1.5, ly=248)
     CX, CY = cx[6] - 9, 256                          # C [4096, 512]：16 × 2 格，写回 (1, 1)
-    mat(CX, CY, 16, 2, {(1, 1): RAMP[-1]}, ["C [4096, 512]", "整个 8 MiB"], "end", 630)
+    mat(CX, CY, 16, 2, {(1, 1): RAMP[-1]}, ["C [4096, 512]", "整个 8 MB"], "end", 630)
     p.xfer(cx[6] + 10, AY0 + RH_ + 2, CY + S - 1, "", xo=cx[6])
     f.w(f'<text class="s" x="{cx[6] - 2:.1f}" y="248" text-anchor="end" style="fill: var(--fig-1)">tl.store</text>')
     lx, ly = BX + 18, BY + 58                         # 图例：渐变是 for 循环沿 K 读 block 的顺序
@@ -1473,7 +1473,7 @@ def tri_matmul():
     for k, o in enumerate(RAMP):
         f.w(f'<rect x="{lx + k * 12}" y="{ly}" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="{o:.2f}" stroke-opacity=".4" stroke-width=".6"/>')
     f.w(f'<text class="s" x="{lx}" y="{ly + 23}">T = 0</text><text class="s" x="{lx + 96}" y="{ly + 23}" text-anchor="end">T = 63</text>')
-    f.w(f'<text class="s" x="{lx}" y="{ly + 40}">每轮读 A 的 64 × 32、B 的 32 × 64，各 8 KiB；</text><text class="s" x="{lx}" y="{ly + 54}">图里一格 256 列，是 8 轮</text>')
+    f.w(f'<text class="s" x="{lx}" y="{ly + 40}">每轮读 A 的 64 × 32、B 的 32 × 64，各 8 KB；</text><text class="s" x="{lx}" y="{ly + 54}">图里一格 256 列，是 8 轮</text>')
     return f
 
 # ── 图 B-4 matmul 的 512 个 program 怎么分批跑（实测 trace） ─────────────────────
@@ -1609,9 +1609,9 @@ CAPS = {
  "warp_slots": '<strong>图 B-2</strong> 一个 SM 上驻留 3 个 program（P0、P1、P2）时的某一拍。格子里写的是这个 warp 属于哪个 program，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。',
  "hw_smsp": '<strong>图 1-4</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。',
  "cuda_model": '<strong>图 1-5</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。',
- "tri_gelu": '<strong>图 2-1</strong> GELU kernel（n = 8388608，fp32）。左边是 grid，数组按 BLOCK = 1024 切段，一段一个 program。右边是 program 1 的数据流，泳道和箭头的含义见正文。显存泳道里的整条是整个 x、y（各 8388608 个 fp32，32 MiB），深色一段是 program 1 读写的 1024 个（4 KiB）；按比例只有整条的 1/8192，图里放大了。',
+ "tri_gelu": '<strong>图 2-1</strong> GELU kernel（n = 8388608，fp32）。左边是 grid，数组按 BLOCK = 1024 切段，一段一个 program。右边是 program 1 的数据流，泳道和箭头的含义见正文。显存泳道里的整条是整个 x、y（各 8388608 个 fp32，32 MB），深色一段是 program 1 读写的 1024 个（4 KB）；按比例只有整条的 1/8192，图里放大了。',
  "wave_trace": '<strong>图 B-3</strong> GELU 的 8192 个 program 实际怎么分批跑（RTX 5090，n = 8388608，fp32，每个 program 4 个 warp）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，store 发出后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 编号所在的批次，一批 2040 个。浅红色是 bubble：名额上没有 program 在执行指令；最后一个 program 开始以后是 tail。下面的名额是按开始、结束时间排出来的，红框是这个 SM 上最长的一段空档。悬停可看 program 编号和时间。',
- "tri_softmax": '<strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。显存泳道里的方块是整个 x、y（各 64 MiB），深色一条是 program 1 读写的那一行（4096 个 fp32，16 KiB），按比例只有 1/4096，图里放大了。',
+ "tri_softmax": '<strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。显存泳道里的方块是整个 x、y（各 64 MB），深色一条是 program 1 读写的那一行（4096 个 fp32，16 KB），按比例只有 1/4096，图里放大了。',
  "tri_rowsum": '<strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 个 block，代码里 TILE = 1024。颜色由淡到浓是 for 循环读 block 的顺序：第 0 轮后 acc 只有 block 0 的数，最后的 acc 是 4 个 block 逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。',
  "tri_matmul": '<strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 个 row block 和 B 的第 1 个 column block，颜色由淡到浓是沿 K 读 block 的顺序，acc 一轮轮累积，ReLU 后写回 C 的 block (1, 1)。',
  "mm_wave": '<strong>图 B-4</strong> matmul kernel 的 512 个 program 实际怎么分批跑（RTX 5090，fp32，A 4096 × 2048，B 2048 × 512，每个 SM 3 个 program），画法同<a href="#fig-t-5">图 B-3</a>。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，写回 C 之后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 的发射顺序所在的批次，一批 510 个。第 2 批只有 2 个，按比例只有 1 像素高，图里画成底边上的一条粗线并用红框圈出。悬停可看 program 编号和时间。',

@@ -14,7 +14,7 @@ series_order: 1
 
 下一篇[谁偷走了 5090 的算力和显存](/blog/gpu-training-analysis/)用这些知识在 RTX 5090 上拆解一步训练的时间和显存，第三篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 讲 attention 的 IO-aware kernel。
 
-> 环境：RTX 5090 32 GB，torch 2.11.0+cu130，Triton 3.6.0。
+> 环境：RTX 5090 32 GB，torch 2.11.0+cu130，Triton 3.6.0。文中的 KB、MB、GB 都按 1024 进位。
 
 ---
 
@@ -105,7 +105,7 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 
 ### 1.2 一个 SM 里有什么 {#hw-sm}
 
-每个 SM 分成 4 个 SMSP（SM sub-partition），每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core（做 FP32 和 INT32 运算）和一个 Tensor core，4 个 SMSP 共享 L1 / shared memory（[图 1-3](#fig-h-2)）。
+每个 SM 分成 4 个 SMSP（SM sub-partition），每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core（做 FP32 和 INT32 运算）和一个 Tensor core，4 个 SMSP 共享 L1 / shared memory（[图 1-3](#fig-h-2)）。L1 和 shared memory 是同一块 128 KB 的片上存储，按比例切开用，shared memory 最多切到 100 KB，剩下的留给 L1 cache。
 
 <figure id="fig-h-2" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 236" width="100%" role="img" aria-label="RTX 5090 的一个 SM：4 个 SMSP，每个有 1 个 warp 调度器、64 KB register、32 个 CUDA core 和 1 个 Tensor core；4 个 SMSP 共享 128 KB 的 L1/shared memory">
@@ -498,30 +498,30 @@ GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函�
   <text class="lab2" x="152" y="339">offsets 是 load、store 的地址。显存只读 x 一次、写 y 一次。</text>
   <rect x="298.0" y="110" width="50" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
   <text class="s" x="323.0" y="122" text-anchor="middle">offsets</text>
-  <text class="s" x="323.0" y="134" text-anchor="middle" style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">4 KiB</text>
+  <text class="s" x="323.0" y="134" text-anchor="middle" style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">4 KB</text>
   <line x1="323.0" y1="86.0" x2="323.0" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-1-m1)"/>
   <rect x="373.0" y="110" width="44" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
   <text class="s" x="395.0" y="122" text-anchor="middle">x 段</text>
-  <text class="s" x="395.0" y="134" text-anchor="middle" style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">4 KiB</text>
+  <text class="s" x="395.0" y="134" text-anchor="middle" style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">4 KB</text>
   <line x1="395.0" y1="250.0" x2="395.0" y2="140.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-1-m2)"/>
   <text class="s" x="399.0" y="199.0" text-anchor="start" style="fill: var(--fig-1)">tl.load</text>
   <line x1="409.0" y1="108.0" x2="451.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-1-m1)"/>
   <rect x="517.0" y="110" width="44" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
   <text class="s" x="539.0" y="122" text-anchor="middle">y 段</text>
-  <text class="s" x="539.0" y="134" text-anchor="middle" style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">4 KiB</text>
+  <text class="s" x="539.0" y="134" text-anchor="middle" style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">4 KB</text>
   <line x1="483.0" y1="86.0" x2="525.0" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-1-m1)"/>
   <line x1="539.0" y1="140.0" x2="539.0" y2="250.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-1-m2)"/>
   <text class="s" x="543.0" y="199.0" text-anchor="start" style="fill: var(--fig-1)">tl.store</text>
-  <text class="s" x="390.0" y="247" text-anchor="end" style="fill: var(--fig-1); opacity: 1">读 4 KiB</text>
+  <text class="s" x="390.0" y="247" text-anchor="end" style="fill: var(--fig-1); opacity: 1">读 4 KB</text>
   <rect x="355.0" y="252" width="80.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <rect x="385.0" y="252.0" width="20.0" height="28.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="395.0" y="293" text-anchor="middle">整个 x：32 MiB</text>
-  <text class="s" x="534.0" y="247" text-anchor="end" style="fill: var(--fig-1); opacity: 1">写 4 KiB</text>
+  <text class="s" x="395.0" y="293" text-anchor="middle">整个 x：32 MB</text>
+  <text class="s" x="534.0" y="247" text-anchor="end" style="fill: var(--fig-1); opacity: 1">写 4 KB</text>
   <rect x="499.0" y="252" width="80.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <rect x="529.0" y="252.0" width="20.0" height="28.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="539.0" y="293" text-anchor="middle">整个 y：32 MiB</text>
+  <text class="s" x="539.0" y="293" text-anchor="middle">整个 y：32 MB</text>
 </svg>
-<figcaption><strong>图 2-1</strong> GELU kernel（n = 8388608，fp32）。左边是 grid，数组按 BLOCK = 1024 切段，一段一个 program。右边是 program 1 的数据流，泳道和箭头的含义见正文。显存泳道里的整条是整个 x、y（各 8388608 个 fp32，32 MiB），深色一段是 program 1 读写的 1024 个（4 KiB）；按比例只有整条的 1/8192，图里放大了。</figcaption>
+<figcaption><strong>图 2-1</strong> GELU kernel（n = 8388608，fp32）。左边是 grid，数组按 BLOCK = 1024 切段，一段一个 program。右边是 program 1 的数据流，泳道和箭头的含义见正文。显存泳道里的整条是整个 x、y（各 8388608 个 fp32，32 MB），深色一段是 program 1 读写的 1024 个（4 KB）；按比例只有整条的 1/8192，图里放大了。</figcaption>
 </figure>
 
 逐元素 op 最简单，每个元素各算各的，program 之间不需要配合。把 n 个元素切成每段 BLOCK 个，一段交给一个 program（[图 2-1](#fig-t-1)）。kernel 里先用 `tl.program_id` 算出自己负责的下标，读进来，算完写回：
@@ -554,7 +554,7 @@ def gelu(x):
 
 program 编译后就是 CUDA 的一个 block。8192 个 program 远多于 170 个 SM，GPU 会把它们一批一批地排到 SM 上，每个 SM 同时跑 12 个（为什么是 12 个见 [图 B-1](#fig-t-8)，怎么分批见 [Appendix B.3](#sched-wave)）。
 
-n = 8388608 时 Triton 版 45.2 µs，读写共 64 MiB，有效带宽 1.49e12 B/s，是显存带宽的 83%，和 PyTorch 的 `F.gelu(x, approximate="tanh")`（45.9 µs）持平。
+n = 8388608 时 Triton 版 45.2 µs，读写共 64 MB，有效带宽 1.49e12 B/s，是显存带宽的 83%，和 PyTorch 的 `F.gelu(x, approximate="tanh")`（45.9 µs）持平。
 
 <details class="fold doc aside">
 <summary>GELU 编译成的 PTX</summary>
@@ -657,7 +657,7 @@ def softmax_naive(x):                         # x: [M, N]，按行
   <text class="s" x="373.0" y="125" text-anchor="middle">x − m</text>
   <text class="s" x="467.0" y="125" text-anchor="middle">e</text>
   <text class="s" x="550.0" y="125" text-anchor="middle">y</text>
-  <text class="s" x="420.0" y="139" text-anchor="middle" style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">整行 16 KiB，每一步都改写这一块</text>
+  <text class="s" x="420.0" y="139" text-anchor="middle" style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">整行 16 KB，每一步都改写这一块</text>
   <line x1="254.0" y1="250.0" x2="254.0" y2="146.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-2-m1)"/>
   <text class="s" x="250.0" y="202.0" text-anchor="end" style="fill: var(--fig-1)">tl.load</text>
   <line x1="304.0" y1="110.0" x2="304.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m2)"/>
@@ -668,14 +668,14 @@ def softmax_naive(x):                         # x: [M, N]，按行
   <line x1="536.0" y1="86.0" x2="536.0" y2="110.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m2)"/>
   <line x1="586.0" y1="146.0" x2="586.0" y2="250.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-2-m1)"/>
   <text class="s" x="590.0" y="202.0" text-anchor="start" style="fill: var(--fig-1)">tl.store</text>
-  <text class="s" x="249.0" y="247" text-anchor="end" style="fill: var(--fig-1); opacity: 1">读 1 行，16 KiB</text>
+  <text class="s" x="249.0" y="247" text-anchor="end" style="fill: var(--fig-1); opacity: 1">读 1 行，16 KB</text>
   <rect x="218.0" y="252" width="72.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <rect x="218.0" y="260.4" width="72.0" height="7.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="254.0" y="293" text-anchor="middle">整个 x：64 MiB</text>
-  <text class="s" x="581.0" y="247" text-anchor="end" style="fill: var(--fig-1); opacity: 1">写 1 行，16 KiB</text>
+  <text class="s" x="254.0" y="293" text-anchor="middle">整个 x：64 MB</text>
+  <text class="s" x="581.0" y="247" text-anchor="end" style="fill: var(--fig-1); opacity: 1">写 1 行，16 KB</text>
   <rect x="550.0" y="252" width="72.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <rect x="550.0" y="260.4" width="72.0" height="7.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="586.0" y="293" text-anchor="middle">整个 y：64 MiB</text>
+  <text class="s" x="586.0" y="293" text-anchor="middle">整个 y：64 MB</text>
   <rect x="286.0" y="191" width="80" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 40%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/><text class="s" x="326.0" y="204" text-anchor="middle">warp max，16 B</text>
   <line x1="321.0" y1="146.0" x2="321.0" y2="189.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
   <line x1="331.0" y1="189.0" x2="331.0" y2="146.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
@@ -683,7 +683,7 @@ def softmax_naive(x):                         # x: [M, N]，按行
   <line x1="509.0" y1="146.0" x2="509.0" y2="189.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
   <line x1="519.0" y1="189.0" x2="519.0" y2="146.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
 </svg>
-<figcaption><strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。显存泳道里的方块是整个 x、y（各 64 MiB），深色一条是 program 1 读写的那一行（4096 个 fp32，16 KiB），按比例只有 1/4096，图里放大了。</figcaption>
+<figcaption><strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。显存泳道里的方块是整个 x、y（各 64 MB），深色一条是 program 1 读写的那一行（4096 个 fp32，16 KB），按比例只有 1/4096，图里放大了。</figcaption>
 </figure>
 
 如果一个 program 处理一整行（[图 2-2](#fig-t-2)），max、exp、求和、除都可以在 register 里做完，只读 MN、写 MN，读写量是原来的 1/4：
@@ -784,7 +784,7 @@ $\mathcal{J}_T$ 是第 $T$ 个 block 的 TILE 个列下标，代码里 TILE 取 
   <defs><linearGradient id="fig-t-3-acc" x1="0" x2="1" y1="0" y2="0"><stop offset="0.00" style="stop-color: var(--fig-1)" stop-opacity="0.12"/><stop offset="0.33" style="stop-color: var(--fig-1)" stop-opacity="0.34"/><stop offset="0.67" style="stop-color: var(--fig-1)" stop-opacity="0.56"/><stop offset="1.00" style="stop-color: var(--fig-1)" stop-opacity="0.78"/></linearGradient></defs>
   <rect x="279.7" y="102" width="284.7" height="32" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
   <rect x="198.0" y="140" width="231.3" height="32" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
-  <text class="s" x="342.3" y="113" style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">acc，4 KiB</text><text class="s" x="260.0" y="151" style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">x，4 KiB</text>
+  <text class="s" x="342.3" y="113" style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">acc，4 KB</text><text class="s" x="260.0" y="151" style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">x，4 KB</text>
   <rect x="210.0" y="154" width="11" height="16" style="fill: var(--fig-1)" fill-opacity="0.12"/>
   <rect x="210.0" y="154" width="11" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
   <text class="s" x="215.5" y="165.5" text-anchor="middle" style="opacity: .9">1</text>
@@ -938,7 +938,7 @@ $\mathcal{J}_T$ 是第 $T$ 个 block 的 TILE 个列下标，代码里 TILE 取 
   <text class="s" x="286.4" y="298" text-anchor="middle">block 1</text>
   <text class="s" x="340.9" y="298" text-anchor="middle">block 2</text>
   <text class="s" x="395.3" y="298" text-anchor="middle">block 3</text>
-  <text class="s" x="313.7" y="312" text-anchor="middle">整个 x [4096, 4096]：64 MiB；program 1 只读行 1，16 KiB</text>
+  <text class="s" x="313.7" y="312" text-anchor="middle">整个 x [4096, 4096]：64 MB；program 1 只读行 1，16 KB</text>
   <rect x="600.0" y="238" width="16" height="16" fill="none"/><rect x="600.0" y="238" width="16" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
   <rect x="600.0" y="254" width="16" height="16" style="fill: var(--fig-1)" fill-opacity=".78"/><rect x="600.0" y="254" width="16" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
   <rect x="600.0" y="270" width="16" height="16" fill="none"/><rect x="600.0" y="270" width="16" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
@@ -1037,7 +1037,7 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
   <rect class="band" x="146" y="160" width="490" height="76" rx="8"/>
   <text class="lab2" x="152" y="195.5">shared</text>
   <text class="lab2" x="152" y="208.5">memory</text>
-  <text class="s" x="152" y="228.0" style="fill: var(--fig-1); opacity: 1; font-weight: 600">用 32 KiB</text>
+  <text class="s" x="152" y="228.0" style="fill: var(--fig-1); opacity: 1; font-weight: 600">用 32 KB</text>
   <rect class="band" x="146" y="244" width="490" height="140" rx="8"/>
   <text class="lab2" x="152" y="318.0">显存</text>
   <text class="s" x="152" y="332.0">GDDR7</text>
@@ -1056,9 +1056,9 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
   <rect x="285.7" y="103" width="344.3" height="21" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
   <rect x="226.0" y="128" width="223.0" height="21" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
   <line x1="542.3" y1="106" x2="542.3" y2="121" style="stroke: var(--fig-2)" stroke-dasharray="2 2"/>
-  <text class="s" x="354.3" y="117" text-anchor="middle">acc <tspan style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">16 KiB</tspan></text>
-  <text class="s" x="586.2" y="117" text-anchor="middle">C block <tspan style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">16 KiB</tspan></text>
-  <text class="s" x="346.3" y="142" text-anchor="middle">a、b <tspan style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">各 8 KiB</tspan></text>
+  <text class="s" x="354.3" y="117" text-anchor="middle">acc <tspan style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">16 KB</tspan></text>
+  <text class="s" x="586.2" y="117" text-anchor="middle">C block <tspan style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">16 KB</tspan></text>
+  <text class="s" x="346.3" y="142" text-anchor="middle">a、b <tspan style="font-size: 9.5px; fill: var(--fig-1); opacity: 1">各 8 KB</tspan></text>
   <line x1="275.7" y1="126.0" x2="275.7" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <line x1="311.7" y1="86.0" x2="311.7" y2="101.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <line x1="439.0" y1="126.0" x2="439.0" y2="86.0" style="stroke: var(--nv-bg, #fff)" stroke-width="5"/>
@@ -1072,15 +1072,15 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
   <text class="s" x="289.7" y="34" text-anchor="end" style="fill: var(--fig-hi)">T = 0</text><text class="s" x="471.0" y="34" style="fill: var(--fig-hi)">T = 63</text>
   <rect x="210.0" y="166" width="396.0" height="66" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
   <rect x="216.0" y="202" width="34" height="26" rx="3" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="216.0" y="202" width="34" height="26" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
-  <text class="s" x="233.0" y="213" text-anchor="middle" >A</text><text class="s" x="233.0" y="224" text-anchor="middle" style="font-size: 9.5px" >8 KiB</text>
+  <text class="s" x="233.0" y="213" text-anchor="middle" >A</text><text class="s" x="233.0" y="224" text-anchor="middle" style="font-size: 9.5px" >8 KB</text>
   <rect x="250.0" y="202" width="34" height="26" rx="3" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="250.0" y="202" width="34" height="26" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
-  <text class="s" x="267.0" y="213" text-anchor="middle" >B</text><text class="s" x="267.0" y="224" text-anchor="middle" style="font-size: 9.5px" >8 KiB</text>
+  <text class="s" x="267.0" y="213" text-anchor="middle" >B</text><text class="s" x="267.0" y="224" text-anchor="middle" style="font-size: 9.5px" >8 KB</text>
   <rect x="373.3" y="170" width="34" height="26" rx="3" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="373.3" y="170" width="34" height="26" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
-  <text class="s" x="390.3" y="181" text-anchor="middle" style="fill: var(--fig-on-1)">A</text><text class="s" x="390.3" y="192" text-anchor="middle" style="font-size: 9.5px" style="fill: var(--fig-on-1)">8 KiB</text>
+  <text class="s" x="390.3" y="181" text-anchor="middle" style="fill: var(--fig-on-1)">A</text><text class="s" x="390.3" y="192" text-anchor="middle" style="font-size: 9.5px" style="fill: var(--fig-on-1)">8 KB</text>
   <rect x="407.3" y="170" width="34" height="26" rx="3" style="fill: var(--fig-1)" fill-opacity="0.78"/><rect x="407.3" y="170" width="34" height="26" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
-  <text class="s" x="424.3" y="181" text-anchor="middle" style="fill: var(--fig-on-1)">B</text><text class="s" x="424.3" y="192" text-anchor="middle" style="font-size: 9.5px" style="fill: var(--fig-on-1)">8 KiB</text>
+  <text class="s" x="424.3" y="181" text-anchor="middle" style="fill: var(--fig-on-1)">B</text><text class="s" x="424.3" y="192" text-anchor="middle" style="font-size: 9.5px" style="fill: var(--fig-on-1)">8 KB</text>
   <rect x="294.0" y="170" width="68" height="26" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7" stroke-dasharray="3 2"/>
-  <text class="s" x="328.0" y="181" text-anchor="middle" style="font-size: 9.5px">T = 1，16 KiB</text><text class="s" x="328.0" y="192" text-anchor="middle" style="font-size: 9.5px">正在搬</text>
+  <text class="s" x="328.0" y="181" text-anchor="middle" style="font-size: 9.5px">T = 1，16 KB</text><text class="s" x="328.0" y="192" text-anchor="middle" style="font-size: 9.5px">正在搬</text>
   <text class="s" x="465.0" y="186">槽 1</text><text class="s" x="465.0" y="218">槽 0</text>
   <line x1="250.0" y1="200.0" x2="250.0" y2="151.0" style="stroke: var(--nv-bg, #fff)" stroke-width="5"/>
   <line x1="250.0" y1="200.0" x2="250.0" y2="151.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
@@ -1347,7 +1347,7 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
   <rect x="244.0" y="346" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="202.0" y="256" width="48" height="96" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
   <text class="s" x="226.0" y="365.0" text-anchor="middle">A [4096, 2048]</text>
-  <text class="s" x="226.0" y="378.0" text-anchor="middle">整个 32 MiB</text>
+  <text class="s" x="226.0" y="378.0" text-anchor="middle">整个 32 MB</text>
   <rect x="258.0" y="256" width="6" height="6" fill="none"/>
   <rect x="258.0" y="256" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="264.0" y="256" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.12"/>
@@ -1382,7 +1382,7 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
   <rect x="264.0" y="298" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="258.0" y="256" width="12" height="48" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
   <text class="s" x="276.0" y="270.0" text-anchor="start">B [2048, 512]</text>
-  <text class="s" x="276.0" y="283.0" text-anchor="start">整个 4 MiB</text>
+  <text class="s" x="276.0" y="283.0" text-anchor="start">整个 4 MB</text>
   <line x1="205.0" y1="262.0" x2="233.0" y2="230.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-4-m3)"/>
   <line x1="267.0" y1="256.0" x2="267.0" y2="230.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-4-m3)"/>
   <text class="s" x="271.0" y="248.0" text-anchor="start" style="fill: var(--fig-1)">cp.async</text>
@@ -1452,7 +1452,7 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
   <rect x="605.0" y="346" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="599.0" y="256" width="12" height="96" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
   <text class="s" x="630.0" y="365.0" text-anchor="end">C [4096, 512]</text>
-  <text class="s" x="630.0" y="378.0" text-anchor="end">整个 8 MiB</text>
+  <text class="s" x="630.0" y="378.0" text-anchor="end">整个 8 MB</text>
   <line x1="618.0" y1="126.0" x2="608.0" y2="261.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-4-m3)"/>
   <text class="s" x="606.0" y="248" text-anchor="end" style="fill: var(--fig-1)">tl.store</text>
   <text class="s" x="276.0" y="308">沿 K 第 T 轮读的 block：T = 0 … 63</text>
@@ -1465,7 +1465,7 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
   <rect x="348.0" y="314" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.69" stroke-opacity=".4" stroke-width=".6"/>
   <rect x="360.0" y="314" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.78" stroke-opacity=".4" stroke-width=".6"/>
   <text class="s" x="276.0" y="337">T = 0</text><text class="s" x="372.0" y="337" text-anchor="end">T = 63</text>
-  <text class="s" x="276.0" y="354">每轮读 A 的 64 × 32、B 的 32 × 64，各 8 KiB；</text><text class="s" x="276.0" y="368">图里一格 256 列，是 8 轮</text>
+  <text class="s" x="276.0" y="354">每轮读 A 的 64 × 32、B 的 32 × 64，各 8 KB；</text><text class="s" x="276.0" y="368">图里一格 256 列，是 8 轮</text>
 </svg>
 <figcaption><strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 个 row block 和 B 的第 1 个 column block，颜色由淡到浓是沿 K 读 block 的顺序，acc 一轮轮累积，ReLU 后写回 C 的 block (1, 1)。</figcaption>
 </figure>
@@ -1514,7 +1514,7 @@ def matmul_relu(a, b, BM=64, BN=64, BK=32):
 - **复用**：同一份数据要被读很多次。matmul 里 A 的一个 block 要和 B 的 block 的 64 列都乘一遍；softmax 和 row sum 里每个数只被一个 thread 读一次。
 - **交换**：thread 之间要交换大量数据。matmul 里 `tl.dot` 要把 A、B 的 block 重新分给不同的 thread；softmax 和 row sum 只交换 4 个 warp 的部分结果（16 B）。
 
-所以 matmul 把 A、B 的 block 放在 shared memory 里，每个 program 32 KiB；softmax 和 row sum 两条都不满足，把整个 block 放进 shared memory 只会多搬一趟。代价是 shared memory 用得越多，一个 SM 能同时放的 program 越少：每个 SM 的上限是 100 KiB，matmul 每个 program 占 32 KiB，再加每个 program 保留的 1 KiB，只放得下 3 个（3 × 33 = 99 KiB，见 [图 B-1](#fig-t-8)）。
+所以 matmul 把 A、B 的 block 放在 shared memory 里，每个 program 32 KB；softmax 和 row sum 两条都不满足，把整个 block 放进 shared memory 只会多搬一趟。代价是 shared memory 用得越多，一个 SM 能同时放的 program 越少：每个 SM 的上限是 100 KB，matmul 每个 program 占 32 KB，再加每个 program 保留的 1 KB，只放得下 3 个（3 × 33 = 99 KB，见 [图 B-1](#fig-t-8)）。
 
 </div>
 
@@ -1523,7 +1523,7 @@ A 4096 × 2048、B 2048 × 512 时 Triton 版 203.3 µs，4.23e13 FLOPS，是 fp
 <details class="fold doc aside">
 <summary>matmul 的 load 藏住了吗：PTX 计数和 Nsight Compute 实测</summary>
 
-Triton 默认 `num_stages=3`，编译器把这个循环改写成流水线：A、B 各开两个槽，算第 $T$ 轮时，第 $T+1$ 轮的 block 已经在搬了。从编译出的 TTGIR 和 PTX 里能数清楚 A、B 的 block 怎么进出 shared memory。循环前先发出第 0、1 轮的 cp.async；第 $T$ 轮先等第 $T$ 轮的数据到齐，用 ld.shared 读进 register 做乘加，读完马上往刚空出来的槽发第 $T+2$ 轮。A、B 各搬 64 次，每次 8 KiB，一个 program 一共 1 MiB；512 个 program 加起来 512 MiB，而 A、B 本身只有 36 MiB，所以 L2 命中率有 91%，大部分读不用到显存。每轮从 shared memory 读进 register 的是 192 KiB，同一个数平均被读 12 次，这就是前面说的复用。写回之前 acc 还要经 shared memory 换一次排布，让 tl.store 能按连续地址写。代码里加了 `input_precision="ieee"`，所以 `tl.dot` 编译成 CUDA core 上的 `fma.rn.f32x2`；不加的话 fp32 输入默认走 tf32 的 Tensor core，和 fp32 矩阵乘的结果差 0.1 左右。
+Triton 默认 `num_stages=3`，编译器把这个循环改写成流水线：A、B 各开两个槽，算第 $T$ 轮时，第 $T+1$ 轮的 block 已经在搬了。从编译出的 TTGIR 和 PTX 里能数清楚 A、B 的 block 怎么进出 shared memory。循环前先发出第 0、1 轮的 cp.async；第 $T$ 轮先等第 $T$ 轮的数据到齐，用 ld.shared 读进 register 做乘加，读完马上往刚空出来的槽发第 $T+2$ 轮。A、B 各搬 64 次，每次 8 KB，一个 program 一共 1 MB；512 个 program 加起来 512 MB，而 A、B 本身只有 36 MB，所以 L2 命中率有 91%，大部分读不用到显存。每轮从 shared memory 读进 register 的是 192 KB，同一个数平均被读 12 次，这就是前面说的复用。写回之前 acc 还要经 shared memory 换一次排布，让 tl.store 能按连续地址写。代码里加了 `input_precision="ieee"`，所以 `tl.dot` 编译成 CUDA core 上的 `fma.rn.f32x2`；不加的话 fp32 输入默认走 tf32 的 Tensor core，和 fp32 矩阵乘的结果差 0.1 左右。
 
 预取藏住了多少 load，用 Nsight Compute 测（[图 2-4a](#fig-t-6)）。ncu 给的是一个 warp 每两条指令之间平均隔几拍、这几拍里在等什么，乘上每轮的指令数（约 1220 条），就是每轮的拍数。不预取（`num_stages=1`）时每轮 5601 拍，其中 852 拍在等 L2 或显存的数据，等到了才能算，一轮接一轮。预取以后每轮 4901 拍，等数据只剩 74 拍：block $k$ 的 load 在两轮之前就发出了，约 852 拍就到，到用的时候早已在 shared memory 里。load 只占一轮的六分之一，提前一轮发其实就够。
 
@@ -1842,13 +1842,13 @@ program（也就是 CUDA block）放到 SM 上以后就一直驻留，直到它�
 | 驻留 warp | 48 个（每个 SMSP 12 个），即 1536 个 thread |
 | 驻留 program（CUDA block） | 24 个 |
 | register | 65536 个 32-bit（256 KB），每个 thread 最多 255 个 |
-| shared memory | 100 KiB，每个 program 另占 1 KiB |
+| shared memory | 100 KB（128 KB 的 L1 / shared memory 里最多切出这么多），每个 program 另占 1 KB |
 {#tab-b-1 caption="**表 B-1** RTX 5090 一个 SM 的驻留上限" note="用 <code>cuDeviceGetAttribute</code> 在 5090 上读出，和 CUDA Programming Guide 里 compute capability 12.0 的数一致。"}
 
-第 2 节的图画的是一个 program 怎么读写数据。放到 SM 上时，一个 program 就是一个 CUDA block：4 个 warp、128 个 thread，每个 thread 带着自己的 register，整个 program 共用一块 shared memory。所以它在 SM 上要占四样东西，正好对应表 B-1 的四条上限：4 个 warp 名额，1 个 program 名额，128 × 每个 thread 的 register 数，shared memory 的用量再加 1 KiB 保留。每条上限各自能放下几个 program，取最小的那个，就是一个 SM 实际放几个（[图 B-1](#fig-t-8)）。
+第 2 节的图画的是一个 program 怎么读写数据。放到 SM 上时，一个 program 就是一个 CUDA block：4 个 warp、128 个 thread，每个 thread 带着自己的 register，整个 program 共用一块 shared memory。所以它在 SM 上要占四样东西，正好对应表 B-1 的四条上限：4 个 warp 名额，1 个 program 名额，128 × 每个 thread 的 register 数，shared memory 的用量再加 1 KB 保留。每条上限各自能放下几个 program，取最小的那个，就是一个 SM 实际放几个（[图 B-1](#fig-t-8)）。
 
 <figure id="fig-t-8" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 590" width="100%" role="img" aria-label="第 2 节图里的一个 program 是一个 CUDA block：4 个 warp、128 个 thread。放上 SM 时占 4 个 warp 名额、1 个 program 名额、128 × 每个 thread 的 register、shared memory 加 1 KiB；四个 kernel 各画四根条，哪条先用完就放几个：GELU 和 row sum 卡在 warp，softmax 卡在 register，matmul 卡在 shared memory">
+<svg class="fg" viewBox="0 0 640 590" width="100%" role="img" aria-label="第 2 节图里的一个 program 是一个 CUDA block：4 个 warp、128 个 thread。放上 SM 时占 4 个 warp 名额、1 个 program 名额、128 × 每个 thread 的 register、shared memory 加 1 KB；四个 kernel 各画四根条，哪条先用完就放几个：GELU 和 row sum 卡在 warp，softmax 卡在 register，matmul 卡在 shared memory">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -1896,7 +1896,7 @@ program（也就是 CUDA block）放到 SM 上以后就一直驻留，直到它�
   <text class="s" x="456" y="60">① 4 个 warp 名额</text>
   <text class="s" x="456" y="75">② 1 个 program 名额</text>
   <text class="s" x="456" y="90">③ register：128 × 每 thread 个数</text>
-  <text class="s" x="456" y="105">④ shared memory：用量 + 1 KiB</text>
+  <text class="s" x="456" y="105">④ shared memory：用量 + 1 KB</text>
   <rect x="10" y="136" width="620" height="96" rx="10" style="fill: color-mix(in srgb, var(--fig-1) 5%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
   <text class="tb" x="22" y="154">GELU（<a href="#fig-t-1">图 2-1</a>）</text>
   <text class="lab2" x="156" y="154">每个 thread 31 个 register（按 32 个分配），shared memory 0 B</text>
@@ -1951,7 +1951,7 @@ program（也就是 CUDA block）放到 SM 上以后就一直驻留，直到它�
   <rect x="351.00" y="196" width="19.50" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
   <rect x="370.50" y="196" width="19.50" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
   <text class="s" x="476" y="206">每个占 4096，最多 16 个</text>
-  <text class="s" x="22" y="222">shared memory</text><text class="s" x="150" y="222" text-anchor="end">100 KiB</text>
+  <text class="s" x="22" y="222">shared memory</text><text class="s" x="150" y="222" text-anchor="end">100 KB</text>
   <rect x="156" y="212" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
   <rect x="193.4" y="212.5" width="274.6" height="11" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/>
   <text class="s" x="330.7" y="221.5" text-anchor="middle" style="font-size: 9.5px">还能放 88 个</text>
@@ -2013,7 +2013,7 @@ program（也就是 CUDA block）放到 SM 上以后就一直驻留，直到它�
   <rect x="429.00" y="300" width="34.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
   <rect x="154" y="298" width="316" height="16" rx="3" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/>
   <text class="s" style="fill: var(--fig-hi); opacity: 1; font-weight: 600" x="476" y="310">每个占 7168，最多 9 个</text>
-  <text class="s" x="22" y="326">shared memory</text><text class="s" x="150" y="326" text-anchor="end">100 KiB</text>
+  <text class="s" x="22" y="326">shared memory</text><text class="s" x="150" y="326" text-anchor="end">100 KB</text>
   <rect x="156" y="316" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
   <rect x="187.6" y="316.5" width="277.3" height="11" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/>
   <text class="s" x="326.2" y="325.5" text-anchor="middle" style="font-size: 9.5px">还能放 79 个</text>
@@ -2081,7 +2081,7 @@ program（也就是 CUDA block）放到 SM 上以后就一直驻留，直到它�
   <rect x="302.25" y="404" width="14.62" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
   <rect x="316.88" y="404" width="14.62" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
   <text class="s" x="476" y="414">每个占 3072，最多 21 个</text>
-  <text class="s" x="22" y="430">shared memory</text><text class="s" x="150" y="430" text-anchor="end">100 KiB</text>
+  <text class="s" x="22" y="430">shared memory</text><text class="s" x="150" y="430" text-anchor="end">100 KB</text>
   <rect x="156" y="420" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
   <rect x="198.1" y="420.5" width="266.8" height="11" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/>
   <text class="s" x="331.5" y="429.5" text-anchor="middle" style="font-size: 9.5px">还能放 76 个</text>
@@ -2100,7 +2100,7 @@ program（也就是 CUDA block）放到 SM 上以后就一直驻留，直到它�
   <text class="s" x="476" y="430">每个占 1152 B，最多 88 个</text>
   <rect x="10" y="448" width="620" height="96" rx="10" style="fill: color-mix(in srgb, var(--fig-1) 5%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
   <text class="tb" x="22" y="466">matmul（<a href="#fig-t-4">图 2-4</a>）</text>
-  <text class="lab2" x="156" y="466">每个 thread 96 个 register，shared memory 32 KiB</text>
+  <text class="lab2" x="156" y="466">每个 thread 96 个 register，shared memory 32 KB</text>
   <text class="tb" x="618" y="466" text-anchor="end" style="fill: var(--fig-hi)">放 3 个</text>
   <text class="s" x="22" y="486">warp 名额</text><text class="s" x="150" y="486" text-anchor="end">48</text>
   <rect x="156" y="476" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
@@ -2126,13 +2126,13 @@ program（也就是 CUDA block）放到 SM 上以后就一直驻留，直到它�
   <rect x="214.50" y="508" width="58.50" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
   <rect x="273.00" y="508" width="58.50" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
   <text class="s" x="476" y="518">每个占 12288，最多 5 个</text>
-  <text class="s" x="22" y="534">shared memory</text><text class="s" x="150" y="534" text-anchor="end">100 KiB</text>
+  <text class="s" x="22" y="534">shared memory</text><text class="s" x="150" y="534" text-anchor="end">100 KB</text>
   <rect x="156" y="524" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
   <rect x="156.00" y="524" width="102.96" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
   <rect x="258.96" y="524" width="102.96" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
   <rect x="361.92" y="524" width="102.96" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
   <rect x="154" y="522" width="316" height="16" rx="3" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/>
-  <text class="s" style="fill: var(--fig-hi); opacity: 1; font-weight: 600" x="476" y="534">每个占 33 KiB，最多 3 个</text>
+  <text class="s" style="fill: var(--fig-hi); opacity: 1; font-weight: 600" x="476" y="534">每个占 33 KB，最多 3 个</text>
   <rect x="22" y="567" width="22" height="10" style="fill: var(--fig-1)"/><text class="lab" x="52" y="576">实际放进去的 program，一格一个</text>
   <rect x="238" y="567" width="22" height="10" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/><text class="lab" x="268" y="576">只看这一条，还能再放</text>
   <rect x="410" y="566" width="22" height="12" rx="2" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/><text class="lab" x="440" y="576">先用完的那条</text>
@@ -2140,7 +2140,7 @@ program（也就是 CUDA block）放到 SM 上以后就一直驻留，直到它�
 <figcaption><strong>图 B-1</strong> 第 2 节四个 kernel 的 program 怎么放上一个 SM（RTX 5090，形状同正文，每个 program 4 个 warp）。上面：第 2 节图里 grid 的一格是一个 program，也就是一个 CUDA block，放上 SM 时要占四样东西。下面每个 kernel 四根条，对应<a href="#tab-b-1">表 B-1</a> 的四条上限，条长是这条上限的总量；深色一格是一个实际放进去的 program 占的量，虚线框是只看这一条还能再放的，红框是先用完的那条，它决定了一个 SM 放几个。register 和 shared memory 读自编译出的 kernel；register 以 warp 为单位按 256 个分配，摊到每个 thread 是 8 的倍数，shared memory 按 128 B 取整。四条取最小的结果和 <code>cuOccupancyMaxActiveBlocksPerMultiprocessor</code> 算出的一致。softmax 和 row sum 的 16 B shared memory 用来让 4 个 warp 交换归约的部分结果。</figcaption>
 </figure>
 
-GELU 和 row sum 用的 register 少、几乎不用 shared memory，先用完的是 warp 名额：48 / 4 = 12。softmax 把一整行 4096 个数放在 register 里，每个 thread 55 个，按 56 分配，一个 program 占 56 × 128 = 7168 个，65536 / 7168 = 9.1，只放得下 9 个，比 warp 名额允许的 12 个少。matmul 的 `tl.dot` 要把 A、B 的 block 先放进 shared memory，一个 program 32 KiB，加上保留的 1 KiB 是 33 KiB，100 KiB 只放得下 3 个；按 register 能放 5 个，用不满。program 名额有 24 个，四个 kernel 都用不完。
+GELU 和 row sum 用的 register 少、几乎不用 shared memory，先用完的是 warp 名额：48 / 4 = 12。softmax 把一整行 4096 个数放在 register 里，每个 thread 55 个，按 56 分配，一个 program 占 56 × 128 = 7168 个，65536 / 7168 = 9.1，只放得下 9 个，比 warp 名额允许的 12 个少。matmul 的 `tl.dot` 要把 A、B 的 block 先放进 shared memory，一个 program 32 KB，加上保留的 1 KB 是 33 KB，100 KB 只放得下 3 个；按 register 能放 5 个，用不满。program 名额有 24 个，四个 kernel 都用不完。
 
 四个 kernel 都用默认的 `num_warps=4`，一个 program 4 个 warp。这个数调大调小影响不大，只有 program 大到 48 个 warp 名额放不满时才明显变慢。
 
