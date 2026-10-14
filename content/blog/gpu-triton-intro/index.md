@@ -8,6 +8,7 @@ tags: ["GPU", "Triton", "CUDA", "TPU", "LLM", "AI"]
 categories: ["AI笔记"]
 series: ["GPU training optimization"]
 series_order: 1
+featureimagecaption: "封面：《原神》尼露，HoYoverse 官方美术"
 ---
 
 这个系列讲怎么让 Transformer 训练在 GPU 上跑得更快。这一篇先打基础：[第 1 节](#hardware)介绍 GPU 的硬件，包括数据存在哪几层、一个 SM 里有什么、CUDA 的执行层级怎么对应到硬件；[第 2 节](#triton)用四个例子介绍 Triton，后面两篇的 kernel 都用它写。TPU 和 GPU 的对照放在 [Appendix A](#tpu)，program 怎么排到 SM 上跑（驻留上限、warp 调度、wave）放在 [Appendix B](#sched)，几代 NVIDIA GPU 的规格对比放在 [Appendix C](#specs)。
