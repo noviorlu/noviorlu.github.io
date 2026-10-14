@@ -10,7 +10,7 @@ series: ["GPU training optimization"]
 series_order: 1
 ---
 
-这个系列讲怎么让 Transformer 训练在 GPU 上跑得更快。这一篇先打基础：[第 1 节](#hardware)介绍 GPU 的硬件，包括数据存在哪几层、一个 SM 里有什么、CUDA 的执行层级怎么对应到硬件；[第 2 节](#triton)用四个例子介绍 Triton，后面两篇的 kernel 都用它写。TPU 和 GPU 的对照放在 [Appendix A](#tpu)，program 怎么排到 SM 上跑（驻留上限、warp 调度、wave）放在 [Appendix B](#sched)，几代 NVIDIA GPU 的规格对比放在 [Appendix C](#specs)。
+这个系列讲怎么让 Transformer 训练在 GPU 上跑得更快。这一篇先打基础：[第 1 节](#hardware)介绍 GPU 的硬件，包括数据存在哪几层、一个 SM 里有什么、CUDA 的执行层级怎么对应到硬件；[第 2 节](#triton)用四个例子介绍 Triton，后面两篇的 kernel 都用它写。TPU 和 GPU 的对照放在 [Appendix A](#tpu)，program 怎么排到 SM 上跑（驻留上限、warp 调度、wave）放在 [Appendix B](#sched)，几代 NVIDIA GPU 的规格对比放在 [Appendix C](#specs)，matmul 的 BM、BN 怎么选放在 [Appendix D](#tile)。
 
 下一篇[谁偷走了 5090 的算力和显存](/blog/gpu-training-analysis/)用这些知识在 RTX 5090 上拆解一步训练的时间和显存，第三篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 讲 attention 的 IO-aware kernel。
 
@@ -1524,7 +1524,7 @@ def matmul_relu(a, b, BM=64, BN=64, BK=32):
 
 </div>
 
-A 4096 × 2048、B 2048 × 512 时 Triton 版 203.3 µs，4.23e13 FLOPS，是 fp32 标称峰值 1.05e14 FLOPS（170 个 SM × 128 个 CUDA core × 2 FLOPs × 2.41e9 Hz）的 40%；cuBLAS（`torch.relu(A  B)`，关掉 tf32）是 160.5 µs。差距主要来自 tail effect：每个 SM 只放 3 个 program，512 个 program 要分两批跑，第二批只有 2 个，它们跑的时候另外 168 个 SM 都空着（见 [Appendix B.3](#sched-wave)）。
+A 4096 × 2048、B 2048 × 512 时 Triton 版 203.3 µs，4.23e13 FLOPS，是 fp32 标称峰值 1.05e14 FLOPS（170 个 SM × 128 个 CUDA core × 2 FLOPs × 2.41e9 Hz）的 40%；cuBLAS（`torch.relu(A  B)`，关掉 tf32）是 160.5 µs。差距主要来自 tail effect：每个 SM 只放 3 个 program，512 个 program 要分两批跑，第二批只有 2 个，它们跑的时候另外 168 个 SM 都空着（见 [Appendix B.3](#sched-wave)）。BM、BN 本身也不是最优的：换成 128 × 128、8 个 warp，只有 128 个 program，一批就跑完，176.9 µs；这几个数怎么选见 [Appendix D](#tile)。
 
 <details class="fold doc aside">
 <summary>matmul 的 load 藏住了吗：PTX 计数和 Nsight Compute 实测</summary>
@@ -2148,7 +2148,7 @@ program（也就是 CUDA block）放到 SM 上以后就一直驻留，直到它�
 
 GELU 和 row sum 用的 register 少、几乎不用 shared memory，先用完的是 warp 名额：48 / 4 = 12。softmax 把一整行 4096 个数放在 register 里，每个 thread 55 个，按 56 分配，一个 program 占 56 × 128 = 7168 个，65536 / 7168 = 9.1，只放得下 9 个，比 warp 名额允许的 12 个少。matmul 的 `tl.dot` 要把 A、B 的 block 先放进 shared memory，一个 program 32 KB，加上保留的 1 KB 是 33 KB，100 KB 只放得下 3 个；按 register 能放 5 个，用不满。program 名额有 24 个，四个 kernel 都用不完。
 
-四个 kernel 都用默认的 `num_warps=4`，一个 program 4 个 warp。这个数调大调小影响不大，只有 program 大到 48 个 warp 名额放不满时才明显变慢。
+四个 kernel 都用默认的 `num_warps=4`，一个 program 4 个 warp。这个数调大调小影响不大，只有 program 大到 48 个 warp 名额放不满时才明显变慢。matmul 加大 block 时要跟着改，见 [Appendix D](#tile)。
 
 <details class="fold doc aside">
 <summary>num_warps 调大调小会怎样</summary>
@@ -2523,6 +2523,206 @@ A 换成 4032 × 2048 时，504 个 program 一批放下，同一个 kernel 只�
 
 ---
 
+## Appendix D matmul 的 BM、BN 怎么选 {#tile}
+
+[2.4 节](#triton-matmul)的 BM = BN = 64、BK = 32 是为了讲解随手定的。这几个数 Triton 不替你选，实际工程里一般用 `@triton.autotune` 列一组候选配置，第一次遇到某个形状时都跑一遍，挑最快的记下来。这个 appendix 把候选扫一遍，看最快的配置在一个 SM 上用了多少 warp、register 和 shared memory，再从中找出怎么选。
+
+扫了两个形状：正文的 A 4096 × 2048、B 2048 × 512，和 4096 × 4096 × 4096。BM、BN 各取 32 到 256，BK 取 16、32、64，`num_warps` 取 4、8、16，`num_stages` 取 2、3，去掉放不下的组合，每个形状 198 组。都是 fp32、`input_precision="ieee"`，乘加走 CUDA core。
+
+### D.1 最快的配置用了什么 {#tile-best}
+
+正文形状下最快的是 BM = BN = 128、BK = 32、8 个 warp，176.9 µs，比正文的配置（这次扫描里 203.0 µs）少用 13% 的时间。[图 D-1](#fig-d-1) 把两者放上一个 SM 对比：最快的配置每个 SM 只驻留 1 个 program、8 个 warp，warp 名额只用了 17%，register 却用掉 88%，先用完的是 register。它只有 128 个 program，170 个 SM 里有 42 个整场空着，还是最快。
+
+<figure id="fig-d-1" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 262" width="100%" role="img" aria-label="正文形状下最快的配置（BM = BN = 128，8 个 warp）和正文用的 64 × 64、4 个 warp，在一个 SM 上各用了多少：最快的只驻留 8 个 warp，register 用掉 88%">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <rect x="10" y="10" width="620" height="100" rx="10" style="fill: color-mix(in srgb, var(--fig-1) 5%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="tb" x="22" y="28">最快：BM = 128，BN = 128，BK = 32，8 个 warp</text>
+  <text class="lab2" x="22" y="44">每个 thread 64 个 acc，220 个 register；shared memory 64 KB；128 个 program</text>
+  <text class="tb" x="618" y="28" text-anchor="end" style="fill: var(--fig-hi)">176.9 µs</text>
+  <text class="s" x="22" y="63">warp 名额</text><text class="s" x="150" y="63" text-anchor="end">48</text>
+  <rect x="156" y="54" width="312" height="11" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="156.00" y="54" width="52.00" height="11" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <text class="s" x="476" y="63">用了 17%</text>
+  <text class="s" x="22" y="77">program 名额</text><text class="s" x="150" y="77" text-anchor="end">24</text>
+  <rect x="156" y="68" width="312" height="11" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="156.00" y="68" width="13.00" height="11" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <text class="s" x="476" y="77">用了 4%</text>
+  <text class="s" x="22" y="91">register</text><text class="s" x="150" y="91" text-anchor="end">65536</text>
+  <rect x="156" y="82" width="312" height="11" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="156.00" y="82" width="273.00" height="11" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="154" y="80" width="316" height="15" rx="3" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/>
+  <text class="s" style="fill: var(--fig-hi); opacity: 1; font-weight: 600" x="476" y="91">用了 88%</text>
+  <text class="s" x="22" y="105">shared memory</text><text class="s" x="150" y="105" text-anchor="end">100 KB</text>
+  <rect x="156" y="96" width="312" height="11" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="156.00" y="96" width="202.80" height="11" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <text class="s" x="476" y="105">用了 65%</text>
+  <rect x="10" y="122" width="620" height="100" rx="10" style="fill: color-mix(in srgb, var(--fig-1) 5%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="tb" x="22" y="140">正文用的：BM = 64，BN = 64，BK = 32，4 个 warp</text>
+  <text class="lab2" x="22" y="156">每个 thread 32 个 acc，96 个 register；shared memory 32 KB；512 个 program</text>
+  <text class="tb" x="618" y="140" text-anchor="end" style="fill: var(--fig-hi)">203.0 µs</text>
+  <text class="s" x="22" y="175">warp 名额</text><text class="s" x="150" y="175" text-anchor="end">48</text>
+  <rect x="156" y="166" width="312" height="11" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="156.00" y="166" width="26.00" height="11" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="182.00" y="166" width="26.00" height="11" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="208.00" y="166" width="26.00" height="11" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <text class="s" x="476" y="175">用了 25%</text>
+  <text class="s" x="22" y="189">program 名额</text><text class="s" x="150" y="189" text-anchor="end">24</text>
+  <rect x="156" y="180" width="312" height="11" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="156.00" y="180" width="13.00" height="11" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="169.00" y="180" width="13.00" height="11" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="182.00" y="180" width="13.00" height="11" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <text class="s" x="476" y="189">用了 12%</text>
+  <text class="s" x="22" y="203">register</text><text class="s" x="150" y="203" text-anchor="end">65536</text>
+  <rect x="156" y="194" width="312" height="11" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="156.00" y="194" width="58.50" height="11" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="214.50" y="194" width="58.50" height="11" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="273.00" y="194" width="58.50" height="11" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <text class="s" x="476" y="203">用了 56%</text>
+  <text class="s" x="22" y="217">shared memory</text><text class="s" x="150" y="217" text-anchor="end">100 KB</text>
+  <rect x="156" y="208" width="312" height="11" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="156.00" y="208" width="102.96" height="11" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="258.96" y="208" width="102.96" height="11" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="361.92" y="208" width="102.96" height="11" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="154" y="206" width="316" height="15" rx="3" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/>
+  <text class="s" style="fill: var(--fig-hi); opacity: 1; font-weight: 600" x="476" y="217">用了 99%</text>
+  <rect x="22" y="240" width="22" height="10" style="fill: var(--fig-1)"/><text class="lab" x="52" y="249">一格是一个 program 占的量</text>
+  <rect x="230" y="239" width="22" height="12" rx="2" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/><text class="lab" x="260" y="249">先用完的那条</text>
+</svg>
+<figcaption><strong>图 D-1</strong> 正文形状（A 4096 × 2048，B 2048 × 512，fp32）下最快的配置和正文用的配置，在一个 SM 上各用了多少，画法同<a href="#fig-t-8">图 B-1</a>。条长是这条上限的总量，深色一格是一个 program 占的量，红框是先用完的那条。</figcaption>
+</figure>
+
+方阵下最快的是 BM = 64、BN = 128、BK = 16、4 个 warp，2417.6 µs，5.68e13 FLOPS，是 fp32 峰值的 54%。它每个 SM 放 3 个 program、12 个 warp，register 用掉 98%。配置和上面的不一样，资源的用法却一样：warp 只用了四分之一左右，register 几乎用满，每个 thread 都存 64 个 acc。
+
+### D.2 规律 {#tile-rules}
+
+把所有配置按两个量分组（[图 D-2](#fig-d-2)）：每个 thread 存多少个 acc，即 BM × BN / (32 × `num_warps`)；每个 SM 驻留多少个 warp。
+
+<figure id="fig-d-2" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="按每个 thread 的 acc 个数、每个 SM 驻留的 warp 数分组，每组最快的配置比整体最快慢多少：acc 在 32 到 64 个、warp 在 8 到 16 个时最快，warp 驻留满 48 个反而慢一倍">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <rect x="214.0" y="40" width="52.0" height="190" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="0"/>
+  <line class="grid" x1="60" y1="230.0" x2="300" y2="230.0"/><text class="tick" x="54" y="234.0" text-anchor="end">1.0×</text>
+  <line class="grid" x1="60" y1="162.1" x2="300" y2="162.1"/><text class="tick" x="54" y="166.1" text-anchor="end">1.5×</text>
+  <line class="grid" x1="60" y1="94.3" x2="300" y2="94.3"/><text class="tick" x="54" y="98.3" text-anchor="end">2.0×</text>
+  <text class="tick" x="60.0" y="246" text-anchor="middle">2</text>
+  <text class="tick" x="100.0" y="246" text-anchor="middle">4</text>
+  <text class="tick" x="140.0" y="246" text-anchor="middle">8</text>
+  <text class="tick" x="180.0" y="246" text-anchor="middle">16</text>
+  <text class="tick" x="220.0" y="246" text-anchor="middle">32</text>
+  <text class="tick" x="260.0" y="246" text-anchor="middle">64</text>
+  <text class="tick" x="300.0" y="246" text-anchor="middle">128</text>
+  <text class="lab2" x="180.0" y="264" text-anchor="middle">每个 thread 的 acc 个数</text>
+  <polyline points="60.0,80.7 100.0,144.3 140.0,195.1 180.0,216.6 220.0,226.9 260.0,230.0 300.0,133.3" fill="none" style="stroke: var(--fig-1)" stroke-width="2" stroke-linejoin="round"/>
+  <g class="m"><title>正文形状 4096 × 2048 × 512，每个 thread 的 acc 个数 2：最快 371.4 µs，是整体最快的 2.10 倍</title><circle cx="60.0" cy="80.7" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>正文形状 4096 × 2048 × 512，每个 thread 的 acc 个数 4：最快 288.5 µs，是整体最快的 1.63 倍</title><circle cx="100.0" cy="144.3" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>正文形状 4096 × 2048 × 512，每个 thread 的 acc 个数 8：最快 222.4 µs，是整体最快的 1.26 倍</title><circle cx="140.0" cy="195.1" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>正文形状 4096 × 2048 × 512，每个 thread 的 acc 个数 16：最快 194.3 µs，是整体最快的 1.10 倍</title><circle cx="180.0" cy="216.6" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>正文形状 4096 × 2048 × 512，每个 thread 的 acc 个数 32：最快 180.9 µs，是整体最快的 1.02 倍</title><circle cx="220.0" cy="226.9" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>正文形状 4096 × 2048 × 512，每个 thread 的 acc 个数 64：最快 176.9 µs，是整体最快的 1.00 倍</title><circle cx="260.0" cy="230.0" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>正文形状 4096 × 2048 × 512，每个 thread 的 acc 个数 128：最快 303.0 µs，是整体最快的 1.71 倍</title><circle cx="300.0" cy="133.3" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <polyline points="60.0,40.0 100.0,102.5 140.0,175.3 180.0,195.3 220.0,223.9 260.0,230.0 300.0,216.3" fill="none" style="stroke: var(--fig-hi)" stroke-width="2" stroke-linejoin="round"/>
+  <g class="m"><title>4096 × 4096 × 4096，每个 thread 的 acc 个数 2：最快 5811.9 µs，是整体最快的 2.40 倍</title><circle cx="60.0" cy="40.0" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>4096 × 4096 × 4096，每个 thread 的 acc 个数 4：最快 4689.2 µs，是整体最快的 1.94 倍</title><circle cx="100.0" cy="102.5" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>4096 × 4096 × 4096，每个 thread 的 acc 个数 8：最快 3391.7 µs，是整体最快的 1.40 倍</title><circle cx="140.0" cy="175.3" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>4096 × 4096 × 4096，每个 thread 的 acc 个数 16：最快 3035.1 µs，是整体最快的 1.26 倍</title><circle cx="180.0" cy="195.3" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>4096 × 4096 × 4096，每个 thread 的 acc 个数 32：最快 2525.8 µs，是整体最快的 1.04 倍</title><circle cx="220.0" cy="223.9" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>4096 × 4096 × 4096，每个 thread 的 acc 个数 64：最快 2417.6 µs，是整体最快的 1.00 倍</title><circle cx="260.0" cy="230.0" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>4096 × 4096 × 4096，每个 thread 的 acc 个数 128：最快 2661.4 µs，是整体最快的 1.10 倍</title><circle cx="300.0" cy="216.3" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <rect x="395.8" y="40" width="55.6" height="190" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="0"/>
+  <line class="grid" x1="380" y1="230.0" x2="620" y2="230.0"/><text class="tick" x="374" y="234.0" text-anchor="end">1.0×</text>
+  <line class="grid" x1="380" y1="162.1" x2="620" y2="162.1"/><text class="tick" x="374" y="166.1" text-anchor="end">1.5×</text>
+  <line class="grid" x1="380" y1="94.3" x2="620" y2="94.3"/><text class="tick" x="374" y="98.3" text-anchor="end">2.0×</text>
+  <text class="tick" x="380.0" y="246" text-anchor="middle">4</text>
+  <text class="tick" x="401.8" y="246" text-anchor="middle">8</text>
+  <text class="tick" x="423.6" y="246" text-anchor="middle">12</text>
+  <text class="tick" x="445.5" y="246" text-anchor="middle">16</text>
+  <text class="tick" x="489.1" y="246" text-anchor="middle">24</text>
+  <text class="tick" x="532.7" y="246" text-anchor="middle">32</text>
+  <text class="tick" x="576.4" y="246" text-anchor="middle">40</text>
+  <text class="tick" x="620.0" y="246" text-anchor="middle">48</text>
+  <text class="lab2" x="500.0" y="264" text-anchor="middle">每个 SM 驻留的 warp 数</text>
+  <polyline points="380.0,196.5 401.8,230.0 423.6,226.2 445.5,226.9 467.3,219.4 489.1,202.9 510.9,211.5 532.7,206.2 554.5,182.3 576.4,184.6 620.0,123.6" fill="none" style="stroke: var(--fig-1)" stroke-width="2" stroke-linejoin="round"/>
+  <g class="m"><title>正文形状 4096 × 2048 × 512，每个 SM 驻留的 warp 数 4：最快 220.5 µs，是整体最快的 1.25 倍</title><circle cx="380.0" cy="196.5" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>正文形状 4096 × 2048 × 512，每个 SM 驻留的 warp 数 8：最快 176.9 µs，是整体最快的 1.00 倍</title><circle cx="401.8" cy="230.0" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>正文形状 4096 × 2048 × 512，每个 SM 驻留的 warp 数 12：最快 181.8 µs，是整体最快的 1.03 倍</title><circle cx="423.6" cy="226.2" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>正文形状 4096 × 2048 × 512，每个 SM 驻留的 warp 数 16：最快 180.9 µs，是整体最快的 1.02 倍</title><circle cx="445.5" cy="226.9" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>正文形状 4096 × 2048 × 512，每个 SM 驻留的 warp 数 20：最快 190.7 µs，是整体最快的 1.08 倍</title><circle cx="467.3" cy="219.4" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>正文形状 4096 × 2048 × 512，每个 SM 驻留的 warp 数 24：最快 212.2 µs，是整体最快的 1.20 倍</title><circle cx="489.1" cy="202.9" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>正文形状 4096 × 2048 × 512，每个 SM 驻留的 warp 数 28：最快 201.0 µs，是整体最快的 1.14 倍</title><circle cx="510.9" cy="211.5" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>正文形状 4096 × 2048 × 512，每个 SM 驻留的 warp 数 32：最快 207.9 µs，是整体最快的 1.18 倍</title><circle cx="532.7" cy="206.2" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>正文形状 4096 × 2048 × 512，每个 SM 驻留的 warp 数 36：最快 239.0 µs，是整体最快的 1.35 倍</title><circle cx="554.5" cy="182.3" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>正文形状 4096 × 2048 × 512，每个 SM 驻留的 warp 数 40：最快 236.0 µs，是整体最快的 1.33 倍</title><circle cx="576.4" cy="184.6" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <g class="m"><title>正文形状 4096 × 2048 × 512，每个 SM 驻留的 warp 数 48：最快 315.5 µs，是整体最快的 1.78 倍</title><circle cx="620.0" cy="123.6" r="3.5" class="ring" style="fill: var(--fig-1)"/></g>
+  <polyline points="380.0,212.3 401.8,228.6 423.6,230.0 445.5,223.9 467.3,212.6 489.1,189.1 510.9,187.7 532.7,195.3 554.5,165.3 576.4,171.7 620.0,93.7" fill="none" style="stroke: var(--fig-hi)" stroke-width="2" stroke-linejoin="round"/>
+  <g class="m"><title>4096 × 4096 × 4096，每个 SM 驻留的 warp 数 4：最快 2733.7 µs，是整体最快的 1.13 倍</title><circle cx="380.0" cy="212.3" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>4096 × 4096 × 4096，每个 SM 驻留的 warp 数 8：最快 2442.8 µs，是整体最快的 1.01 倍</title><circle cx="401.8" cy="228.6" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>4096 × 4096 × 4096，每个 SM 驻留的 warp 数 12：最快 2417.6 µs，是整体最快的 1.00 倍</title><circle cx="423.6" cy="230.0" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>4096 × 4096 × 4096，每个 SM 驻留的 warp 数 16：最快 2525.8 µs，是整体最快的 1.04 倍</title><circle cx="445.5" cy="223.9" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>4096 × 4096 × 4096，每个 SM 驻留的 warp 数 20：最快 2727.3 µs，是整体最快的 1.13 倍</title><circle cx="467.3" cy="212.6" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>4096 × 4096 × 4096，每个 SM 驻留的 warp 数 24：最快 3146.5 µs，是整体最快的 1.30 倍</title><circle cx="489.1" cy="189.1" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>4096 × 4096 × 4096，每个 SM 驻留的 warp 数 28：最快 3171.5 µs，是整体最快的 1.31 倍</title><circle cx="510.9" cy="187.7" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>4096 × 4096 × 4096，每个 SM 驻留的 warp 数 32：最快 3035.1 µs，是整体最快的 1.26 倍</title><circle cx="532.7" cy="195.3" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>4096 × 4096 × 4096，每个 SM 驻留的 warp 数 36：最快 3570.7 µs，是整体最快的 1.48 倍</title><circle cx="554.5" cy="165.3" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>4096 × 4096 × 4096，每个 SM 驻留的 warp 数 40：最快 3456.4 µs，是整体最快的 1.43 倍</title><circle cx="576.4" cy="171.7" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <g class="m"><title>4096 × 4096 × 4096，每个 SM 驻留的 warp 数 48：最快 4845.8 µs，是整体最快的 2.00 倍</title><circle cx="620.0" cy="93.7" r="3.5" class="ring" style="fill: var(--fig-hi)"/></g>
+  <text class="lab2" x="60" y="22">比最快的配置慢几倍（每组取最快的，不算 spill 的配置）；底色是最快的区间</text>
+  <line x1="60" y1="286" x2="82" y2="286" style="stroke: var(--fig-1)" stroke-width="2"/><text class="lab" x="90" y="290">正文形状 4096 × 2048 × 512</text>
+  <line x1="310" y1="286" x2="332" y2="286" style="stroke: var(--fig-hi)" stroke-width="2"/><text class="lab" x="340" y="290">4096 × 4096 × 4096</text>
+</svg>
+<figcaption><strong>图 D-2</strong> 两个形状各扫 198 组配置（RTX 5090，fp32，<code>input_precision="ieee"</code>）。左：按每个 thread 存的 acc 个数（BM × BN / (32 × num_warps)）分组；右：按每个 SM 驻留的 warp 数分组。每组取最快的一个，纵轴是它比这个形状下整体最快的配置慢几倍；有 spill 的配置不算在内。悬停可看时间。</figcaption>
+</figure>
+
+每个 thread 放 32 到 64 个 acc 最快，越少越慢，只放 2 个时慢 2.1 到 2.4 倍。register 这一层也有复用：thread 每从 shared memory 读进 a、b 的一个数，就拿它和手里的一小块 acc 一起算，8 × 8 的 acc 每读 8 + 8 个数做 64 次 FMA，acc 越多，每读一个数做的 FMA 越多。上限是 register 的个数：acc 加上 a、b 和地址一起超过 255 个就要 spill 到 local memory。最严重的一组是 256 × 128、4 个 warp，每个 thread 有 554 个 4 B 的值放不进 register，两个形状下分别慢 10.7 倍和 6.8 倍。
+
+每个 SM 驻留 8 到 16 个 warp 最快，驻留满 48 个反而慢 1.8 到 2.0 倍。这两条其实是同一件事：一个 SM 的 register 总共 65536 个，驻留的 warp 越多，每个 thread 分到的越少。驻留 48 个 warp 时每个 thread 最多 40 个 register（65536 / 1536 再按 8 个一组取整），放不下 32 个 acc 再加上 a、b。matmul 也不需要多驻留 warp 来藏延迟：每个 thread 手里有几十个互不依赖的 FMA 可以连着发，下一轮的 A、B 也已经由 `num_stages` 的两个槽提前搬好。这一点和 [B.1 的 notes](#sched-limits) 里 softmax 的情况一样，都是让每个 thread 多干活来代替多驻留 warp。
+
+block 本身也要够大。每个 program 读进 A 的 BM × K 和 B 的 K × BN，做 BM × BN × K 次乘加，每读一个数做 BM · BN / (BM + BN) 次：64 × 64 是 32 次，128 × 128 是 64 次。正文形状下，A、B 一共被读的量因此从 512 MB 降到 256 MB。shared memory 反而不是关键，两个形状下最快的配置只用了 65% 和 75%，够放两三个槽就行。
+
+### D.3 怎么选 {#tile-pick}
+
+合起来，先定每个 thread 放 64 个左右的 acc，并且不 spill；在这个前提下让 BM × BN 尽量大；`num_warps` 取 BM × BN / (32 × 64)，把这两件事对上，128 × 128 就是 8 个 warp；BK 取 16 或 32，两三个槽放得进 shared memory 就行。occupancy 不用追，每个 SM 8 到 16 个 warp 就够。
+
+这些结论只对 fp32 走 CUDA core 成立。bf16、tf32 走 Tensor core 时，acc 在 thread 之间的分法换成 mma 指令要求的排布，shared memory 的带宽也会变成约束，最优点会移动。每组配置只跑了一次，前几名之间只差 1% 到 2%，谁排第一并不稳定，稳定的是它们共同的资源用法。
+
+---
+
 ## References {#references}
 
 1. Gholami, Yao, Kim, Hooper, Mahoney, Keutzer. [AI and Memory Wall](https://arxiv.org/abs/2403.14123). IEEE Micro, 2024. 图 1-1。
@@ -2535,6 +2735,6 @@ A 换成 4032 × 2048 时，504 个 program 一批放下，同一个 kernel 只�
 8. Jouppi et al. [In-Datacenter Performance Analysis of a Tensor Processing Unit](https://arxiv.org/abs/1704.04760). ISCA 2017. 第一代 TPU 和它的 systolic array。
 9. Kung. [Why Systolic Architectures?](https://doi.org/10.1109/MC.1982.1653825). IEEE Computer, 1982.
 10. Tillet, Kung, Cox. [Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations](https://doi.org/10.1145/3315508.3329973). MAPL 2019.
-11. [Triton tutorials](https://triton-lang.org/main/getting-started/tutorials/index.html)。第 2 节 softmax 和 matmul 例子的写法。
+11. [Triton tutorials](https://triton-lang.org/main/getting-started/tutorials/index.html)。第 2 节 softmax 和 matmul 例子的写法，Appendix D 提到的 `@triton.autotune`。
 12. Hendrycks, Gimpel. [Gaussian Error Linear Units (GELUs)](https://arxiv.org/abs/1606.08415). arXiv:1606.08415, 2016. 第 2.1 节的 tanh 近似。
 13. Milakov, Gimelshein. [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867). arXiv:1805.02867, 2018. 第 2.3 节提到的 online softmax。

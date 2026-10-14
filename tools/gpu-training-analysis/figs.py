@@ -822,6 +822,81 @@ def hw_smsp():
         y += 15 * len(lines) + 8
     return f
 
+# ── Appendix D：matmul 的 BM、BN 扫描（mm_tile_sweep.json） ─────────────────────
+def _tile_rows():
+    rows = json.load(open(os.environ.get("MM_TILE_JSON", os.path.join(HERE, "mm_tile_sweep.json"))))
+    for r in rows:
+        r["acc"] = r["BM"] * r["BN"] // (32 * r["nw"]); r["wps"] = r["per_sm"] * r["nw"]
+    return rows
+
+def tile_res():
+    rows = [r for r in _tile_rows() if (r["M"], r["N"], r["K"]) == (4096, 512, 2048)]
+    L = json.load(open(os.path.join(HERE, "residency.json")))["limits"]
+    best = min(rows, key=lambda r: r["us"])
+    ref = next(r for r in rows if (r["BM"], r["BN"], r["BK"], r["nw"], r["ns"]) == (64, 64, 32, 4, 3))
+    f = F("fig-d-1", 262, f"正文形状下最快的配置（BM = BN = {best['BM']}，{best['nw']} 个 warp）和正文用的 64 × 64、4 个 warp，在一个 SM 上各用了多少：最快的只驻留 {best['wps']} 个 warp，register 用掉 {best['reg_util']:.0%}")
+    X0, BW = 156, 312
+    BARS = (("warps", "warp 名额", L["warps"], f'{L["warps"]}'), ("blocks", "program 名额", L["blocks"], f'{L["blocks"]}'),
+            ("regs", "register", L["regs"], f'{L["regs"]}'), ("shared", "shared memory", L["shared"], f'{L["shared"] // 1024} KB'))
+    for i, (r, title) in enumerate(((best, "最快"), (ref, "正文用的"))):
+        y0 = 10 + i * 112; n = r["per_sm"]
+        use = {"warps": r["nw"], "blocks": 1, "regs": -(-r["regs"] // 8) * 8 * 32 * r["nw"], "shared": r["smem"] + L["reserved"]}
+        mx = {k: L[k] // u for k, u in ((k, use[k]) for k in use)}
+        bind = min(mx, key=lambda k: mx[k])
+        f.w(f'<rect x="10" y="{y0}" width="620" height="100" rx="10" {tint("--fig-1", 5, sw=1)}/>')
+        f.w(f'<text class="tb" x="22" y="{y0 + 18}">{title}：BM = {r["BM"]}，BN = {r["BN"]}，BK = {r["BK"]}，{r["nw"]} 个 warp</text>')
+        f.w(f'<text class="lab2" x="22" y="{y0 + 34}">每个 thread {r["acc"]} 个 acc，{r["regs"]} 个 register；shared memory {r["smem"] // 1024} KB；{r["progs"]} 个 program</text>')
+        f.w(f'<text class="tb" x="618" y="{y0 + 18}" text-anchor="end" style="fill: var(--fig-hi)">{r["us"]:.1f} µs</text>')
+        for j, (bk, blab, C, cap) in enumerate(BARS):
+            y = y0 + 44 + j * 14; u = use[bk]; sx = BW / C
+            f.w(f'<text class="s" x="22" y="{y + 9}">{blab}</text><text class="s" x="{X0 - 6}" y="{y + 9}" text-anchor="end">{cap}</text>')
+            f.w(f'<rect x="{X0}" y="{y}" width="{BW}" height="11" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>')
+            for k in range(n):
+                f.w(f'<rect x="{X0 + k * u * sx:.2f}" y="{y}" width="{u * sx:.2f}" height="11" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="{.8 if u * sx > 6 else .4}"/>')
+            if bk == bind:
+                f.w(f'<rect x="{X0 - 2}" y="{y - 2}" width="{BW + 4}" height="15" rx="3" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/>')
+            used = n * u / C
+            cls = 'class="s" style="fill: var(--fig-hi); opacity: 1; font-weight: 600"' if bk == bind else 'class="s"'
+            f.w(f'<text {cls} x="{X0 + BW + 8}" y="{y + 9}">用了 {used:.0%}</text>')
+    f.w(f'<rect x="22" y="{240}" width="22" height="10" style="fill: var(--fig-1)"/><text class="lab" x="52" y="249">一格是一个 program 占的量</text>')
+    f.w(f'<rect x="230" y="{239}" width="22" height="12" rx="2" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/><text class="lab" x="260" y="249">先用完的那条</text>')
+    return f
+
+def tile_rules():
+    rows = _tile_rows()
+    SH = (((4096, 512, 2048), "--fig-1", "正文形状 4096 × 2048 × 512"), ((4096, 4096, 4096), "--fig-hi", "4096 × 4096 × 4096"))
+    f = F("fig-d-2", 300, "按每个 thread 的 acc 个数、每个 SM 驻留的 warp 数分组，每组最快的配置比整体最快慢多少：acc 在 32 到 64 个、warp 在 8 到 16 个时最快，warp 驻留满 48 个反而慢一倍")
+    YT, YB, LO, HI = 40, 230, 1.0, 2.4
+    py = lambda v: YB - (min(v, HI) - LO) / (HI - LO) * (YB - YT)
+    PAN = ((60, 300, "acc", [2, 4, 8, 16, 32, 64, 128], "每个 thread 的 acc 个数", (32, 64)),
+           (380, 620, "wps", [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48], "每个 SM 驻留的 warp 数", (8, 16)))
+    for x0, x1, key, xs, xlab, good in PAN:
+        px = lambda v: x0 + xs.index(v) * (x1 - x0) / (len(xs) - 1)
+        f.w(f'<rect x="{px(good[0]) - 6:.1f}" y="{YT}" width="{px(good[1]) - px(good[0]) + 12:.1f}" height="{YB - YT}" rx="4" {tint("--fig-2", 14, sw=0)}/>')
+        for v in (1.0, 1.5, 2.0):
+            f.w(f'<line class="grid" x1="{x0}" y1="{py(v):.1f}" x2="{x1}" y2="{py(v):.1f}"/><text class="tick" x="{x0 - 6}" y="{py(v) + 4:.1f}" text-anchor="end">{v:.1f}×</text>')
+        for v in xs:
+            if key == "wps" and v % 8 and v not in (4, 12): continue
+            f.w(f'<text class="tick" x="{px(v):.1f}" y="{YB + 16}" text-anchor="middle">{v}</text>')
+        f.w(f'<text class="lab2" x="{(x0 + x1) / 2:.1f}" y="{YB + 34}" text-anchor="middle">{xlab}</text>')
+        for shape, var, lab in SH:
+            rs = [r for r in rows if (r["M"], r["N"], r["K"]) == shape]
+            top = min(r["us"] for r in rs)
+            g = {}
+            for r in rs:
+                if r["spills"] == 0 and r[key] in xs:
+                    g[r[key]] = min(g.get(r[key], 1e30), r["us"])
+            pts = [(v, g[v] / top) for v in xs if v in g]
+            f.w(f'<polyline points="{" ".join(f"{px(v):.1f},{py(t):.1f}" for v, t in pts)}" fill="none" style="stroke: var({var})" stroke-width="2" stroke-linejoin="round"/>')
+            for v, t in pts:
+                f.w(f'<g class="m"><title>{lab}，{xlab} {v}：最快 {g[v]:.1f} µs，是整体最快的 {t:.2f} 倍</title><circle cx="{px(v):.1f}" cy="{py(t):.1f}" r="3.5" class="ring" style="fill: var({var})"/></g>')
+    f.w(f'<text class="lab2" x="60" y="22">比最快的配置慢几倍（每组取最快的，不算 spill 的配置）；底色是最快的区间</text>')
+    lx = 60
+    for shape, var, lab in SH:
+        f.w(f'<line x1="{lx}" y1="{290 - 4}" x2="{lx + 22}" y2="{290 - 4}" style="stroke: var({var})" stroke-width="2"/><text class="lab" x="{lx + 30}" y="290">{lab}</text>')
+        lx += 250
+    return f
+
 # ── 图 B-1 第 2 节四个 kernel 的 program 怎么放上一个 SM（residency.json） ─────────
 def residency():
     R = json.load(open(os.path.join(HERE, "residency.json")))
@@ -1606,6 +1681,8 @@ CAPS = {
  "hw_hierarchy": '<strong>图 1-2</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。',
  "hw_sm": '<strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core 和 1 个 Tensor core，4 个 SMSP 共享 L1 / shared memory。',
  "residency": '<strong>图 B-1</strong> 第 2 节四个 kernel 的 program 怎么放上一个 SM（RTX 5090，形状同正文，每个 program 4 个 warp）。上面：第 2 节图里 grid 的一格是一个 program，也就是一个 CUDA block，放上 SM 时要占四样东西。下面每个 kernel 四根条，对应<a href="#tab-b-1">表 B-1</a> 的四条上限，条长是这条上限的总量；深色一格是一个实际放进去的 program 占的量，虚线框是只看这一条还能再放的，红框是先用完的那条，它决定了一个 SM 放几个。register 和 shared memory 读自编译出的 kernel；register 以 warp 为单位按 256 个分配，摊到每个 thread 是 8 的倍数，shared memory 按 128 B 取整。四条取最小的结果和 <code>cuOccupancyMaxActiveBlocksPerMultiprocessor</code> 算出的一致。softmax 和 row sum 的 16 B shared memory 用来让 4 个 warp 交换归约的部分结果。',
+ "tile_res": '<strong>图 D-1</strong> 正文形状（A 4096 × 2048，B 2048 × 512，fp32）下最快的配置和正文用的配置，在一个 SM 上各用了多少，画法同<a href="#fig-t-8">图 B-1</a>。条长是这条上限的总量，深色一格是一个 program 占的量，红框是先用完的那条。',
+ "tile_rules": '<strong>图 D-2</strong> 两个形状各扫 198 组配置（RTX 5090，fp32，<code>input_precision="ieee"</code>）。左：按每个 thread 存的 acc 个数（BM × BN / (32 × num_warps)）分组；右：按每个 SM 驻留的 warp 数分组。每组取最快的一个，纵轴是它比这个形状下整体最快的配置慢几倍；有 spill 的配置不算在内。悬停可看时间。',
  "warp_slots": '<strong>图 B-2</strong> 一个 SM 上驻留 3 个 program（P0、P1、P2）时的某一拍。格子里写的是这个 warp 属于哪个 program，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。',
  "hw_smsp": '<strong>图 1-4</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。',
  "cuda_model": '<strong>图 1-5</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。',
@@ -1639,7 +1716,7 @@ CAPS = {
  "ckpt": '<strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。',
  "sweep": '<strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。',
 }
-OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("residency", residency), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("wave_trace", wave_trace), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("mm_wave", mm_wave), ("mm_pipe_ncu", mm_pipe_ncu), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
+OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("residency", residency), ("tile_res", tile_res), ("tile_rules", tile_rules), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("wave_trace", wave_trace), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("mm_wave", mm_wave), ("mm_pipe_ncu", mm_pipe_ncu), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
        ("flops_vs_time", flops_vs_time), ("share_vs_seq", share_vs_seq), ("peak_memory", peak_memory), ("peak_moment", peak_moment),
        ("rms_eager", rms_eager), ("rms_fused", rms_fused), ("attn_flow", attn_flow), ("layer_donut", layer_donut), ("timelines", timelines),
        ("bf16", bf16), ("ckpt", ckpt), ("sweep", sweep))}
