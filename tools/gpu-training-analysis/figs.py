@@ -1200,8 +1200,10 @@ def lanes_fig(fid, label, kind, prog_title, grid, grid_note, ops, chip_lab, note
             y0, y1 = self.ROW[row]
             f.w(f'<rect x="{x - w / 2:.1f}" y="{y0}" width="{w}" height="{y1 - y0}" rx="4" {tint(var, 26)}/>')
             f.w(f'<text class="s" x="{x:.1f}" y="{y0 + 13}" text-anchor="middle">{name}</text>')
-        def mem(self, name, xa, xb, hls=()):
+        def mem(self, name, xa, xb, hls=(), part=None, px=None):
             y0, y1 = self.ROW["m"]
+            if part:                                     # 这个 program 读写多少，写在箭头左上
+                f.w(f'<text class="s" x="{px:.1f}" y="{y0 - 5}" text-anchor="end" style="fill: var(--fig-1); opacity: 1">{part}</text>')
             f.w(f'<rect x="{xa:.1f}" y="{y0}" width="{xb - xa:.1f}" height="{y1 - y0}" rx="4" {tint("--fig-1", 10)}/>')
             for hx0, hx1, fy, fh in hls:                 # 这个 program 读写的部分
                 f.w(f'<rect x="{hx0:.1f}" y="{y0 + fy * (y1 - y0):.1f}" width="{hx1 - hx0:.1f}" height="{fh * (y1 - y0):.1f}" style="fill: var(--fig-1)" fill-opacity=".55"/>')
@@ -1271,8 +1273,8 @@ def tri_gelu():
     p.up(cx[1] + 14, 110, cx[2] - 16)                                  # x 段 → GELU
     p.chip("y 段", cx[3], w=44); p.down(cx[2] + 16, 110, cx[3] - 14)   # GELU → y 段
     p.xfer(cx[3], 130, MY - 2, "tl.store")
-    p.mem("x，32 MiB", cx[1] - 40, cx[1] + 40, [(cx[1] - 10, cx[1] + 10, 0, 1)])
-    p.mem("y，32 MiB", cx[3] - 40, cx[3] + 40, [(cx[3] - 10, cx[3] + 10, 0, 1)])
+    p.mem("整个 x：32 MiB", cx[1] - 40, cx[1] + 40, [(cx[1] - 10, cx[1] + 10, 0, 1)], "读 4 KiB", cx[1] - 5)
+    p.mem("整个 y：32 MiB", cx[3] - 40, cx[3] + 40, [(cx[3] - 10, cx[3] + 10, 0, 1)], "写 4 KiB", cx[3] - 5)
     f.w(f'<text class="s" x="214" y="{(p.SH[0] + p.SH[1]) / 2 + 4}">不用（0 B）</text>')
     return f
 
@@ -1290,8 +1292,8 @@ def tri_softmax():
         m = (cx[a] + cx[b]) / 2; p.chip(n_, m, w=48); p.down(cx[a] + 16, 110, m - 6); p.up(m + 6, 110, cx[b] - 16)
     p.chip("y 行", cx[4], w=44); p.down(cx[3] + 16, 110, cx[4] - 14)
     p.xfer(cx[4], 130, MY - 2, "tl.store")
-    for nm, k in [("x，64 MiB", 0), ("y，64 MiB", 4)]:
-        p.mem(nm, cx[k] - 36, cx[k] + 36, [(cx[k] - 36, cx[k] + 36, .3, .25)])
+    for nm, k, part in [("整个 x：64 MiB", 0, "读 1 行，16 KiB"), ("整个 y：64 MiB", 4, "写 1 行，16 KiB")]:
+        p.mem(nm, cx[k] - 36, cx[k] + 36, [(cx[k] - 36, cx[k] + 36, .3, .25)], part, cx[k] - 5)
     for k, t in [(1, "warp max"), (3, "warp sum")]:             # 跨 warp 归约经 shared memory
         y0 = p.ROW["s"][0]
         f.w(f'<rect x="{cx[k] - 34:.1f}" y="{y0}" width="68" height="18" rx="4" {tint("--fig-3", 40)}/><text class="s" x="{cx[k]:.1f}" y="{y0 + 13}" text-anchor="middle">{t}</text>')
@@ -1352,7 +1354,7 @@ def tri_rowsum():
     f.w(f'<text class="s" x="{xa + 4 * w + 4:.1f}" y="{Y + RH + 11.5}">行 1</text>')
     for k in range(4):
         f.w(f'<text class="s" x="{xa + k * w + w / 2:.1f}" y="{Y + 3 * RH + 12}" text-anchor="middle">block {k}</text>')
-    f.w(f'<text class="s" x="{xa + 2 * w:.1f}" y="{Y + 3 * RH + 26}" text-anchor="middle">x [4096, 4096]，64 MiB</text>')
+    f.w(f'<text class="s" x="{xa + 2 * w:.1f}" y="{Y + 3 * RH + 26}" text-anchor="middle">整个 x [4096, 4096]：64 MiB；program 1 只读行 1，16 KiB</text>')
     ox = cx[6] - 8
     for r in range(3):
         st = 'style="fill: var(--fig-1)" fill-opacity=".78"' if r == 1 else 'fill="none"'
@@ -1413,13 +1415,13 @@ def tri_matmul():
         for k, t in enumerate(labels):
             f.w(f'<text class="s" x="{lx:.1f}" y="{ly + k * 13:.1f}" text-anchor="{anchor}">{t}</text>')
     AX, AY = cx[0] - 30, 244                         # A [4096, 2048]：16 × 8 格，第 1 行，K 从左往右
-    mat(AX, AY, 16, 8, {(1, c): RAMP[c] for c in range(8)}, ["A [4096, 2048]", "32 MiB"])
+    mat(AX, AY, 16, 8, {(1, c): RAMP[c] for c in range(8)}, ["A [4096, 2048]", "整个 32 MiB"])
     BX, BY = cx[0] + 26, 244                         # B [2048, 512]：8 × 2 格，第 1 列，K 从上往下
-    mat(BX, BY, 8, 2, {(r, 1): RAMP[r] for r in range(8)}, ["B [2048, 512]", "4 MiB"], "start", BX + 18, BY + 14)
+    mat(BX, BY, 8, 2, {(r, 1): RAMP[r] for r in range(8)}, ["B [2048, 512]", "整个 4 MiB"], "start", BX + 18, BY + 14)
     p.xfer(AX + 3, AY + S, 178, "", xo=cx[0] - 20)                   # cp.async：显存 → shared memory
     p.xfer(BX + 9, BY, 210, "cp.async", xo=cx[0] + 33, ly=228)
     CX, CY = cx[6] - 9, 244                          # C [4096, 512]：16 × 2 格，写回 (1, 1)
-    mat(CX, CY, 16, 2, {(1, 1): RAMP[-1]}, ["C [4096, 512]", "8 MiB"], "end", 630)
+    mat(CX, CY, 16, 2, {(1, 1): RAMP[-1]}, ["C [4096, 512]", "整个 8 MiB"], "end", 630)
     p.xfer(cx[6] + 10, 131, CY + S - 1, "", xo=cx[6])
     f.w(f'<text class="s" x="{cx[6] - 2:.1f}" y="226" text-anchor="end" style="fill: var(--fig-1)">tl.store</text>')
     lx, ly = BX + 18, BY + 58                         # 图例：渐变是 for 循环沿 K 读 block 的顺序
@@ -1427,7 +1429,7 @@ def tri_matmul():
     for k, o in enumerate(RAMP):
         f.w(f'<rect x="{lx + k * 12}" y="{ly}" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="{o:.2f}" stroke-opacity=".4" stroke-width=".6"/>')
     f.w(f'<text class="s" x="{lx}" y="{ly + 23}">T = 0</text><text class="s" x="{lx + 96}" y="{ly + 23}" text-anchor="end">T = 63</text>')
-    f.w(f'<text class="s" x="{lx}" y="{ly + 40}">每轮读 A 的 64 × 32、B 的 32 × 64（BK = 32）；</text><text class="s" x="{lx}" y="{ly + 54}">图里一格 256 列，是 8 轮</text>')
+    f.w(f'<text class="s" x="{lx}" y="{ly + 40}">每轮读 A 的 64 × 32、B 的 32 × 64，各 8 KiB；</text><text class="s" x="{lx}" y="{ly + 54}">图里一格 256 列，是 8 轮</text>')
     return f
 
 # ── 图 B-4 matmul 的 512 个 program 怎么分批跑（实测 trace） ─────────────────────
@@ -1563,9 +1565,9 @@ CAPS = {
  "warp_slots": '<strong>图 B-2</strong> 一个 SM 上驻留 3 个 block（B0、B1、B2）时的某一拍。格子里写的是这个 warp 属于哪个 block，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。',
  "hw_smsp": '<strong>图 1-4</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。',
  "cuda_model": '<strong>图 1-5</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。',
- "tri_gelu": '<strong>图 2-1</strong> GELU kernel（n = 8388608，fp32）。左边是 grid，数组按 BLOCK = 1024 切段，一段一个 program。右边是 program 1 的数据流，泳道和箭头的含义见正文。',
+ "tri_gelu": '<strong>图 2-1</strong> GELU kernel（n = 8388608，fp32）。左边是 grid，数组按 BLOCK = 1024 切段，一段一个 program。右边是 program 1 的数据流，泳道和箭头的含义见正文。显存泳道里的整条是整个 x、y（各 8388608 个 fp32，32 MiB），深色一段是 program 1 读写的 1024 个（4 KiB）；按比例只有整条的 1/8192，图里放大了。',
  "wave_trace": '<strong>图 B-3</strong> GELU 的 8192 个 program 实际怎么分批跑（RTX 5090，n = 8388608，fp32，每个 program 4 个 warp）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，store 发出后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 编号所在的批次，一批 2040 个。浅红色是 bubble：名额上没有 program 在执行指令；最后一个 program 开始以后是 tail。下面的名额是按开始、结束时间排出来的，红框是这个 SM 上最长的一段空档。悬停可看 program 编号和时间。',
- "tri_softmax": '<strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。',
+ "tri_softmax": '<strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。显存泳道里的方块是整个 x、y（各 64 MiB），深色一条是 program 1 读写的那一行（4096 个 fp32，16 KiB），按比例只有 1/4096，图里放大了。',
  "tri_rowsum": '<strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 个 block，代码里 TILE = 1024。颜色由淡到浓是 for 循环读 block 的顺序：第 0 轮后 acc 只有 block 0 的数，最后的 acc 是 4 个 block 逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。',
  "tri_matmul": '<strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 个 row block 和 B 的第 1 个 column block，颜色由淡到浓是沿 K 读 block 的顺序，acc 一轮轮累积，ReLU 后写回 C 的 block (1, 1)。',
  "mm_wave": '<strong>图 B-4</strong> matmul kernel 的 512 个 program 实际怎么分批跑（RTX 5090，fp32，A 4096 × 2048，B 2048 × 512，每个 SM 3 个 program），画法同<a href="#fig-t-5">图 B-3</a>。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，写回 C 之后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 的发射顺序所在的批次，一批 510 个。第 2 批只有 2 个，按比例只有 1 像素高，图里画成底边上的一条粗线并用红框圈出。悬停可看 program 编号和时间。',

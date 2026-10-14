@@ -508,15 +508,17 @@ GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函�
   <line x1="483.0" y1="86.0" x2="525.0" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-1-m1)"/>
   <line x1="539.0" y1="130.0" x2="539.0" y2="250.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-1-m2)"/>
   <text class="s" x="543.0" y="194.0" text-anchor="start" style="fill: var(--fig-1)">tl.store</text>
+  <text class="s" x="390.0" y="247" text-anchor="end" style="fill: var(--fig-1); opacity: 1">读 4 KiB</text>
   <rect x="355.0" y="252" width="80.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <rect x="385.0" y="252.0" width="20.0" height="28.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="395.0" y="293" text-anchor="middle">x，32 MiB</text>
+  <text class="s" x="395.0" y="293" text-anchor="middle">整个 x：32 MiB</text>
+  <text class="s" x="534.0" y="247" text-anchor="end" style="fill: var(--fig-1); opacity: 1">写 4 KiB</text>
   <rect x="499.0" y="252" width="80.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <rect x="529.0" y="252.0" width="20.0" height="28.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="539.0" y="293" text-anchor="middle">y，32 MiB</text>
+  <text class="s" x="539.0" y="293" text-anchor="middle">整个 y：32 MiB</text>
   <text class="s" x="214" y="204.0">不用（0 B）</text>
 </svg>
-<figcaption><strong>图 2-1</strong> GELU kernel（n = 8388608，fp32）。左边是 grid，数组按 BLOCK = 1024 切段，一段一个 program。右边是 program 1 的数据流，泳道和箭头的含义见正文。</figcaption>
+<figcaption><strong>图 2-1</strong> GELU kernel（n = 8388608，fp32）。左边是 grid，数组按 BLOCK = 1024 切段，一段一个 program。右边是 program 1 的数据流，泳道和箭头的含义见正文。显存泳道里的整条是整个 x、y（各 8388608 个 fp32，32 MiB），深色一段是 program 1 读写的 1024 个（4 KiB）；按比例只有整条的 1/8192，图里放大了。</figcaption>
 </figure>
 
 逐元素 op 最简单，每个元素各算各的，program 之间不需要配合。把 n 个元素切成每段 BLOCK 个，一段交给一个 program（[图 2-1](#fig-t-1)）。kernel 里先用 `tl.program_id` 算出自己负责的下标，读进来，算完写回：
@@ -661,12 +663,14 @@ def softmax_naive(x):                         # x: [M, N]，按行
   <line x1="530.0" y1="86.0" x2="572.0" y2="108.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-2-m2)"/>
   <line x1="586.0" y1="130.0" x2="586.0" y2="250.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-2-m1)"/>
   <text class="s" x="590.0" y="194.0" text-anchor="start" style="fill: var(--fig-1)">tl.store</text>
+  <text class="s" x="249.0" y="247" text-anchor="end" style="fill: var(--fig-1); opacity: 1">读 1 行，16 KiB</text>
   <rect x="218.0" y="252" width="72.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <rect x="218.0" y="260.4" width="72.0" height="7.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="254.0" y="293" text-anchor="middle">x，64 MiB</text>
+  <text class="s" x="254.0" y="293" text-anchor="middle">整个 x：64 MiB</text>
+  <text class="s" x="581.0" y="247" text-anchor="end" style="fill: var(--fig-1); opacity: 1">写 1 行，16 KiB</text>
   <rect x="550.0" y="252" width="72.0" height="28" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
   <rect x="550.0" y="260.4" width="72.0" height="7.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
-  <text class="s" x="586.0" y="293" text-anchor="middle">y，64 MiB</text>
+  <text class="s" x="586.0" y="293" text-anchor="middle">整个 y：64 MiB</text>
   <rect x="292.0" y="191" width="68" height="18" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 40%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/><text class="s" x="326.0" y="204" text-anchor="middle">warp max</text>
   <line x1="321.0" y1="86.0" x2="321.0" y2="189.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
   <line x1="331.0" y1="189.0" x2="331.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
@@ -674,7 +678,7 @@ def softmax_naive(x):                         # x: [M, N]，按行
   <line x1="509.0" y1="86.0" x2="509.0" y2="189.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
   <line x1="519.0" y1="189.0" x2="519.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
 </svg>
-<figcaption><strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。</figcaption>
+<figcaption><strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。显存泳道里的方块是整个 x、y（各 64 MiB），深色一条是 program 1 读写的那一行（4096 个 fp32，16 KiB），按比例只有 1/4096，图里放大了。</figcaption>
 </figure>
 
 如果一个 program 处理一整行（[图 2-2](#fig-t-2)），max、exp、求和、除都可以在 register 里做完，只读 MN、写 MN，读写量是原来的 1/4：
@@ -927,7 +931,7 @@ $\mathcal{J}_T$ 是第 $T$ 个 block 的 TILE 个列下标，代码里 TILE 取 
   <text class="s" x="286.4" y="298" text-anchor="middle">block 1</text>
   <text class="s" x="340.9" y="298" text-anchor="middle">block 2</text>
   <text class="s" x="395.3" y="298" text-anchor="middle">block 3</text>
-  <text class="s" x="313.7" y="312" text-anchor="middle">x [4096, 4096]，64 MiB</text>
+  <text class="s" x="313.7" y="312" text-anchor="middle">整个 x [4096, 4096]：64 MiB；program 1 只读行 1，16 KiB</text>
   <rect x="600.0" y="238" width="16" height="16" fill="none"/><rect x="600.0" y="238" width="16" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
   <rect x="600.0" y="254" width="16" height="16" style="fill: var(--fig-1)" fill-opacity=".78"/><rect x="600.0" y="254" width="16" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
   <rect x="600.0" y="270" width="16" height="16" fill="none"/><rect x="600.0" y="270" width="16" height="16" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45" stroke-width=".6"/>
@@ -1337,7 +1341,7 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
   <rect x="244.0" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="202.0" y="244" width="48" height="96" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
   <text class="s" x="226.0" y="353.0" text-anchor="middle">A [4096, 2048]</text>
-  <text class="s" x="226.0" y="366.0" text-anchor="middle">32 MiB</text>
+  <text class="s" x="226.0" y="366.0" text-anchor="middle">整个 32 MiB</text>
   <rect x="258.0" y="244" width="6" height="6" fill="none"/>
   <rect x="258.0" y="244" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="264.0" y="244" width="6" height="6" style="fill: var(--fig-1)" fill-opacity="0.12"/>
@@ -1372,7 +1376,7 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
   <rect x="264.0" y="286" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="258.0" y="244" width="12" height="48" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
   <text class="s" x="276.0" y="258.0" text-anchor="start">B [2048, 512]</text>
-  <text class="s" x="276.0" y="271.0" text-anchor="start">4 MiB</text>
+  <text class="s" x="276.0" y="271.0" text-anchor="start">整个 4 MiB</text>
   <line x1="205.0" y1="250.0" x2="212.0" y2="178.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-4-m3)"/>
   <line x1="267.0" y1="244.0" x2="265.0" y2="210.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-4-m3)"/>
   <text class="s" x="271.0" y="228.0" text-anchor="start" style="fill: var(--fig-1)">cp.async</text>
@@ -1442,7 +1446,7 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
   <rect x="605.0" y="334" width="6" height="6" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".22" stroke-width=".5"/>
   <rect x="599.0" y="244" width="12" height="96" style="fill: none; stroke: var(--fig-1)" stroke-width="1.2"/>
   <text class="s" x="630.0" y="353.0" text-anchor="end">C [4096, 512]</text>
-  <text class="s" x="630.0" y="366.0" text-anchor="end">8 MiB</text>
+  <text class="s" x="630.0" y="366.0" text-anchor="end">整个 8 MiB</text>
   <line x1="618.0" y1="131.0" x2="608.0" y2="249.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-4-m3)"/>
   <text class="s" x="606.0" y="226" text-anchor="end" style="fill: var(--fig-1)">tl.store</text>
   <text class="s" x="276.0" y="296">沿 K 第 T 轮读的 block：T = 0 … 63</text>
@@ -1455,7 +1459,7 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
   <rect x="348.0" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.69" stroke-opacity=".4" stroke-width=".6"/>
   <rect x="360.0" y="302" width="12" height="10" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.78" stroke-opacity=".4" stroke-width=".6"/>
   <text class="s" x="276.0" y="325">T = 0</text><text class="s" x="372.0" y="325" text-anchor="end">T = 63</text>
-  <text class="s" x="276.0" y="342">每轮读 A 的 64 × 32、B 的 32 × 64（BK = 32）；</text><text class="s" x="276.0" y="356">图里一格 256 列，是 8 轮</text>
+  <text class="s" x="276.0" y="342">每轮读 A 的 64 × 32、B 的 32 × 64，各 8 KiB；</text><text class="s" x="276.0" y="356">图里一格 256 列，是 8 轮</text>
 </svg>
 <figcaption><strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 个 row block 和 B 的第 1 个 column block，颜色由淡到浓是沿 K 读 block 的顺序，acc 一轮轮累积，ReLU 后写回 C 的 block (1, 1)。</figcaption>
 </figure>
