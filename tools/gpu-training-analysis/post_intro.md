@@ -248,7 +248,9 @@ grid 是二维的，C 的每一块一个 program：
 {{code:triton_tutorial.py:matmul_launch}}
 ```
 
-A、B 块具体怎么进出 shared memory，看编译出的 TTGIR 和 PTX 就能数清楚（[图 2-6](#fig-t-6)）。`num_stages=3` 让编译器把循环改写成流水线：A、B 各开两个槽，循环前先发出第 0、1 轮的 cp.async；第 $T$ 轮先等第 $T$ 轮的数据到齐，用 ld.shared 读进 register 做乘加，这时第 $T+1$ 轮还在搬，读完马上往刚空出来的槽发第 $T+2$ 轮。A、B 各从显存搬 64 次，每次 8 KiB，一个 program 一共 1 MiB；每轮从 shared memory 读进 register 的是 192 KiB，同一个数平均被读 12 次，这就是前面说的复用。写回之前 acc 还要经 shared memory 换一次排布，让 tl.store 能按连续地址写。
+A、B 块具体怎么进出 shared memory，可以从编译出的 TTGIR 和 PTX 里数出来。`num_stages=3` 让编译器把循环改写成流水线：A、B 各开两个槽，循环前先发出第 0、1 轮的 cp.async；第 $T$ 轮先等第 $T$ 轮的数据到齐，用 ld.shared 读进 register 做乘加，读完马上往刚空出来的槽发第 $T+2$ 轮。A、B 各从显存搬 64 次，每次 8 KiB，一个 program 一共 1 MiB；每轮从 shared memory 读进 register 的是 192 KiB，同一个数平均被读 12 次，这就是前面说的复用。写回之前 acc 还要经 shared memory 换一次排布，让 tl.store 能按连续地址写。
+
+预取到底藏住了多少 load，要用 Nsight Compute 测（[图 2-6](#fig-t-6)）。ncu 会统计一个 warp 每两条指令之间平均隔几拍，以及这几拍里在等什么。不预取（`num_stages=1`）时，4.56 拍里有 0.65 拍在等显存或 L2 的数据；预取以后只剩 0.06 拍，load 几乎全藏在上一轮的乘加后面，耗时从 201.4 µs 降到 190.2 µs。剩下的时间主要是等 ld.shared 的结果和轮不到发射：FMA 管线只忙了 66%，shared memory 读只用了 55%，两边都没满。每个 SMSP 上只有 3 个 warp（shared memory 限制每个 SM 只放 3 个 program），一个 warp 等 ld.shared 时，没有足够多的别的 warp 补上。
 
 {{fig-t-6}}
 

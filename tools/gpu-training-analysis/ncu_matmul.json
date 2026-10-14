@@ -1,0 +1,57 @@
+{
+ "M": 4032,
+ "K": 2048,
+ "N": 512,
+ "runs": [
+  {
+   "num_stages": 1,
+   "us": 201.44,
+   "cycles_per_inst": 4.56,
+   "fma_pipe_pct": 59.93,
+   "shared_ld_pipe_pct": 50.37,
+   "l2_hit_pct": 91.52,
+   "warps_per_sm": 11.47,
+   "stall": {
+    "selected": 1.0,
+    "not_selected": 0.96,
+    "dispatch_stall": 0.52,
+    "short_scoreboard": 0.89,
+    "mio_throttle": 0.06,
+    "long_scoreboard": 0.65,
+    "lg_throttle": 0.0,
+    "barrier": 0.19,
+    "wait": 0.23,
+    "math_pipe_throttle": 0.03,
+    "no_instruction": 0.04,
+    "branch_resolving": 0.0,
+    "drain": 0.0,
+    "misc": 0.0
+   }
+  },
+  {
+   "num_stages": 3,
+   "us": 190.176,
+   "cycles_per_inst": 3.99,
+   "fma_pipe_pct": 66.39,
+   "shared_ld_pipe_pct": 54.91,
+   "l2_hit_pct": 91.27,
+   "warps_per_sm": 10.96,
+   "stall": {
+    "selected": 1.0,
+    "not_selected": 1.21,
+    "dispatch_stall": 0.69,
+    "short_scoreboard": 0.57,
+    "mio_throttle": 0.04,
+    "long_scoreboard": 0.06,
+    "lg_throttle": 0.0,
+    "barrier": 0.22,
+    "wait": 0.1,
+    "math_pipe_throttle": 0.05,
+    "no_instruction": 0.04,
+    "branch_resolving": 0.0,
+    "drain": 0.0,
+    "misc": 0.0
+   }
+  }
+ ]
+}

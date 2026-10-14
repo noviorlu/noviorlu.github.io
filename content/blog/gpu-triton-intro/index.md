@@ -1484,7 +1484,7 @@ $C_{ij}$ 只用到 A 的第 $i$ 行和 B 的第 $j$ 列。把 M、N、K 分别�
   <text class="lab2" x="152" y="388">cp.async：两次 tl.load 把 A 块、B 块从显存直接搬进 shared memory，不经过 register；</text>
   <text class="lab2" x="152" y="403">乘加：tl.dot 从 shared memory 读一小片 a、b 到 register，计算单元做 FMA，加到 acc 上；</text>
   <text class="lab2" x="152" y="418">num_stages = 3：A、B 各两个槽（共 32 KiB），算第 T 轮时第 T+1 轮在搬，读完马上搬第 T+2 轮；</text>
-  <text class="lab2" x="152" y="433">K = 2048 按 BK = 32 切成 64 轮，A、B 各搬 64 次，图里只画第 0 轮，每一轮见图 2-6；</text>
+  <text class="lab2" x="152" y="433">K = 2048 按 BK = 32 切成 64 轮，A、B 各搬 64 次，图里只画第 0 轮；</text>
   <text class="lab2" x="152" y="448">写回前 acc 先经 shared memory 换一次排布（16 KiB），再从 register 写回显存。</text>
   <defs><linearGradient id="fig-t-4-acc" x1="0" x2="1" y1="0" y2="0"><stop offset="0.00" style="stop-color: var(--fig-1)" stop-opacity="0.12"/><stop offset="0.14" style="stop-color: var(--fig-1)" stop-opacity="0.21"/><stop offset="0.29" style="stop-color: var(--fig-1)" stop-opacity="0.31"/><stop offset="0.43" style="stop-color: var(--fig-1)" stop-opacity="0.40"/><stop offset="0.57" style="stop-color: var(--fig-1)" stop-opacity="0.50"/><stop offset="0.71" style="stop-color: var(--fig-1)" stop-opacity="0.59"/><stop offset="0.86" style="stop-color: var(--fig-1)" stop-opacity="0.69"/><stop offset="1.00" style="stop-color: var(--fig-1)" stop-opacity="0.78"/></linearGradient></defs>
   <rect x="203.0" y="158" width="30" height="18" rx="4" style="fill: var(--fig-1)" fill-opacity="0.12"/><rect x="203.0" y="158" width="30" height="18" rx="4" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7"/>
@@ -1948,10 +1948,12 @@ def matmul_relu(a, b, BM=64, BN=64, BK=32):
     return c
 ```
 
-A、B 块具体怎么进出 shared memory，看编译出的 TTGIR 和 PTX 就能数清楚（[图 2-6](#fig-t-6)）。`num_stages=3` 让编译器把循环改写成流水线：A、B 各开两个槽，循环前先发出第 0、1 轮的 cp.async；第 $T$ 轮先等第 $T$ 轮的数据到齐，用 ld.shared 读进 register 做乘加，这时第 $T+1$ 轮还在搬，读完马上往刚空出来的槽发第 $T+2$ 轮。A、B 各从显存搬 64 次，每次 8 KiB，一个 program 一共 1 MiB；每轮从 shared memory 读进 register 的是 192 KiB，同一个数平均被读 12 次，这就是前面说的复用。写回之前 acc 还要经 shared memory 换一次排布，让 tl.store 能按连续地址写。
+A、B 块具体怎么进出 shared memory，可以从编译出的 TTGIR 和 PTX 里数出来。`num_stages=3` 让编译器把循环改写成流水线：A、B 各开两个槽，循环前先发出第 0、1 轮的 cp.async；第 $T$ 轮先等第 $T$ 轮的数据到齐，用 ld.shared 读进 register 做乘加，读完马上往刚空出来的槽发第 $T+2$ 轮。A、B 各从显存搬 64 次，每次 8 KiB，一个 program 一共 1 MiB；每轮从 shared memory 读进 register 的是 192 KiB，同一个数平均被读 12 次，这就是前面说的复用。写回之前 acc 还要经 shared memory 换一次排布，让 tl.store 能按连续地址写。
+
+预取到底藏住了多少 load，要用 Nsight Compute 测（[图 2-6](#fig-t-6)）。ncu 会统计一个 warp 每两条指令之间平均隔几拍，以及这几拍里在等什么。不预取（`num_stages=1`）时，4.56 拍里有 0.65 拍在等显存或 L2 的数据；预取以后只剩 0.06 拍，load 几乎全藏在上一轮的乘加后面，耗时从 201.4 µs 降到 190.2 µs。剩下的时间主要是等 ld.shared 的结果和轮不到发射：FMA 管线只忙了 66%，shared memory 读只用了 55%，两边都没满。每个 SMSP 上只有 3 个 warp（shared memory 限制每个 SM 只放 3 个 program），一个 warp 等 ld.shared 时，没有足够多的别的 warp 补上。
 
 <figure id="fig-t-6" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 412" width="100%" role="img" aria-label="matmul 的 shared memory 流水线，画法同 CPU 流水线图：每行是 A、B 的第 k 块，每列是一轮；第 k 块在第 k − 1 轮从显存 load 进 shared memory 的槽 k mod 2，第 k 轮读进 register 做 dot；任何一轮都是 dot 一块、同时 load 下一块">
+<svg class="fg" viewBox="0 0 640 236" width="100%" role="img" aria-label="Nsight Compute 实测 matmul kernel 每个 warp 两条指令之间平均隔几拍、各在等什么：num_stages = 1 时 0.65 拍在等显存 / L2 的数据，num_stages = 3 预取后只剩 0.06 拍，剩下的时间主要花在等 shared memory 和轮不到发射上">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -1971,55 +1973,65 @@ A、B 块具体怎么进出 shared memory，看编译出的 TTGIR 和 PTX 就能
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
   </style>
-  <rect x="269" y="20" width="50" height="284" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 10%, transparent); stroke: var(--fig-hi)" stroke-width="1" stroke-dasharray="5 3"/>
-  <text class="lab2" x="8" y="24">第几轮 →</text><text class="lab2" x="8" y="38">第几块 ↓</text>
-  <text class="tb" x="138.0" y="38" text-anchor="middle">循环前</text>
-  <text class="tb" x="190.0" y="38" text-anchor="middle">0</text>
-  <text class="tb" x="242.0" y="38" text-anchor="middle">1</text>
-  <text class="tb" x="294.0" y="38" text-anchor="middle">2</text>
-  <text class="tb" x="346.0" y="38" text-anchor="middle">3</text>
-  <text class="tb" x="398.0" y="38" text-anchor="middle">4</text>
-  <text class="tb" x="450.0" y="38" text-anchor="middle">⋯</text>
-  <text class="tb" x="502.0" y="38" text-anchor="middle">61</text>
-  <text class="tb" x="554.0" y="38" text-anchor="middle">62</text>
-  <text class="tb" x="606.0" y="38" text-anchor="middle">63</text>
-  <text class="lab" x="8" y="66">第 0 块</text><text class="lab2" x="62" y="66">槽 0</text>
-  <rect x="116" y="53" width="44" height="19" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".75" stroke-dasharray="4 3"/><text class="s" x="138.0" y="66" text-anchor="middle">load</text>
-  <rect x="168" y="53" width="44" height="19" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.12"/><text class="s" x="190.0" y="66" text-anchor="middle" >dot</text>
-  <text class="lab" x="8" y="91">第 1 块</text><text class="lab2" x="62" y="91">槽 1</text>
-  <rect x="116" y="78" width="44" height="19" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".75" stroke-dasharray="4 3"/><text class="s" x="138.0" y="91" text-anchor="middle">load</text>
-  <rect x="168" y="78" width="44" height="19" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".75" stroke-dasharray="4 3"/><text class="s" x="190.0" y="91" text-anchor="middle">load</text>
-  <rect x="220" y="78" width="44" height="19" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.13"/><text class="s" x="242.0" y="91" text-anchor="middle" >dot</text>
-  <text class="lab" x="8" y="116">第 2 块</text><text class="lab2" x="62" y="116">槽 0</text>
-  <rect x="220" y="103" width="44" height="19" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".75" stroke-dasharray="4 3"/><text class="s" x="242.0" y="116" text-anchor="middle">load</text>
-  <rect x="272" y="103" width="44" height="19" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.14"/><text class="s" x="294.0" y="116" text-anchor="middle" >dot</text>
-  <text class="lab" x="8" y="141">第 3 块</text><text class="lab2" x="62" y="141">槽 1</text>
-  <rect x="272" y="128" width="44" height="19" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".75" stroke-dasharray="4 3"/><text class="s" x="294.0" y="141" text-anchor="middle">load</text>
-  <rect x="324" y="128" width="44" height="19" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.15"/><text class="s" x="346.0" y="141" text-anchor="middle" >dot</text>
-  <text class="lab" x="8" y="166">第 4 块</text><text class="lab2" x="62" y="166">槽 0</text>
-  <rect x="324" y="153" width="44" height="19" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".75" stroke-dasharray="4 3"/><text class="s" x="346.0" y="166" text-anchor="middle">load</text>
-  <rect x="376" y="153" width="44" height="19" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.16"/><text class="s" x="398.0" y="166" text-anchor="middle" >dot</text>
-  <text class="lab" x="8" y="191">第 5 块</text><text class="lab2" x="62" y="191">槽 1</text>
-  <rect x="376" y="178" width="44" height="19" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".75" stroke-dasharray="4 3"/><text class="s" x="398.0" y="191" text-anchor="middle">load</text>
-  <text class="s" x="450.0" y="191" text-anchor="middle">dot ⋯</text>
-  <text class="s" x="40" y="216" text-anchor="middle">⋯</text><text class="s" x="450.0" y="216" text-anchor="middle">⋯</text>
-  <text class="lab" x="8" y="241">第 61 块</text><text class="lab2" x="62" y="241">槽 1</text>
-  <text class="s" x="450.0" y="241" text-anchor="middle">⋯ load</text>
-  <rect x="480" y="228" width="44" height="19" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.76"/><text class="s" x="502.0" y="241" text-anchor="middle" style="fill: var(--fig-on-1)">dot</text>
-  <text class="lab" x="8" y="266">第 62 块</text><text class="lab2" x="62" y="266">槽 0</text>
-  <rect x="480" y="253" width="44" height="19" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".75" stroke-dasharray="4 3"/><text class="s" x="502.0" y="266" text-anchor="middle">load</text>
-  <rect x="532" y="253" width="44" height="19" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.77"/><text class="s" x="554.0" y="266" text-anchor="middle" style="fill: var(--fig-on-1)">dot</text>
-  <text class="lab" x="8" y="291">第 63 块</text><text class="lab2" x="62" y="291">槽 1</text>
-  <rect x="532" y="278" width="44" height="19" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".75" stroke-dasharray="4 3"/><text class="s" x="554.0" y="291" text-anchor="middle">load</text>
-  <rect x="584" y="278" width="44" height="19" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.78"/><text class="s" x="606.0" y="291" text-anchor="middle" style="fill: var(--fig-on-1)">dot</text>
-  <text class="s" x="294.0" y="316" text-anchor="middle" style="fill: var(--fig-hi)">同一轮：dot 第 2 块，load 第 3 块</text>
-  <rect x="8" y="335" width="30" height="14" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".75" stroke-dasharray="4 3"/><text class="s" x="44" y="346">load：cp.async 从显存搬进 shared memory 的槽</text>
-  <rect x="316" y="335" width="30" height="14" rx="3" style="fill: var(--fig-1)" fill-opacity=".6"/><text class="s" x="352" y="346">dot：ld.shared 读进 register，再乘加</text>
-  <text class="lab2" x="8" y="370">A、B 各有两个槽（每个 8 KiB，共 32 KiB），第 k 块用槽 k mod 2；第 k 块 dot 完，槽空出来，马上发第 k + 2 块的 load。</text>
-  <text class="lab2" x="8" y="386">A、B 各从显存搬 64 次，每次 8 KiB，一个 program 共 1 MiB；每轮 128 个 thread 从 shared memory 共读 192 KiB，</text>
-  <text class="lab2" x="8" y="402">是 A、B 两块（16 KiB）的 12 倍。循环后 acc 先写进 shared memory 换排布，再读回 register，tl.store 写回显存。</text>
+  <text class="lab2" x="150" y="18">一个 warp 两条指令之间平均隔几拍，按原因分（A 4032 × 2048，B 2048 × 512）</text>
+  <text class="tick" x="150.0" y="160" text-anchor="middle">0</text>
+  <line class="grid" x1="150.0" y1="32" x2="150.0" y2="66"/>
+  <line class="grid" x1="150.0" y1="92" x2="150.0" y2="126"/>
+  <text class="tick" x="238.0" y="160" text-anchor="middle">1</text>
+  <line class="grid" x1="238.0" y1="32" x2="238.0" y2="66"/>
+  <line class="grid" x1="238.0" y1="92" x2="238.0" y2="126"/>
+  <text class="tick" x="326.0" y="160" text-anchor="middle">2</text>
+  <line class="grid" x1="326.0" y1="32" x2="326.0" y2="66"/>
+  <line class="grid" x1="326.0" y1="92" x2="326.0" y2="126"/>
+  <text class="tick" x="414.0" y="160" text-anchor="middle">3</text>
+  <line class="grid" x1="414.0" y1="32" x2="414.0" y2="66"/>
+  <line class="grid" x1="414.0" y1="92" x2="414.0" y2="126"/>
+  <text class="tick" x="502.0" y="160" text-anchor="middle">4</text>
+  <line class="grid" x1="502.0" y1="32" x2="502.0" y2="66"/>
+  <line class="grid" x1="502.0" y1="92" x2="502.0" y2="126"/>
+  <text class="tick" x="590.0" y="160" text-anchor="middle">5</text>
+  <line class="grid" x1="590.0" y1="32" x2="590.0" y2="66"/>
+  <line class="grid" x1="590.0" y1="92" x2="590.0" y2="126"/>
+  <line class="grid" x1="150" y1="148" x2="590" y2="148"/>
+  <text class="lab2" x="590" y="174" text-anchor="end">拍</text>
+  <text class="lab" x="8" y="47">num_stages = 1</text><text class="lab2" x="8" y="61">不预取</text>
+  <g class="m"><title>等显存 / L2 的数据：0.65 拍（long_scoreboard 0.65）</title><rect x="150.0" y="36" width="57.2" height="26" style="fill: var(--fig-hi)"/></g>
+  <text class="s" x="178.6" y="53" text-anchor="middle" style="fill: var(--fig-on-hi)">0.65</text>
+  <g class="m"><title>等 shared memory 的数据：0.95 拍（short_scoreboard 0.89，mio_throttle 0.06）</title><rect x="207.2" y="36" width="83.6" height="26" style="fill: var(--fig-2)"/></g>
+  <text class="s" x="249.0" y="53" text-anchor="middle" style="fill: var(--fig-on-2)">0.95</text>
+  <g class="m"><title>其他（barrier、wait 等）：0.49 拍（barrier 0.19，wait 0.23，math_pipe_throttle 0.03，no_instruction 0.04）</title><rect x="290.8" y="36" width="43.1" height="26" style="fill: var(--fig-mute)"/></g>
+  <text class="s" x="312.4" y="53" text-anchor="middle" style="fill: var(--fig-on-mute)">0.49</text>
+  <g class="m"><title>没被调度发出（not selected、dispatch）：1.48 拍（not_selected 0.96，dispatch_stall 0.52）</title><rect x="333.9" y="36" width="130.2" height="26" style="fill: var(--fig-3)"/></g>
+  <text class="s" x="399.0" y="53" text-anchor="middle" style="fill: var(--fig-on-3)">1.48</text>
+  <g class="m"><title>发射：1.00 拍（selected 1.00）</title><rect x="464.2" y="36" width="88.0" height="26" style="fill: var(--fig-1)"/></g>
+  <text class="s" x="508.2" y="53" text-anchor="middle" style="fill: var(--fig-on-1)">1.00</text>
+  <text class="s" x="558.2" y="53">4.56</text>
+  <text class="lab2" x="150" y="76">201.4 µs；FMA 管线忙 60%，shared memory 读 50%，L2 命中 91.5%</text>
+  <text class="lab" x="8" y="107">num_stages = 3</text><text class="lab2" x="8" y="121">预取，图 2-5</text>
+  <g class="m"><title>等显存 / L2 的数据：0.06 拍（long_scoreboard 0.06）</title><rect x="150.0" y="96" width="5.3" height="26" style="fill: var(--fig-hi)"/></g>
+  <text class="s" x="158.3" y="92" style="fill: var(--fig-hi)">0.06</text>
+  <g class="m"><title>等 shared memory 的数据：0.61 拍（short_scoreboard 0.57，mio_throttle 0.04）</title><rect x="155.3" y="96" width="53.7" height="26" style="fill: var(--fig-2)"/></g>
+  <text class="s" x="182.1" y="113" text-anchor="middle" style="fill: var(--fig-on-2)">0.61</text>
+  <g class="m"><title>其他（barrier、wait 等）：0.41 拍（barrier 0.22，wait 0.10，math_pipe_throttle 0.05，no_instruction 0.04）</title><rect x="209.0" y="96" width="36.1" height="26" style="fill: var(--fig-mute)"/></g>
+  <text class="s" x="227.0" y="113" text-anchor="middle" style="fill: var(--fig-on-mute)">0.41</text>
+  <g class="m"><title>没被调度发出（not selected、dispatch）：1.90 拍（not_selected 1.21，dispatch_stall 0.69）</title><rect x="245.0" y="96" width="167.2" height="26" style="fill: var(--fig-3)"/></g>
+  <text class="s" x="328.6" y="113" text-anchor="middle" style="fill: var(--fig-on-3)">1.90</text>
+  <g class="m"><title>发射：1.00 拍（selected 1.00）</title><rect x="412.2" y="96" width="88.0" height="26" style="fill: var(--fig-1)"/></g>
+  <text class="s" x="456.2" y="113" text-anchor="middle" style="fill: var(--fig-on-1)">1.00</text>
+  <text class="s" x="506.2" y="113">3.99</text>
+  <text class="lab2" x="150" y="136">190.2 µs；FMA 管线忙 66%，shared memory 读 55%，L2 命中 91.3%</text>
+  <rect x="8" y="189" width="10" height="10" rx="2" style="fill: var(--fig-hi)"/>
+  <text class="lab" x="24" y="198">等显存 / L2 的数据</text>
+  <rect x="153.6" y="189" width="10" height="10" rx="2" style="fill: var(--fig-2)"/>
+  <text class="lab" x="169.6" y="198">等 shared memory 的数据</text>
+  <rect x="334.6" y="189" width="10" height="10" rx="2" style="fill: var(--fig-mute)"/>
+  <text class="lab" x="350.6" y="198">其他（barrier、wait 等）</text>
+  <rect x="8" y="211" width="10" height="10" rx="2" style="fill: var(--fig-3); stroke: var(--fig-2)"/>
+  <text class="lab" x="24" y="220">没被调度发出（not selected、dispatch）</text>
+  <rect x="282.0" y="211" width="10" height="10" rx="2" style="fill: var(--fig-1)"/>
+  <text class="lab" x="298.0" y="220">发射</text>
 </svg>
-<figcaption><strong>图 2-6</strong> matmul kernel 的 shared memory 流水线（<code>num_stages=3</code>，K = 2048 按 BK = 32 切成 64 轮），按编译出的 TTGIR 和 PTX 画，读法同 CPU 的流水线图。每块的 A、B 一起 load、一起 dot；颜色深浅是第几块，和<a href="#fig-t-4">图 2-5</a> 一样。第 6 到 60 块和前后一样，用 ⋯ 省略。</figcaption>
+<figcaption><strong>图 2-6</strong> matmul kernel 的 warp 在等什么（RTX 5090，fp32，Nsight Compute 实测）。用 A 4032 × 2048 是为了让 504 个 program 一批跑完，不受 tail effect 影响。ncu 会把 SM 频率锁在基础频率，耗时比平时长。悬停可看每段包含的 ncu 停顿原因。</figcaption>
 </figure>
 
 fp32 输入时 `tl.dot` 默认走 tf32 的 Tensor core，结果和 fp32 的矩阵乘差 0.1 左右；要和 PyTorch（关掉 tf32）对上，需要 `input_precision="ieee"`。这样 `tl.dot` 就不走 Tensor core 了，PTX 里是 `fma.rn.f32x2`，在 FP32 核上算，每个 thread 每轮 512 条，一条算两个 FMA。
