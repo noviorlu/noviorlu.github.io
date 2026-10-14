@@ -421,6 +421,8 @@ Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的 tiling。C
 
 下文 program 就是 CUDA 的 block；单说 block 时指一块数据，比如 A 的 block、C 的 block；代码里的 `BLOCK`、`TILE` 是一段数据的长度。
 
+换句话说，program 之间怎么分工由你定，program 内部从 thread 到 shared memory 都交给编译器。你决定 grid 怎么切、每个 program 读哪块数据（指针和 mask）、`BLOCK` 多大、循环怎么写；`num_warps`、`num_stages` 只是给编译器的提示。编译器决定一个 block 的数怎么分给 128 个 thread（[GELU](#triton-gelu) 每个 thread 8 个数），要不要经过 shared memory、用多少（softmax 的 16 B，matmul 的 32 KB），什么时候同步，跨 warp 的归约怎么做（`tl.sum` 只写一行），搬数据和计算怎么重叠（[matmul](#triton-matmul) 的两个槽）。program 之间不能同步，需要配合时只能拆成几个 kernel 或者用 atomic。编译器替你做的这些事在源码里看不见，也不能直接改，想知道它怎么做的，要看编译出的 TTGIR 和 PTX，下面几个例子会顺带看一看。
+
 下面四个例子由浅入深。grid 怎么切，看一个输出依赖哪些输入；program 里要不要循环，看这些输入能不能一次装进 register，装不下就要一个 block 一个 block 地读，用一个累加器（accumulator）存中间结果：
 
 | op | 类型 | 一个输出依赖 | grid 怎么切 | program 里 |
