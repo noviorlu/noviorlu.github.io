@@ -1,4 +1,4 @@
-"""matmul + ReLU 的每个 program 在哪个 SM、什么时候开始和结束（RTX 5090，图 A-4 的数据）。
+"""matmul + ReLU 的每个 program 在哪个 SM、什么时候开始和结束（RTX 5090，图 A-3 的数据）。
 
 kernel 和 triton_tutorial.py 里的 matmul_relu_kernel 一样，只是开头读一次 %globaltimer 和 %smid，
 写回 C 之后再读一次 %globaltimer。A 取 4032 × 2048（504 个 program，一批放下）和 4096 × 2048（512 个，
