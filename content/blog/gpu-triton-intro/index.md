@@ -180,7 +180,7 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 
 第一件是 CUDA core 和 Tensor core 的分工。CUDA core 一次算一个数：一条 FMA 指令里 warp 的 32 个 thread 各用一个 CUDA core，各做一次乘加（2 FLOPs）。5090 一共 170 × 128 个 CUDA core，fp32 峰值 1.05e14 FLOPS。Tensor core 一次算一个小矩阵乘：一条指令由整个 warp 一起发出，算一小块 A × B 再加到累加器上。它只吃 bf16、fp16、tf32、fp8 这类低精度输入，bf16 的峰值是 2.1e14 FLOPS（fp32 累加），fp8 更高。第 2 节的 `tl.dot` 默认走 Tensor core，加减乘除在 CUDA core 上算，exp 这类函数在 SFU 上算。
 
-第二件是 thread 和 register 的关系。每个 SMSP 的 register file 有 16384 个 32-bit register（64 KB），一个 SM 共 65536 个。每个 thread 用几个 register 在编译时就定了，最多 255 个。一个 warp 固定在一个 SMSP 上，block 放到 SM 上时，它的每个 thread 从所在 SMSP 的 register file 里分到这么多个 register，只归自己读写，一直占到 block 跑完。所以每个 thread 用的 register 越多，一个 SM 能同时驻留的 thread 就越少：每个 thread 用满 255 个时，一个 SM 只放得下 256 个 thread（8 个 warp），是上限 1536 个的六分之一；第 2 节的 softmax 每个 thread 用 55 个，一个 SM 只放得下 9 个 program（[Appendix B.1](#sched-limits)）。
+第二件是 thread 和 register 的关系。每个 SMSP 的 register file 有 16384 个 32-bit register（64 KB），一个 SM 共 65536 个。每个 thread 用几个 register 在编译时就定了，最多 255 个。一个 warp 固定在一个 SMSP 上，block 放到 SM 上时，它的每个 thread 从所在 SMSP 的 register file 里分到这么多个 register，只归自己读写，一直占到 block 跑完。所以每个 thread 用的 register 越多，一个 SM 能同时驻留的 thread 就越少：每个 thread 用满 255 个时，一个 SM 只放得下 256 个 thread（8 个 warp），是上限 1536 个的六分之一；第 2 节的 softmax 每个 thread 用 55 个，一个 SM 只放得下 9 个 program（[图 B-1](#fig-t-8)）。
 
 <figure id="fig-h-9" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 322" width="100%" role="img" aria-label="RTX 5090 一个 SMSP 的结构：L0 指令 cache、warp scheduler 和 dispatch，64 KB register file，32 个 CUDA core（FP32/INT32）和 1 个 Tensor core，4 个 LD/ST 和 SFU；下面接 SM 共享的 128 KB L1 / shared memory">
@@ -547,7 +547,7 @@ def gelu(x):
     return y
 ```
 
-program 编译后就是 CUDA 的一个 block。8192 个 program 远多于 170 个 SM，GPU 会把它们一批一批地排到 SM 上，每个 SM 同时跑 12 个，怎么排见 [Appendix B](#sched)。
+program 编译后就是 CUDA 的一个 block。8192 个 program 远多于 170 个 SM，GPU 会把它们一批一批地排到 SM 上，每个 SM 同时跑 12 个（为什么是 12 个见 [图 B-1](#fig-t-8)，怎么分批见 [Appendix B.3](#sched-wave)）。
 
 n = 8388608 时 Triton 版 45.2 µs，读写共 64 MiB，有效带宽 1.49e12 B/s，是显存带宽的 83%，和 PyTorch 的 `F.gelu(x, approximate="tanh")`（45.9 µs）持平。
 
@@ -1504,7 +1504,7 @@ def matmul_relu(a, b, BM=64, BN=64, BK=32):
 - **复用**：同一份数据要被读很多次。matmul 里 A 的一个 block 要和 B 的 block 的 64 列都乘一遍；softmax 和 row sum 里每个数只被一个 thread 读一次。
 - **交换**：thread 之间要交换大量数据。matmul 里 `tl.dot` 要把 A、B 的 block 重新分给不同的 thread；softmax 和 row sum 只交换 4 个 warp 的部分结果（16 B）。
 
-所以 matmul 把 A、B 的 block 放在 shared memory 里，每个 program 32 KiB；softmax 和 row sum 两条都不满足，把整个 block 放进 shared memory 只会多搬一趟。代价是 shared memory 用得越多，一个 SM 能同时放的 program 越少：每个 SM 的上限是 100 KiB，matmul 每个 program 占 32 KiB，再加每个 program 保留的 1 KiB，只放得下 3 个（3 × 33 = 99 KiB，见 [Appendix B.1](#sched-limits)）。
+所以 matmul 把 A、B 的 block 放在 shared memory 里，每个 program 32 KiB；softmax 和 row sum 两条都不满足，把整个 block 放进 shared memory 只会多搬一趟。代价是 shared memory 用得越多，一个 SM 能同时放的 program 越少：每个 SM 的上限是 100 KiB，matmul 每个 program 占 32 KiB，再加每个 program 保留的 1 KiB，只放得下 3 个（3 × 33 = 99 KiB，见 [图 B-1](#fig-t-8)）。
 
 </div>
 
@@ -1835,15 +1835,302 @@ block 放到 SM 上以后就一直驻留，直到它的 thread 全部跑完。�
 | shared memory | 100 KiB，每个 block 另占 1 KiB |
 {#tab-b-1 caption="**表 B-1** RTX 5090 一个 SM 的驻留上限" note="用 <code>cuDeviceGetAttribute</code> 在 5090 上读出，和 CUDA Programming Guide 里 compute capability 12.0 的数一致。"}
 
-第 2 节的四个 kernel 卡在不同的上限上（[表 B-2](#tab-b-2)）。GELU 和 row sum 用的 register 少、几乎不用 shared memory，卡在 48 个 warp 上：每个 program 4 个 warp，放 12 个。softmax 把一整行 4096 个数放在 register 里，每个 thread 55 个 register（按 56 分配），一个 program 7168 个，65536 / 7168 = 9.1，放 9 个。matmul 每个 program 要 32 KiB shared memory，加上每个 block 保留的 1 KiB，100 KiB 只放得下 3 个；它的 register 允许放 5 个，用不满。
+第 2 节的图画的是一个 program 怎么读写数据。放到 SM 上时，一个 program 就是一个 CUDA block：4 个 warp、128 个 thread，每个 thread 带着自己的 register，整个 program 共用一块 shared memory。所以它在 SM 上要占四样东西，正好对应表 B-1 的四条上限：4 个 warp 名额，1 个 block 名额，128 × 每个 thread 的 register 数，shared memory 的用量再加 1 KiB 保留。每条上限各自能放下几个 program，取最小的那个，就是一个 SM 实际放几个（[图 B-1](#fig-t-8)）。
 
-| kernel | register / thread | shared memory / program | 每个 SM 放 | 卡在 |
-|:--|--:|--:|--:|:--|
-| GELU | 31 | 0 | 12 | warp |
-| softmax | 55 | 16 B | 9 | register |
-| row sum | 23 | 16 B | 12 | warp |
-| matmul | 96 | 32 KiB | 3 | shared memory |
-{#tab-b-2 caption="**表 B-2** 第 2 节四个 kernel 每个 SM 能放几个 program" note="形状和正文一样（softmax 的 N = 4096，matmul 的 BM = BN = 64、BK = 32），每个 program 都是 4 个 warp。register 和 shared memory 读自编译出的 kernel，每个 SM 放几个用 <code>cuOccupancyMaxActiveBlocksPerMultiprocessor</code> 算。"}
+<figure id="fig-t-8" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 590" width="100%" role="img" aria-label="第 2 节图里的一个 program 是一个 CUDA block：4 个 warp、128 个 thread。放上 SM 时占 4 个 warp 名额、1 个 block 名额、128 × 每个 thread 的 register、shared memory 加 1 KiB；四个 kernel 各画四根条，哪条先用完就放几个：GELU 和 row sum 卡在 warp，softmax 卡在 register，matmul 卡在 shared memory">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <defs><marker id="fig-t-8-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
+  <text class="ttl" x="10" y="16">第 2 节图里的 grid</text>
+  <rect x="10" y="40" width="30" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 14%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <text class="t" x="25" y="56" text-anchor="middle">0</text>
+  <rect x="44" y="40" width="30" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 45%, transparent); stroke: var(--fig-1)" stroke-width="1.6"/>
+  <text class="t" x="59" y="56" text-anchor="middle">1</text>
+  <rect x="78" y="40" width="30" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 14%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <text class="t" x="93" y="56" text-anchor="middle">2</text>
+  <text class="tb" x="122" y="56" text-anchor="middle">⋯</text>
+  <text class="s" x="10" y="82">一格一个 program</text>
+  <line x1="136.0" y1="52.0" x2="160.0" y2="52.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-t-8-m0)"/>
+  <rect x="164" y="24" width="258" height="94" rx="8" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="tb" x="176" y="42">一个 program = 一个 CUDA block</text>
+  <rect x="176" y="52" width="54" height="36" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <text class="s" x="203" y="67" text-anchor="middle">warp 0</text><text class="s" x="203" y="81" text-anchor="middle">32 thread</text>
+  <rect x="235" y="52" width="54" height="36" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <text class="s" x="262" y="67" text-anchor="middle">warp 1</text><text class="s" x="262" y="81" text-anchor="middle">32 thread</text>
+  <rect x="294" y="52" width="54" height="36" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <text class="s" x="321" y="67" text-anchor="middle">warp 2</text><text class="s" x="321" y="81" text-anchor="middle">32 thread</text>
+  <rect x="353" y="52" width="54" height="36" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 26%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <text class="s" x="380" y="67" text-anchor="middle">warp 3</text><text class="s" x="380" y="81" text-anchor="middle">32 thread</text>
+  <text class="s" x="176" y="108">共 128 个 thread，每个有自己的 register</text>
+  <line x1="424.0" y1="71.0" x2="440.0" y2="71.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.6" marker-end="url(#fig-t-8-m0)"/>
+  <rect x="444" y="24" width="186" height="94" rx="8" class="op"/>
+  <text class="tb" x="456" y="42">放上 SM 时要占四样</text>
+  <text class="s" x="456" y="60">① 4 个 warp 名额</text>
+  <text class="s" x="456" y="75">② 1 个 block 名额</text>
+  <text class="s" x="456" y="90">③ register：128 × 每 thread 个数</text>
+  <text class="s" x="456" y="105">④ shared memory：用量 + 1 KiB</text>
+  <rect x="10" y="136" width="620" height="96" rx="10" style="fill: color-mix(in srgb, var(--fig-1) 5%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="tb" x="22" y="154">GELU（<a href="#fig-t-1">图 2-1</a>）</text>
+  <text class="lab2" x="156" y="154">每个 thread 31 个 register（按 32 个分配），shared memory 0 B</text>
+  <text class="tb" x="618" y="154" text-anchor="end" style="fill: var(--fig-hi)">放 12 个</text>
+  <text class="s" x="22" y="174">warp 名额</text><text class="s" x="150" y="174" text-anchor="end">48</text>
+  <rect x="156" y="164" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="156.00" y="164" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="182.00" y="164" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="208.00" y="164" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="234.00" y="164" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="260.00" y="164" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="286.00" y="164" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="312.00" y="164" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="338.00" y="164" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="364.00" y="164" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="390.00" y="164" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="416.00" y="164" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="442.00" y="164" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="154" y="162" width="316" height="16" rx="3" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/>
+  <text class="s" style="fill: var(--fig-hi); opacity: 1; font-weight: 600" x="476" y="174">每个占 4，最多 12 个</text>
+  <text class="s" x="22" y="190">block 名额</text><text class="s" x="150" y="190" text-anchor="end">24</text>
+  <rect x="156" y="180" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="312.0" y="180.5" width="156.0" height="11" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/>
+  <text class="s" x="390.0" y="189.5" text-anchor="middle" style="font-size: 9.5px">还能放 12 个</text>
+  <rect x="156.00" y="180" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="169.00" y="180" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="182.00" y="180" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="195.00" y="180" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="208.00" y="180" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="221.00" y="180" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="234.00" y="180" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="247.00" y="180" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="260.00" y="180" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="273.00" y="180" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="286.00" y="180" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="299.00" y="180" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <text class="s" x="476" y="190">每个占 1，最多 24 个</text>
+  <text class="s" x="22" y="206">register</text><text class="s" x="150" y="206" text-anchor="end">65536</text>
+  <rect x="156" y="196" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="390.0" y="196.5" width="78.0" height="11" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/>
+  <text class="s" x="429.0" y="205.5" text-anchor="middle" style="font-size: 9.5px">还能放 4 个</text>
+  <rect x="156.00" y="196" width="19.50" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="175.50" y="196" width="19.50" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="195.00" y="196" width="19.50" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="214.50" y="196" width="19.50" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="234.00" y="196" width="19.50" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="253.50" y="196" width="19.50" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="273.00" y="196" width="19.50" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="292.50" y="196" width="19.50" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="312.00" y="196" width="19.50" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="331.50" y="196" width="19.50" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="351.00" y="196" width="19.50" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="370.50" y="196" width="19.50" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <text class="s" x="476" y="206">每个占 4096，最多 16 个</text>
+  <text class="s" x="22" y="222">shared memory</text><text class="s" x="150" y="222" text-anchor="end">100 KiB</text>
+  <rect x="156" y="212" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="193.4" y="212.5" width="274.6" height="11" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/>
+  <text class="s" x="330.7" y="221.5" text-anchor="middle" style="font-size: 9.5px">还能放 88 个</text>
+  <rect x="156.00" y="212" width="3.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="159.12" y="212" width="3.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="162.24" y="212" width="3.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="165.36" y="212" width="3.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="168.48" y="212" width="3.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="171.60" y="212" width="3.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="174.72" y="212" width="3.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="177.84" y="212" width="3.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="180.96" y="212" width="3.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="184.08" y="212" width="3.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="187.20" y="212" width="3.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="190.32" y="212" width="3.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <text class="s" x="476" y="222">每个占 1024 B，最多 100 个</text>
+  <rect x="10" y="240" width="620" height="96" rx="10" style="fill: color-mix(in srgb, var(--fig-1) 5%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="tb" x="22" y="258">softmax（<a href="#fig-t-2">图 2-2</a>）</text>
+  <text class="lab2" x="156" y="258">每个 thread 55 个 register（按 56 个分配），shared memory 16 B</text>
+  <text class="tb" x="618" y="258" text-anchor="end" style="fill: var(--fig-hi)">放 9 个</text>
+  <text class="s" x="22" y="278">warp 名额</text><text class="s" x="150" y="278" text-anchor="end">48</text>
+  <rect x="156" y="268" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="390.0" y="268.5" width="78.0" height="11" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/>
+  <text class="s" x="429.0" y="277.5" text-anchor="middle" style="font-size: 9.5px">还能放 3 个</text>
+  <rect x="156.00" y="268" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="182.00" y="268" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="208.00" y="268" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="234.00" y="268" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="260.00" y="268" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="286.00" y="268" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="312.00" y="268" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="338.00" y="268" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="364.00" y="268" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <text class="s" x="476" y="278">每个占 4，最多 12 个</text>
+  <text class="s" x="22" y="294">block 名额</text><text class="s" x="150" y="294" text-anchor="end">24</text>
+  <rect x="156" y="284" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="273.0" y="284.5" width="195.0" height="11" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/>
+  <text class="s" x="370.5" y="293.5" text-anchor="middle" style="font-size: 9.5px">还能放 15 个</text>
+  <rect x="156.00" y="284" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="169.00" y="284" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="182.00" y="284" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="195.00" y="284" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="208.00" y="284" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="221.00" y="284" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="234.00" y="284" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="247.00" y="284" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="260.00" y="284" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <text class="s" x="476" y="294">每个占 1，最多 24 个</text>
+  <text class="s" x="22" y="310">register</text><text class="s" x="150" y="310" text-anchor="end">65536</text>
+  <rect x="156" y="300" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="156.00" y="300" width="34.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="190.12" y="300" width="34.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="224.25" y="300" width="34.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="258.38" y="300" width="34.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="292.50" y="300" width="34.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="326.62" y="300" width="34.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="360.75" y="300" width="34.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="394.88" y="300" width="34.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="429.00" y="300" width="34.12" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="154" y="298" width="316" height="16" rx="3" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/>
+  <text class="s" style="fill: var(--fig-hi); opacity: 1; font-weight: 600" x="476" y="310">每个占 7168，最多 9 个</text>
+  <text class="s" x="22" y="326">shared memory</text><text class="s" x="150" y="326" text-anchor="end">100 KiB</text>
+  <rect x="156" y="316" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="187.6" y="316.5" width="277.3" height="11" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/>
+  <text class="s" x="326.2" y="325.5" text-anchor="middle" style="font-size: 9.5px">还能放 79 个</text>
+  <rect x="156.00" y="316" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="159.51" y="316" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="163.02" y="316" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="166.53" y="316" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="170.04" y="316" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="173.55" y="316" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="177.06" y="316" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="180.57" y="316" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="184.08" y="316" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <text class="s" x="476" y="326">每个占 1152 B，最多 88 个</text>
+  <rect x="10" y="344" width="620" height="96" rx="10" style="fill: color-mix(in srgb, var(--fig-1) 5%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="tb" x="22" y="362">row sum（<a href="#fig-t-3">图 2-3</a>）</text>
+  <text class="lab2" x="156" y="362">每个 thread 23 个 register（按 24 个分配），shared memory 16 B</text>
+  <text class="tb" x="618" y="362" text-anchor="end" style="fill: var(--fig-hi)">放 12 个</text>
+  <text class="s" x="22" y="382">warp 名额</text><text class="s" x="150" y="382" text-anchor="end">48</text>
+  <rect x="156" y="372" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="156.00" y="372" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="182.00" y="372" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="208.00" y="372" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="234.00" y="372" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="260.00" y="372" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="286.00" y="372" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="312.00" y="372" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="338.00" y="372" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="364.00" y="372" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="390.00" y="372" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="416.00" y="372" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="442.00" y="372" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="154" y="370" width="316" height="16" rx="3" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/>
+  <text class="s" style="fill: var(--fig-hi); opacity: 1; font-weight: 600" x="476" y="382">每个占 4，最多 12 个</text>
+  <text class="s" x="22" y="398">block 名额</text><text class="s" x="150" y="398" text-anchor="end">24</text>
+  <rect x="156" y="388" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="312.0" y="388.5" width="156.0" height="11" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/>
+  <text class="s" x="390.0" y="397.5" text-anchor="middle" style="font-size: 9.5px">还能放 12 个</text>
+  <rect x="156.00" y="388" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="169.00" y="388" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="182.00" y="388" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="195.00" y="388" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="208.00" y="388" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="221.00" y="388" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="234.00" y="388" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="247.00" y="388" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="260.00" y="388" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="273.00" y="388" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="286.00" y="388" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="299.00" y="388" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <text class="s" x="476" y="398">每个占 1，最多 24 个</text>
+  <text class="s" x="22" y="414">register</text><text class="s" x="150" y="414" text-anchor="end">65536</text>
+  <rect x="156" y="404" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="331.5" y="404.5" width="131.6" height="11" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/>
+  <text class="s" x="397.3" y="413.5" text-anchor="middle" style="font-size: 9.5px">还能放 9 个</text>
+  <rect x="156.00" y="404" width="14.62" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="170.62" y="404" width="14.62" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="185.25" y="404" width="14.62" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="199.88" y="404" width="14.62" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="214.50" y="404" width="14.62" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="229.12" y="404" width="14.62" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="243.75" y="404" width="14.62" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="258.38" y="404" width="14.62" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="273.00" y="404" width="14.62" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="287.62" y="404" width="14.62" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="302.25" y="404" width="14.62" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="316.88" y="404" width="14.62" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <text class="s" x="476" y="414">每个占 3072，最多 21 个</text>
+  <text class="s" x="22" y="430">shared memory</text><text class="s" x="150" y="430" text-anchor="end">100 KiB</text>
+  <rect x="156" y="420" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="198.1" y="420.5" width="266.8" height="11" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/>
+  <text class="s" x="331.5" y="429.5" text-anchor="middle" style="font-size: 9.5px">还能放 76 个</text>
+  <rect x="156.00" y="420" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="159.51" y="420" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="163.02" y="420" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="166.53" y="420" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="170.04" y="420" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="173.55" y="420" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="177.06" y="420" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="180.57" y="420" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="184.08" y="420" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="187.59" y="420" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="191.10" y="420" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <rect x="194.61" y="420" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
+  <text class="s" x="476" y="430">每个占 1152 B，最多 88 个</text>
+  <rect x="10" y="448" width="620" height="96" rx="10" style="fill: color-mix(in srgb, var(--fig-1) 5%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="tb" x="22" y="466">matmul（<a href="#fig-t-4">图 2-4</a>）</text>
+  <text class="lab2" x="156" y="466">每个 thread 96 个 register，shared memory 32 KiB</text>
+  <text class="tb" x="618" y="466" text-anchor="end" style="fill: var(--fig-hi)">放 3 个</text>
+  <text class="s" x="22" y="486">warp 名额</text><text class="s" x="150" y="486" text-anchor="end">48</text>
+  <rect x="156" y="476" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="234.0" y="476.5" width="234.0" height="11" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/>
+  <text class="s" x="351.0" y="485.5" text-anchor="middle" style="font-size: 9.5px">还能放 9 个</text>
+  <rect x="156.00" y="476" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="182.00" y="476" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="208.00" y="476" width="26.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <text class="s" x="476" y="486">每个占 4，最多 12 个</text>
+  <text class="s" x="22" y="502">block 名额</text><text class="s" x="150" y="502" text-anchor="end">24</text>
+  <rect x="156" y="492" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="195.0" y="492.5" width="273.0" height="11" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/>
+  <text class="s" x="331.5" y="501.5" text-anchor="middle" style="font-size: 9.5px">还能放 21 个</text>
+  <rect x="156.00" y="492" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="169.00" y="492" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="182.00" y="492" width="13.00" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <text class="s" x="476" y="502">每个占 1，最多 24 个</text>
+  <text class="s" x="22" y="518">register</text><text class="s" x="150" y="518" text-anchor="end">65536</text>
+  <rect x="156" y="508" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="331.5" y="508.5" width="117.0" height="11" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/>
+  <text class="s" x="390.0" y="517.5" text-anchor="middle" style="font-size: 9.5px">还能放 2 个</text>
+  <rect x="156.00" y="508" width="58.50" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="214.50" y="508" width="58.50" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="273.00" y="508" width="58.50" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <text class="s" x="476" y="518">每个占 12288，最多 5 个</text>
+  <text class="s" x="22" y="534">shared memory</text><text class="s" x="150" y="534" text-anchor="end">100 KiB</text>
+  <rect x="156" y="524" width="312" height="12" rx="2" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".3" stroke-width=".8"/>
+  <rect x="156.00" y="524" width="102.96" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="258.96" y="524" width="102.96" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="361.92" y="524" width="102.96" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.8"/>
+  <rect x="154" y="522" width="316" height="16" rx="3" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/>
+  <text class="s" style="fill: var(--fig-hi); opacity: 1; font-weight: 600" x="476" y="534">每个占 33 KiB，最多 3 个</text>
+  <rect x="22" y="567" width="22" height="10" style="fill: var(--fig-1)"/><text class="lab" x="52" y="576">实际放进去的 program，一格一个</text>
+  <rect x="238" y="567" width="22" height="10" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/><text class="lab" x="268" y="576">只看这一条，还能再放</text>
+  <rect x="410" y="566" width="22" height="12" rx="2" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/><text class="lab" x="440" y="576">先用完的那条</text>
+</svg>
+<figcaption><strong>图 B-1</strong> 第 2 节四个 kernel 的 program 怎么放上一个 SM（RTX 5090，形状同正文，每个 program 4 个 warp）。上面：第 2 节图里 grid 的一格是一个 program，也就是一个 CUDA block，放上 SM 时要占四样东西。下面每个 kernel 四根条，对应<a href="#tab-b-1">表 B-1</a> 的四条上限，条长是这条上限的总量；深色一格是一个实际放进去的 program 占的量，虚线框是只看这一条还能再放的，红框是先用完的那条，它决定了一个 SM 放几个。register 和 shared memory 读自编译出的 kernel；register 以 warp 为单位按 256 个分配，摊到每个 thread 是 8 的倍数，shared memory 按 128 B 取整。四条取最小的结果和 <code>cuOccupancyMaxActiveBlocksPerMultiprocessor</code> 算出的一致。softmax 和 row sum 的 16 B shared memory 用来让 4 个 warp 交换归约的部分结果。</figcaption>
+</figure>
+
+GELU 和 row sum 用的 register 少、几乎不用 shared memory，先用完的是 warp 名额：48 / 4 = 12。softmax 把一整行 4096 个数放在 register 里，每个 thread 55 个，按 56 分配，一个 program 占 56 × 128 = 7168 个，65536 / 7168 = 9.1，只放得下 9 个，比 warp 名额允许的 12 个少。matmul 的 `tl.dot` 要把 A、B 的 block 先放进 shared memory，一个 program 32 KiB，加上保留的 1 KiB 是 33 KiB，100 KiB 只放得下 3 个；按 register 能放 5 个，用不满。block 名额有 24 个，四个 kernel 都用不完。
 
 几代 GPU 的规格和驻留上限对比见 [Appendix C](#specs)。
 
@@ -1851,7 +2138,7 @@ block 放到 SM 上以后就一直驻留，直到它的 thread 全部跑完。�
 
 ### B.2 warp 调度：驻留不等于在跑 {#sched-warp}
 
-一个 block 的 warp 按编号轮流分到 4 个 SMSP，每个 SMSP 有自己的 warp scheduler、register file 和 32 个 CUDA core（[图 1-4](#fig-h-9)）。调度器每拍从驻留的 warp 里挑一个就绪的，发出它的一条指令。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp。所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态，所以同时驻留的 warp 越多，访存延迟越容易藏住（[图 B-1](#fig-h-6)）。
+一个 block 的 warp 按编号轮流分到 4 个 SMSP，每个 SMSP 有自己的 warp scheduler、register file 和 32 个 CUDA core（[图 1-4](#fig-h-9)）。调度器每拍从驻留的 warp 里挑一个就绪的，发出它的一条指令。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp。所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态，所以同时驻留的 warp 越多，访存延迟越容易藏住（[图 B-2](#fig-h-6)）。
 
 <figure id="fig-h-6" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="一个 SM 上驻留 3 个 block、每个 4 个 warp 时的某一拍：每个 SMSP 有 3 个 warp，分别来自 3 个 block；每个调度器这一拍最多发射一个，SMSP 2 的 3 个都在等数据，调度器空转">
@@ -1965,14 +2252,14 @@ block 放到 SM 上以后就一直驻留，直到它的 thread 全部跑完。�
   <rect x="343" y="272" width="17" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity=".55"/><text class="lab2" x="367" y="281">等数据</text>
   <rect x="434" y="272" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/><text class="lab2" x="458" y="281">空槽</text>
 </svg>
-<figcaption><strong>图 B-1</strong> 一个 SM 上驻留 3 个 block（B0、B1、B2）时的某一拍。格子里写的是这个 warp 属于哪个 block，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。</figcaption>
+<figcaption><strong>图 B-2</strong> 一个 SM 上驻留 3 个 block（B0、B1、B2）时的某一拍。格子里写的是这个 warp 属于哪个 block，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。</figcaption>
 </figure>
 
 名额是有限的。grid 里的 program 多于全卡的名额时，GPU 只能一批一批地往 SM 上排。
 
 ### B.3 wave 和 tail effect {#sched-wave}
 
-GELU 每个 SM 放 12 个 program，全卡一次放得下 170 × 12 = 2040 个，8192 个要 5 批，第 5 批只有 32 个。[图 B-2](#fig-t-5) 上半部分的纵轴是某一时刻全卡已经开始、还没结束的 program 数：在横轴上任取一个时刻，曲线的高度就是那一刻 170 个 SM 上一共在跑几个 program。实测的时间线上批次之间却没有分界：一个 program 跑完，它的名额很快就换下一个进来，第 2 批在 2.6 µs 就开始了，第 1 批到 15.4 µs 才全部跑完。曲线也没有一直贴着 2040：从一个 program 发出最后一条 store，到同一个名额上的下一个 program 执行第一条指令，中间有一段空档，名额上没有 program 在执行指令，叫 bubble（图里浅红色的部分）。空档里可能是上一个 program 还在等 store 写完、名额还没回收，也可能是新 program 还没启动，打点分不出来。从第一个 program 结束到最后一个 program 开始，平均有 25% 的名额处在 bubble 里。同一批的 program 都在抢显存带宽，耗时从 4.2 µs 到 11.9 µs 不等（10% 和 90% 分位）。36.5 µs 时最后一个 program 开始，之后名额一个个空出来，在跑的 program 从 1400 个左右降到 0，这段约 10 µs，占整个 kernel 的 22%，叫 tail effect。打点的开销很小：打点版 46.9 µs，不打点 45.2 µs。
+GELU 每个 SM 放 12 个 program，全卡一次放得下 170 × 12 = 2040 个，8192 个要 5 批，第 5 批只有 32 个。[图 B-3](#fig-t-5) 上半部分的纵轴是某一时刻全卡已经开始、还没结束的 program 数：在横轴上任取一个时刻，曲线的高度就是那一刻 170 个 SM 上一共在跑几个 program。实测的时间线上批次之间却没有分界：一个 program 跑完，它的名额很快就换下一个进来，第 2 批在 2.6 µs 就开始了，第 1 批到 15.4 µs 才全部跑完。曲线也没有一直贴着 2040：从一个 program 发出最后一条 store，到同一个名额上的下一个 program 执行第一条指令，中间有一段空档，名额上没有 program 在执行指令，叫 bubble（图里浅红色的部分）。空档里可能是上一个 program 还在等 store 写完、名额还没回收，也可能是新 program 还没启动，打点分不出来。从第一个 program 结束到最后一个 program 开始，平均有 25% 的名额处在 bubble 里。同一批的 program 都在抢显存带宽，耗时从 4.2 µs 到 11.9 µs 不等（10% 和 90% 分位）。36.5 µs 时最后一个 program 开始，之后名额一个个空出来，在跑的 program 从 1400 个左右降到 0，这段约 10 µs，占整个 kernel 的 22%，叫 tail effect。打点的开销很小：打点版 46.9 µs，不打点 45.2 µs。
 
 <figure id="fig-t-5" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 404" width="100%" role="img" aria-label="GELU 的 8192 个 program 在 170 个 SM 上的实测时间线：上面是全卡同时在跑的 program 数，按批次堆叠，最多 2040 个；下面是一个 SM 的 12 个名额，前一个 program 结束就换下一个进来，批次之间没有清楚的分界，最后一批只有 32 个">
@@ -2097,10 +2384,10 @@ GELU 每个 SM 放 12 个 program，全卡一次放得下 170 × 12 = 2040 个�
   <rect x="434" y="385" width="12" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity="0.68"/><text class="lab" x="451" y="394">6120–8159</text>
   <rect x="542" y="385" width="12" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity="0.9"/><text class="lab" x="559" y="394">8160–8191</text>
 </svg>
-<figcaption><strong>图 B-2</strong> GELU 的 8192 个 program 实际怎么分批跑（RTX 5090，n = 8388608，fp32，每个 program 4 个 warp）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，store 发出后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 编号所在的批次，一批 2040 个。浅红色是 bubble：名额上没有 program 在执行指令；最后一个 program 开始以后是 tail。下面的名额是按开始、结束时间排出来的，红框是这个 SM 上最长的一段空档。悬停可看 program 编号和时间。</figcaption>
+<figcaption><strong>图 B-3</strong> GELU 的 8192 个 program 实际怎么分批跑（RTX 5090，n = 8388608，fp32，每个 program 4 个 warp）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，store 发出后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 编号所在的批次，一批 2040 个。浅红色是 bubble：名额上没有 program 在执行指令；最后一个 program 开始以后是 tail。下面的名额是按开始、结束时间排出来的，红框是这个 SM 上最长的一段空档。悬停可看 program 编号和时间。</figcaption>
 </figure>
 
-program 少而每个都重时，尾巴更明显。matmul 每个 SM 只放 3 个 program，全卡一批 510 个，512 个 program 要跑 2 批，第 2 批只有 2 个（[图 B-3](#fig-t-7)）。第 1 批的 510 个 program 在开头一起开始，各跑 125 到 152 µs；全卡最先跑完的两个在 SM 68 和 SM 135 上，约 125 µs 结束，第 2 批的 2 个这时才开始。152 µs 以后全卡只剩这 2 个 program，另外 168 个 SM 空着，一直等到 200 µs。这 2 个 program 后半段独占一个 SM，只跑了 75 µs，比第 1 批的中位数 135 µs 快得多。
+program 少而每个都重时，尾巴更明显。matmul 每个 SM 只放 3 个 program，全卡一批 510 个，512 个 program 要跑 2 批，第 2 批只有 2 个（[图 B-4](#fig-t-7)）。第 1 批的 510 个 program 在开头一起开始，各跑 125 到 152 µs；全卡最先跑完的两个在 SM 68 和 SM 135 上，约 125 µs 结束，第 2 批的 2 个这时才开始。152 µs 以后全卡只剩这 2 个 program，另外 168 个 SM 空着，一直等到 200 µs。这 2 个 program 后半段独占一个 SM，只跑了 75 µs，比第 1 批的中位数 135 µs 快得多。
 
 <figure id="fig-t-7" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 372" width="100%" role="img" aria-label="matmul 的 512 个 program 在 170 个 SM 上的实测时间线：上面是全卡同时在跑的 program 数，按批次堆叠，最多 510 个；第 1 批 510 个一起开始，第 2 批只有 2 个，等到 125 µs 才开始，152 µs 以后全卡只有这 2 个在跑。虚线是 A 4032 × 2048 时 504 个 program 一批跑完的对照。下面是跑了第 2 批的两个 SM 的 3 个名额">
@@ -2174,7 +2461,7 @@ program 少而每个都重时，尾巴更明显。matmul 每个 SM 只放 3 个 
   <rect x="210" y="337" width="12" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity="0.9"/><text class="lab" x="227" y="346">510–511</text>
   <line x1="324" y1="342" x2="346" y2="342" style="stroke: var(--fig-hi)" stroke-width="1.6" stroke-dasharray="5 3"/><text class="lab" x="354" y="346">A 4032 × 2048：504 个，一批</text>
 </svg>
-<figcaption><strong>图 B-3</strong> matmul kernel 的 512 个 program 实际怎么分批跑（RTX 5090，fp32，A 4096 × 2048，B 2048 × 512，每个 SM 3 个 program），画法同<a href="#fig-t-5">图 B-2</a>。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，写回 C 之后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 的发射顺序所在的批次，一批 510 个。第 2 批只有 2 个，按比例只有 1 像素高，图里画成底边上的一条粗线并用红框圈出。悬停可看 program 编号和时间。</figcaption>
+<figcaption><strong>图 B-4</strong> matmul kernel 的 512 个 program 实际怎么分批跑（RTX 5090，fp32，A 4096 × 2048，B 2048 × 512，每个 SM 3 个 program），画法同<a href="#fig-t-5">图 B-3</a>。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，写回 C 之后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 的发射顺序所在的批次，一批 510 个。第 2 批只有 2 个，按比例只有 1 像素高，图里画成底边上的一条粗线并用红框圈出。悬停可看 program 编号和时间。</figcaption>
 </figure>
 
 A 换成 4032 × 2048 时，504 个 program 一批放下，同一个 kernel 只要 158.3 µs，和 cuBLAS 的 160.5 µs 相当。4096 比 4032 的计算量只多 1.6%，耗时多 28%。打点的开销不大：打点版 210.8 µs 和 162.8 µs，不打点 203.3 µs 和 158.3 µs。

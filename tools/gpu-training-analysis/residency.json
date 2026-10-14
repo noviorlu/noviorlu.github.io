@@ -3,24 +3,79 @@
   "warps": 4,
   "regs": 31,
   "shared": 0,
-  "per_sm": 12
+  "per_sm": 12,
+  "use": {
+   "warps": 4,
+   "blocks": 1,
+   "regs": 4096,
+   "shared": 1024
+  },
+  "max": {
+   "warps": 12,
+   "blocks": 24,
+   "regs": 16,
+   "shared": 100
+  }
  },
  "softmax": {
   "warps": 4,
   "regs": 55,
   "shared": 16,
-  "per_sm": 9
+  "per_sm": 9,
+  "use": {
+   "warps": 4,
+   "blocks": 1,
+   "regs": 7168,
+   "shared": 1152
+  },
+  "max": {
+   "warps": 12,
+   "blocks": 24,
+   "regs": 9,
+   "shared": 88
+  }
  },
  "row_sum": {
   "warps": 4,
   "regs": 23,
   "shared": 16,
-  "per_sm": 12
+  "per_sm": 12,
+  "use": {
+   "warps": 4,
+   "blocks": 1,
+   "regs": 3072,
+   "shared": 1152
+  },
+  "max": {
+   "warps": 12,
+   "blocks": 24,
+   "regs": 21,
+   "shared": 88
+  }
  },
  "matmul": {
   "warps": 4,
   "regs": 96,
   "shared": 32768,
-  "per_sm": 3
+  "per_sm": 3,
+  "use": {
+   "warps": 4,
+   "blocks": 1,
+   "regs": 12288,
+   "shared": 33792
+  },
+  "max": {
+   "warps": 12,
+   "blocks": 24,
+   "regs": 5,
+   "shared": 3
+  }
+ },
+ "limits": {
+  "warps": 48,
+  "blocks": 24,
+  "regs": 65536,
+  "shared": 102400,
+  "reserved": 1024
  }
 }
