@@ -632,6 +632,10 @@ html.dark {
 .article-content details.fold.doc > .highlight-wrapper { border: 1px solid var(--nv-border); border-radius: 10px; background: var(--nv-bg); overflow: hidden; }
 .article-content details.fold.doc > .highlight-wrapper pre, .article-content details.fold.doc > pre { background: var(--nv-bg) !important; }
 .article-content details.fold.doc > pre { border: 1px solid var(--nv-border); border-radius: 10px; }
+/* .fold.aside: a side discussion off the main storyline, collapsed by default */
+.article-content details.fold.aside > summary::before { content: "旁注"; margin-right: 10px; padding: 1px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--fig-1); background: color-mix(in srgb, var(--fig-2) 22%, transparent); }
+.article-content details.fold.aside > summary { font-weight: 500; }
+.article-content details.fold.aside > figure { margin-left: 12px; margin-right: 12px; }
 .article-content details.fold.doc > p { font-size: 15px; }
 
 .nv-article__after { margin-top: 56px; display: flex; flex-direction: column; gap: 20px; }
