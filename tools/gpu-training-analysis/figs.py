@@ -1017,7 +1017,8 @@ def wave_trace():
     py = lambda c: Y0 - c / cap * (Y0 - Y1)
     for v in (0, 500, 1000, 1500, 2040):
         f.w(f'<line class="grid" x1="{X0}" y1="{py(v):.1f}" x2="{X1}" y2="{py(v):.1f}"/><text class="tick" x="{X0 - 8}" y="{py(v) + 4:.1f}" text-anchor="end">{v}</text>')
-    f.w(f'<text class="lab2" x="{X0}" y="{Y1 - 24}">全卡同时在跑的 program 数，按批次堆叠；虚线是 170 个 SM × 12 = {cap} 个名额</text>')
+    f.w(f'<text class="lab2" x="{X0}" y="{Y1 - 24}">某一时刻全卡已开始、未结束的 program 数，按批次堆叠；虚线是 170 × 12 = {cap} 个名额</text>')
+    f.w(f'<text class="lab2" x="16" y="{(Y0 + Y1) / 2:.1f}" text-anchor="middle" transform="rotate(-90 16 {(Y0 + Y1) / 2:.1f})">同时在跑的 program 数</text>')
     f.w(f'<line class="ref" x1="{X0}" y1="{py(cap):.1f}" x2="{X1}" y2="{py(cap):.1f}"/>')
     N = 230
     ts = [T * k / N for k in range(N + 1)]
@@ -1368,7 +1369,8 @@ def mm_wave():
     py = lambda c: Y0 - c / cap * (Y0 - Y1)
     for v in (0, 100, 200, 300, 400, 510):
         f.w(f'<line class="grid" x1="{X0}" y1="{py(v):.1f}" x2="{X1}" y2="{py(v):.1f}"/><text class="tick" x="{X0 - 8}" y="{py(v) + 4:.1f}" text-anchor="end">{v}</text>')
-    f.w(f'<text class="lab2" x="{X0}" y="{Y1 - 24}">全卡同时在跑的 program 数，按批次堆叠；虚线是 170 个 SM × 3 = {cap} 个名额</text>')
+    f.w(f'<text class="lab2" x="{X0}" y="{Y1 - 24}">某一时刻全卡已开始、未结束的 program 数，按批次堆叠；虚线是 170 × 3 = {cap} 个名额</text>')
+    f.w(f'<text class="lab2" x="16" y="{(Y0 + Y1) / 2:.1f}" text-anchor="middle" transform="rotate(-90 16 {(Y0 + Y1) / 2:.1f})">同时在跑的 program 数</text>')
     f.w(f'<line class="ref" x1="{X0}" y1="{py(cap):.1f}" x2="{X1}" y2="{py(cap):.1f}"/>')
     N = 420
     ts = [T * k / N for k in range(N + 1)]
