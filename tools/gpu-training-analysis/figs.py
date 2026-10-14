@@ -1400,7 +1400,7 @@ def tri_matmul():
         [("@", "cp.async"), ("dot", "tl.dot"), "⋯", ("@", "cp.async"), ("dot", "tl.dot"), ("relu", "tl.maximum"), ("@", "tl.store")], "matmul",
         ["cp.async 把 A、B 的 block 从显存直接搬进 shared memory，tl.dot 从中读 a、b 到 register 做 FMA；",
          "K 按 BK = 32 切成 64 轮，只画 T = 0 和 63；两个槽轮流用，算第 T 轮时第 T + 1 轮在搬；",
-         "写回前 C block 经 shared memory 换一次排布（A、B 已用完，复用同一块），再写回显存。"], mem_y1=384, smem="matmul")
+         "tl.store 先把 C block 经 shared memory 换一次排布（A、B 已用完，复用同一块），再写回显存。"], mem_y1=384, smem="matmul")
     RAMP = [.12 + .66 * k / 7 for k in range(8)]     # 沿 K 的 for 循环顺序：越晚读越深
     TX = lambda o: 'style="fill: var(--fig-on-1)"' if o > .5 else ''
     gid = "fig-t-4-acc"
@@ -1442,9 +1442,9 @@ def tri_matmul():
     f.w(f'<text class="s" x="{cx[4] + 4:.1f}" y="{S1[0] + 16}">槽 1</text><text class="s" x="{cx[4] + 4:.1f}" y="{S0[0] + 16}">槽 0</text>')
     over(f, T0X + CW, S0[0] - 2, T0X + CW, BY0 + RH_ + 2)               # 第 0 轮：槽 0 → a、b，从槽 1 上面穿过
     f.arrow(T63X + CW, S1[0] - 2, T63X + CW, BY0 + RH_ + 2, "--fig-2", width=1.4)   # 最后一轮：槽 1 → a、b
-    CR = (cx[5] - 4, cx[6] - 30)                                       # C block 换排布：用的还是这一块
+    CR = (cx[5] - 4, cx[6] - 30)                                       # tl.store 先给 C block 换排布（TTGIR 的 convert_layout 记在 tl.store 那一行）：用的还是这一块
     f.w(f'<rect x="{CR[0]:.1f}" y="{S1[0]}" width="{CR[1] - CR[0]:.1f}" height="{S0[1] - S1[0]}" rx="3" style="fill: var(--fig-1)" fill-opacity="{RAMP[-1]:.2f}"/>')
-    f.w(f'<text class="s" x="{(CR[0] + CR[1]) / 2:.1f}" y="{S1[0] + 24}" text-anchor="middle" {TX(RAMP[-1])}>C block</text><text class="s" x="{(CR[0] + CR[1]) / 2:.1f}" y="{S1[0] + 38}" text-anchor="middle" {TX(RAMP[-1])}>换排布</text>')
+    f.w(f'<text class="s" x="{(CR[0] + CR[1]) / 2:.1f}" y="{S1[0] + 24}" text-anchor="middle" {TX(RAMP[-1])}>tl.store</text><text class="s" x="{(CR[0] + CR[1]) / 2:.1f}" y="{S1[0] + 38}" text-anchor="middle" {TX(RAMP[-1])}>换排布</text>')
     f.arrow(CR[1] - 22, AY0 + RH_ + 2, CR[1] - 22, S1[0] - 2, "--fig-2", width=1.4); f.arrow(CR[1] - 10, S1[0] - 2, CR[1] - 10, AY0 + RH_ + 2, "--fig-2", width=1.4)
     S = 6                                            # 显存里的矩阵画全：一格 256 × 256 个元素，形状比例不变
     def mat(x0, y0, rows, cols, cells, labels, anchor="middle", lx=None, ly=None):

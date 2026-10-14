@@ -1055,7 +1055,7 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
   <text class="tb" x="542.3" y="62" text-anchor="middle">relu</text><text class="s" x="542.3" y="77" text-anchor="middle">tl.maximum</text>
   <text class="lab2" x="152" y="400">cp.async 把 A、B 的 block 从显存直接搬进 shared memory，tl.dot 从中读 a、b 到 register 做 FMA；</text>
   <text class="lab2" x="152" y="415">K 按 BK = 32 切成 64 轮，只画 T = 0 和 63；两个槽轮流用，算第 T 轮时第 T + 1 轮在搬；</text>
-  <text class="lab2" x="152" y="430">写回前 C block 经 shared memory 换一次排布（A、B 已用完，复用同一块），再写回显存。</text>
+  <text class="lab2" x="152" y="430">tl.store 先把 C block 经 shared memory 换一次排布（A、B 已用完，复用同一块），再写回显存。</text>
   <defs><linearGradient id="fig-t-4-acc" x1="0" x2="1" y1="0" y2="0"><stop offset="0.00" style="stop-color: var(--fig-1)" stop-opacity="0.12"/><stop offset="0.14" style="stop-color: var(--fig-1)" stop-opacity="0.21"/><stop offset="0.29" style="stop-color: var(--fig-1)" stop-opacity="0.31"/><stop offset="0.43" style="stop-color: var(--fig-1)" stop-opacity="0.40"/><stop offset="0.57" style="stop-color: var(--fig-1)" stop-opacity="0.50"/><stop offset="0.71" style="stop-color: var(--fig-1)" stop-opacity="0.59"/><stop offset="0.86" style="stop-color: var(--fig-1)" stop-opacity="0.69"/><stop offset="1.00" style="stop-color: var(--fig-1)" stop-opacity="0.78"/></linearGradient></defs>
   <rect x="285.7" y="103" width="344.3" height="21" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
   <rect x="226.0" y="128" width="223.0" height="21" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
@@ -1090,7 +1090,7 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
   <line x1="250.0" y1="200.0" x2="250.0" y2="151.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <line x1="407.3" y1="168.0" x2="407.3" y2="151.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <rect x="538.3" y="170" width="39.7" height="58" rx="3" style="fill: var(--fig-1)" fill-opacity="0.78"/>
-  <text class="s" x="558.2" y="194" text-anchor="middle" style="fill: var(--fig-on-1)">C block</text><text class="s" x="558.2" y="208" text-anchor="middle" style="fill: var(--fig-on-1)">换排布</text>
+  <text class="s" x="558.2" y="194" text-anchor="middle" style="fill: var(--fig-on-1)">tl.store</text><text class="s" x="558.2" y="208" text-anchor="middle" style="fill: var(--fig-on-1)">换排布</text>
   <line x1="556.0" y1="126.0" x2="556.0" y2="168.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <line x1="568.0" y1="168.0" x2="568.0" y2="126.0" style="stroke: var(--fig-2)" stroke-width="1.4" marker-end="url(#fig-t-4-m1)"/>
   <rect x="202.0" y="256" width="6" height="6" fill="none"/>
