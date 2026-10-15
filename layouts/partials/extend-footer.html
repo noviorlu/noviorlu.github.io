@@ -42,3 +42,47 @@
     document.addEventListener("DOMContentLoaded", reveal);
   })();
 </script>
+
+<script>
+  /* Every fold (<details class="fold">) also gets a TOC entry, nested under the heading it sits in. */
+  (function () {
+    function init() {
+      var tocs = document.querySelectorAll("#TableOfContents");
+      var content = document.querySelector(".article-content");
+      if (!tocs.length || !content) return;
+      var inToc = function (id) { return tocs[0].querySelector('a[href="#' + CSS.escape(id) + '"]'); };
+      var anchors = [].filter.call(content.querySelectorAll(".anchor[id]"), function (x) { return inToc(x.id); });
+      content.querySelectorAll("details.fold").forEach(function (d, i) {
+        var s = d.querySelector(":scope > summary");
+        if (!s) return;
+        if (!d.id) d.id = "note-" + (i + 1);
+        var head = null;
+        anchors.forEach(function (x) { if (x.compareDocumentPosition(d) & Node.DOCUMENT_POSITION_FOLLOWING) head = x; });
+        tocs.forEach(function (toc) {
+          var li = document.createElement("li");
+          li.className = "toc-fold";
+          var a = document.createElement("a");
+          a.href = "#" + d.id;
+          a.dataset.kind = d.classList.contains("aside") ? "notes" : "code";
+          a.textContent = s.textContent.trim();
+          a.addEventListener("click", function () { d.open = true; });
+          li.appendChild(a);
+          var host = head && toc.querySelector('a[href="#' + CSS.escape(head.id) + '"]');
+          var ul;
+          if (host) {
+            ul = host.parentElement.querySelector(":scope > ul");
+            if (!ul) { ul = document.createElement("ul"); host.parentElement.appendChild(ul); }
+          } else {
+            ul = toc.querySelector(":scope > ul");
+          }
+          if (!ul) return;
+          /* after earlier folds of the same section, before its sub-headings */
+          var next = ul.firstElementChild;
+          while (next && next.classList.contains("toc-fold")) next = next.nextElementSibling;
+          ul.insertBefore(li, next);
+        });
+      });
+    }
+    document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", init) : init();
+  })();
+</script>
