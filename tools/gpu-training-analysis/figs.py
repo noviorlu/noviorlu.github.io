@@ -1090,7 +1090,7 @@ def cuda_model():
         f.w(f'<rect x="{x}" y="248" width="8" height="16" rx="1.5" {tint("--fig-hi", 60 if k == 0 else 20)}/>')
     f.w(f'<path d="M32 264 L20 302 M40 264 L370 302" {zoom}/>')
     # thread
-    f.w('<text class="lab" x="32" y="328">thread：自己的 register 和下标</text>')
+    f.w('<text class="lab" x="32" y="328">thread：自己的 register，按编号算出读哪个数</text>')
     return f
 
 def occ_sweep():
