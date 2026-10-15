@@ -50,7 +50,20 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 
 两者是同一块 SRAM，区别在谁来管、给谁用。L1 是 cache：从显存读进来的数据经过它，硬件按 128 B 的 cache line 自动放进去、自动换出，kernel 指定不了哪些数据留下。shared memory 是 kernel 按地址读写的一块空间，数据什么时候放进去、什么时候被覆盖都由 kernel 决定；写 Triton 时这件事由编译器替你做，比如 [2.4 节](#triton-matmul) `tl.dot` 的 A、B block 和 `num_stages` 的两个槽。shared memory 按 program 分配，只有这个 program 的 thread 能读写，program 跑完才释放，所以它算在驻留上限里（[表 A-1](#tab-a-1)）。L1 由 SM 上所有 program 共用，不占名额，但里面的数据随时可能被别的 program 挤掉。
 
-GA102 白皮书列出了 compute 模式下的 6 种切法（L1 + shared memory）：128 + 0、120 + 8、112 + 16、96 + 32、64 + 64、28 + 100 KB。跑图形时固定为 64 KB L1、48 KB shared memory，另外 16 KB 留给图形管线。一个 kernel 用哪一档由驱动在启动时决定，kernel 可以通过 carveout 属性表达偏好，驱动不一定照办。
+GA102 白皮书列出的切法见[表 1-1](#tab-1-1)。跑 kernel 时（compute 模式）有 6 档，跑图形时固定一种，另外留 16 KB 给图形管线。
+
+| 模式 | L1 | shared memory | 图形管线 |
+|:--|--:|--:|--:|
+| compute | 128 KB | 0 KB | — |
+| compute | 120 KB | 8 KB | — |
+| compute | 112 KB | 16 KB | — |
+| compute | 96 KB | 32 KB | — |
+| compute | 64 KB | 64 KB | — |
+| compute | 28 KB | 100 KB | — |
+| graphics | 64 KB | 48 KB | 16 KB |
+{#tab-1-1 caption="**表 1-1** 每个 SM 的 128 KB 怎么切（GA102 白皮书）" note="5090 能选的 shared memory 档位和 GA102 一样。"}
+
+一个 kernel 用哪一档由驱动在启动时决定，kernel 可以通过 carveout 属性表达偏好，驱动不一定照办。
 
 白皮书只列了切法，没有说为什么 shared memory 最多 100 KB、至少留 28 KB 给 L1，CUDA 文档里也没有说明。能验证的是这 28 KB 确实还在当 L1 用。在 5090 上让一个 thread 在一段数据里按随机顺序跳着读，每次读的地址取决于上一次读到的值（pointer chase），这样每次读的耗时就是一次访存的延迟。shared memory 切到最大时，数据在 20 KB 以内每次读约 22 ns，都在 L1 命中；超过 24 KB 开始变慢，到 48 KB 约 140 ns，基本都要去 L2 读。切成 L1 优先时，64 KB 以内都还在 30 ns 以内。
 
