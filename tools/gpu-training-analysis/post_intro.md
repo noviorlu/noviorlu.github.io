@@ -60,7 +60,7 @@ GA102 白皮书列出了 compute 模式下的 6 种切法（L1 + shared memory�
 
 第一件是 CUDA core 和 Tensor core 的分工。CUDA core 一次算一个数：一条 FMA 指令里 warp 的 32 个 thread 各用一个 CUDA core，各做一次乘加（2 FLOPs）。5090 一共 170 × 128 个 CUDA core，fp32 峰值 1.05e14 FLOPS。Tensor core 一次算一个小矩阵乘：一条指令由整个 warp 一起发出，算一小块 A × B 再加到累加器上。它只吃 bf16、fp16、tf32、fp8 这类低精度输入，bf16 的峰值是 2.1e14 FLOPS（fp32 累加），fp8 更高。第 2 节的 `tl.dot` 默认走 Tensor core，加减乘除在 CUDA core 上算，exp 这类函数在 SFU 上算。
 
-第二件是 thread 和 register 的关系。每个 SMSP 的 register file 有 16384 个 32-bit register（64 KB），一个 SM 共 65536 个。每个 thread 用几个 register 在编译时就定了，最多 255 个。一个 warp 固定在一个 SMSP 上，block 放到 SM 上时，它的每个 thread 从所在 SMSP 的 register file 里分到这么多个 register，只归自己读写，一直占到 block 跑完。所以每个 thread 用的 register 越多，一个 SM 能同时驻留的 thread 就越少：每个 thread 用满 255 个时，一个 SM 只放得下 256 个 thread（8 个 warp），是上限 1536 个的六分之一；第 2 节的 softmax 每个 thread 用 55 个，一个 SM 只放得下 9 个 program（[图 A-1](#fig-t-8)）。
+第二件是 thread 和 register 的关系。每个 SMSP 的 register file 有 16384 个 32-bit register（64 KB），一个 SM 共 65536 个。每个 thread 用几个 register 在编译时就定了，最多 255 个。一个 warp 固定在一个 SMSP 上，block 放到 SM 上时，它的每个 thread 从所在 SMSP 的 register file 里分到这么多个 register，只归自己读写，一直占到 block 跑完。所以每个 thread 用的 register 越多，一个 SM 能同时驻留的 thread 就越少：每个 thread 用满 255 个时，一个 SM 只放得下 256 个 thread（8 个 warp），而 5090 一个 SM 最多能驻留 1536 个 thread（48 个 warp，见[表 A-1](#tab-a-1)），只用上了六分之一；第 2 节的 softmax 每个 thread 用 55 个，一个 SM 只放得下 9 个 program（[图 A-1](#fig-t-8)）。
 
 {{fig-h-9}}
 
