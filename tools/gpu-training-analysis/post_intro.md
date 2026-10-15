@@ -18,11 +18,11 @@ series_order: 1
 
 ---
 
-## 1 GPU：越靠近计算单元越快 {#hardware}
+## 1 GPU 硬件 {#hardware}
 
 做性能分析时最常用的两个数是峰值算力和显存带宽，一个 kernel 受哪个限制，取决于它要搬多少数据、在哪一层读写。这一节先看数据存在哪几层（[1.1](#hw-memory)）和 SM 里有什么（[1.2](#hw-sm)），再看 CUDA 的 thread、warp、block 怎么落到这些硬件上（[1.3](#hw-model)）。
 
-### 1.1 存储层级：越近越快，也越小 {#hw-memory}
+### 1.1 存储层级 {#hw-memory}
 
 处理器的频率早就不怎么涨了，算力的增长主要来自并行：更多的 SM、更宽的 Tensor core。显存带宽涨得慢得多：过去 20 年，峰值算力涨了约 6 万倍（每两年 3.0 倍），DRAM 带宽只涨了约 100 倍（每两年 1.6 倍），芯片之间的互联带宽约 30 倍（[图 1-1](#fig-memwall)）。带宽跟不上，越来越多的 op 受显存带宽限制（memory-bound），只能少搬：让读进来的数据留在离计算单元近的地方，多用几次。
 
@@ -39,14 +39,14 @@ series_order: 1
 
 register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构。
 
-### 1.2 一个 SM 里有什么 {#hw-sm}
+### 1.2 SM 的结构 {#hw-sm}
 
 每个 SM 分成 4 个 SMSP（SM sub-partition），每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core（做 FP32 和 INT32 运算）和一个 Tensor core，4 个 SMSP 共享 L1 / shared memory（[图 1-3](#fig-h-2)）。L1 和 shared memory 是同一块 128 KB 的片上存储，按几种固定的比例切开用，shared memory 最多切到 100 KB，这时 L1 cache 只剩 28 KB。NVIDIA 在 [GA102（RTX 30 系列）白皮书](https://www.nvidia.com/content/PDF/nvidia-ampere-ga-102-gpu-architecture-whitepaper-v2.pdf)里列出了这几种切法，5090 能选的 shared memory 档位和它一样：0、8、16、32、64、100 KB。两者的区别在谁来管：L1 是硬件自动管理的 cache，shared memory 由 kernel 按地址读写，按 program 分配。
 
 {{fig-h-2}}
 
 <details class="fold doc aside">
-<summary>L1 和 shared memory 有什么不同，为什么最多 100 KB</summary>
+<summary>为什么 shared memory 最多 100 KB</summary>
 
 两者是同一块 SRAM，区别在谁来管、给谁用。L1 是 cache：从显存读进来的数据经过它，硬件按 128 B 的 cache line 自动放进去、自动换出，kernel 指定不了哪些数据留下。shared memory 是 kernel 按地址读写的一块空间，数据什么时候放进去、什么时候被覆盖都由 kernel 决定；写 Triton 时这件事由编译器替你做，比如 [2.4 节](#triton-matmul) `tl.dot` 的 A、B block 和 `num_stages` 的两个槽。shared memory 按 program 分配，只有这个 program 的 thread 能读写，program 跑完才释放，所以它算在驻留上限里（[表 A-1](#tab-a-1)）。L1 由 SM 上所有 program 共用，不占名额，但里面的数据随时可能被别的 program 挤掉。
 
@@ -91,7 +91,7 @@ GA102 白皮书列出的切法见[表 1-1](#tab-1-1)。跑 kernel 时（compute 
 
 这些是硬件提供的资源。register 按 thread 分配，shared memory 按 block 分配，要知道一个 kernel 怎么用这些资源，得先看 CUDA 怎么把 thread 组织起来。
 
-### 1.3 编程模型：thread、warp、block、grid {#hw-model}
+### 1.3 编程模型 {#hw-model}
 
 CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 warp 的 32 个 thread 同一时刻执行同一条指令。thread 往上分四层：thread、warp（32 个 thread）、block（也叫 CTA，若干个 warp）、grid（一次 kernel 启动的全部 block），每层跑在哪个硬件上见[图 1-5](#fig-h-5)。
 
@@ -103,7 +103,7 @@ block 之间不能直接共享数据，只能通过显存交换，而这正是�
 
 ---
 
-## 2 Triton：按 block 写 kernel {#triton}
+## 2 Triton 入门 {#triton}
 
 Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的 tiling。CUDA 要写清楚每个 thread 做什么，shared memory 和同步都要自己管；Triton 只写一个 block 做什么：把它负责的数据读进来，在片上算完，再写回显存，block 内怎么分给 thread、要不要经过 shared memory 由编译器决定。Triton 把一个 block 叫作一个 program（[表 2-1](#tab-2-1)）。
 
@@ -132,7 +132,7 @@ Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的 tiling。C
 
 代码都在 RTX 5090 上和 PyTorch 对照过。每个例子配一张数据流图：左边是 grid，右边从上到下是计算单元、register、shared memory 和显存（芯片外的 GDDR7）。`tl.load` 和 `tl.store` 在显存和 register 或 shared memory 之间直接搬数据，计算单元只读写 register。中间经过的 L2 和 L1 cache 由硬件自动管理，图里不画。计算单元那一行从左往右是执行顺序；register 和 shared memory 里的一块存储只画一次，横向跨过它存在的那段时间，每一步在自己那一列读写它，块上标的是它的大小。
 
-### 2.1 GELU：逐元素 {#triton-gelu}
+### 2.1 GELU {#triton-gelu}
 
 GELU 对每个元素单独算，$\Phi$ 是标准正态分布的累积分布函数，实际用 tanh 近似：
 
@@ -176,7 +176,7 @@ div.full.f32     %r90, %r89, %r81;                              // 2 / (e + 1)
 
 GELU 的每个元素互不依赖，怎么切都可以。softmax 的每个元素都要用到整行的最大值和总和，切分就得按行来。
 
-### 2.2 Softmax：按行归约，一行一个 program {#triton-softmax}
+### 2.2 Softmax {#triton-softmax}
 
 softmax 对 `[M, N]` 的输入按行算，先减去每行的最大值 $m_i$ 防止 exp 溢出：
 
@@ -208,7 +208,7 @@ $y_{ij}$ 要用到第 $i$ 行全部 N 个数。eager 下 softmax 要 5 个 kerne
 
 这个写法要求 BLOCK ≥ N，也就是一行能一次装进一个 program。行再长，program 就只能沿行一个 block 一个 block 地读，读过的 block 要留下一个中间结果。下一节先看最简单的按行归约：求和。
 
-### 2.3 Row sum：按行归约，按 block 累加 {#triton-rowsum}
+### 2.3 Row sum {#triton-rowsum}
 
 row sum 对 `[M, N]` 的输入每行求和：
 
@@ -236,7 +236,7 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
 
 前面三个例子里每个数只读一次，切 block 只是为了把工作分给不同的 program。矩阵乘不同：A 的每个元素要和 B 的一整列相乘，切 block 是为了让读进片上的数据被多次使用。它也要沿 K 循环，累加器是 C 的一个 block。
 
-### 2.4 Matmul：block 乘加，顺手融合 ReLU {#triton-matmul}
+### 2.4 Matmul + ReLU {#triton-matmul}
 
 `[M, K] × [K, N]` 的矩阵乘再接 ReLU：
 
@@ -276,7 +276,7 @@ grid 是二维的：
 A 4096 × 2048、B 2048 × 512 时 Triton 版 203.3 µs，4.23e13 FLOPS，是 fp32 标称峰值 1.05e14 FLOPS（170 个 SM × 128 个 CUDA core × 2 FLOPs × 2.41e9 Hz）的 40%；cuBLAS（`torch.relu(A  B)`，关掉 tf32）是 160.5 µs。差距主要来自 tail effect：每个 SM 只放 3 个 program，512 个 program 要分两批跑，第二批只有 2 个，它们跑的时候另外 168 个 SM 都空着（见 [Appendix A.3](#sched-wave)）。BM、BN 本身也不是最优的：换成 128 × 128、8 个 warp，只有 128 个 program，一批就跑完，176.9 µs；这几个数怎么选见 [Appendix B](#tile)。
 
 <details class="fold doc aside">
-<summary>matmul 的 load 藏住了吗：PTX 计数和 Nsight Compute 实测</summary>
+<summary>matmul 的 load 藏住了吗</summary>
 
 Triton 默认 `num_stages=3`，编译器把这个循环改写成流水线：A、B 各开两个槽，算第 $T$ 轮时，第 $T+1$ 轮的 block 已经在搬了。从编译出的 TTGIR 和 PTX 里能数清楚 A、B 的 block 怎么进出 shared memory。循环前先发出第 0、1 轮的 cp.async；第 $T$ 轮先等第 $T$ 轮的数据到齐，用 ld.shared 读进 register 做乘加，读完马上往刚空出来的槽发第 $T+2$ 轮。A、B 各搬 64 次，每次 8 KB，一个 program 一共 1 MB；512 个 program 加起来 512 MB，而 A、B 本身只有 36 MB，所以 L2 命中率有 91%，大部分读不用到显存。每轮从 shared memory 读进 register 的是 192 KB，同一个数平均被读 12 次，这就是前面说的复用。写回之前 acc 还要经 shared memory 换一次排布：`tl.dot` 输出时每个 thread 拿两个 4 × 4 的小方块，编译器给 `tl.store` 选的排布是每个 thread 拿 8 段、每段一行里连续的 4 个数，同一个数换到了别的 thread 甚至别的 warp 手里，而 register 是每个 thread 私有的，只能先写进 shared memory、同步一次再按新排布读出来。两种排布写显存时都是一个 warp 一次写两整行，并不是为了合并写入；这一步是两种排布对不上留下的。代码里加了 `input_precision="ieee"`，所以 `tl.dot` 编译成 CUDA core 上的 `fma.rn.f32x2`；不加的话 fp32 输入默认走 tf32 的 Tensor core，和 fp32 矩阵乘的结果差 0.1 左右。
 
@@ -292,7 +292,7 @@ Triton 默认 `num_stages=3`，编译器把这个循环改写成流水线：A、
 
 ---
 
-## Appendix A 调度：program 怎么排到 SM 上跑 {#sched}
+## Appendix A 调度 {#sched}
 
 正文只用到一个结论：一个 SM 同时驻留多个 program，一个 warp 等数据时调度器换别的 warp 发射。这个 appendix 把它展开：一个 SM 能同时放几个 program（[A.1](#sched-limits)），驻留的 warp 怎么轮流发射（[A.2](#sched-warp)），program 多于全卡的名额时怎么分批跑（[A.3](#sched-wave)）。
 
@@ -317,7 +317,7 @@ GELU 和 row sum 用的 register 少、几乎不用 shared memory，先用完的
 四个 kernel 都用默认的 `num_warps=4`，一个 program 4 个 warp。这个数调大调小影响不大，只有 program 大到 48 个 warp 名额放不满时才明显变慢。matmul 加大 block 时要跟着改，见 [Appendix B](#tile)。
 
 <details class="fold doc aside">
-<summary>num_warps 调大调小会怎样</summary>
+<summary>num_warps 调大调小</summary>
 
 `num_warps` 是 Triton 启动 kernel 时的参数，决定一个 program 有几个 warp。program 个数不变时把它调大，同样的数据分给更多 thread：GELU 一个 program 1024 个数，`num_warps=1` 时 32 个 thread 每个处理 32 个数，用 80 个 register；`num_warps=32` 时 1024 个 thread 每个只处理 1 个数，用 10 个 register。
 
@@ -331,7 +331,7 @@ softmax 在 `num_warps=1` 时每个 SM 只驻留 12 个 warp，也没怎么变�
 
 驻留只说明 program 占住了名额，不说明它在跑。同一时刻真正在发射指令的，是每个 SMSP 的调度器挑中的那一个 warp。
 
-### A.2 warp 调度：驻留不等于在跑 {#sched-warp}
+### A.2 warp 调度 {#sched-warp}
 
 一个 program 的 warp 按编号轮流分到 4 个 SMSP，每个 SMSP 有自己的 warp scheduler、register file 和 32 个 CUDA core（[图 1-4](#fig-h-9)）。调度器每拍从驻留的 warp 里挑一个就绪的，发出它的一条指令。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp。所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态，所以同时驻留的 warp 越多，访存延迟越容易藏住（[图 A-2](#fig-h-6)）。
 
@@ -354,13 +354,13 @@ A 换成 4032 × 2048 时，504 个 program 一批放下，同一个 kernel 只�
 
 ---
 
-## Appendix B matmul 的 BM、BN 怎么选 {#tile}
+## Appendix B matmul 的 block 大小 {#tile}
 
 [2.4 节](#triton-matmul)的 BM = BN = 64、BK = 32 是为了讲解随手定的。这几个数 Triton 不替你选，实际工程里一般用 `@triton.autotune` 列一组候选配置，第一次遇到某个形状时都跑一遍，挑最快的记下来。这个 appendix 把候选扫一遍，看最快的配置在一个 SM 上用了多少 warp、register 和 shared memory，再从中找出怎么选。
 
 扫了两个形状：正文的 A 4096 × 2048、B 2048 × 512，和 4096 × 4096 × 4096。BM、BN 各取 32 到 256，BK 取 16、32、64，`num_warps` 取 4、8、16，`num_stages` 取 2、3，去掉放不下的组合，每个形状 198 组。都是 fp32、`input_precision="ieee"`，乘加走 CUDA core。
 
-### B.1 最快的配置用了什么 {#tile-best}
+### B.1 最快的配置 {#tile-best}
 
 正文形状下最快的是 BM = BN = 128、BK = 32、8 个 warp，176.9 µs，比正文的配置（这次扫描里 203.0 µs）少用 13% 的时间。[图 B-1](#fig-d-1) 把两者放上一个 SM 对比：最快的配置每个 SM 只驻留 1 个 program、8 个 warp，warp 名额只用了 17%，register 却用掉 88%，先用完的是 register。它只有 128 个 program，170 个 SM 里有 42 个整场空着，还是最快。
 
@@ -388,7 +388,7 @@ block 本身也要够大。每个 program 读进 A 的 BM × K 和 B 的 K × BN
 
 ---
 
-## Appendix C 几代 NVIDIA GPU 的规格 {#specs}
+## Appendix C 几代 GPU 的规格 {#specs}
 
 正文和 Appendix A、B 都只用 RTX 5090 的数。[表 C-1](#tab-c-1) 把它和三代数据中心卡放在一起，硬件规格、标称峰值和驻留上限都在一张表里。
 
@@ -413,7 +413,7 @@ block 本身也要够大。每个 program 读进 A 的 BM × K 和 B 的 K × BN
 
 ---
 
-## Appendix D TPU：更大的矩阵单元，更简单的控制 {#tpu}
+## Appendix D TPU {#tpu}
 
 正文的 GPU 靠 kernel 自己切 block 来复用数据。TPU 面对同样的带宽问题，思路是把控制逻辑做轻，把矩阵乘单元做大。
 
