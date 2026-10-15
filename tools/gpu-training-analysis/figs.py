@@ -740,7 +740,7 @@ def sweep():
     return f
 
 
-# ── 图 A-1 / A-2 GPU 硬件示意（RTX 5090，数据来自 NVIDIA RTX Blackwell 白皮书） ─────
+# ── 图 D-1 / D-2 GPU 硬件示意（RTX 5090，数据来自 NVIDIA RTX Blackwell 白皮书） ─────
 def hw_hierarchy():
     f = F("fig-h-1", 300, "RTX 5090 的存储层级：每个 SM 里有 256 KB register 和 128 KB L1/shared memory，170 个 SM 共享芯片上的 96 MB L2，芯片外是 32 GB GDDR7 显存，带宽 1.79e12 B/s")
     f.w('<rect x="10" y="22" width="452" height="250" rx="12" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="6 4"/>')
@@ -822,7 +822,7 @@ def hw_smsp():
         y += 15 * len(lines) + 8
     return f
 
-# ── Appendix D：matmul 的 BM、BN 扫描（mm_tile_sweep.json） ─────────────────────
+# ── Appendix B：matmul 的 BM、BN 扫描（mm_tile_sweep.json） ─────────────────────
 def _tile_rows():
     rows = json.load(open(os.environ.get("MM_TILE_JSON", os.path.join(HERE, "mm_tile_sweep.json"))))
     for r in rows:
@@ -897,7 +897,7 @@ def tile_rules():
         lx += 250
     return f
 
-# ── 图 B-1 第 2 节四个 kernel 的 program 怎么放上一个 SM（residency.json） ─────────
+# ── 图 A-1 第 2 节四个 kernel 的 program 怎么放上一个 SM（residency.json） ─────────
 def residency():
     R = json.load(open(os.path.join(HERE, "residency.json")))
     L = R["limits"]
@@ -995,7 +995,7 @@ def warp_slots():
         lx += 24 + 13 * len(lab) + 28
     return f
 
-# ── 图 A-1 / A-2 TPU（规格来自 How to Scale Your Model，TPU v5p） ─────
+# ── 图 D-1 / D-2 TPU（规格来自 How to Scale Your Model，TPU v5p） ─────
 def tpu_core():
     f = F("fig-h-3", 300, "TPU v5p 的一个 TensorCore：Scalar unit 发指令，VMEM 是编译器管理的片上存储，VREG 供给 VPU 和 4 个 128×128 的 MXU；芯片外是 95 GB HBM，带宽 2.8e12 B/s")
     f.w(f'<rect x="10" y="22" width="452" height="250" rx="12" {tint("--fig-1", 6, sw=1.4)}/>')
@@ -1144,7 +1144,7 @@ def tile_sweep():
         f.w(f'<line x1="{px(1024) + 24:.1f}" y1="{ly - 4}" x2="{px(1024) + 46:.1f}" y2="{ly - 4}" style="stroke: var({var})" stroke-width="2"/><text class="lab" x="{px(1024) + 54:.1f}" y="{ly}">{lab}</text>')
     return f
 
-# ── 图 B-3 GELU 的 8192 个 program 怎么分批跑（实测 trace） ──────────────────────
+# ── 图 A-3 GELU 的 8192 个 program 怎么分批跑（实测 trace） ──────────────────────
 def wave_trace():
     d = json.load(open(os.path.join(HERE, "wave_trace.json")))
     tr, cap = d["trace"], 170 * 12
@@ -1551,7 +1551,7 @@ def tri_matmul():
     f.w(f'<text class="s" x="{lx}" y="{ly + 40}">每轮读 A 的 64 × 32、B 的 32 × 64，各 8 KB；</text><text class="s" x="{lx}" y="{ly + 54}">图里一格 256 列，是 8 轮</text>')
     return f
 
-# ── 图 B-4 matmul 的 512 个 program 怎么分批跑（实测 trace） ─────────────────────
+# ── 图 A-4 matmul 的 512 个 program 怎么分批跑（实测 trace） ─────────────────────
 def mm_wave():
     runs = {r["M"]: r for r in json.load(open(os.path.join(HERE, "mm_wave_trace.json")))}
     cap, NB = 170 * 3, 8                                             # 名额；grid 第二维（N / BN）
@@ -1680,23 +1680,23 @@ def mm_pipe_ncu():
 CAPS = {
  "hw_hierarchy": '<strong>图 1-2</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。',
  "hw_sm": '<strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core 和 1 个 Tensor core，4 个 SMSP 共享 L1 / shared memory。',
- "residency": '<strong>图 B-1</strong> 第 2 节四个 kernel 的 program 怎么放上一个 SM（RTX 5090，形状同正文，每个 program 4 个 warp）。上面：第 2 节图里 grid 的一格是一个 program，也就是一个 CUDA block，放上 SM 时要占四样东西。下面每个 kernel 四根条，对应<a href="#tab-b-1">表 B-1</a> 的四条上限，条长是这条上限的总量；深色一格是一个实际放进去的 program 占的量，虚线框是只看这一条还能再放的，红框是先用完的那条，它决定了一个 SM 放几个。register 和 shared memory 读自编译出的 kernel；register 以 warp 为单位按 256 个分配，摊到每个 thread 是 8 的倍数，shared memory 按 128 B 取整。四条取最小的结果和 <code>cuOccupancyMaxActiveBlocksPerMultiprocessor</code> 算出的一致。softmax 和 row sum 的 16 B shared memory 用来让 4 个 warp 交换归约的部分结果。',
- "tile_res": '<strong>图 D-1</strong> 正文形状（A 4096 × 2048，B 2048 × 512，fp32）下最快的配置和正文用的配置，在一个 SM 上各用了多少，画法同<a href="#fig-t-8">图 B-1</a>。条长是这条上限的总量，深色一格是一个 program 占的量，红框是先用完的那条。',
- "tile_rules": '<strong>图 D-2</strong> 两个形状各扫 198 组配置（RTX 5090，fp32，<code>input_precision="ieee"</code>）。左：按每个 thread 存的 acc 个数（BM × BN / (32 × num_warps)）分组；右：按每个 SM 驻留的 warp 数分组。每组取最快的一个，纵轴是它比这个形状下整体最快的配置慢几倍；有 spill 的配置不算在内。悬停可看时间。',
- "warp_slots": '<strong>图 B-2</strong> 一个 SM 上驻留 3 个 program（P0、P1、P2）时的某一拍。格子里写的是这个 warp 属于哪个 program，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。',
+ "residency": '<strong>图 A-1</strong> 第 2 节四个 kernel 的 program 怎么放上一个 SM（RTX 5090，形状同正文，每个 program 4 个 warp）。上面：第 2 节图里 grid 的一格是一个 program，也就是一个 CUDA block，放上 SM 时要占四样东西。下面每个 kernel 四根条，对应<a href="#tab-a-1">表 A-1</a> 的四条上限，条长是这条上限的总量；深色一格是一个实际放进去的 program 占的量，虚线框是只看这一条还能再放的，红框是先用完的那条，它决定了一个 SM 放几个。register 和 shared memory 读自编译出的 kernel；register 以 warp 为单位按 256 个分配，摊到每个 thread 是 8 的倍数，shared memory 按 128 B 取整。四条取最小的结果和 <code>cuOccupancyMaxActiveBlocksPerMultiprocessor</code> 算出的一致。softmax 和 row sum 的 16 B shared memory 用来让 4 个 warp 交换归约的部分结果。',
+ "tile_res": '<strong>图 B-1</strong> 正文形状（A 4096 × 2048，B 2048 × 512，fp32）下最快的配置和正文用的配置，在一个 SM 上各用了多少，画法同<a href="#fig-t-8">图 A-1</a>。条长是这条上限的总量，深色一格是一个 program 占的量，红框是先用完的那条。',
+ "tile_rules": '<strong>图 B-2</strong> 两个形状各扫 198 组配置（RTX 5090，fp32，<code>input_precision="ieee"</code>）。左：按每个 thread 存的 acc 个数（BM × BN / (32 × num_warps)）分组；右：按每个 SM 驻留的 warp 数分组。每组取最快的一个，纵轴是它比这个形状下整体最快的配置慢几倍；有 spill 的配置不算在内。悬停可看时间。',
+ "warp_slots": '<strong>图 A-2</strong> 一个 SM 上驻留 3 个 program（P0、P1、P2）时的某一拍。格子里写的是这个 warp 属于哪个 program，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。',
  "hw_smsp": '<strong>图 1-4</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。',
  "cuda_model": '<strong>图 1-5</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。',
  "tri_gelu": '<strong>图 2-1</strong> GELU kernel（n = 8388608，fp32）。左边是 grid，数组按 BLOCK = 1024 切段，一段一个 program。右边是 program 1 的数据流，泳道和箭头的含义见正文。显存泳道里的整条是整个 x、y（各 8388608 个 fp32，32 MB），深色一段是 program 1 读写的 1024 个（4 KB）；按比例只有整条的 1/8192，图里放大了。',
- "wave_trace": '<strong>图 B-3</strong> GELU 的 8192 个 program 实际怎么分批跑（RTX 5090，n = 8388608，fp32，每个 program 4 个 warp）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，store 发出后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 编号所在的批次，一批 2040 个。浅红色是 bubble：名额上没有 program 在执行指令；最后一个 program 开始以后是 tail。下面的名额是按开始、结束时间排出来的，红框是这个 SM 上最长的一段空档。悬停可看 program 编号和时间。',
+ "wave_trace": '<strong>图 A-3</strong> GELU 的 8192 个 program 实际怎么分批跑（RTX 5090，n = 8388608，fp32，每个 program 4 个 warp）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，store 发出后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 编号所在的批次，一批 2040 个。浅红色是 bubble：名额上没有 program 在执行指令；最后一个 program 开始以后是 tail。下面的名额是按开始、结束时间排出来的，红框是这个 SM 上最长的一段空档。悬停可看 program 编号和时间。',
  "tri_softmax": '<strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。显存泳道里的方块是整个 x、y（各 64 MB），深色一条是 program 1 读写的那一行（4096 个 fp32，16 KB），按比例只有 1/4096，图里放大了。',
  "tri_rowsum": '<strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 个 block，代码里 TILE = 1024。颜色由淡到浓是 for 循环读 block 的顺序：第 0 轮后 acc 只有 block 0 的数，最后的 acc 是 4 个 block 逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。',
  "tri_matmul": '<strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 个 row block 和 B 的第 1 个 column block，颜色由淡到浓是沿 K 读 block 的顺序。acc 就是 C 的 block (1, 1)，64 轮 dot 在它上面一轮轮累加，ReLU 之后就是要写回的值，图里 ReLU 后的那段叫 C block。shared memory 里 A、B 各有两个槽：循环开始前先把第 0 轮搬进槽 0、第 1 轮搬进槽 1；算第 T 轮时用槽 T % 2，另一个槽在搬第 T + 1 轮，算完空出来的槽接着搬第 T + 2 轮，所以偶数轮在槽 0、奇数轮在槽 1，T = 63 在槽 1。',
- "mm_wave": '<strong>图 B-4</strong> matmul kernel 的 512 个 program 实际怎么分批跑（RTX 5090，fp32，A 4096 × 2048，B 2048 × 512，每个 SM 3 个 program），画法同<a href="#fig-t-5">图 B-3</a>。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，写回 C 之后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 的发射顺序所在的批次，一批 510 个。第 2 批只有 2 个，按比例只有 1 像素高，图里画成底边上的一条粗线并用红框圈出。悬停可看 program 编号和时间。',
+ "mm_wave": '<strong>图 A-4</strong> matmul kernel 的 512 个 program 实际怎么分批跑（RTX 5090，fp32，A 4096 × 2048，B 2048 × 512，每个 SM 3 个 program），画法同<a href="#fig-t-5">图 A-3</a>。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，写回 C 之后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 的发射顺序所在的批次，一批 510 个。第 2 批只有 2 个，按比例只有 1 像素高，图里画成底边上的一条粗线并用红框圈出。悬停可看 program 编号和时间。',
  "mm_pipe_ncu": '<strong>图 2-4a</strong> matmul kernel 一个 warp 的流水线（RTX 5090，fp32，A 4032 × 2048，504 个 program 一批跑完；Nsight Compute 实测，<code>--clock-control none</code>）。每轮的拍数 = 每条指令平均隔几拍 × 每轮的指令数，等数据的拍数 = 每条指令平均等 L2 / 显存几拍 × 每轮的指令数，都是 64 轮的平均值。load 的延迟没法直接测，按不预取时每轮等数据的拍数画。只画前 5 轮。',
  "occ_sweep": '<strong>图 2-5</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。',
  "tile_sweep": '<strong>图 2-6</strong> row sum 的 TILE 和带宽（RTX 5090，fp32，两种形状都是 340 MiB，<code>num_warps=4</code>，每点取 8 次计时的最快值）。悬停可看耗时和每线程的 register 数。',
- "tpu_core": '<strong>图 A-1</strong> TPU v5p 一个 TensorCore 的结构示意，画法对应<a href="#fig-h-1">图 1-2</a>。规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>，原书也有一张 TensorCore 的结构图。',
- "systolic": '<strong>图 A-2</strong> 乘加单元怎么拿到数据。左边是 GPU 的 CUDA core，右边是 TPU 的 MXU；x 按行错开一拍进入，y 是每列的输出。动画演示见 <a href="https://jax-ml.github.io/scaling-book/tpus/#appendix-b-how-does-a-systolic-array-work">How to Scale Your Model 的 Appendix B</a>。',
+ "tpu_core": '<strong>图 D-1</strong> TPU v5p 一个 TensorCore 的结构示意，画法对应<a href="#fig-h-1">图 1-2</a>。规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>，原书也有一张 TensorCore 的结构图。',
+ "systolic": '<strong>图 D-2</strong> 乘加单元怎么拿到数据。左边是 GPU 的 CUDA core，右边是 TPU 的 MXU；x 按行错开一拍进入，y 是每列的输出。动画演示见 <a href="https://jax-ml.github.io/scaling-book/tpus/#appendix-b-how-does-a-systolic-array-work">How to Scale Your Model 的 Appendix B</a>。',
  "linear": '<strong>图 2-1</strong> 一个 Linear 的前向与反向：前向从左边往下，误差从右边传回；虚线是反向要从前向拿的东西。',
  "step_time": '<strong>图 2-2</strong> 一步训练里前向、反向、optimizer 的耗时占比（fp32，batch 4，seq 512），右侧是每步耗时和 MFU。',
  "roofline": '<strong>图 1-1</strong> RTX 5090 各精度的 roofline：斜线是带宽，平线是峰值算力（dense，boost clock 2407 MHz，来自 NVIDIA RTX Blackwell 白皮书；Tensor core 按 fp32 累加）。',
