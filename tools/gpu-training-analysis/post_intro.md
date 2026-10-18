@@ -242,6 +242,12 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
 
 和 row sum 一样，分段加完再相加等于一次加完，所以每轮只读 $A_{IT}$、$B_{TJ}$ 两个 block，乘完累加，最后就是完整的 $C_{IJ}$。ReLU 逐元素作用在累加完的结果上，放在最后做。
 
+切 block 的好处在显存读写量。不切的话，算一个 $C_{ij}$ 要从显存读 A 的一行和 B 的一列，共 2K 个数。切成 BM × BN 以后，一个 program 把 A 的 BM × K 和 B 的 K × BN 读进来，给 BM × BN 个输出共用，平均到每个输出：
+
+<p align="center">$\dfrac{\mathrm{BM}\cdot K + K \cdot \mathrm{BN}}{\mathrm{BM} \cdot \mathrm{BN}} = \dfrac{K}{\mathrm{BN}} + \dfrac{K}{\mathrm{BM}}$</p>
+
+BM = BN = T 时是 2K / T，只有不切时的 1/T。乘加用到的数还是 2K 个，其余的改从 shared memory 读：一个数从显存读进来一次，在 shared memory 里被 T 个输出用到。这一节的形状 K = 2048、BM = BN = 64，每个 $C_{ij}$ 从显存读的数从 4096 个降到 64 个，整个 kernel 从 32 GB 降到 512 MB。block 越大读得越少，代价是一个 program 要占更多 register 和 shared memory，怎么取见 [3.5 节](#tile)。BM、BN、BK 都得是 2 的幂，这是 `tl.arange` 的要求；`tl.dot` 还要求 BK 至少 16。
+
 {{fig-t-4}}
 
 一个 program 负责一个 $C_{IJ}$（[图 2-5](#fig-t-4)），沿 K 循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上；写回前在 register 里做 ReLU，激活函数不用再单独一个 kernel 读写一遍 C：
