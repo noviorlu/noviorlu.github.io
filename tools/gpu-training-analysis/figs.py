@@ -951,8 +951,8 @@ def residency():
         f.w(f'<text class="s" x="456" y="{60 + k * 15}">{lab}</text>')
     # 下：四个 kernel，各四根条
     X0, BW = 156, 312
-    NAMES = (("gelu", "GELU", "fig-t-1", "2-1"), ("softmax", "softmax", "fig-t-2", "2-2"),
-             ("row_sum", "row sum", "fig-t-3", "2-3"), ("matmul", "matmul", "fig-t-4", "2-4"))
+    NAMES = (("gelu", "GELU", "fig-t-1", "2-2"), ("softmax", "softmax", "fig-t-2", "2-3"),
+             ("row_sum", "row sum", "fig-t-3", "2-4"), ("matmul", "matmul", "fig-t-4", "2-5"))
     BARS = (("warps", "warp 名额", f'{L["warps"]}'), ("blocks", "program 名额", f'{L["blocks"]}'),
             ("regs", "register", f'{L["regs"]}'), ("shared", "shared memory", f'{L["shared"] // 1024} KB'))
     def amt(key, v):
@@ -1386,6 +1386,85 @@ def grid_tiles(f):
                 f.w(f'<text class="s" x="{x + 18}" y="{y + 19}" text-anchor="middle">(1,2)</text>')
     f.w('<text class="lab2" x="10" y="146">每个 C block 一个 program</text>')
     return 77
+
+# ── 表 2-x 改成的图：四个例子的数据怎么分给 program（简化版的 grid 示意） ─────────────
+def op_split():
+    f = F("fig-o-1", 452, "四个例子的数据怎么分给 program：GELU 把 x 展平按 BLOCK 切段，一段一个 program，不循环；softmax 一行一个 program，整行一次读进来；row sum 一行一个 program，沿行一个 block 一个 block 读，累加器存部分和；matmul 每个 C block 一个 program，沿 K 循环，读 A 的一个 row block 和 B 的一个 column block")
+    C = 14                                                     # 一格的边长
+    def cell(x, y, var, pct, w=C, h=C):
+        f.w(f'<rect x="{x:.1f}" y="{y:.1f}" width="{w - 1.5:.1f}" height="{h - 1.5:.1f}" rx="1.5" {tint(var, pct, sw=1)}/>')
+    def mat(x, y, rows, cols, hi=lambda r, c: None, w=C, h=C):
+        for r in range(rows):
+            for c in range(cols):
+                v = hi(r, c)
+                cell(x + c * w, y + r * h, *(v if v else ("--fig-mute", 10)), w=w, h=h)
+    f.w('<defs><pattern id="fig-o-1-hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
+        '<line x1="0" y1="0" x2="0" y2="5" style="stroke: var(--fig-1)" stroke-opacity=".55" stroke-width="1.3"/></pattern></defs>')
+    def hatch(x, y, w=C, h=C):                                 # 之后几轮才读的 block
+        f.w(f'<rect x="{x:.1f}" y="{y:.1f}" width="{w - 1.5:.1f}" height="{h - 1.5:.1f}" rx="1.5" style="fill: url(#fig-o-1-hatch); stroke: var(--fig-1)" stroke-opacity=".8" stroke-width="1"/>')
+    def panel(x0, y0, title, kind, notes):
+        f.w(f'<rect x="{x0}" y="{y0}" width="306" height="206" rx="10" class="band"/>')
+        f.w(f'<text class="tb" x="{x0 + 12}" y="{y0 + 22}">{title}</text><text class="s" x="{x0 + 294}" y="{y0 + 22}" text-anchor="end" style="fill: var(--fig-hi)">{kind}</text>')
+        for i, n in enumerate(notes):
+            f.w(f'<text class="s" x="{x0 + 12}" y="{y0 + 174 + i * 15}">{n}</text>')
+    def arrow_r(x1, x2, y):
+        f.arrow(x1, y, x2, y, None, width=1.4)
+    # ── GELU
+    x0, y0 = 10, 8
+    panel(x0, y0, "GELU", "逐元素", ["x 展平，按 BLOCK 切段，一段一个 program", "不循环：一段一次读进 register"])
+    f.w(f'<text class="lab2" x="{x0 + 12}" y="{y0 + 58}">x</text><text class="lab2" x="{x0 + 12}" y="{y0 + 128}">y</text>')
+    for k in range(16):
+        seg = k // 4
+        hi = ("--fig-1", 32) if seg == 1 else None
+        cell(x0 + 30 + k * C, y0 + 46, *(hi or ("--fig-mute", 10)))
+        cell(x0 + 30 + k * C, y0 + 116, *(("--fig-hi", 30) if seg == 1 else ("--fig-mute", 10)))
+    for s in range(4):
+        f.w(f'<text class="s" x="{x0 + 30 + (s * 4 + 2) * C:.1f}" y="{y0 + 76}" text-anchor="middle">{"pid=1" if s == 1 else f"段 {s}"}</text>')
+    f.arrow(x0 + 30 + 6 * C, y0 + 82, x0 + 30 + 6 * C, y0 + 112, None, width=1.4)
+    # ── softmax
+    x0, y0 = 324, 8
+    panel(x0, y0, "softmax", "按行归约", ["一行一个 program", "不循环：整行（max 和 sum 都要用）一次读进来"])
+    mat(x0 + 14, y0 + 40, 5, 7, lambda r, c: ("--fig-1", 32) if r == 1 else None)
+    f.w(f'<text class="lab2" x="{x0 + 14}" y="{y0 + 126}">x</text>')
+    arrow_r(x0 + 14 + 7 * C + 6, x0 + 14 + 7 * C + 38, y0 + 40 + 1.5 * C)
+    mat(x0 + 14 + 7 * C + 44, y0 + 40, 5, 7, lambda r, c: ("--fig-hi", 30) if r == 1 else None)
+    f.w(f'<text class="lab2" x="{x0 + 14 + 7 * C + 44}" y="{y0 + 126}">y</text>')
+    f.w(f'<text class="s" x="{x0 + 14 + 7 * C + 44 + 7 * C + 4}" y="{y0 + 40 + 1.5 * C + 4}">pid=1</text>')
+    # ── row sum
+    x0, y0 = 10, 222
+    panel(x0, y0, "row sum", "按行归约", ["一行一个 program", "沿行循环：一轮读一个 block，累加器存部分和"])
+    mat(x0 + 14, y0 + 40, 5, 12, lambda r, c: ("--fig-1", 45) if (r, c // 3) == (1, 0) else None)
+    for c in range(3, 12):
+        hatch(x0 + 14 + c * C, y0 + 40 + C)
+    f.w(f'<text class="lab2" x="{x0 + 14}" y="{y0 + 126}">x</text>')
+    arrow_r(x0 + 14 + 12 * C + 6, x0 + 14 + 12 * C + 40, y0 + 40 + 1.5 * C)
+    mat(x0 + 14 + 12 * C + 46, y0 + 40, 5, 1, lambda r, c: ("--fig-hi", 30) if r == 1 else None)
+    f.w(f'<text class="lab2" x="{x0 + 14 + 12 * C + 46}" y="{y0 + 126}">s</text>')
+    f.w(f'<text class="s" x="{x0 + 14 + 12 * C + 46 + C + 6}" y="{y0 + 40 + 1.5 * C + 4}">pid=1</text>')
+    # ── matmul：C = A @ B，一格是一个 block
+    x0, y0 = 324, 222
+    panel(x0, y0, "matmul", "block 乘加", ["C 的一个 block 一个 program，grid 是二维", "沿 K 循环：一轮读 A、B 各一个 block，累加器存 C 的 block"])
+    b, n4 = 16, 4
+    gx = [x0 + 18, x0 + 18 + n4 * b + 30, x0 + 18 + 2 * (n4 * b + 30)]
+    gy = y0 + 66
+    for x, name in zip(gx, ("C", "A", "B")):
+        f.w(f'<text class="tb" x="{x + n4 * b / 2:.1f}" y="{gy - 10}" text-anchor="middle">{name}</text>')
+    for k in range(2):
+        f.w(f'<text class="t" x="{gx[k] + n4 * b + 15:.1f}" y="{gy + n4 * b / 2 + 5:.1f}" text-anchor="middle">{"=" if k == 0 else "@"}</text>')
+    for r in range(n4):
+        for c in range(n4):
+            cell(gx[0] + c * b, gy + r * b, *(("--fig-hi", 40) if (r, c) == (1, 1) else ("--fig-mute", 8)), w=b, h=b)
+            if r == 1:
+                (cell(gx[1] + c * b, gy + r * b, "--fig-1", 45, w=b, h=b) if c == 0 else hatch(gx[1] + c * b, gy + r * b, w=b, h=b))
+            else:
+                cell(gx[1] + c * b, gy + r * b, "--fig-mute", 8, w=b, h=b)
+            if c == 1:
+                (cell(gx[2] + c * b, gy + r * b, "--fig-1", 45, w=b, h=b) if r == 0 else hatch(gx[2] + c * b, gy + r * b, w=b, h=b))
+            else:
+                cell(gx[2] + c * b, gy + r * b, "--fig-mute", 8, w=b, h=b)
+    f.w(f'<text class="s" x="{gx[0] + n4 * b / 2:.1f}" y="{gy + n4 * b + 16}" text-anchor="middle">pid = (1, 1)</text>')
+    f.w(f'<text class="s" x="{(gx[1] + gx[2] + n4 * b) / 2:.1f}" y="{gy + n4 * b + 16}" text-anchor="middle">实心是第 0 轮读的 block，斜线是之后几轮</text>')
+    return f
 
 def tri_gelu():
     f, cx, p = lanes_fig("fig-t-1", "GELU kernel：数组展平成一维按 BLOCK 切段，一段一个 program；tl.load 把一段从显存读进 register，计算单元算 GELU，tl.store 从 register 直接写回显存",
@@ -1866,11 +1945,12 @@ CAPS = {
  "warp_slots": '<strong>图 3-2</strong> 一个 SM 上驻留 3 个 program（P0、P1、P2）时的某一拍。格子里写的是这个 warp 属于哪个 program，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。',
  "hw_smsp": '<strong>图 1-4</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。',
  "cuda_model": '<strong>图 1-5</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；中间是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>；右边是这一层在 Triton 里怎么写。',
- "tri_gelu": '<strong>图 2-1</strong> GELU kernel（n = 8388608，fp32）。左边是 grid，数组按 BLOCK = 1024 切段，一段一个 program。右边是 program 1 的数据流，泳道和箭头的含义见正文。显存泳道里的整条是整个 x、y（各 8388608 个 fp32，32 MB），深色一段是 program 1 读写的 1024 个（4 KB）；按比例只有整条的 1/8192，图里放大了。',
+ "op_split": '<strong>图 2-1</strong> 四个例子的数据怎么分给 program。深蓝是 pid = 1 的 program 要读的数据，红色是它写回的输出；row sum 和 matmul 要循环，实心是第 0 轮读的 block，斜线是之后几轮要读的。matmul 那格一格是一个 block。每个例子的完整数据流图在后面各小节。',
+ "tri_gelu": '<strong>图 2-2</strong> GELU kernel（n = 8388608，fp32）。左边是 grid，数组按 BLOCK = 1024 切段，一段一个 program。右边是 program 1 的数据流，泳道和箭头的含义见正文。显存泳道里的整条是整个 x、y（各 8388608 个 fp32，32 MB），深色一段是 program 1 读写的 1024 个（4 KB）；按比例只有整条的 1/8192，图里放大了。',
  "wave_trace": '<strong>图 3-5</strong> GELU 的 8192 个 program 实际怎么分批跑（RTX 5090，n = 8388608，fp32，每个 program 4 个 warp）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，store 发出后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 编号所在的批次，一批 2040 个。浅红色是 bubble：名额上没有 program 在执行指令；最后一个 program 开始以后是 tail。下面的名额是按开始、结束时间排出来的，红框是这个 SM 上最长的一段空档。悬停可看 program 编号和时间。',
- "tri_softmax": '<strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。显存泳道里的方块是整个 x、y（各 64 MB），深色一条是 program 1 读写的那一行（4096 个 fp32，16 KB），按比例只有 1/4096，图里放大了。',
- "tri_rowsum": '<strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 个 block，代码里 TILE = 1024。颜色由淡到浓是 for 循环读 block 的顺序：第 0 轮后 acc 只有 block 0 的数，最后的 acc 是 4 个 block 逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。',
- "tri_matmul": '<strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 个 row block 和 B 的第 1 个 column block，颜色由淡到浓是沿 K 读 block 的顺序。acc 就是 C 的 block (1, 1)，64 轮 dot 在它上面一轮轮累加，ReLU 之后就是要写回的值，图里 ReLU 后的那段叫 C block。A、B 的 block 由 cp.async 从显存经 L2 搬进 shared memory，不经过 register。shared memory 里 A、B 各有 2 个 slot，因为默认 <code>num_stages=3</code>：第 T 轮的 block 在第 T − 2 轮算完时开始搬，第 T − 1 轮期间在路上，第 T 轮被读出来算；算完 slot 就空出来，接着搬第 T + 2 轮。所以偶数轮用 slot 0、奇数轮用 slot 1，算第 T 轮时另一个 slot 里是第 T + 1 轮，见 <a href="#stages">3.2 节</a>。',
+ "tri_softmax": '<strong>图 2-3</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-2</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。显存泳道里的方块是整个 x、y（各 64 MB），深色一条是 program 1 读写的那一行（4096 个 fp32，16 KB），按比例只有 1/4096，图里放大了。',
+ "tri_rowsum": '<strong>图 2-4</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-2</a>。图里 TILE = 4，一行 16 个数分 4 个 block，代码里 TILE = 1024。颜色由淡到浓是 for 循环读 block 的顺序：第 0 轮后 acc 只有 block 0 的数，最后的 acc 是 4 个 block 逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。',
+ "tri_matmul": '<strong>图 2-5</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-2</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 个 row block 和 B 的第 1 个 column block，颜色由淡到浓是沿 K 读 block 的顺序。acc 就是 C 的 block (1, 1)，64 轮 dot 在它上面一轮轮累加，ReLU 之后就是要写回的值，图里 ReLU 后的那段叫 C block。A、B 的 block 由 cp.async 从显存经 L2 搬进 shared memory，不经过 register。shared memory 里 A、B 各有 2 个 slot，因为默认 <code>num_stages=3</code>：第 T 轮的 block 在第 T − 2 轮算完时开始搬，第 T − 1 轮期间在路上，第 T 轮被读出来算；算完 slot 就空出来，接着搬第 T + 2 轮。所以偶数轮用 slot 0、奇数轮用 slot 1，算第 T 轮时另一个 slot 里是第 T + 1 轮，见 <a href="#stages">3.2 节</a>。',
  "mm_wave": '<strong>图 3-6</strong> matmul kernel 的 512 个 program 实际怎么分批跑（RTX 5090，fp32，A 4096 × 2048，B 2048 × 512，每个 SM 3 个 program），画法同<a href="#fig-t-5">图 3-5</a>。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，写回 C 之后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 的发射顺序所在的批次，一批 510 个。第 2 批只有 2 个，按比例只有 1 像素高，图里画成底边上的一条粗线并用红框圈出。悬停可看 program 编号和时间。',
  "tx_barrier": '<strong>图 C-1</strong> 两种 barrier 怎么等数据（示意，横轴是时间，长度不按比例；画法参考 <a href="https://dam-cdn.nvd.orangelogic.com/AssetLink/705n6ur546g0uk43w0117r17n8042d73.pdf">H100 白皮书</a> Figure 20）。上下搬的是同样的 16 KB，显存带宽一样，所以放行得一样早；区别在 thread 的时间花在哪。上：asynchronous barrier 只数 thread 的 arrive，每个 thread 要自己搬完自己那份才 arrive，几乎没有空做别的。下：asynchronous transaction barrier 还数字节，发起 TMA 的 thread 先登记这次要等 16 KB，TMA 每写进 shared memory 一段就把字节数加到 barrier 上；thread 一开始就 arrive，搬运期间都在做别的活，thread 都 arrive 过、字节数也到齐才放行。白皮书说 A100 上等着的 thread 在 barrier 上空转，H100 上可以睡眠。',
  "pipe_slots": '<strong>图 3-3</strong> matmul 的循环按 shared memory slot 看（RTX 5090，fp32，A 4032 × 2048，B 2048 × 512，BM = BN = 64，BK = 32，4 个 warp），条长和<a href="#fig-t-6">图 3-4</a>一样按 Nsight Compute 测的每轮平均拍数画。num_stages = 3 时，第 k 轮的数据从发出 load 到被用完跨三轮：第 k − 2 轮算完后发出，第 k − 1 轮期间在路上，第 k 轮被读出来算，所以叫 3 级。它从发出到第 k 轮算完一直占着一个 slot，任何时刻都有两轮的数据占着 slot，所以 2 个 slot 就够。只画前 5 轮。',
@@ -1898,7 +1978,7 @@ CAPS = {
  "ckpt": '<strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。',
  "sweep": '<strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。',
 }
-OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("residency", residency), ("tile_res", tile_res), ("tile_rules", tile_rules), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("wave_trace", wave_trace), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("mm_wave", mm_wave), ("mm_pipe_ncu", mm_pipe_ncu), ("pipe_slots", pipe_slots), ("tx_barrier", tx_barrier), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
+OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("residency", residency), ("tile_res", tile_res), ("tile_rules", tile_rules), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("wave_trace", wave_trace), ("op_split", op_split), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("mm_wave", mm_wave), ("mm_pipe_ncu", mm_pipe_ncu), ("pipe_slots", pipe_slots), ("tx_barrier", tx_barrier), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
        ("flops_vs_time", flops_vs_time), ("share_vs_seq", share_vs_seq), ("peak_memory", peak_memory), ("peak_moment", peak_moment),
        ("rms_eager", rms_eager), ("rms_fused", rms_fused), ("attn_flow", attn_flow), ("layer_donut", layer_donut), ("timelines", timelines),
        ("bf16", bf16), ("ckpt", ckpt), ("sweep", sweep))}
