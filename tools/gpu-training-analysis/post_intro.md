@@ -91,7 +91,7 @@ GA102 白皮书列出的切法见[表 1-2](#tab-1-2)。跑 kernel 时（compute 
 
 </details>
 
-[图 1-3](#fig-h-2) 右下角的 TMA（Tensor Memory Accelerator）是 Hopper 起 SM 里专门搬数据的单元，负责显存和 shared memory 之间的整块搬运（[表 1-1](#tab-1-1)）。它不是另一条通路，和 LD/ST 发出的请求走的是同一条路，经片上互联到 L2；区别在请求由谁发、地址由谁算。cp.async 要每个 thread 自己算地址、各搬一小段；TMA 只要一个 thread 发一条指令，给它一个 tensor descriptor（整个张量的起点、形状、stride，以及这次要搬的一块有多大），地址由 TMA 算，越界的部分自动补零。搬没搬完用 shared memory 里的 mbarrier 来等。它还能反过来，把 shared memory 里的一块写回显存，这是 cp.async 做不到的。5090 也有 TMA：用 Triton 的 `tl.make_tensor_descriptor` 写一个复制 kernel，编出来的 PTX 里读是 `cp.async.bulk.tensor.2d.shared::cluster.global`、用 mbarrier 等，写回是 `cp.async.bulk.tensor.2d.global.shared::cta`。
+[图 1-3](#fig-h-2) 右下角的 TMA（Tensor Memory Accelerator）是 Hopper 起 SM 里专门搬数据的单元，负责显存和 shared memory 之间的整块搬运（[表 1-1](#tab-1-1)）。它是一个硬件单元，程序通过 `cp.async.bulk.tensor` 这类指令来用它，就像通过 ld / st 指令用 LD/ST 单元、通过 mma 指令用 Tensor core。它也不是另一条通路，和 LD/ST 发出的请求走的是同一条路，经片上互联到 L2；区别在请求由谁发、地址由谁算。cp.async 要每个 thread 自己算地址、各搬一小段；TMA 只要一个 thread 发一条指令，给它一个 tensor descriptor（整个张量的起点、形状、stride，以及这次要搬的一块有多大），地址由 TMA 算，越界的部分自动补零。搬没搬完用 shared memory 里的 mbarrier 来等。它还能反过来，把 shared memory 里的一块写回显存，这是 cp.async 做不到的。5090 也有 TMA：用 Triton 的 `tl.make_tensor_descriptor` 写一个复制 kernel，编出来的 PTX 里读是 `cp.async.bulk.tensor.2d.shared::cluster.global`、用 mbarrier 等，写回是 `cp.async.bulk.tensor.2d.global.shared::cta`。
 
 从显存到 shared memory 的三种搬法放在一起比（[表 1-3](#tab-1-3)）：
 
