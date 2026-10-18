@@ -3023,10 +3023,10 @@ ld.global 和 cp.async 的区别是数据进不进 register；cp.async 和 TMA �
 
 ### C.2 怎么知道搬完了 {#tma-barrier}
 
-[表 C-1](#tab-c-1) 里叉车按的那个铃，是 shared memory 里的一个 barrier（mbarrier）。普通的同步 bar.sync 要所有 thread 都走到这一行才一起往下走，先到的只能干等。Ampere 加的 asynchronous barrier 把它拆成两步：thread 干完自己那份先 arrive，arrive 不会停，接着做不依赖这批数据的活；真要用数据时再 wait，等所有 thread 都 arrive 过（[图 C-1](#fig-b-1) 上）。cp.async 用这种办法就够了，每个 thread 搬的是自己发出的那几条，搬完自己知道。TMA 不一样：数据是硬件搬的，没有哪个 thread 能说「我的那份到了」。所以 Hopper 加了 asynchronous transaction barrier，它除了数 thread 的 arrive，还数字节：发起 TMA 的 thread 先登记这次要等多少字节，TMA 每写进 shared memory 一段就把字节数加到 barrier 上，wait 要等 thread 都 arrive 过、字节数也到齐才放行（图 C-1 下）。5090 上用 TMA 编出来的 PTX 就是这一套：`mbarrier.init` 建 barrier，`mbarrier.arrive.expect_tx` 登记字节数，`cp.async.bulk.tensor ... mbarrier::complete_tx::bytes` 搬完时把字节数报给 barrier，`mbarrier.try_wait.parity` 等。
+[表 C-1](#tab-c-1) 里叉车按的那个铃，是 shared memory 里的一个 barrier（mbarrier）。普通的同步 bar.sync 要所有 thread 都走到这一行才一起往下走，先到的只能干等。Ampere 加的 asynchronous barrier 把它拆成两步：thread 干完自己那份先 arrive，arrive 不会停，接着做不依赖这批数据的活；真要用数据时再 wait，等所有 thread 都 arrive 过（[图 C-1](#fig-b-1) 上）。cp.async 用这种办法就够了，每个 thread 搬的是自己发出的那几条，搬完自己知道。TMA 不一样：数据是硬件搬的，没有哪个 thread 能说「我的那份到了」。所以 Hopper 加了 asynchronous transaction barrier，它除了数 thread 的 arrive，还数字节：发起 TMA 的 thread 先登记这次要等多少字节，TMA 每写进 shared memory 一段就把字节数加到 barrier 上，wait 要等 thread 都 arrive 过、字节数也到齐才放行（图 C-1 下）。图里上下搬的是同样的 16 KB，显存带宽一样，所以放行得一样早；transaction barrier 不会让数据来得更快，省下的是 thread 自己搬运的时间，这段时间可以拿去做别的活。5090 上用 TMA 编出来的 PTX 就是这一套：`mbarrier.init` 建 barrier，`mbarrier.arrive.expect_tx` 登记字节数，`cp.async.bulk.tensor ... mbarrier::complete_tx::bytes` 搬完时把字节数报给 barrier，`mbarrier.try_wait.parity` 等。
 
 <figure id="fig-b-1" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 420" width="100%" role="img" aria-label="两种 barrier 的甘特图。上：asynchronous barrier 只数 thread 的 arrive，4 个 thread 产出数据后 arrive，接着做不依赖这批数据的活，最后一个 thread arrive 时放行。下：asynchronous transaction barrier 还数字节，thread 0 发起 TMA 并登记 16 KB，TMA 分 4 段写进 shared memory，字节数到 16 KB 时放行">
+<svg class="fg" viewBox="0 0 640 440" width="100%" role="img" aria-label="两种 barrier 的甘特图。上下搬的是同样的 16 KB，放行时刻一样。上：asynchronous barrier 只数 thread 的 arrive，4 个 thread 各自搬完自己那份才 arrive，几乎没空做别的。下：asynchronous transaction barrier 还数字节，thread 0 发起 TMA 并登记 16 KB，4 个 thread 一开始就 arrive、去做别的活，TMA 分 4 段写进 shared memory，字节数到 16 KB 时放行">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -3046,97 +3046,88 @@ ld.global 和 cp.async 的区别是数据进不进 register；cp.async 和 TMA �
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
   </style>
-  <text class="tb" x="8" y="28">asynchronous barrier（Ampere 起）：只数 thread 的 arrive</text>
+  <text class="tb" x="8" y="28">asynchronous barrier（Ampere 起）：每个 thread 搬完自己那份再 arrive，只数 arrive</text>
   <text class="lab" x="8" y="54">thread 0</text>
-  <rect x="92.0" y="43" width="117.9" height="14" rx="2" style="fill: var(--fig-2)" fill-opacity="0.55"/>
-  <text class="s" x="151.0" y="54.0" text-anchor="middle">产出数据</text>
-  <rect x="209.9" y="43" width="42.9" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
-  <rect x="252.8" y="43" width="32.2" height="14" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
-  <rect x="285.0" y="43" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
-  <text class="s" x="343.9" y="54.0" text-anchor="middle">用数据</text>
-  <path d="M209.9 42 L214.9 50.0 L209.9 58 L204.9 50.0 Z" style="fill: var(--fig-1)"/>
+  <rect x="92.0" y="43" width="160.8" height="14" rx="2" style="fill: var(--fig-2)" fill-opacity="0.55"/>
+  <text class="s" x="172.4" y="54.0" text-anchor="middle">搬自己那份</text>
+  <rect x="252.8" y="43" width="32.2" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
+  <rect x="285.0" y="43" width="21.4" height="14" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
+  <rect x="306.4" y="43" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
+  <text class="s" x="365.4" y="54.0" text-anchor="middle">用数据</text>
+  <path d="M252.8 42 L257.8 50.0 L252.8 58 L247.8 50.0 Z" style="fill: var(--fig-1)"/>
   <text class="lab" x="8" y="74">thread 1</text>
-  <rect x="92.0" y="63" width="193.0" height="14" rx="2" style="fill: var(--fig-2)" fill-opacity="0.55"/>
-  <text class="s" x="188.5" y="74.0" text-anchor="middle">产出数据</text>
-  <rect x="285.0" y="63" width="53.6" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
-  <text class="s" x="311.8" y="74.0" text-anchor="middle">别的活</text>
-  <rect x="338.6" y="63" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
-  <text class="s" x="397.5" y="74.0" text-anchor="middle">用数据</text>
-  <path d="M285.0 62 L290.0 70.0 L285.0 78 L280.0 70.0 Z" style="fill: var(--fig-1)"/>
+  <rect x="92.0" y="63" width="214.4" height="14" rx="2" style="fill: var(--fig-2)" fill-opacity="0.55"/>
+  <text class="s" x="199.2" y="74.0" text-anchor="middle">搬自己那份</text>
+  <rect x="306.4" y="63" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
+  <text class="s" x="365.4" y="74.0" text-anchor="middle">用数据</text>
+  <path d="M306.4 62 L311.4 70.0 L306.4 78 L301.4 70.0 Z" style="fill: var(--fig-1)"/>
   <text class="lab" x="8" y="94">thread 2</text>
-  <rect x="92.0" y="83" width="85.8" height="14" rx="2" style="fill: var(--fig-2)" fill-opacity="0.55"/>
-  <text class="s" x="134.9" y="94.0" text-anchor="middle">产出数据</text>
-  <rect x="177.8" y="83" width="32.2" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
-  <rect x="209.9" y="83" width="75.0" height="14" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
-  <rect x="285.0" y="83" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
-  <text class="s" x="343.9" y="94.0" text-anchor="middle">用数据</text>
-  <path d="M177.8 82 L182.8 90.0 L177.8 98 L172.8 90.0 Z" style="fill: var(--fig-1)"/>
+  <rect x="92.0" y="83" width="139.4" height="14" rx="2" style="fill: var(--fig-2)" fill-opacity="0.55"/>
+  <text class="s" x="161.7" y="94.0" text-anchor="middle">搬自己那份</text>
+  <rect x="231.4" y="83" width="42.9" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
+  <rect x="274.2" y="83" width="32.2" height="14" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
+  <rect x="306.4" y="83" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
+  <text class="s" x="365.4" y="94.0" text-anchor="middle">用数据</text>
+  <path d="M231.4 82 L236.4 90.0 L231.4 98 L226.4 90.0 Z" style="fill: var(--fig-1)"/>
   <text class="lab" x="8" y="114">thread 3</text>
-  <rect x="92.0" y="103" width="150.1" height="14" rx="2" style="fill: var(--fig-2)" fill-opacity="0.55"/>
-  <text class="s" x="167.0" y="114.0" text-anchor="middle">产出数据</text>
-  <rect x="242.1" y="103" width="21.4" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
-  <rect x="263.5" y="103" width="21.4" height="14" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
-  <rect x="285.0" y="103" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
-  <text class="s" x="343.9" y="114.0" text-anchor="middle">用数据</text>
-  <path d="M242.1 102 L247.1 110.0 L242.1 118 L237.1 110.0 Z" style="fill: var(--fig-1)"/>
-  <line x1="285.0" y1="38" x2="285.0" y2="130" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="4 3"/>
-  <text class="s" x="291.0" y="132">最后一个 thread arrive，放行</text>
-  <text class="tb" x="8" y="168">asynchronous transaction barrier（Hopper 起，TMA 用的就是它）：还要数字节</text>
+  <rect x="92.0" y="103" width="182.2" height="14" rx="2" style="fill: var(--fig-2)" fill-opacity="0.55"/>
+  <text class="s" x="183.1" y="114.0" text-anchor="middle">搬自己那份</text>
+  <rect x="274.2" y="103" width="21.4" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
+  <rect x="295.7" y="103" width="10.7" height="14" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
+  <rect x="306.4" y="103" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
+  <text class="s" x="365.4" y="114.0" text-anchor="middle">用数据</text>
+  <path d="M274.2 102 L279.2 110.0 L274.2 118 L269.2 110.0 Z" style="fill: var(--fig-1)"/>
+  <line x1="306.4" y1="38" x2="306.4" y2="130" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="4 3"/>
+  <text class="s" x="312.4" y="132">最后一个 thread arrive，放行</text>
+  <text class="tb" x="8" y="168">asynchronous transaction barrier（Hopper 起）：同样 16 KB 交给 TMA 搬，还要数字节</text>
   <text class="lab" x="8" y="194">thread 0</text>
-  <rect x="92.0" y="183" width="32.2" height="14" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.7"/>
-  <rect x="124.2" y="183" width="128.6" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
-  <text class="s" x="188.5" y="194.0" text-anchor="middle">别的活</text>
-  <rect x="252.8" y="183" width="150.1" height="14" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
-  <rect x="402.9" y="183" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
-  <text class="s" x="461.8" y="194.0" text-anchor="middle">用数据</text>
-  <path d="M124.2 182 L129.2 190.0 L124.2 198 L119.2 190.0 Z" style="fill: var(--fig-1)"/>
+  <rect x="92.0" y="183" width="21.4" height="14" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.7"/>
+  <rect x="113.4" y="183" width="171.5" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
+  <text class="s" x="199.2" y="194.0" text-anchor="middle">别的活</text>
+  <rect x="285.0" y="183" width="21.4" height="14" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
+  <rect x="306.4" y="183" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
+  <text class="s" x="365.4" y="194.0" text-anchor="middle">用数据</text>
+  <path d="M113.4 182 L118.4 190.0 L113.4 198 L108.4 190.0 Z" style="fill: var(--fig-1)"/>
   <text class="lab" x="8" y="214">thread 1</text>
-  <rect x="102.7" y="203" width="107.2" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
-  <text class="s" x="156.3" y="214.0" text-anchor="middle">别的活</text>
-  <rect x="209.9" y="203" width="193.0" height="14" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
-  <rect x="402.9" y="203" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
-  <text class="s" x="461.8" y="214.0" text-anchor="middle">用数据</text>
-  <path d="M102.7 202 L107.7 210.0 L102.7 218 L97.7 210.0 Z" style="fill: var(--fig-1)"/>
+  <rect x="97.4" y="203" width="166.2" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
+  <text class="s" x="180.4" y="214.0" text-anchor="middle">别的活</text>
+  <rect x="263.5" y="203" width="42.9" height="14" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
+  <rect x="306.4" y="203" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
+  <text class="s" x="365.4" y="214.0" text-anchor="middle">用数据</text>
+  <path d="M97.4 202 L102.4 210.0 L97.4 218 L92.4 210.0 Z" style="fill: var(--fig-1)"/>
   <text class="lab" x="8" y="234">thread 2</text>
-  <rect x="102.7" y="223" width="171.5" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
-  <text class="s" x="188.5" y="234.0" text-anchor="middle">别的活</text>
-  <rect x="274.2" y="223" width="128.6" height="14" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
-  <rect x="402.9" y="223" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
-  <text class="s" x="461.8" y="234.0" text-anchor="middle">用数据</text>
-  <path d="M102.7 222 L107.7 230.0 L102.7 238 L97.7 230.0 Z" style="fill: var(--fig-1)"/>
+  <rect x="97.4" y="223" width="209.0" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
+  <text class="s" x="201.9" y="234.0" text-anchor="middle">别的活</text>
+  <rect x="306.4" y="223" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
+  <text class="s" x="365.4" y="234.0" text-anchor="middle">用数据</text>
+  <path d="M97.4 222 L102.4 230.0 L97.4 238 L92.4 230.0 Z" style="fill: var(--fig-1)"/>
   <text class="lab" x="8" y="254">thread 3</text>
-  <rect x="102.7" y="243" width="75.0" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
-  <text class="s" x="140.2" y="254.0" text-anchor="middle">别的活</text>
-  <rect x="177.8" y="243" width="225.1" height="14" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
-  <rect x="402.9" y="243" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
-  <text class="s" x="461.8" y="254.0" text-anchor="middle">用数据</text>
-  <path d="M102.7 242 L107.7 250.0 L102.7 258 L97.7 250.0 Z" style="fill: var(--fig-1)"/>
-  <text class="lab" x="8" y="274">TMA</text>
-  <rect x="124.2" y="263" width="64.3" height="14" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.35"/>
-  <text class="s" x="156.3" y="274.0" text-anchor="middle">写 4 KB</text>
-  <rect x="188.5" y="263" width="64.3" height="14" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.35"/>
-  <text class="s" x="220.6" y="274.0" text-anchor="middle">写 4 KB</text>
-  <rect x="252.8" y="263" width="75.0" height="14" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.35"/>
-  <text class="s" x="290.3" y="274.0" text-anchor="middle">写 4 KB</text>
-  <rect x="327.8" y="263" width="75.0" height="14" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.35"/>
-  <text class="s" x="365.4" y="274.0" text-anchor="middle">写 4 KB</text>
+  <rect x="97.4" y="243" width="155.4" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
+  <text class="s" x="175.1" y="254.0" text-anchor="middle">别的活</text>
+  <rect x="252.8" y="243" width="53.6" height="14" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
+  <rect x="306.4" y="243" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
+  <text class="s" x="365.4" y="254.0" text-anchor="middle">用数据</text>
+  <path d="M97.4 242 L102.4 250.0 L97.4 258 L92.4 250.0 Z" style="fill: var(--fig-1)"/>
+  <text class="lab" x="8" y="274">TMA</text><text class="s" x="312.4" y="274">写进 shared memory，共 16 KB，分 4 段</text>
+  <rect x="113.4" y="263" width="48.2" height="14" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.35"/>
+  <rect x="161.7" y="263" width="48.2" height="14" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.35"/>
+  <rect x="209.9" y="263" width="48.2" height="14" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.35"/>
+  <rect x="258.2" y="263" width="48.2" height="14" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.35"/>
   <text class="lab" x="8" y="294">字节计数</text>
-  <text class="s" x="185.5" y="294" text-anchor="end">4 KB</text>
-  <text class="s" x="249.8" y="294" text-anchor="end">8 KB</text>
-  <text class="s" x="324.8" y="294" text-anchor="end">12 KB</text>
-  <text class="s" x="399.9" y="294" text-anchor="end">16 KB</text>
-  <text class="s" x="94.0" y="294">0 / 16 KB</text>
-  <line x1="402.9" y1="178" x2="402.9" y2="310" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="4 3"/>
-  <text class="s" x="408.9" y="312">thread 都 arrive 过、字节到齐，放行</text>
-  <text class="s" x="94.0" y="178"></text>
-  <rect x="8" y="329" width="18" height="11" rx="2" style="fill: var(--fig-2)" fill-opacity="0.55"/><text class="s" x="32" y="338">产出数据</text>
-  <rect x="92.0" y="329" width="18" height="11" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/><text class="s" x="116.0" y="338">不依赖这批数据的活</text>
-  <rect x="228.5" y="329" width="18" height="11" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/><text class="s" x="252.5" y="338">等（A100 空转，H100 可以睡眠）</text>
-  <rect x="433.5" y="329" width="18" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/><text class="s" x="457.5" y="338">用数据</text>
-  <rect x="507.0" y="329" width="18" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.7"/><text class="s" x="531.0" y="338">发 TMA、登记 16 KB</text>
-  <path d="M13 347 L18 353 L13 359 L8 353 Z" style="fill: var(--fig-1)"/><text class="s" x="32" y="357">arrive：告诉 barrier 自己这份做完了，不阻塞</text>
+  <text class="s" x="158.7" y="294" text-anchor="end">4 KB</text>
+  <text class="s" x="206.9" y="294" text-anchor="end">8 KB</text>
+  <text class="s" x="255.2" y="294" text-anchor="end">12 KB</text>
+  <text class="s" x="303.4" y="294" text-anchor="end">16 KB</text>
+  <line x1="306.4" y1="178" x2="306.4" y2="310" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="4 3"/>
+  <text class="s" x="312.4" y="312">thread 都 arrive 过、字节到齐，放行</text>
+  <rect x="8" y="329" width="18" height="11" rx="2" style="fill: var(--fig-2)" fill-opacity="0.55"/><text class="s" x="32" y="338">thread 自己搬数据</text>
+  <rect x="147.1" y="329" width="18" height="11" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/><text class="s" x="171.1" y="338">不依赖这批数据的活</text>
+  <rect x="287.6" y="329" width="18" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/><text class="s" x="311.6" y="338">用数据</text>
+  <rect x="8" y="349" width="18" height="11" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/><text class="s" x="32" y="358">等（A100 空转，H100 可以睡眠）</text>
+  <rect x="217.0" y="349" width="18" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.7"/><text class="s" x="241.0" y="358">发 TMA、登记 16 KB</text>
+  <path d="M13 369 L18 375 L13 381 L8 375 Z" style="fill: var(--fig-1)"/><text class="s" x="32" y="378">arrive：告诉 barrier 自己这份做完了，不阻塞</text>
 </svg>
-<figcaption><strong>图 C-1</strong> 两种 barrier 怎么等数据（示意，横轴是时间，长度不按比例；画法参考 <a href="https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper">H100 白皮书</a> Figure 20）。上：asynchronous barrier 只数 thread 的 arrive。arrive 不阻塞，先到的 thread 可以先做不依赖这批数据的活，最后一个 thread arrive 时放行。下：asynchronous transaction barrier 还数字节。发起 TMA 的 thread 先登记这次要等 16 KB，TMA 每写进 shared memory 一段就把字节数加到 barrier 上，thread 都 arrive 过、字节数也到齐才放行。白皮书说 A100 上等着的 thread 在 barrier 上空转，H100 上可以睡眠。</figcaption>
+<figcaption><strong>图 C-1</strong> 两种 barrier 怎么等数据（示意，横轴是时间，长度不按比例；画法参考 <a href="https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper">H100 白皮书</a> Figure 20）。上下搬的是同样的 16 KB，显存带宽一样，所以放行得一样早；区别在 thread 的时间花在哪。上：asynchronous barrier 只数 thread 的 arrive，每个 thread 要自己搬完自己那份才 arrive，几乎没有空做别的。下：asynchronous transaction barrier 还数字节，发起 TMA 的 thread 先登记这次要等 16 KB，TMA 每写进 shared memory 一段就把字节数加到 barrier 上；thread 一开始就 arrive，搬运期间都在做别的活，thread 都 arrive 过、字节数也到齐才放行。白皮书说 A100 上等着的 thread 在 barrier 上空转，H100 上可以睡眠。</figcaption>
 </figure>
 
 ### C.3 有了 TMA 以后怎么分工 {#tma-ws}
