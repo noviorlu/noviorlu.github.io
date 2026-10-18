@@ -242,11 +242,18 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
 
 和 row sum 一样，分段加完再相加等于一次加完，所以每轮只读 $A_{IT}$、$B_{TJ}$ 两个 block，乘完累加，最后就是完整的 $C_{IJ}$。ReLU 逐元素作用在累加完的结果上，放在最后做。
 
-切 block 的好处在显存读写量。不切的话，算一个 $C_{ij}$ 要从显存读 A 的一行和 B 的一列，共 2K 个数。切成 BM × BN 以后（[图 2-5](#fig-o-2)），一个 program 把 A 的 BM × K 和 B 的 K × BN 读进来，给 BM × BN 个输出共用，平均到每个输出：
+切 block 的好处在显存读写量。不切的话，算一个 $C_{ij}$ 要从显存读 A 的一行和 B 的一列，一共 2K 个数。切成 BM × BN 以后（[图 2-5](#fig-o-2)），一笔账这样算：
 
-<p align="center">$\dfrac{\mathrm{BM}\cdot K + K \cdot \mathrm{BN}}{\mathrm{BM} \cdot \mathrm{BN}} = \dfrac{K}{\mathrm{BN}} + \dfrac{K}{\mathrm{BM}}$</p>
+- 一个 program 从显存读进 A 的 BM × K 个数，和 B 的 K × BN 个数。
+- 它算出 C 的 BM × BN 个输出，读进来的数给这些输出共用。
+- 平均到每个输出，从显存读 (BM × K + K × BN) / (BM × BN) = K / BN + K / BM 个数。
 
-BM = BN = T 时是 2K / T，只有不切时的 1/T。乘加用到的数还是 2K 个，其余的改从 shared memory 读：一个数从显存读进来一次，在 shared memory 里被 T 个输出用到。这一节的形状 K = 2048、BM = BN = 64，每个 $C_{ij}$ 从显存读的数从 4096 个降到 64 个，整个 kernel 从 32 GB 降到 512 MB。block 越大读得越少，代价是一个 program 要占更多 register 和 shared memory，怎么取见 [3.5 节](#tile)。BM、BN、BK 都得是 2 的幂，这是 `tl.arange` 的要求；`tl.dot` 还要求 BK 至少 16。
+BM = BN = T 时就是 2K / T，只有不切时的 1/T。乘加用到的数还是 2K 个，其余的改从 shared memory 读：一个数从显存读进来一次，在 shared memory 里被 T 个输出用到。代入这一节的形状，K = 2048：
+
+- 不切：每个输出从显存读 2 × 2048 = 4096 个数，整个 kernel 读 32 GB。
+- BM = BN = 64：每个输出读 2048 / 64 + 2048 / 64 = 64 个数，整个 kernel 读 512 MB。
+
+block 越大读得越少，代价是一个 program 要占更多 register 和 shared memory，怎么取见 [3.5 节](#tile)。BM、BN、BK 都得是 2 的幂，这是 `tl.arange` 的要求；`tl.dot` 还要求 BK 至少 16。
 
 {{fig-o-2}}
 
