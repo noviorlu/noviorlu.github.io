@@ -534,6 +534,9 @@ ul.flex.flex-row.mt-8.justify-center a.bg-primary-200 { background: var(--nv-acc
 #TableOfContents .toc-fold a { font-size: 12.5px; }
 /* Daily reports: the TOC lists sections only; per-paper titles are too long to be useful there. */
 .nv-article.is-daily #TableOfContents ul ul { display: none; }
+/* Daily reports: paper figures are hotlinked from arXiv; keep them from taking over the page. */
+.nv-article.is-daily .article-content img { display: block; max-height: 420px; width: auto; max-width: 100%; margin: 1em auto .4em; border-radius: 8px; background: #fff; }
+.nv-article.is-daily .article-content img + em, .nv-article.is-daily .article-content p > em:only-child { font-size: 13.5px; color: var(--nv-text-3); }
 #TableOfContents .toc-fold a::before {
   content: attr(data-kind); margin-right: 6px; padding: 0 6px; border-radius: 5px;
   font-size: 11px; font-weight: 600; color: var(--fig-1); background: color-mix(in srgb, var(--fig-2) 22%, transparent);
