@@ -307,7 +307,8 @@ program（也就是 CUDA block）放到 SM 上以后就一直驻留，直到它�
 
 - GELU 和 row sum 用的 register 少、几乎不用 shared memory，先用完的是 warp 名额：48 / 4 = 12 个。
 - softmax 把一整行 4096 个数放在 register 里，每个 thread 55 个，按 56 算：一个 program 占 56 × 128 = 7168 个；65536 / 7168 = 9.1，只放得下 9 个。
-- matmul 的 A、B block 放在 shared memory 里，一个 program 32 KB，加上保留的 1 KB 是 33 KB；100 / 33 = 3.03，只放得下 3 个。按 register 能放 5 个，用不满。
+- matmul 的 A、B block 放在 shared memory 里：每轮的 A、B block 共 16 KB，默认 `num_stages=3` 时 A、B 各开 2 个 slot，存两轮（[3.3 节](#stages)），一个 program 32 KB。
+- matmul 加上保留的 1 KB 是 33 KB；100 / 33 = 3.03，只放得下 3 个。按 register 能放 5 个，用不满。
 - program 名额有 24 个，四个 kernel 都用不完。
 
 register 用得极端时差别很大：每个 thread 用满 255 个，按 256 算，65536 / 256 = 256 个 thread，只有上限 1536 个的六分之一。
@@ -317,11 +318,9 @@ register 用得极端时差别很大：每个 thread 用满 255 个，按 256 �
 <details class="fold doc aside">
 <summary>num_warps 调大调小</summary>
 
-program 个数不变时把 `num_warps` 调大，同样的数据分给更多 thread：GELU 一个 program 1024 个数，`num_warps=1` 时 32 个 thread 每个处理 32 个数，用 80 个 register；`num_warps=32` 时 1024 个 thread 每个只处理 1 个数，用 10 个 register。
+GELU 一个 program 1024 个数，`num_warps=1` 时每个 thread 处理 32 个数，用 80 个 register；`num_warps=32` 时每个 thread 只处理 1 个数，用 10 个 register。
 
-每个 SM 放的 program 也跟着变少：48 个 warp 名额只够放 48 / num_warps 个。`num_warps` 从 2 到 16，warp 名额都是满的，每个 SM 驻留的 warp 总数不变，GELU 的耗时也基本不变。变化出在两头。`num_warps=1` 时先用完的是 24 个 program 名额，每个 SM 只驻留 24 个 warp，但 GELU 没有变慢，因为每个 thread 要处理 32 个数，一次能发出好几个 load。`num_warps=32` 时一个 program 就占 32 个 warp，第二个放不下，48 个名额空着 16 个，每个 thread 又只处理 1 个数，GELU 明显变慢。
-
-softmax 在 `num_warps=1` 时每个 SM 只驻留 12 个 warp，也没怎么变慢：每个 thread 处理这一行里的 128 个数，同时有很多个 load 在路上，几个 warp 就能让显存一直有请求在处理。这是藏延迟的另一种办法（[3.2 节](#sched-warp)）。
+每个 SM 放的 program 也跟着变：48 个 warp 名额只够放 48 / num_warps 个。`num_warps` 从 2 到 16，warp 名额都是满的，每个 SM 驻留的 warp 总数不变，GELU 的耗时也基本不变。变化出在两头。`num_warps=1` 时先用完的是 24 个 program 名额，每个 SM 只驻留 24 个 warp；softmax 在 `num_warps=1` 时每个 SM 只驻留 12 个 warp。两者都没怎么变慢，因为 GELU 每个 thread 处理 32 个数，softmax 每个 thread 处理一行里的 128 个数，一个 thread 同时有好几个 load 在路上（[3.2 节](#sched-warp)）。`num_warps=32` 时一个 program 就占 32 个 warp，第二个放不下，48 个名额空着 16 个，每个 thread 又只处理 1 个数，GELU 明显变慢。
 
 </details>
 
@@ -335,7 +334,7 @@ softmax 在 `num_warps=1` 时每个 SM 只驻留 12 个 warp，也没怎么变�
 
 {{fig-h-6}}
 
-多驻留 warp 不是藏延迟的唯一办法。让每个 thread 多干活也行：一个 thread 同时有很多个 load 在路上，几个 warp 就能让显存一直有请求在处理，比如 [3.1 节 notes](#sched-limits) 里 `num_warps=1` 的 softmax。另一种是在同一个 warp 里提前发 load，等用到时数据已经到了，这就是 `num_stages`。
+多驻留 warp 不是藏延迟的唯一办法，还有两种。一种是让每个 thread 多干活：一个 thread 手里有很多条互不依赖的指令可以连着发，比如同时有很多个 load 在路上，几个 warp 就能让显存一直有请求在处理，[3.1 节](#sched-limits) notes 里 `num_warps=1` 的 GELU 和 softmax 就是这样。另一种是在同一个 warp 里提前发 load，等用到时数据已经到了，这就是 `num_stages`。
 
 ### 3.3 num_stages：用预取藏住 load {#stages}
 
@@ -355,15 +354,15 @@ cp.async 从显存经 L2 直接写进 shared memory，不占 register，发出�
 | 2 | 1 | 0 | 16 KB | 5 | 175.8 µs |
 | 3（默认） | 2 | 1 | 32 KB | 3 | 169.3 µs |
 | 4 | 3 | 2 | 48 KB | 2 | 210.0 µs |
-{#tab-3-2 caption="**表 3-2** matmul 的 num_stages 改了什么（A 4032 × 2048，B 2048 × 512，BM = BN = 64，BK = 32，4 个 warp）" note="slot 数读自编译出的 TTGIR，提前几轮读自 PTX 里 cp.async 的发出位置，shared memory 读自编译结果的 metadata。用 4032 行是为了避开 3.4 节的 tail effect：504 个 program 在每个 SM 放 3 个时正好一批。耗时是 <code>do_bench</code> 跑 5 次的中位数。它和 3.4 节的 158.3 µs 是不同时间的两次测量，整体差约 7%，比较各档只看这一张表。"}
+{#tab-3-2 caption="**表 3-2** matmul 的 num_stages 改了什么（A 4032 × 2048，B 2048 × 512，BM = BN = 64，BK = 32，4 个 warp）" note="slot 数读自编译出的 TTGIR，提前几轮读自 PTX 里 cp.async 的发出位置，shared memory 读自编译结果的 metadata。用 4032 行是为了让 504 个 program 正好一批跑完，避开 3.4 节的 tail effect。耗时是 <code>do_bench</code> 跑 5 次的中位数。3.4 节 4096 行换 <code>num_stages</code> 的耗时和这张表是同一次测量；3.4 节的 158.3 µs 是另一次测量，和这张表整体差约 7%，比较各档只看这一张表。"}
 
-前三档越来越快，181.4、175.8、169.3 µs。`num_stages=2` 只有 1 个 slot，第 $k+1$ 轮的 load 要等第 $k$ 轮算完、slot 空出来才能发，发完紧接着就要用（PTX 里是 `cp.async.wait_group 0`），同一个 warp 里搬和算并没有重叠；它比 `num_stages=1` 快，是因为 cp.async 不经过 register，省掉了 st.shared 这一步。`num_stages=3` 才真正提前一整轮。到 `num_stages=4`，48 KB 的 shared memory 让每个 SM 只放得下 2 个 program，全卡一批只放得下 340 个，504 个 program 要分两批，耗时退回 210.0 µs。`num_stages` 是拿 shared memory 换预取，slot 多到挤掉驻留的 program 就得不偿失。
+前三档越来越快。`num_stages=2` 只有 1 个 slot，第 $k+1$ 轮的 load 要等第 $k$ 轮算完、slot 空出来才能发，发完紧接着就要用（PTX 里是 `cp.async.wait_group 0`），同一个 warp 里搬和算并没有重叠；它比 `num_stages=1` 快，是因为 cp.async 不经过 register，省掉了 st.shared 这一步。`num_stages=3` 才真正提前一整轮。到 `num_stages=4`，48 KB 的 shared memory 让每个 SM 只放得下 2 个 program，全卡一批 340 个，504 个 program 要分两批，耗时退回 210.0 µs。`num_stages` 是拿 shared memory 换预取，slot 多到挤掉驻留的 program 就得不偿失。
 
 预取藏住了多少等待，用 Nsight Compute 量（[图 3-4](#fig-t-6)）。ncu 给的是一个 warp 每两条指令之间平均隔几拍、这几拍里在等什么，乘上每轮的指令数（约 1220 条），就是每轮的拍数。`num_stages=1` 时每轮 5601 拍，其中 852 拍在等 L2 或显存的数据。`num_stages=3` 时每轮 4901 拍，等数据只剩 74 拍：第 $k$ 轮的 load 提前一整轮发出，约 852 拍就到，到用的时候早已在 slot 里。load 只占一轮的六分之一，提前一轮已经够，再多的 slot 只是多占 shared memory。
 
 {{fig-t-6}}
 
-每轮少了 13%，整个 kernel 只快 7%（[表 3-2](#tab-3-2)）：一个 warp 等数据的时候，同一个 SMSP 上另外两个 warp 本来就能发射（[3.2 节](#sched-warp)），这段等待原本就被藏住了一部分。剩下的时间主要花在等 ld.shared 的结果和轮不到发射上：FMA 管线只忙了 66%，shared memory 读只用了 55%，两边都没满。每个 SMSP 上只有 3 个 warp，一个 warp 等 ld.shared 时，没有足够多的别的 warp 补上。
+每轮少了 13%，整个 kernel 只快 7%（[表 3-2](#tab-3-2)）。每个 SMSP 上有 3 个 warp，一个 warp 等数据的时候，另外两个本来就能发射（[图 3-2](#fig-h-6)），这段等待原本就被藏住了一部分。剩下的时间主要花在等 ld.shared 的结果和轮不到发射上：FMA 管线只忙了 66%，shared memory 读只用了 55%，两边都没满。一个 warp 等 ld.shared 时，只靠另外两个 warp 补不上。
 
 row sum 也有循环，但 `num_stages` 对它没有作用：取 1、2、3 时编出的 TTGIR 都没有 cp.async，也没有开 slot，三档耗时相差 1% 以内。这四个例子里，只有 matmul 的循环被改写成了流水线；GELU 和 softmax 没有循环，更用不上。
 
@@ -371,7 +370,7 @@ row sum 也有循环，但 `num_stages` 对它没有作用：取 1、2、3 时�
 
 ### 3.4 wave 和 tail effect {#sched-wave}
 
-GELU 每个 SM 放 12 个 program，全卡一次放得下 170 × 12 = 2040 个，8192 个要 5 批，第 5 批只有 32 个。[图 3-5](#fig-t-5) 上半部分的纵轴是某一时刻全卡已经开始、还没结束的 program 数：在横轴上任取一个时刻，曲线的高度就是那一刻 170 个 SM 上一共在跑几个 program。实测的时间线上批次之间却没有分界：一个 program 跑完，它的名额很快就换下一个进来，第 2 批在 2.6 µs 就开始了，第 1 批到 15.4 µs 才全部跑完。曲线也没有一直贴着 2040：从一个 program 发出最后一条 store，到同一个名额上的下一个 program 执行第一条指令，中间有一段空档，名额上没有 program 在执行指令，叫 bubble（图里浅红色的部分）。空档里可能是上一个 program 还在等 store 写完、名额还没回收，也可能是新 program 还没启动，打点分不出来。从第一个 program 结束到最后一个 program 开始，平均有 25% 的名额处在 bubble 里。同一批的 program 都在抢显存带宽，耗时从 4.2 µs 到 11.9 µs 不等（10% 和 90% 分位）。36.5 µs 时最后一个 program 开始，之后名额一个个空出来，在跑的 program 从 1400 个左右降到 0，这段约 10 µs，占整个 kernel 的 22%，叫 tail effect。打点的开销很小：打点版 46.9 µs，不打点 45.2 µs。
+GELU 每个 SM 放 12 个 program（[3.1 节](#sched-limits)），全卡一次放得下 170 × 12 = 2040 个，8192 个要 5 批，第 5 批只有 32 个。[图 3-5](#fig-t-5) 上半部分的纵轴是某一时刻全卡已经开始、还没结束的 program 数：在横轴上任取一个时刻，曲线的高度就是那一刻 170 个 SM 上一共在跑几个 program。实测的时间线上批次之间却没有分界：一个 program 跑完，它的名额很快就换下一个进来，第 2 批在 2.6 µs 就开始了，第 1 批到 15.4 µs 才全部跑完。曲线也没有一直贴着 2040：从一个 program 发出最后一条 store，到同一个名额上的下一个 program 执行第一条指令，中间有一段空档，名额上没有 program 在执行指令，叫 bubble（图里浅红色的部分）。空档里可能是上一个 program 还在等 store 写完、名额还没回收，也可能是新 program 还没启动，打点分不出来。从第一个 program 结束到最后一个 program 开始，平均有 25% 的名额处在 bubble 里。同一批的 program 都在抢显存带宽，耗时从 4.2 µs 到 11.9 µs 不等（10% 和 90% 分位）。36.5 µs 时最后一个 program 开始，之后名额一个个空出来，在跑的 program 从 1400 个左右降到 0，这段约 10 µs，占整个 kernel 的 22%，叫 tail effect。打点的开销很小：打点版 46.9 µs，不打点 45.2 µs。
 
 {{fig-t-5}}
 
@@ -381,11 +380,11 @@ program 少而每个都重时，尾巴更明显。matmul 每个 SM 只放 3 个 
 
 A 换成 4032 × 2048 时，504 个 program 一批放下，同一个 kernel 只要 158.3 µs，和 cuBLAS（`torch.relu(A @ B)`，关掉 tf32）的 160.5 µs 相当。4096 比 4032 的计算量只多 1.6%，耗时多 28%。打点的开销不大：打点版 210.8 µs 和 162.8 µs，不打点 203.3 µs 和 158.3 µs。
 
-换 `num_stages` 也躲不开：4096 行时 `num_stages` 取 1 到 4，每个 SM 放 5、5、3、2 个 program，耗时都在 209 到 214 µs（和[表 3-2](#tab-3-2)是同一次测量）。512 个 program 分给 170 个 SM，平均每个 SM 3.01 个，总有 SM 要多跑一个，整个 kernel 等的就是它们。要躲开 tail，得改 program 的个数，也就是 block 的大小。
+换 `num_stages` 也躲不开：4096 行时 `num_stages` 取 1 到 4，每个 SM 放的 program 从 5 个降到 2 个（[表 3-2](#tab-3-2)），耗时都在 209 到 214 µs。512 个 program 分给 170 个 SM，平均每个 SM 3.01 个，总有 SM 要多跑一个，整个 kernel 等的就是它们。要躲开 tail，得改 program 的个数，也就是 block 的大小。
 
 ### 3.5 matmul 的 block 大小 {#tile}
 
-[2.4 节](#triton-matmul)的 BM = BN = 64、BK = 32 是为了讲解随手定的。这几个数 Triton 不替你选，实际工程里一般用 `@triton.autotune` 列一组候选配置，第一次遇到某个形状时都跑一遍，挑最快的记下来（[3.6 节](#autotune)）。这一小节把候选扫一遍，看最快的配置在一个 SM 上用了多少 warp、register 和 shared memory，再从中找出怎么选。
+改 block 的大小，program 的个数和每个 program 占的 register、shared memory 一起变。[2.4 节](#triton-matmul)的 BM = BN = 64、BK = 32 是为了讲解随手定的，Triton 不替你选。这一小节先手动把候选扫一遍，看最快的配置在一个 SM 上用了多少 warp、register 和 shared memory，再从中找出怎么选。
 
 扫了两个形状：正文的 A 4096 × 2048、B 2048 × 512，和 4096 × 4096 × 4096。BM、BN 各取 32 到 256，BK 取 16、32、64，`num_warps` 取 4、8、16，`num_stages` 取 2、3，去掉放不下的组合，每个形状 198 组。都是 fp32、`input_precision="ieee"`，乘加走 CUDA core。
 
@@ -405,7 +404,7 @@ A 换成 4032 × 2048 时，504 个 program 一批放下，同一个 kernel 只�
 
 每个 thread 放 32 到 64 个 acc 最快，越少越慢，只放 2 个时慢 2.1 到 2.4 倍。register 这一层也有复用：thread 每从 shared memory 读进 a、b 的一个数，就拿它和手里的一小块 acc 一起算，8 × 8 的 acc 每读 8 + 8 个数做 64 次 FMA，acc 越多，每读一个数做的 FMA 越多。上限是 register 的个数：acc 加上 a、b 和地址一起超过 255 个就要 spill 到 local memory。最严重的一组是 256 × 128、4 个 warp，每个 thread 有 554 个 4 B 的值放不进 register，两个形状下分别慢 10.7 倍和 6.8 倍。
 
-每个 SM 驻留 8 到 16 个 warp 最快，驻留满 48 个反而慢 1.8 到 2.0 倍。这两条其实是同一件事：一个 SM 的 register 总共 65536 个，驻留的 warp 越多，每个 thread 分到的越少。驻留 48 个 warp 时每个 thread 最多 40 个 register（65536 / 1536 再按 8 个一组取整），放不下 32 个 acc 再加上 a、b。matmul 也不需要多驻留 warp 来藏延迟：每个 thread 手里有几十个互不依赖的 FMA 可以连着发，下一轮的 A、B 也已经由 `num_stages` 的两个 slot 提前搬好。这一点和 [3.1 节 notes](#sched-limits) 里 softmax 的情况一样，都是让每个 thread 多干活来代替多驻留 warp。
+每个 SM 驻留 8 到 16 个 warp 最快，驻留满 48 个反而慢 1.8 到 2.0 倍。这两条其实是同一件事：一个 SM 的 register 总共 65536 个，驻留的 warp 越多，每个 thread 分到的越少。驻留 48 个 warp 时每个 thread 最多 40 个 register（65536 / 1536 再按 8 个一组取整），放不下 32 个 acc 再加上 a、b。matmul 也不需要多驻留 warp 来藏延迟，它用的是 [3.2 节](#sched-warp)的另外两种办法：每个 thread 手里有几十个互不依赖的 FMA 可以连着发，下一轮的 A、B 也已经由 `num_stages` 提前搬好（[3.3 节](#stages)）。
 
 block 本身也要够大。每个 program 读进 A 的 BM × K 和 B 的 K × BN，做 BM × BN × K 次乘加，每读一个数做 BM · BN / (BM + BN) 次：64 × 64 是 32 次，128 × 128 是 64 次。正文形状下，A、B 一共被读的量因此从 512 MB 降到 256 MB。shared memory 反而不是关键，两个形状下最快的配置只用了 65% 和 75%，够放两三个 slot 就行。
 
@@ -413,19 +412,19 @@ block 本身也要够大。每个 program 读进 A 的 BM × K 和 B 的 K × BN
 
 合起来，先定每个 thread 放 64 个左右的 acc，并且不 spill；在这个前提下让 BM × BN 尽量大；`num_warps` 取 BM × BN / (32 × 64)，把这两件事对上，128 × 128 就是 8 个 warp；BK 取 16 或 32，两三个 slot 放得进 shared memory 就行。occupancy 不用追，每个 SM 8 到 16 个 warp 就够。
 
-这些结论只对 fp32 走 CUDA core 成立。bf16、tf32 走 Tensor core 时，acc 在 thread 之间的分法换成 mma 指令要求的排布，shared memory 的带宽也会变成约束，最优点会移动。每组配置只跑了一次，前几名之间只差 1% 到 2%，谁排第一并不稳定，稳定的是它们共同的资源用法。
+这些结论只对 fp32 走 CUDA core 成立。bf16、tf32 走 Tensor core 时，acc 在 thread 之间的分法换成 mma 指令要求的排布，shared memory 的带宽也会变成约束，最优点会移动。每组配置只跑了一次，前几名之间只差 1% 到 2%，谁排第一并不稳定，稳定的是它们共同的资源用法。最快的组合随形状和显卡变，每次换形状都手动扫一遍太费事，Triton 把这一步做成了 autotune（[3.6 节](#autotune)）。
 
 ### 3.6 用 autotune 挑参数 {#autotune}
 
-前面几节说明，block 大小、`num_warps`、`num_stages` 都会影响速度，而最快的组合随形状和显卡变。Triton 的办法是把候选列出来，第一次调用时都试一遍，用最快的那个：
+下面给 [2.4 节](#triton-matmul)的 matmul 套上 autotune，`@triton.autotune` 写在 `@triton.jit` 外面：
 
 ```python {role="program" tag="matmul 的 kernel 不变，外面套一层 autotune"}
 {{code:triton_autotune.py:matmul_autotune}}
 ```
 
-`triton.autotune` 套在 `@triton.jit` 的 kernel 外面，kernel 本身不用改。`configs` 是候选，每个 `triton.Config` 给一组 constexpr 参数（这里是 BM、BN、BK），再加 `num_warps` 和 `num_stages`。这里按 [3.5 节](#tile)的结论挑了 6 种 block 形状、2 种 BK、2 种 `num_warps`、2 种 `num_stages`，共 48 个。`key` 列出哪些参数一变就要重新挑，这里是 M、N、K，同一个形状只挑一次。调用时不再传 BM、BN、BK；grid 写成 `lambda META: ...`，program 的个数由选中的 BM、BN 算出来。`triton.Config` 里还能设 `maxnreg`，限制每个 thread 最多用几个 register，对应 PTX 的 `.maxnreg`；`num_ctas` 只在 SM90 以上有用，5090 用不上。
+`configs` 是候选，每个 `triton.Config` 给一组 constexpr 参数（这里是 BM、BN、BK），再加 `num_warps` 和 `num_stages`。这里按 [3.5 节](#tile)的结论挑了 6 种 block 形状、2 种 BK、2 种 `num_warps`、2 种 `num_stages`，共 48 个。`key` 列出哪些参数一变就要重新挑，这里是 M、N、K，同一个形状只挑一次。调用时不再传 BM、BN、BK；grid 写成 `lambda META: ...`，program 的个数由选中的 BM、BN 算出来。`triton.Config` 里还能设 `maxnreg`，限制每个 thread 最多用几个 register，对应 PTX 的 `.maxnreg`；`num_ctas` 只在 SM90 以上有用，5090 用不上。
 
-第一次调用时，autotune 把每个候选编译出来，用 `do_bench` 各跑一遍，记下最快的；之后同一个 `key` 直接用它。另外三个 kernel 也这样套一层（[表 3-3](#tab-3-3)）。
+第一次调用时，autotune 把每个候选编译出来，用 `do_bench` 各跑一遍，记下最快的。另外三个 kernel 也这样套一层（[表 3-3](#tab-3-3)）。
 
 | op | 候选数 | 第一次调用 | 选中的配置 | 第 2 节的固定参数 | autotune 后 |
 |:--|--:|--:|:--|--:|--:|
@@ -435,9 +434,9 @@ block 本身也要够大。每个 program 读进 A 的 BM × K 和 B 的 K × BN
 | matmul + ReLU | 48 | 79.5 s | BM = BN = 128，BK = 32，8 个 warp，3 级 | 197.5 | 173.0 |
 {#tab-3-3 caption="**表 3-3** 四个 kernel autotune 前后（µs）" note="RTX 5090，fp32，形状同<a href=\"#tab-2-1\">表 2-1</a>，和表 2-1 是同一次测量。第一次调用从空的编译缓存开始算，包含编译所有候选和试跑。耗时是 <code>do_bench</code> 跑 5 次的中位数。"}
 
-matmul 选中的就是 3.5 节扫出来最快的那组，比第 2 节的 64 × 64 快 12%；row sum 选中每轮 2048 个数、16 个 warp，快 7%。GELU 和 softmax 原来的参数已经够好，前后只差几个百分点，softmax 选中的 8 个 warp 在这次测量里反而慢一点：候选之间本来就只差几个百分点时，autotune 按它自己那次试跑挑，选中谁有随机性。
+matmul 选中的就是 3.5 节扫出来最快的那组，比第 2 节的 64 × 64 快 12%；row sum 选中每轮 2048 个数、16 个 warp，快 7%。GELU 和 softmax 原来的参数已经够好。softmax 选中的 8 个 warp 在这次测量里反而慢一点：候选之间本来就只差几个百分点时，autotune 按它自己那次试跑挑，选中谁有随机性。
 
-代价在第一次调用：matmul 的 48 个候选要 79.5 s，包括把 48 个候选都编译一遍。编译结果会缓存到磁盘（默认 `~/.triton/cache`），换个进程再调用只需重新试跑；`cache_results=True` 还会把试跑的结果也存到磁盘。候选太多时，可以用 `prune_configs_by` 先按 shared memory 用量之类的条件筛掉一批。
+代价在第一次调用，matmul 要 79.5 s（[表 3-3](#tab-3-3)）。编译结果会缓存到磁盘（默认 `~/.triton/cache`），换个进程再调用只需重新试跑；`cache_results=True` 还会把试跑的结果也存到磁盘。候选太多时，可以用 `prune_configs_by` 先按 shared memory 用量之类的条件筛掉一批。
 
 还有一个坑：试跑会把 kernel 执行很多遍。如果 kernel 原地修改数据，比如用 `tl.atomic_add` 往输出上累加，每试一次就多加一遍，要用 `reset_to_zero` 在每次试跑前把输出清零，或者用 `restore_value` 试完恢复原值。这一节的四个 kernel 只写输出、不读输出，不受影响。
 
