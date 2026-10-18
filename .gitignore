@@ -2,3 +2,4 @@ public/
 resources/
 .hugo_build.lock
 tools/gpu-training-analysis/figs.json
+tools/minicpm-o-45/figs.json
