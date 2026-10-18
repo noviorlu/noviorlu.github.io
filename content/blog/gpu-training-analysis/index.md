@@ -3,14 +3,16 @@ title: "谁偷走了 5090 的算力和显存：一步 Transformer 训练的 roof
 date: 2026-10-04
 draft: false
 math: true
-description: "在 RTX 5090 上实测一步 Transformer 训练的时间和显存，再把 RMSNorm 和 attention 逐个 op 拆开，看每一步算了多少、搬了多少、为反向存了多少。最后都落到 attention 的两个 seq × seq 矩阵上：分数矩阵 S = QKᵀ，和它过 softmax 之后的 P。FlashAttention 一文的前置。"
+description: "在 RTX 5090 上实测一步 Transformer 训练的时间和显存花在哪里：MFU 只有 31% 是因为 40% 的时间花在逐元素 kernel 上，显存峰值由 activation 决定；两者里随 seq 涨得最快的都是 attention 的 seq × seq 中间结果。FlashAttention 一文的前置。"
 tags: ["GPU", "Roofline", "Transformer", "显存", "LLM", "AI"]
 categories: ["AI笔记"]
 series: ["GPU training optimization"]
 series_order: 2
 ---
 
-我在一张 RTX 5090 上把一步 Transformer 训练拆开，分别量了时间和显存。结果和预想的不太一样：拖慢速度的不是矩阵乘，占显存最多的也不是权重。两边查到最后，都落在 attention 里的两个 seq × seq 矩阵上，一个是分数矩阵 S = QKᵀ（每个 query 对每个 key 的打分），一个是 S 按行过 softmax 之后的注意力权重 P，最后输出是 PV。
+这篇文章回答一个问题：在一张 RTX 5090 上用 PyTorch 训练 Transformer，一步训练的时间和显存花在了哪里。起因是两个实测结果：medium 和 large 按 6N 算 MFU 只有 31%；xl（3.41B）在 seq 2048 下显存放不下。下面用 roofline 和逐个 op 的实测把原因找出来。
+
+结论有两条。时间上，矩阵乘本身不慢，慢的是夹在矩阵乘之间、几乎不做计算的逐元素 kernel，它们占一步 GPU 时间的 40%。其中随 seq 涨得最快的是 attention 里的缩放、mask 和 softmax，它们反复读写 seq × seq 的分数矩阵 S = QKᵀ，seq 1024 时 attention 占前向时间的 46%。显存上，峰值主要由前向为反向存下的 activation 决定，其中一半以上是 attention 存下的两份 seq × seq 张量：softmax 的中间结果和输出的注意力权重 P。两条结论都指向 attention 把 seq × seq 的中间结果写进了显存，这也是下一篇 FlashAttention 要解决的问题。
 
 文章分四步走：[第 1 节](#basics)准备工具 roofline；[第 2 节](#step)算一步训练的总账，找出时间和显存的大头；[第 3 节](#ops)逐个 op 拆开，看每一步算了多少、读写了多少显存、为反向存了什么，先拿最简单的 RMSNorm 走一遍，再用同样的方法拆 attention；[第 4 节](#savings)试 bf16 和 activation checkpoint 能省多少。怎么把 S、P 彻底去掉，留给下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/)。GPU 的硬件和 Triton 的基本写法放在系列的上一篇 [GPU 与 Triton 入门](/blog/gpu-triton-intro/)。
 
