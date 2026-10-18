@@ -12,7 +12,7 @@ series_order: 1
 
 这个系列讲怎么让 Transformer 训练在 GPU 上跑得更快。这一篇先打基础：[第 1 节](#hardware)介绍 GPU 的硬件，包括数据存在哪几层、一个 SM 里有什么、CUDA 的执行层级怎么对应到硬件、数据能在哪几层之间搬；[第 2 节](#triton)用四个例子介绍 Triton，后面两篇的 kernel 都用它写。[第 3 节](#tune)看写好的 kernel 在 SM 上怎么跑、怎么调：`num_warps` 和 `num_stages` 改了什么，一个 SM 放几个 program，warp 怎么藏住访存延迟，program 怎么分批，matmul 的 block 大小怎么选。几代 NVIDIA GPU 的规格对比放在 [Appendix A](#specs)，TPU 和 GPU 的对照放在 [Appendix B](#tpu)，TMA 和异步同步放在 [Appendix C](#tma)。
 
-下一篇[谁偷走了 5090 的算力和显存](/blog/gpu-training-analysis/)用这些知识在 RTX 5090 上拆解一步训练的时间和显存，第三篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 讲 attention 的 IO-aware kernel。
+下一篇[单卡 GPU 优化方法](/blog/gpu-single-gpu-optimization/)把单卡上常用的优化方法放在一起，第三篇[谁偷走了 5090 的算力和显存](/blog/gpu-training-analysis/)用这些知识在 RTX 5090 上拆解一步训练的时间和显存，第四篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 讲 attention 的 IO-aware kernel。
 
 > 环境：RTX 5090 32 GB，torch 2.11.0+cu130，Triton 3.6.0。文中的 KB、MB、GB 都按 1024 进位。
 
@@ -180,7 +180,7 @@ softmax 对 `[M, N]` 的输入按行算，先减去每行的最大值 $m_i$ 防�
 
 <p align="center">$m_i = \max_k x_{ik}, \qquad y_{ij} = \dfrac{e^{x_{ij} - m_i}}{\sum_{k} e^{x_{ik} - m_i}}$</p>
 
-$y_{ij}$ 要用到第 $i$ 行全部 N 个数。eager 下 softmax 要 5 个 kernel（和[下一篇](/blog/gpu-training-analysis/#attention)里 attention 的 softmax 一样），一共读 5MN + 2M 个数，写 3MN + 2M 个：
+$y_{ij}$ 要用到第 $i$ 行全部 N 个数。eager 下 softmax 要 5 个 kernel（和[训练分析那篇](/blog/gpu-training-analysis/#attention)里 attention 的 softmax 一样），一共读 5MN + 2M 个数，写 3MN + 2M 个：
 
 ```python
 {{code:triton_tutorial.py:softmax_naive}}
@@ -242,23 +242,11 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
 
 和 row sum 一样，分段加完再相加等于一次加完，所以每轮只读 $A_{IT}$、$B_{TJ}$ 两个 block，乘完累加，最后就是完整的 $C_{IJ}$。ReLU 逐元素作用在累加完的结果上，放在最后做。
 
-切 block 的好处在显存读写量。算一个 $C_{ij}$ 要用 A 的一行和 B 的一列，一共 2K 个数，naive 和 tiling 的区别在这些数从哪读（[表 2-2](#tab-2-2)）：
-
-| | 每个输出从显存读 | 其余从片上读 | K = 2048、T = 64 时从显存读 | 整个 kernel 从显存读 |
-|:--|--:|--:|--:|--:|
-| naive（不切 block） | 2K 个数 | 0 | 4096 个数 | 32 GB |
-| tiling（切成 T × T 的 block） | 2K / T 个数 | 2K − 2K / T | 64 个数 | 512 MB |
-{#tab-2-2 caption="**表 2-2** naive 和 tiling：每个输出的 2K 个数从哪读" note="形状是这一节的 A 4096 × 2048、B 2048 × 512，fp32。片上指 shared memory，以及 thread 自己 register 里留着的数。512 MB 和「matmul 编译出来什么样」notes 里数出来的一致。"}
-
-1/T 是这样来的：一个 program 从显存读进 A 的 T × K 个数和 B 的 K × T 个数，算出 C 的 T × T 个输出，平均每个输出读 2TK / T² = 2K / T 个（[图 2-5](#fig-o-2)）。一个数从显存读进来一次，在片上被 T 个输出用到。BM、BN 不相等时是 K / BN + K / BM。
-
-block 越大读得越少，代价是一个 program 要占更多 register 和 shared memory，怎么取见 [3.5 节](#tile)。BM、BN、BK 都得是 2 的幂，这是 `tl.arange` 的要求；`tl.dot` 还要求 BK 至少 16。
-
-{{fig-o-2}}
+切 block 能把每个输出从显存读的数降到原来的 1/T，这笔账在[单卡 GPU 优化方法](/blog/gpu-single-gpu-optimization/#tiling)里算。BM、BN、BK 都得是 2 的幂，这是 `tl.arange` 的要求；`tl.dot` 还要求 BK 至少 16。
 
 {{fig-t-4}}
 
-一个 program 负责一个 $C_{IJ}$（[图 2-6](#fig-t-4)），沿 K 循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上；写回前在 register 里做 ReLU，激活函数不用再单独一个 kernel 读写一遍 C：
+一个 program 负责一个 $C_{IJ}$（[图 2-5](#fig-t-4)），沿 K 循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上；写回前在 register 里做 ReLU，激活函数不用再单独一个 kernel 读写一遍 C：
 
 ```python {role="program" tag="算 C 的第 (pid_m, pid_n) 个 block"}
 {{code:triton_tutorial.py:matmul_kernel}}
@@ -453,7 +441,7 @@ matmul 选中的就是 3.5 节扫出来最快的那组，比第 2 节的 64 × 6
 
 还有一个坑：试跑会把 kernel 执行很多遍。如果 kernel 原地修改数据，比如用 `tl.atomic_add` 往输出上累加，每试一次就多加一遍，要用 `reset_to_zero` 在每次试跑前把输出清零，或者用 `restore_value` 试完恢复原值。这一节的四个 kernel 只写输出、不读输出，不受影响。
 
-第 2、3 节合起来是写一个 Triton kernel 的全过程：按 block 切数据、在片上算完，再看它在 SM 上能放几个、会不会留下 tail。[下一篇](/blog/gpu-training-analysis/)在 5090 上拆解一步训练的时间和显存，用的就是第 2 节的模式：把 RMSNorm 的几个 kernel 融合成一个，少读写一遍中间结果。
+第 2、3 节合起来是写一个 Triton kernel 的全过程：按 block 切数据、在片上算完，再看它在 SM 上能放几个、会不会留下 tail。[下一篇](/blog/gpu-single-gpu-optimization/)把这些写法背后的优化方法放在一起讲；[训练分析那篇](/blog/gpu-training-analysis/)在 5090 上拆解一步训练的时间和显存，用的就是第 2 节的模式：把 RMSNorm 的几个 kernel 融合成一个，少读写一遍中间结果。
 
 ---
 

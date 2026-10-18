@@ -7,7 +7,7 @@ description: "A technical walkthrough of FlashAttention's four generations — f
 tags: ["FlashAttention", "Transformer", "Attention", "GPU", "LLM", "AI"]
 categories: ["AI笔记"]
 series: ["GPU training optimization"]
-series_order: 3
+series_order: 4
 ---
 
 <style>

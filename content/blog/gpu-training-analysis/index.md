@@ -7,10 +7,10 @@ description: "在 RTX 5090 上实测一步 Transformer 训练的时间和显存�
 tags: ["GPU", "Roofline", "Transformer", "显存", "LLM", "AI"]
 categories: ["AI笔记"]
 series: ["GPU training optimization"]
-series_order: 2
+series_order: 3
 ---
 
-注：本文是 Stanford CS336 2025 [Assignment 2: Systems](https://github.com/stanford-cs336/assignment2-systems) 的笔记，测的模型是 Assignment 1 里从零手写的 Transformer LM（RMSNorm、RoPE、SwiGLU，pre-norm，不用 `torch.nn` 现成的层）。作业的 FlashAttention-2 部分放在下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/)，GPU 硬件和 Triton 基础见上一篇 [GPU 与 Triton 入门](/blog/gpu-triton-intro/)。
+注：本文是 Stanford CS336 2025 [Assignment 2: Systems](https://github.com/stanford-cs336/assignment2-systems) 的笔记，测的模型是 Assignment 1 里从零手写的 Transformer LM（RMSNorm、RoPE、SwiGLU，pre-norm，不用 `torch.nn` 现成的层）。作业的 FlashAttention-2 部分放在下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/)，GPU 硬件和 Triton 基础见 [GPU 与 Triton 入门](/blog/gpu-triton-intro/)，fusion、checkpoint 这些方法的原理见上一篇[单卡 GPU 优化方法](/blog/gpu-single-gpu-optimization/)。
 
 **(Why)** 作业要求在 GPU 上测一步训练的时间和显存。我在一张 RTX 5090 上测了五档模型：small 0.13B、medium 0.42B、large 0.97B、xl 3.41B 和 10B（实际 12.83B）。结果有两处对不上：
 
@@ -836,7 +836,7 @@ Loading    1 → 2 → 3（与 Saving 同序）
 <figcaption><strong>图 3-3</strong> RMSNorm 融合前后在 fp32 roofline 上的位置（前向，<code>x: [32, 512, 2560]</code>，160 MiB，比 L2 大，避免数据留在缓存里）。读写字节按 eager 每元素 28 B、融合后 8 B 算，悬停可看数值。</figcaption>
 </figure>
 
-这里我也顺手用 Triton 手写了一个融合版（下面折叠的代码，eager 版就是本节开头那三行；Triton 的基本写法见上一篇 [GPU 与 Triton 入门](/blog/gpu-triton-intro/#triton)），思路和 `torch.compile` 一样：前向一个 kernel，一个 program 算一行，①–⑤ 都在 register 里做完，只写出 y 和 r。反向比 `torch.compile` 少两个 kernel：dx 是按行归约，dw 却要把所有行加起来，`torch.compile` 为 dw 单独拆了两段归约；手写版让每个 program 读回 x、w、r，现场重算 x̂，算完自己这一行的 dx，再用 `atomic_add` 把这一行对 dw 的贡献直接累加上去，反向就只有一个 kernel。
+这里我也顺手用 Triton 手写了一个融合版（下面折叠的代码，eager 版就是本节开头那三行；Triton 的基本写法见 [GPU 与 Triton 入门](/blog/gpu-triton-intro/#triton)），思路和 `torch.compile` 一样：前向一个 kernel，一个 program 算一行，①–⑤ 都在 register 里做完，只写出 y 和 r。反向比 `torch.compile` 少两个 kernel：dx 是按行归约，dw 却要把所有行加起来，`torch.compile` 为 dw 单独拆了两段归约；手写版让每个 program 读回 x、w、r，现场重算 x̂，算完自己这一行的 dx，再用 `atomic_add` 把这一行对 dw 的贡献直接累加上去，反向就只有一个 kernel。
 
 <details class="fold">
 <summary>Triton 融合：前向 1 个 kernel，反向 1 个 kernel</summary>
