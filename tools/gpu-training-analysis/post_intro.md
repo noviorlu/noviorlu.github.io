@@ -264,12 +264,13 @@ grid 是二维的：
 
 <div class="nv-key">
 
-**shared memory 什么时候值得用**：满足下面任一条。
+**shared memory 什么时候值得用**：看一个数从显存读进来以后，有几个 thread 要用它。register 只归一个 thread，别的 thread 读不到，同一个数要给 program 里的多个 thread 用，就得经过 shared memory。
 
-- **复用**：同一份数据要被读很多次。matmul 里 A 的一个 block 要和 B 的 block 的 64 列都乘一遍；softmax 和 row sum 里每个数只被一个 thread 读一次。
-- **交换**：thread 之间要交换大量数据。matmul 里 `tl.dot` 要把 A、B 的 block 重新分给不同的 thread；softmax 和 row sum 只交换 4 个 warp 的部分结果（16 B）。
+- **只有一个 thread 用**：放在这个 thread 的 register 里就够了，用几次都行。GELU、softmax、row sum 都是这样：softmax 里每个 $x_{ij}$ 要参与求最大值、减、exp、求和、除，前后用 5 次，都是读它的那个 thread 在用。
+- **多个 thread 要用，但只有几个数**：softmax 和 row sum 最后要把整行的部分结果合成一个最大值或一个和。warp 内用 shuffle 在 register 之间直接传，只有 4 个 warp 之间经过 shared memory，一共 16 B。
+- **多个 thread 要用同一整块数据**：matmul。C 的 64 × 64 个 acc 分给 128 个 thread，每个 thread 存 8 行 × 4 列，共 32 个。C 的第 $i$ 行分在 16 个 thread 手里，所以 $A_{ik}$ 要送到这 16 个 thread；第 $j$ 列分在 4 个 warp 的 8 个 thread 手里，所以 $B_{kj}$ 要送到这 8 个 thread。每个 $A_{ik}$ 一共要乘 64 次（BN），一个 thread 只做其中 4 次，其余 60 次在别的 thread 里。每一轮 A、B 的 block 共 16 KB，先整块读进 shared memory，每个 thread 再从里面取自己要的 8 个 A 值和 4 个 B 值；不这样做，16 个 thread 就要各自从显存读一次同一个 $A_{ik}$。
 
-所以 matmul 把 A、B 的 block 放在 shared memory 里，每个 program 32 KB；softmax 和 row sum 两条都不满足，把整个 block 放进 shared memory 只会多搬一趟。代价是 shared memory 用得越多，一个 SM 能同时放的 program 越少：每个 SM 的上限是 100 KB，matmul 每个 program 占 32 KB，再加每个 program 保留的 1 KB，只放得下 3 个（3 × 33 = 99 KB，见 [图 A-1](#fig-t-8)）。
+所以只有 matmul 把 A、B 的 block 放在 shared memory 里，每个 program 32 KB（一轮 16 KB，存两轮，下面讲为什么）；softmax 和 row sum 把整个 block 放进 shared memory 只会多搬一趟。代价是 shared memory 用得越多，一个 SM 能同时放的 program 越少：每个 SM 的上限是 100 KB，matmul 每个 program 占 32 KB，再加每个 program 保留的 1 KB，只放得下 3 个（3 × 33 = 99 KB，见 [图 A-1](#fig-t-8)）。
 
 </div>
 
