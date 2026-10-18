@@ -145,7 +145,7 @@ Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的 tiling。C
 | matmul | block 乘加 | A 的一行、B 的一列 | 二维，C 的一个 block 一个 program | 沿 K 循环，累加器存 C 的一个 block |
 {#tab-2-3 caption="**表 2-3** 四个例子的 op 类型"}
 
-代码都在 RTX 5090 上和 PyTorch 对照过。每个例子配一张数据流图：左边是 grid，右边从上到下是计算单元、register、shared memory 和显存（芯片外的 GDDR7）。`tl.load` 和 `tl.store` 在显存和 register 或 shared memory 之间直接搬数据，计算单元只读写 register。中间经过的 L2 和 L1 cache 由硬件自动管理，图里不画。计算单元那一行从左往右是执行顺序；register 和 shared memory 里的一块存储只画一次，横向跨过它存在的那段时间，每一步在自己那一列读写它，块上标的是它的大小。
+代码都在 RTX 5090 上和 PyTorch 对照过。每个例子配一张数据流图：左边是 grid，右边从上到下是计算单元、register、shared memory 和显存（芯片外的 GDDR7）。`tl.load` 和 `tl.store` 在显存和 register 或 shared memory 之间搬数据，图里画成一条箭头，计算单元只读写 register。实际上读写显存都要经过 L2（有时还经过 L1），由硬件自动管理，图里不画。计算单元那一行从左往右是执行顺序；register 和 shared memory 里的一块存储只画一次，横向跨过它存在的那段时间，每一步在自己那一列读写它，块上标的是它的大小。
 
 ### 2.1 GELU {#triton-gelu}
 
@@ -310,7 +310,13 @@ grid 是二维的：
 
 matmul 的循环每轮做两件事：把 $A_{IT}$、$B_{TJ}$ 从显存搬进 shared memory 里的 slot（图表里标作 shmem），一共 16 KB；再从 slot 里读进 register 做乘加。`num_stages=1` 时这两件事一轮接一轮：编出来的 PTX 先用 ld.global 把数据读进 register，再 st.shared 写进 slot，同步之后才读出来算，每轮都要先等数据到齐（[图 3-1](#fig-t-9) 上半）。
 
-`num_stages` 取 S > 1 时，编译器把循环改写成流水线：load 改用 cp.async，从显存直接搬进 slot，不经过 register；第 $k$ 轮的 load 在第 $k-(S-1)$ 轮算完以后就发出。默认 S = 3，第 $k$ 轮的数据从发出 load 到被用完跨三轮：第 $k-2$ 轮算完后发出，第 $k-1$ 轮期间在路上，第 $k$ 轮被读出来算，所以叫 3 级。它从发出到第 $k$ 轮算完一直占着一个 slot，算完 slot 才空出来，接着搬第 $k+2$ 轮。任何时刻占着 slot 的只有两轮，正在算的这一轮和下一轮，所以 A、B 各 2 个 slot 就够（[图 3-1](#fig-t-9) 下半）。一般地，S 级要 A、B 各 S − 1 个 slot，每多一级多 16 KB shared memory（[表 3-1](#tab-3-1)）；`num_stages=1` 也有 1 个 slot，因为 `tl.dot` 的输入总要先经过 shared memory。
+`num_stages` 取 S > 1 时，编译器把循环改写成流水线，load 改用 cp.async。
+
+cp.async 是 Ampere（compute capability 8.0）开始有的 PTX 指令，把显存里的数据复制到 shared memory。数据照样先经过 L2，到了 SM 以后直接写进 shared memory，不落到 register。这里编出来的是 `cp.async.cg`，`.cg` 表示只在 L2 缓存、不在 L1 留副本，每条复制 16 B。
+
+普通的 ld.global 发出以后 thread 也不会马上停，但数据要先落进 register，再由 st.shared 写进 shared memory，st.shared 用到这个 register 时就得等数据到齐；想提前几轮搬，register 里就得多存几轮数据。cp.async 不占 register，发出以后 thread 接着往下执行，真正要用时再等：几条 cp.async 用 `cp.async.commit_group` 打成一组，`cp.async.wait_group N` 等到最多只剩 N 组还在路上，再用 bar.sync 让同一个 program 的所有 thread 都看到搬好的数据。matmul 每轮 A、B 各打一组，`num_stages=3` 时循环里是 `wait_group 2`：第 $k$ 轮的两组到了就开始算，第 $k+1$ 轮的两组可以还在路上。
+
+有了 cp.async，第 $k$ 轮的 load 可以在第 $k-(S-1)$ 轮算完以后就发出。默认 S = 3，第 $k$ 轮的数据从发出 load 到被用完跨三轮：第 $k-2$ 轮算完后发出，第 $k-1$ 轮期间在路上，第 $k$ 轮被读出来算，所以叫 3 级。它从发出到第 $k$ 轮算完一直占着一个 slot，算完 slot 才空出来，接着搬第 $k+2$ 轮。任何时刻占着 slot 的只有两轮，正在算的这一轮和下一轮，所以 A、B 各 2 个 slot 就够（[图 3-1](#fig-t-9) 下半）。一般地，S 级要 A、B 各 S − 1 个 slot，每多一级多 16 KB shared memory（[表 3-1](#tab-3-1)）；`num_stages=1` 也有 1 个 slot，因为 `tl.dot` 的输入总要先经过 shared memory。
 
 {{fig-t-9}}
 
@@ -322,7 +328,7 @@ matmul 的循环每轮做两件事：把 $A_{IT}$、$B_{TJ}$ 从显存搬进 sha
 | 4 | 3 | 2 | 48 KB | 2 | 210.0 µs |
 {#tab-3-1 caption="**表 3-1** matmul 的 num_stages 改了什么（A 4032 × 2048，B 2048 × 512，BM = BN = 64，BK = 32，4 个 warp）" note="slot 数读自编译出的 TTGIR，提前几轮读自 PTX 里 cp.async 的发出位置，shared memory 读自编译结果的 metadata。用 4032 行是为了避开 3.5 节的 tail effect：504 个 program 在每个 SM 放 3 个时正好一批。耗时是 <code>do_bench</code> 跑 5 次的中位数。它和 3.5 节的 158.3 µs 是不同时间的两次测量，整体差约 7%，比较各档只看这一张表。"}
 
-前三档越来越快，181.4、175.8、169.3 µs。`num_stages=2` 只有 1 个 slot，第 $k+1$ 轮的 load 要等第 $k$ 轮算完、slot 空出来才能发，发完紧接着就要用（PTX 里是 `cp.async.wait_group 0`），同一个 warp 里搬和算并没有重叠；它比 `num_stages=1` 快，是因为 cp.async 直接从显存搬进 slot，省掉了经 register 再 st.shared 的一来一回。`num_stages=3` 才真正提前一整轮。到 `num_stages=4`，48 KB 的 shared memory 让每个 SM 只放得下 2 个 program，全卡一批只放得下 340 个，504 个 program 要分两批，耗时退回 210.0 µs。`num_stages` 是拿 shared memory 换预取，slot 多到挤掉驻留的 program 就得不偿失。
+前三档越来越快，181.4、175.8、169.3 µs。`num_stages=2` 只有 1 个 slot，第 $k+1$ 轮的 load 要等第 $k$ 轮算完、slot 空出来才能发，发完紧接着就要用（PTX 里是 `cp.async.wait_group 0`），同一个 warp 里搬和算并没有重叠；它比 `num_stages=1` 快，是因为 cp.async 不经过 register，省掉了 st.shared 这一步。`num_stages=3` 才真正提前一整轮。到 `num_stages=4`，48 KB 的 shared memory 让每个 SM 只放得下 2 个 program，全卡一批只放得下 340 个，504 个 program 要分两批，耗时退回 210.0 µs。`num_stages` 是拿 shared memory 换预取，slot 多到挤掉驻留的 program 就得不偿失。
 
 预取藏住了多少等待，用 Nsight Compute 量（[图 3-2](#fig-t-6)）。ncu 给的是一个 warp 每两条指令之间平均隔几拍、这几拍里在等什么，乘上每轮的指令数（约 1220 条），就是每轮的拍数。`num_stages=1` 时每轮 5601 拍，其中 852 拍在等 L2 或显存的数据。`num_stages=3` 时每轮 4901 拍，等数据只剩 74 拍：第 $k$ 轮的 load 提前一整轮发出，约 852 拍就到，到用的时候早已在 slot 里。load 只占一轮的六分之一，提前一轮已经够，再多的 slot 只是多占 shared memory。
 
@@ -523,3 +529,4 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 B-2](#fig-h-
 12. Hendrycks, Gimpel. [Gaussian Error Linear Units (GELUs)](https://arxiv.org/abs/1606.08415). arXiv:1606.08415, 2016. 第 2.1 节的 tanh 近似。
 13. Milakov, Gimelshein. [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867). arXiv:1805.02867, 2018. 第 2.3 节提到的 online softmax。
 14. [triton.autotune](https://triton-lang.org/main/python-api/generated/triton.autotune.html) 和 [triton.Config](https://triton-lang.org/main/python-api/generated/triton.Config.html)（Triton API 文档）。3.7 节的参数。
+15. NVIDIA. [PTX ISA: cp.async](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async)。3.2 节 cp.async、commit_group、wait_group 的语义。
