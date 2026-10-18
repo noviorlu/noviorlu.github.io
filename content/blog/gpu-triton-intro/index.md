@@ -1354,11 +1354,103 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
 
 和 row sum 一样，分段加完再相加等于一次加完，所以每轮只读 $A_{IT}$、$B_{TJ}$ 两个 block，乘完累加，最后就是完整的 $C_{IJ}$。ReLU 逐元素作用在累加完的结果上，放在最后做。
 
-切 block 的好处在显存读写量。不切的话，算一个 $C_{ij}$ 要从显存读 A 的一行和 B 的一列，共 2K 个数。切成 BM × BN 以后，一个 program 把 A 的 BM × K 和 B 的 K × BN 读进来，给 BM × BN 个输出共用，平均到每个输出：
+切 block 的好处在显存读写量。不切的话，算一个 $C_{ij}$ 要从显存读 A 的一行和 B 的一列，共 2K 个数。切成 BM × BN 以后（[图 2-5](#fig-o-2)），一个 program 把 A 的 BM × K 和 B 的 K × BN 读进来，给 BM × BN 个输出共用，平均到每个输出：
 
 <p align="center">$\dfrac{\mathrm{BM}\cdot K + K \cdot \mathrm{BN}}{\mathrm{BM} \cdot \mathrm{BN}} = \dfrac{K}{\mathrm{BN}} + \dfrac{K}{\mathrm{BM}}$</p>
 
 BM = BN = T 时是 2K / T，只有不切时的 1/T。乘加用到的数还是 2K 个，其余的改从 shared memory 读：一个数从显存读进来一次，在 shared memory 里被 T 个输出用到。这一节的形状 K = 2048、BM = BN = 64，每个 $C_{ij}$ 从显存读的数从 4096 个降到 64 个，整个 kernel 从 32 GB 降到 512 MB。block 越大读得越少，代价是一个 program 要占更多 register 和 shared memory，怎么取见 [3.5 节](#tile)。BM、BN、BK 都得是 2 的幂，这是 `tl.arange` 的要求；`tl.dot` 还要求 BK 至少 16。
+
+<figure id="fig-o-2" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 236" width="100%" role="img" aria-label="matmul 切 block：C 的 block (1, 1) 由 A 的第 1 个 row block 和 B 的第 1 个 column block 算出；沿 K 一轮读一对 block，实心是第 0 轮，斜线是第 1 到 3 轮">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <defs><pattern id="fig-o-2-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" style="stroke: var(--fig-1)" stroke-opacity=".55" stroke-width="1.6"/></pattern></defs>
+  <text class="tb" x="104.0" y="26" text-anchor="middle">C</text><text class="s" x="104.0" y="40" text-anchor="middle">M × N</text>
+  <text class="tb" x="286.0" y="26" text-anchor="middle">A</text><text class="s" x="286.0" y="40" text-anchor="middle">M × K</text>
+  <text class="tb" x="468.0" y="26" text-anchor="middle">B</text><text class="s" x="468.0" y="40" text-anchor="middle">K × N</text>
+  <text class="tb" x="195" y="117.0" text-anchor="middle" style="font-size: 18px">=</text>
+  <text class="tb" x="377" y="117.0" text-anchor="middle" style="font-size: 18px">@</text>
+  <rect x="41.0" y="49.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="223.0" y="49.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="405.0" y="49.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="73.0" y="49.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="255.0" y="49.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="437.0" y="49.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <rect x="105.0" y="49.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="287.0" y="49.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="469.0" y="49.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="137.0" y="49.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="319.0" y="49.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="501.0" y="49.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="41.0" y="81.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="223.0" y="81.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <rect x="405.0" y="81.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="73.0" y="81.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-hi) 40%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <rect x="255.0" y="81.0" width="30" height="30" rx="3" style="fill: url(#fig-o-2-hatch); stroke: var(--fig-1)" stroke-opacity=".8" stroke-width="1.4"/>
+  <rect x="437.0" y="81.0" width="30" height="30" rx="3" style="fill: url(#fig-o-2-hatch); stroke: var(--fig-1)" stroke-opacity=".8" stroke-width="1.4"/>
+  <rect x="105.0" y="81.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="287.0" y="81.0" width="30" height="30" rx="3" style="fill: url(#fig-o-2-hatch); stroke: var(--fig-1)" stroke-opacity=".8" stroke-width="1.4"/>
+  <rect x="469.0" y="81.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="137.0" y="81.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="319.0" y="81.0" width="30" height="30" rx="3" style="fill: url(#fig-o-2-hatch); stroke: var(--fig-1)" stroke-opacity=".8" stroke-width="1.4"/>
+  <rect x="501.0" y="81.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="41.0" y="113.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="223.0" y="113.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="405.0" y="113.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="73.0" y="113.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="255.0" y="113.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="437.0" y="113.0" width="30" height="30" rx="3" style="fill: url(#fig-o-2-hatch); stroke: var(--fig-1)" stroke-opacity=".8" stroke-width="1.4"/>
+  <rect x="105.0" y="113.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="287.0" y="113.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="469.0" y="113.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="137.0" y="113.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="319.0" y="113.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="501.0" y="113.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="41.0" y="145.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="223.0" y="145.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="405.0" y="145.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="73.0" y="145.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="255.0" y="145.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="437.0" y="145.0" width="30" height="30" rx="3" style="fill: url(#fig-o-2-hatch); stroke: var(--fig-1)" stroke-opacity=".8" stroke-width="1.4"/>
+  <rect x="105.0" y="145.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="287.0" y="145.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="469.0" y="145.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="137.0" y="145.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="319.0" y="145.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <rect x="501.0" y="145.0" width="30" height="30" rx="3" style="fill: color-mix(in srgb, var(--fig-mute) 8%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+  <text class="s" x="88.0" y="100.0" text-anchor="middle">(1, 1)</text>
+  <text class="s" x="238.0" y="192" text-anchor="middle">T=0</text>
+  <text class="s" x="270.0" y="192" text-anchor="middle">T=1</text>
+  <text class="s" x="302.0" y="192" text-anchor="middle">T=2</text>
+  <text class="s" x="334.0" y="192" text-anchor="middle">T=3</text>
+  <text class="s" x="538" y="68.0">T=0</text>
+  <text class="s" x="538" y="100.0">T=1</text>
+  <text class="s" x="538" y="132.0">T=2</text>
+  <text class="s" x="538" y="164.0">T=3</text>
+  <text class="s" x="104.0" y="192" text-anchor="middle">一个 program 负责的 C block</text>
+  <rect x="40" y="210" width="14" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/><text class="s" x="60" y="220">第 0 轮读的一对 block</text>
+  <rect x="200" y="210" width="14" height="12" rx="2" style="fill: url(#fig-o-2-hatch); stroke: var(--fig-1)" stroke-opacity=".8" stroke-width="1.4"/><text class="s" x="220" y="220">之后几轮（沿 K）</text>
+  <rect x="340" y="210" width="14" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 40%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/><text class="s" x="360" y="220">累加器：C block 一直留在 register 里</text>
+</svg>
+<figcaption><strong>图 2-5</strong> matmul 怎么切 block，一格是一个 block。C 的 block (1, 1) 只用到 A 的第 1 个 row block 和 B 的第 1 个 column block；沿 K 一轮读一对 block，乘完加到累加器上，实心是第 0 轮，斜线是之后几轮。A block 里的每个数被 C block 里同一行的 BN 个输出用到，B block 里的每个数被同一列的 BM 个输出用到。</figcaption>
+</figure>
 
 <figure id="fig-t-4" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 447" width="100%" role="img" aria-label="matmul kernel（A 4096 × 2048，B 2048 × 512）：C 的每个 block 一个 program；program (1, 1) 沿 K 一轮用 cp.async 把 A、B 各一个 block 从显存经 L2 搬进 shared memory，tl.dot 从 shared memory 读一小片进 register 做乘加，acc 留在 register 里，中间几轮用 ⋯ 省略，最后 ReLU 后 tl.store 写回 C 的 block (1, 1)">
@@ -1835,10 +1927,10 @@ BM = BN = T 时是 2K / T，只有不切时的 1/T。乘加用到的数还是 2K
   <text class="s" x="276.0" y="337">T = 0</text><text class="s" x="372.0" y="337" text-anchor="end">T = 63</text>
   <text class="s" x="276.0" y="354">每轮读 A 的 64 × 32、B 的 32 × 64，各 8 KB；</text><text class="s" x="276.0" y="368">图里一格 256 列，是 8 轮</text>
 </svg>
-<figcaption><strong>图 2-5</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-2</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 个 row block 和 B 的第 1 个 column block，颜色由淡到浓是沿 K 读 block 的顺序。acc 就是 C 的 block (1, 1)，64 轮 dot 在它上面一轮轮累加，ReLU 之后就是要写回的值，图里 ReLU 后的那段叫 C block。A、B 的 block 由 cp.async 从显存经 L2 搬进 shared memory，不经过 register。shared memory 里 A、B 各有 2 个 slot，因为默认 <code>num_stages=3</code>：第 T 轮的 block 在第 T − 2 轮算完时开始搬，第 T − 1 轮期间在路上，第 T 轮被读出来算；算完 slot 就空出来，接着搬第 T + 2 轮。所以偶数轮用 slot 0、奇数轮用 slot 1，算第 T 轮时另一个 slot 里是第 T + 1 轮，见 <a href="#stages">3.2 节</a>。</figcaption>
+<figcaption><strong>图 2-6</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-2</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 个 row block 和 B 的第 1 个 column block，颜色由淡到浓是沿 K 读 block 的顺序。acc 就是 C 的 block (1, 1)，64 轮 dot 在它上面一轮轮累加，ReLU 之后就是要写回的值，图里 ReLU 后的那段叫 C block。A、B 的 block 由 cp.async 从显存经 L2 搬进 shared memory，不经过 register。shared memory 里 A、B 各有 2 个 slot，因为默认 <code>num_stages=3</code>：第 T 轮的 block 在第 T − 2 轮算完时开始搬，第 T − 1 轮期间在路上，第 T 轮被读出来算；算完 slot 就空出来，接着搬第 T + 2 轮。所以偶数轮用 slot 0、奇数轮用 slot 1，算第 T 轮时另一个 slot 里是第 T + 1 轮，见 <a href="#stages">3.2 节</a>。</figcaption>
 </figure>
 
-一个 program 负责一个 $C_{IJ}$（[图 2-5](#fig-t-4)），沿 K 循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上；写回前在 register 里做 ReLU，激活函数不用再单独一个 kernel 读写一遍 C：
+一个 program 负责一个 $C_{IJ}$（[图 2-6](#fig-t-4)），沿 K 循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上；写回前在 register 里做 ReLU，激活函数不用再单独一个 kernel 读写一遍 C：
 
 ```python {role="program" tag="算 C 的第 (pid_m, pid_n) 个 block"}
 @triton.jit
@@ -2170,7 +2262,7 @@ program（也就是 CUDA block）放到 SM 上以后就一直驻留，直到它�
   <rect x="194.61" y="420" width="3.51" height="12" style="fill: var(--fig-1); stroke: var(--nv-bg, #fff)" stroke-width="0.4"/>
   <text class="s" x="476" y="430">每个占 1152 B，最多 88 个</text>
   <rect x="10" y="448" width="620" height="96" rx="10" style="fill: color-mix(in srgb, var(--fig-1) 5%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <text class="tb" x="22" y="466">matmul（<a href="#fig-t-4">图 2-5</a>）</text>
+  <text class="tb" x="22" y="466">matmul（<a href="#fig-t-4">图 2-6</a>）</text>
   <text class="lab2" x="156" y="466">每个 thread 96 个 register，shared memory 32 KB</text>
   <text class="tb" x="618" y="466" text-anchor="end" style="fill: var(--fig-hi)">放 3 个</text>
   <text class="s" x="22" y="486">warp 名额</text><text class="s" x="150" y="486" text-anchor="end">48</text>
