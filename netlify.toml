@@ -1,3 +1,4 @@
+# Test commit for checking Netlify deploy previews (not to be merged).
 # Netlify is used only for PR deploy previews. The live site is still built by
 # .github/workflows/hugo.yml and published to GitHub Pages (noviorlu.github.io).
 
