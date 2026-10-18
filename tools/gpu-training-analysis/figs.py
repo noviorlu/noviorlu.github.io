@@ -1501,6 +1501,184 @@ def mm_tiling():
     f.w(f'<rect x="340" y="{ly - 10}" width="14" height="12" rx="2" {solid("--fig-hi", 40)}/><text class="s" x="360" y="{ly}">累加器：C block 一直留在 register 里</text>')
     return f
 
+# ── 单卡优化方法一文的示意图（画法参考 CS336 lecture 5） ─────────────────────────
+def opt_divergence():
+    f = F("fig-o-3", 300, "control divergence：一个 warp 里 lane 0 到 3 走 if、lane 4 到 7 走 else，硬件先执行 A、B，此时 lane 4 到 7 被屏蔽，再执行 X、Y，lane 0 到 3 被屏蔽，最后一起执行 Z；如果分支按 warp 一致，两个 warp 各走各的，每个 warp 只执行一条路")
+    X0, U = 92, 46
+    def lane_row(y, k, segs):
+        f.w(f'<text class="s" x="{X0 - 8}" y="{y + 11}" text-anchor="end">lane {k}</text>')
+        for u0, u1, lab, on in segs:
+            st = tint("--fig-1", 40, sw=1) if on else 'style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"'
+            f.w(f'<rect x="{X0 + u0 * U + 1}" y="{y}" width="{(u1 - u0) * U - 2}" height="14" rx="2" {st}/>')
+
+    f.w('<text class="tb" x="8" y="22">warp 内分支不一样：if (lane &lt; 4) { A; B } else { X; Y }; Z</text>')
+    for i, lab in enumerate(("A", "B", "X", "Y", "Z")):
+        f.w(f'<text class="s" x="{X0 + (i + 0.5) * U}" y="38" text-anchor="middle">{lab}</text>')
+    for k in range(8):
+        a = k < 4
+        lane_row(42 + k * 18, k, [(0, 1, "A", a), (1, 2, "B", a), (2, 3, "X", not a), (3, 4, "Y", not a), (4, 5, "Z", True)])
+    f.w(f'<text class="s" x="{X0 + 5 * U + 10}" y="{42 + 3 * 18 + 11}">5 段时间，每段都有一半 lane 空着</text>')
+    y2 = 42 + 8 * 18 + 28
+    f.w(f'<text class="tb" x="8" y="{y2 - 10}">分支按 warp 一致：warp 0 都走 if，warp 1 都走 else，两个 warp 各自只走一条路</text>')
+    for w, segs in ((0, [(0, 1, "A", True), (1, 2, "B", True), (2, 3, "Z", True)]), (1, [(0, 1, "X", True), (1, 2, "Y", True), (2, 3, "Z", True)])):
+        y = y2 + 6 + w * 22
+        f.w(f'<text class="s" x="{X0 - 8}" y="{y + 11}" text-anchor="end">warp {w}</text>')
+        for u0, u1, lab, on in segs:
+            f.w(f'<rect x="{X0 + u0 * U + 1}" y="{y}" width="{U - 2}" height="14" rx="2" {tint("--fig-1", 40, sw=1)}/><text class="s" x="{X0 + (u0 + 0.5) * U}" y="{y + 11}" text-anchor="middle">{lab}</text>')
+    f.w(f'<text class="s" x="{X0 + 3 * U + 10}" y="{y2 + 6 + 22 + 11}">每个 warp 3 段，没有空着的 lane</text>')
+    f.arrow(X0, 290, X0 + 5 * U, 290, None, width=1.2)
+    f.w(f'<text class="s" x="{X0 + 5 * U + 6}" y="{294}">时间</text>')
+    return f
+
+def opt_precision():
+    f = F("fig-o-4", 196, "一条 128 B 的 cache line 能装多少个数：fp32 32 个，bf16 64 个，fp8 128 个；位数减半，同样的带宽搬两倍的数")
+    X0, W = 120, 480
+    rows = [("fp32", 4, 32), ("bf16", 2, 64), ("fp8", 1, 128)]
+    f.w(f'<text class="tb" x="8" y="22">一条 128 B 的 cache line 能装多少个数</text>')
+    for i, (nm, by, n) in enumerate(rows):
+        y = 40 + i * 40
+        f.w(f'<text class="lab" x="8" y="{y + 15}">{nm}（{by} B）</text>')
+        cw = W / n
+        for k in range(n):
+            f.w(f'<rect x="{X0 + k * cw:.1f}" y="{y}" width="{max(cw - 0.8, 0.6):.1f}" height="20" {tint("--fig-1", 18 + 30 * (i == 0), sw=0.6)}/>')
+        f.w(f'<text class="s" x="{X0 + W + 8}" y="{y + 15}">{n} 个</text>')
+    f.w(f'<text class="s" x="8" y="{40 + 3 * 40 + 14}">以 ReLU 为例，读一个、写一个、做 1 次比较：fp32 每次运算要搬 8 B，bf16 4 B，fp8 2 B，算术强度跟着翻倍</text>')
+    return f
+
+def opt_mx():
+    f = F("fig-o-9", 290, "block scaling 和转置：W 是 [N, K]，前向 Y = X Wᵀ 沿 K 归约，每行 4 个数一个 block、一个 scale；反向 dX = dY W 沿 N 归约，block 要竖着分，原来的 scale 对不上，只能从高精度的 W 再量化一份")
+    n, c = 8, 20
+    def grid(x0, y0, along_rows, title, note):
+        f.w(f'<text class="tb" x="{x0}" y="22">{title}</text>')
+        for r in range(n):
+            for k in range(n):
+                blk = (k // 4) if along_rows else (r // 4)
+                key = (r, blk) if along_rows else (k, blk)
+                pct = 16 + 22 * ((key[0] + key[1]) % 2)
+                f.w(f'<rect x="{x0 + k * c + 0.5}" y="{y0 + r * c + 0.5}" width="{c - 1}" height="{c - 1}" rx="2" {tint("--fig-1", pct, sw=0.8)}/>')
+        if along_rows:
+            for r in range(n):
+                for b in range(2):
+                    f.w(f'<rect x="{x0 + n * c + 8 + b * 14}" y="{y0 + r * c + 3}" width="12" height="{c - 6}" rx="2" {tint("--fig-hi", 45, sw=0.8)}/>')
+            f.w(f'<text class="s" x="{x0 + n * c + 8}" y="{y0 - 6}">scale</text>')
+            f.w(f'<text class="s" x="{x0}" y="{y0 - 6}">K →</text>')
+        else:
+            for k in range(n):
+                for b in range(2):
+                    f.w(f'<rect x="{x0 + k * c + 3}" y="{y0 + n * c + 8 + b * 14}" width="{c - 6}" height="12" rx="2" {tint("--fig-hi", 45, sw=0.8)}/>')
+            f.w(f'<text class="s" x="{x0 + n * c + 6}" y="{y0 + n * c + 22}">scale</text>')
+            f.w(f'<text class="s" x="{x0 - 22}" y="{y0 + 12}">N</text><text class="s" x="{x0 - 22}" y="{y0 + 26}">↓</text>')
+        for i, l in enumerate(note):
+            f.w(f'<text class="s" x="{x0}" y="{y0 + n * c + (56 if not along_rows else 22) + i * 15}">{l}</text>')
+    grid(40, 40, True, "前向 Y = X Wᵀ：沿 K 分块", ["W 是 [N, K]，每行 2 个 block，各一个 scale"])
+    grid(380, 40, False, "反向 dX = dY W：沿 N 分块", ["同一个 W，每列 2 个 block，scale 和左边对不上", "只能从高精度的 W 再量化一份"])
+    f.arrow(300, 120, 360, 120, None, width=1.4)
+    f.w('<text class="s" x="330" y="112" text-anchor="middle">换个方向分块</text>')
+    return f
+
+def opt_fusion():
+    f = F("fig-o-5", 262, "fusion：eager 每个 op 是一个 kernel，中间结果都写回显存、下一个再读回来；fused 一个 kernel 读一次 x、写一次 y，中间结果留在 register 里")
+    def col(x, title):
+        f.w(f'<text class="tb" x="{x}" y="22">{title}</text>')
+    # eager
+    col(8, "eager：每个 op 一个 kernel")
+    mx, cx = 20, 190
+    f.w(f'<rect x="{mx}" y="34" width="70" height="214" rx="6" {tint("--fig-mute", 14)}/><text class="s" x="{mx + 35}" y="50" text-anchor="middle">显存</text>')
+    mem = [("x", 72), ("t1", 124), ("t2", 176), ("y", 228)]
+    for nm, y in mem:
+        f.w(f'<rect x="{mx + 14}" y="{y - 12}" width="42" height="18" rx="4" {tint("--fig-2", 22, sw=1)}/><text class="s" x="{mx + 35}" y="{y + 1}" text-anchor="middle">{nm}</text>')
+    for i, op in enumerate(("op 1", "op 2", "op 3")):
+        y = 85 + i * 52
+        f.w(f'<rect x="{cx}" y="{y}" width="74" height="26" rx="6" class="op"/><text class="t" x="{cx + 37}" y="{y + 18}" text-anchor="middle">{op}</text>')
+        f.arrow(mx + 58, mem[i][1] - 3, cx - 4, y + 8, "--fig-hi", width=1.4)        # 读上一个
+        f.arrow(cx - 4, y + 20, mx + 58, mem[i + 1][1] - 3, "--fig-hi", width=1.4)    # 写下一个
+    f.w(f'<text class="s" x="{cx + 37}" y="{246}" text-anchor="middle">读 3 次、写 3 次</text>')
+    # fused
+    col(340, "fused：一个 kernel")
+    mx2, cx2 = 352, 520
+    f.w(f'<rect x="{mx2}" y="34" width="70" height="214" rx="6" {tint("--fig-mute", 14)}/><text class="s" x="{mx2 + 35}" y="50" text-anchor="middle">显存</text>')
+    for nm, y in (("x", 72), ("y", 228)):
+        f.w(f'<rect x="{mx2 + 14}" y="{y - 12}" width="42" height="18" rx="4" {tint("--fig-2", 22, sw=1)}/><text class="s" x="{mx2 + 35}" y="{y + 1}" text-anchor="middle">{nm}</text>')
+    f.w(f'<rect x="{cx2 - 10}" y="60" width="94" height="152" rx="8" {tint("--fig-hi", 10)}/><text class="s" x="{cx2 + 37}" y="74" text-anchor="middle">register</text>')
+    for i, op in enumerate(("op 1", "op 2", "op 3")):
+        y = 84 + i * 40
+        f.w(f'<rect x="{cx2}" y="{y}" width="74" height="26" rx="6" class="op"/><text class="t" x="{cx2 + 37}" y="{y + 18}" text-anchor="middle">{op}</text>')
+        if i < 2:
+            f.arrow(cx2 + 37, y + 27, cx2 + 37, y + 39, None, width=1.2)
+    f.arrow(mx2 + 58, 69, cx2 - 12, 92, "--fig-hi", width=1.4)
+    f.arrow(cx2 - 12, 200, mx2 + 58, 225, "--fig-hi", width=1.4)
+    f.w(f'<text class="s" x="{cx2 + 37}" y="{246}" text-anchor="middle">读 1 次、写 1 次</text>')
+    return f
+
+def opt_recompute():
+    f = F("fig-o-6", 250, "三层 sigmoid 的前向和反向。左：前向把 s1、s2 写回显存给反向用，前向 1 读 3 写，反向 3 读 1 写，一共 8 次；右：前向只写 out，反向读 x 重算 s1、s2，前向 1 读 1 写，反向 2 读 1 写，一共 5 次")
+    def stack(x0, title, saved):
+        f.w(f'<text class="tb" x="{x0}" y="22">{title}</text>')
+        f.w(f'<text class="s" x="{x0 + 50}" y="44" text-anchor="middle">x</text>')
+        for i in range(3):
+            y = 54 + i * 42
+            f.w(f'<rect x="{x0 + 14}" y="{y}" width="72" height="24" rx="5" class="op"/><text class="t" x="{x0 + 50}" y="{y + 16}" text-anchor="middle">sigmoid</text>')
+            f.arrow(x0 + 50, y - 6 if i == 0 else y - 17, x0 + 50, y - 1, None, width=1.2)
+            if saved and i < 2:
+                f.arrow(x0 + 88, y + 18, x0 + 128, y + 26, "--fig-hi", width=1.3)
+                f.w(f'<text class="s" x="{x0 + 132}" y="{y + 30}">s{i + 1} 写回显存</text>')
+        f.arrow(x0 + 50, 54 + 2 * 42 + 25, x0 + 50, 54 + 2 * 42 + 40, None, width=1.2)
+        f.w(f'<text class="s" x="{x0 + 50}" y="{54 + 2 * 42 + 52}" text-anchor="middle">out</text>')
+    stack(8, "存下中间结果", True)
+    stack(330, "反向时重算", False)
+    rows = [("前向", "读 x，写 s1、s2、out：1 读 3 写", "读 x，写 out：1 读 1 写"),
+            ("反向", "读 s1、s2、dout，写 dx：3 读 1 写", "读 x、dout 重算 s1、s2，写 dx：2 读 1 写"),
+            ("合计", "8 次显存读写", "5 次，少了 3/8")]
+    for i, (a, b, c) in enumerate(rows):
+        y = 212 + i * 16
+        f.w(f'<text class="s" x="8" y="{y}">{a}</text><text class="s" x="44" y="{y}">{b}</text><text class="s" x="330" y="{y}">{c}</text>')
+    return f
+
+def opt_coalescing():
+    f = F("fig-o-7", 250, "memory coalescing：8 个 thread 各读一个 4 B 的数。上：相邻 thread 读相邻地址，32 B 正好是一个 sector，取 1 个 sector；下：相邻 thread 隔 32 B，每个 thread 落在不同的 sector，要取 8 个 sector，每个只用到 4 B")
+    X0, cw = 60, 9
+    def row(y, title, addr, note):
+        f.w(f'<text class="tb" x="8" y="{y - 40}">{title}</text>')
+        for s in range(8):                                   # 8 个 32 B sector，每个 8 个 4 B 的格子
+            used = any(a // 8 == s for a in addr)
+            for k in range(8):
+                a = s * 8 + k
+                st = tint("--fig-hi", 45, sw=0.8) if a in addr else (tint("--fig-2", 18, sw=0.8) if used else tint("--fig-mute", 8, sw=0.8))
+                f.w(f'<rect x="{X0 + a * cw:.1f}" y="{y}" width="{cw - 1:.1f}" height="16" {st}/>')
+            f.w(f'<rect x="{X0 + s * 8 * cw - 0.5:.1f}" y="{y - 2}" width="{8 * cw:.1f}" height="20" rx="2" style="fill: none; stroke: currentColor" stroke-opacity="{.6 if used else .15}" stroke-width="1"/>')
+        for t_, a in enumerate(addr):
+            x = X0 + a * cw + cw / 2 - 0.5
+            f.arrow(x, y - 20, x, y - 3, None, width=1)
+            f.w(f'<text class="s" x="{x:.1f}" y="{y - 22}" text-anchor="middle" style="font-size: 9px">T{t_}</text>') if t_ in (0, 7) or len(set(range(8)) & {t_}) and addr[1] - addr[0] > 1 else None
+        f.w(f'<text class="s" x="{X0}" y="{y + 32}">{note}</text>')
+    row(74, "相邻 thread 读相邻的 4 B：合并", list(range(8)), "取 1 个 sector（32 B），每个字节都用上")
+    row(190, "相邻 thread 隔 32 B（比如按列读行优先的矩阵）：不合并", [s * 8 for s in range(8)], "取 8 个 sector（256 B），只用到 32 B")
+    f.w(f'<text class="s" x="{X0 + 64 * cw + 12}" y="88">一格 4 B</text><text class="s" x="{X0 + 64 * cw + 12}" y="102">一个框 32 B</text>')
+    return f
+
+def opt_bank():
+    f = F("fig-o-8", 264, "bank conflict（按 8 个 bank 画）：8 × 8 的 fp32 矩阵按行存进 shared memory，一列的 8 个数都落在 bank 0，8 个 thread 同时读这一列要排 8 拍；每行多留一个数（padding），一列的数错开到 8 个不同的 bank，一拍读完")
+    def panel(x0, title, pad, note):
+        f.w(f'<text class="tb" x="{x0}" y="22">{title}</text>')
+        n, cw = 8, 26
+        for b in range(8):
+            f.w(f'<text class="s" x="{x0 + b * cw + cw / 2}" y="44" text-anchor="middle">bank {b}</text>' if b in (0, 7) else f'<text class="s" x="{x0 + b * cw + cw / 2}" y="44" text-anchor="middle">{b}</text>')
+        for r in range(n):
+            for c in range(n):
+                a = r * (n + pad) + c                         # 元素 (r, c) 的地址（以 4 B 为单位）
+                bank, slot = a % 8, a // 8
+                hit = c == 0
+                st = tint("--fig-hi", 45, sw=0.8) if hit else tint("--fig-1", 10, sw=0.8)
+                f.w(f'<rect x="{x0 + bank * cw + 1}" y="{52 + slot * 20}" width="{cw - 2}" height="18" rx="2" {st}/>')
+                f.w(f'<text class="s" x="{x0 + bank * cw + cw / 2}" y="{52 + slot * 20 + 13}" text-anchor="middle" style="font-size: 9px">{r},{c}</text>')
+            if pad:
+                a = r * (n + pad) + n
+                f.w(f'<rect x="{x0 + (a % 8) * cw + 1}" y="{52 + (a // 8) * 20}" width="{cw - 2}" height="18" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="3 2"/>')
+        f.w(f'<text class="s" x="{x0}" y="{52 + 9 * 20 + 24}">{note}</text>')
+    panel(8, "每行 8 个数，按行存", 0, "第 0 列全在 bank 0：排 8 拍")
+    panel(330, "每行补 1 个空位（虚线）", 1, "第 0 列错开到 8 个 bank：一拍读完")
+    return f
+
 def tri_gelu():
     f, cx, p = lanes_fig("fig-t-1", "GELU kernel：数组展平成一维按 BLOCK 切段，一段一个 program；tl.load 把一段从显存读进 register，计算单元算 GELU，tl.store 从 register 直接写回显存",
         "逐元素：y[i] 只依赖 x[i]", "一个 program（pid = 1）", grid_strip,
@@ -1982,6 +2160,13 @@ CAPS = {
  "cuda_model": '<strong>图 1-5</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；中间是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>；右边是这一层在 Triton 里怎么写。',
  "op_split": '<strong>图 2-1</strong> 四个例子的数据怎么分给 program。深蓝是 pid = 1 的 program 要读的数据，红色是它写回的输出；row sum 和 matmul 要循环，实心是第 0 轮读的 block，斜线是之后几轮要读的。matmul 那格一格是一个 block。每个例子的完整数据流图在后面各小节。',
  "mm_tiling": '<strong>图 7-1</strong> matmul 怎么切 block，一格是一个 block。C 的 block (1, 1) 只用到 A 的第 1 个 row block 和 B 的第 1 个 column block；沿 K 一轮读一对 block，乘完加到累加器上，实心是第 0 轮，斜线是之后几轮。A block 里的每个数被 C block 里同一行的 BN 个输出用到，B block 里的每个数被同一列的 BM 个输出用到。',
+ "opt_divergence": '<strong>图 1-1</strong> control divergence（按 8 条 lane 画，实际一个 warp 32 条）。上：同一个 warp 里分支不一样，A、B 和 X、Y 两段都要执行，执行一段时另一半 lane 被屏蔽（虚线）；下：分支按 warp 一致时，每个 warp 只走自己那条路。画法参考 <a href="https://github.com/stanford-cs336/lectures/blob/main/lecture_05.pdf">CS336 lecture 5</a>。',
+ "opt_precision": '<strong>图 2-1</strong> 位数和一次能搬的数。显存、L2 都按 32 B 的 sector、128 B 的 cache line 搬数据，位数减半，同样的搬运量就多一倍的数。',
+ "opt_mx": '<strong>图 2-2</strong> block scaling 为什么转置以后要再量化一份（示意，一个 block 按 4 个数画，MX 格式是 32 个）。颜色深浅区分不同的 block，红色是每个 block 的 scale。W 按 PyTorch 的 Linear 存成 [N, K]。同一个 block 里的数共用一个 scale，所以 block 必须沿矩阵乘的归约方向连续：前向沿 K，反向算 dX 时沿 N，原来的 block 和 scale 用不上。',
+ "opt_fusion": '<strong>图 3-1</strong> fusion 省掉中间结果的往返（示意，按 3 个 op 画）。eager 下每个 op 是一个 kernel，t1、t2 都要写回显存、下一个 kernel 再读回来；合成一个 kernel 以后，中间结果留在 register 里。画法参考 CS336 lecture 5。',
+ "opt_recompute": '<strong>图 4-1</strong> 三层 sigmoid，存中间结果和反向重算各要几次显存读写。例子来自 <a href="https://dev-discuss.pytorch.org/t/min-cut-optimal-recomputation-i-e-activation-checkpointing-with-aotautograd/467">PyTorch dev-discuss 的 min-cut recomputation 一文</a>，CS336 lecture 5 也用了它。sigmoid 的导数只要 sigmoid 自己的值，所以反向读 x 就能重算出 s1、s2。',
+ "opt_coalescing": '<strong>图 5-1</strong> memory coalescing（按 8 个 thread 画，实际一个 warp 32 个）。红色是被读的数，浅蓝是同一个 sector 里顺带取上来、没用到的字节。',
+ "opt_bank": '<strong>图 6-1</strong> bank conflict 和 padding（按 8 个 bank、8 × 8 的矩阵画，实际是 32 个 bank）。一格是一个 4 B 的数，标的是它在矩阵里的 (行, 列)；同一列的格子是同一个 bank，同一个 bank 一拍只能读一个地址。红色是 8 个 thread 同时要读的第 0 列。',
  "tri_gelu": '<strong>图 2-2</strong> GELU kernel（n = 8388608，fp32）。左边是 grid，数组按 BLOCK = 1024 切段，一段一个 program。右边是 program 1 的数据流，泳道和箭头的含义见正文。显存泳道里的整条是整个 x、y（各 8388608 个 fp32，32 MB），深色一段是 program 1 读写的 1024 个（4 KB）；按比例只有整条的 1/8192，图里放大了。',
  "wave_trace": '<strong>图 3-5</strong> GELU 的 8192 个 program 实际怎么分批跑（RTX 5090，n = 8388608，fp32，每个 program 4 个 warp）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，store 发出后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 编号所在的批次，一批 2040 个。浅红色是 bubble：名额上没有 program 在执行指令；最后一个 program 开始以后是 tail。下面的名额是按开始、结束时间排出来的，红框是这个 SM 上最长的一段空档。悬停可看 program 编号和时间。',
  "tri_softmax": '<strong>图 2-3</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-2</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。显存泳道里的方块是整个 x、y（各 64 MB），深色一条是 program 1 读写的那一行（4096 个 fp32，16 KB），按比例只有 1/4096，图里放大了。',
@@ -2014,7 +2199,7 @@ CAPS = {
  "ckpt": '<strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。',
  "sweep": '<strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。',
 }
-OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("residency", residency), ("tile_res", tile_res), ("tile_rules", tile_rules), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("wave_trace", wave_trace), ("op_split", op_split), ("mm_tiling", mm_tiling), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("mm_wave", mm_wave), ("mm_pipe_ncu", mm_pipe_ncu), ("pipe_slots", pipe_slots), ("tx_barrier", tx_barrier), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
+OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("residency", residency), ("tile_res", tile_res), ("tile_rules", tile_rules), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("wave_trace", wave_trace), ("op_split", op_split), ("mm_tiling", mm_tiling), ("opt_divergence", opt_divergence), ("opt_precision", opt_precision), ("opt_mx", opt_mx), ("opt_fusion", opt_fusion), ("opt_recompute", opt_recompute), ("opt_coalescing", opt_coalescing), ("opt_bank", opt_bank), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("mm_wave", mm_wave), ("mm_pipe_ncu", mm_pipe_ncu), ("pipe_slots", pipe_slots), ("tx_barrier", tx_barrier), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
        ("flops_vs_time", flops_vs_time), ("share_vs_seq", share_vs_seq), ("peak_memory", peak_memory), ("peak_moment", peak_moment),
        ("rms_eager", rms_eager), ("rms_fused", rms_fused), ("attn_flow", attn_flow), ("layer_donut", layer_donut), ("timelines", timelines),
        ("bf16", bf16), ("ckpt", ckpt), ("sweep", sweep))}
