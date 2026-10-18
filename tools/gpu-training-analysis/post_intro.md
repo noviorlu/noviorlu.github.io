@@ -93,6 +93,20 @@ GA102 白皮书列出的切法见[表 1-2](#tab-1-2)。跑 kernel 时（compute 
 
 [图 1-3](#fig-h-2) 右下角的 TMA（Tensor Memory Accelerator）是 Hopper 起 SM 里专门搬数据的单元，负责显存和 shared memory 之间的整块搬运（[表 1-1](#tab-1-1)）。它不是另一条通路，和 LD/ST 发出的请求走的是同一条路，经片上互联到 L2；区别在请求由谁发、地址由谁算。cp.async 要每个 thread 自己算地址、各搬一小段；TMA 只要一个 thread 发一条指令，给它一个 tensor descriptor（整个张量的起点、形状、stride，以及这次要搬的一块有多大），地址由 TMA 算，越界的部分自动补零。搬没搬完用 shared memory 里的 mbarrier 来等。它还能反过来，把 shared memory 里的一块写回显存，这是 cp.async 做不到的。5090 也有 TMA：用 Triton 的 `tl.make_tensor_descriptor` 写一个复制 kernel，编出来的 PTX 里读是 `cp.async.bulk.tensor.2d.shared::cluster.global`、用 mbarrier 等，写回是 `cp.async.bulk.tensor.2d.global.shared::cta`。
 
+从显存到 shared memory 的三种搬法放在一起比（[表 1-3](#tab-1-3)）：
+
+| | ld.global + st.shared | cp.async | TMA |
+|:--|:--|:--|:--|
+| 数据经不经过 register | 经过：先读进 register，再写进 shared memory | 不经过 | 不经过 |
+| 发出以后 thread 要不要等 | 用到那个 register 时要等 | 不等，要用时用 `cp.async.wait_group` 等 | 不等，要用时用 mbarrier 等 |
+| 谁发指令、谁算地址 | 每个 thread 自己算，一条最多 16 B | 每个 thread 自己算，一条最多 16 B | 一个 thread 发一条指令，地址由 TMA 生成 |
+| 越界 | 每个 thread 自己用 mask 判断 | 每个 thread 自己用 mask 判断 | TMA 自动处理，越界补零 |
+{#tab-1-3 caption="**表 1-3** 从显存搬到 shared memory 的三种办法"}
+
+ld.global 和 cp.async 的区别是数据进不进 register；cp.async 和 TMA 都是异步、都直接进 shared memory，区别是谁来干搬运的活。拿 [2.4 节](#triton-matmul)的 matmul 算一下：每轮 A、B 的 block 各 8 KB。用 cp.async，一条搬 16 B，8 KB 要 512 条，分给 128 个 thread，每个 thread 每轮 A、B 各发 4 条，每条之前还要自己算地址和 mask。换成 TMA，一轮只要 A、B 各一条指令，由一个 thread 发出。
+
+打个比方，shared memory 是 SM 里的公共货架，显存是远处的仓库。ld.global 是每个人自己去仓库搬箱子，先揣在身上（register），回来再放上货架。cp.async 是每个人各自下单，让仓库直接送到货架，自己不用揣着，之后等自己的单都到了。TMA 是只派一个人，把一张清单交给叉车，清单上写着要的是仓库里哪一块矩形（tensor descriptor），叉车自己算位置、整块搬到货架，搬完按一下铃（mbarrier）。TMA 省下的是 thread 的指令和 register：算地址、算 mask、发几百条小请求的活都不用 thread 做，于是可以只让一个 warp 发 TMA，其余的 warp 专心算。
+
 [图 1-4](#fig-h-9) 是一个 SMSP 的结构，放在这里作参考。后文要用到其中两件事。
 
 第一件是 CUDA core 和 Tensor core 的分工。CUDA core 一次算一个数：一条 FMA 指令里 warp 的 32 个 thread 各用一个 CUDA core，各做一次乘加（2 FLOPs）。5090 一共 170 × 128 个 CUDA core，fp32 峰值 1.05e14 FLOPS。Tensor core 一次算一个小矩阵乘：一条指令由整个 warp 一起发出，算一小块 A × B 再加到累加器上。它只吃 bf16、fp16、tf32、fp8 这类低精度输入，bf16 的峰值是 2.1e14 FLOPS（fp32 累加），fp8 更高。第 2 节的 `tl.dot` 默认走 Tensor core，加减乘除在 CUDA core 上算，exp 这类函数在 SFU 上算。
