@@ -63,36 +63,38 @@ class F:
 
 # ── 图 1-1 架构 ───────────────────────────────────────────────────────────────
 def arch():
-    f = F("fig-1-1", 330, "MiniCPM-o 4.5 架构：视觉和音频编码器把输入变成 LLM 的嵌入，Qwen3-8B 出文本和隐状态，0.3B 的语音 token 解码器把两者相加作为条件，出 25 Hz 的 S3 token，再由 flow matching 合成波形")
-    # inputs and encoders
-    f.box(8, 40, 74, 44, "视频帧", "1–5 FPS", bold=False)
-    f.box(104, 34, 120, 56, "SigLIP ViT", "0.4B", "448², 1024 patch", var="--fig-2")
-    f.box(246, 34, 110, 56, "Resampler", "64 个 query", var="--fig-2")
-    f.box(8, 150, 74, 44, "音频", "16 kHz", bold=False)
-    f.box(104, 144, 120, 56, "Whisper-medium", "0.3B", "mel 100 Hz → 50 Hz", var="--fig-3")
-    f.box(246, 144, 110, 56, "MLP + 均值池化", "1024→4096→4096", "5 帧取平均", var="--fig-3")
-    f.arrow(82, 62, 102, 62); f.arrow(224, 62, 244, 62)
-    f.arrow(82, 172, 102, 172); f.arrow(224, 172, 244, 172)
+    f = F("fig-1-1", 640, "MiniCPM-o 4.5 架构（从上到下）：视频和音频分别经 SigLIP 加 Resampler、Whisper 加 MLP 和均值池化变成 LLM 的嵌入；Qwen3-8B 出文本，同时把文本 token 和末层隐状态交给 0.3B 的语音 token 解码器，两者相加作为条件，出 25 Hz 的 S3 token，再由 flow matching 合成 24 kHz 音频")
+    L, R, BW = 160, 440, 210          # column centres, box width
+    f.text(20, 18, "箭头旁的数字是进入下一模块的 token 数", "lab2")
+    # inputs
+    f.box(L - 70, 32, 140, 40, "视频帧", "1–5 FPS", bold=False)
+    f.box(R - 70, 32, 140, 40, "音频", "16 kHz", bold=False)
+    # encoders
+    f.box(L - BW / 2, 96, BW, 56, "SigLIP ViT", "0.4B", "448², 1024 patch", var="--fig-2")
+    f.box(R - BW / 2, 96, BW, 56, "Whisper-medium", "0.3B", "mel 100 Hz → 50 Hz", var="--fig-3")
+    f.box(L - BW / 2, 176, BW, 50, "Resampler", "64 个 query", var="--fig-2")
+    f.box(R - BW / 2, 176, BW, 56, "MLP + 均值池化", "1024→4096→4096", "5 帧取平均", var="--fig-3")
+    for x in (L, R):
+        f.arrow(x, 72, x, 94)
+    f.arrow(L, 152, L, 174); f.arrow(R, 152, R, 174)
+    f.arrow(L, 226, L, 264); f.text(L + 8, 250, "64 / 帧", "s")
+    f.arrow(R, 232, R, 264); f.text(R + 8, 252, "10 / s", "s")
     # LLM
-    f.box(392, 34, 112, 166, "Qwen3-8B", "36 层，d = 4096", "每秒 3–4 个文本 token", var="--fig-1")
-    f.arrow(356, 62, 390, 62); f.text(373, 56, "64/帧", "s", "middle")
-    f.arrow(356, 172, 390, 172); f.text(373, 166, "10/s", "s", "middle")
-    # right column: text out / speech decoder / flow matching / audio out
-    f.box(526, 34, 106, 34, "文本输出", bold=False)
-    f.arrow(504, 51, 524, 51)
-    f.box(526, 92, 106, 64, "语音 token", "解码器 0.3B", "Llama 20 层，d 768", var="--fig-hi")
-    f.arrow(504, 108, 524, 108)
-    # hidden -> projector -> decoder
-    f.box(392, 226, 112, 44, "Projector", "4096→768→768，L2", var="--fig-hi")
-    f.arrow(448, 200, 448, 224, "--fig-hi"); f.text(454, 216, "末层 h", "s")
-    f.path("M504,248 L514,248 L514,140 L524,140", "--fig-hi")
-    f.text(519, 133, "+", "tb", "middle")
-    f.box(526, 182, 106, 60, "flow matching", "+ HiFT 声码器", "参考音频定音色", var="--fig-mute")
-    f.arrow(579, 156, 579, 180); f.text(585, 172, "S3 25/s", "s")
-    f.box(526, 270, 106, 34, "音频输出", "24 kHz", bold=False)
-    f.arrow(579, 242, 579, 268)
-    f.text(104, 300, "语音 token 解码器的输入 = 文本 token 的嵌入 + 投影后的 h（逐元素相加）", "s")
-    f.text(8, 18, "箭头上的数字是进入下一模块的 token 数", "lab2")
+    f.box(50, 266, 500, 64, "Qwen3-8B", "36 层，d = 4096", "每秒 3–4 个文本 token", var="--fig-1")
+    # outputs
+    f.box(60, 372, 140, 40, "文本输出", bold=False)
+    f.arrow(130, 330, 130, 370)
+    f.box(380, 372, 170, 44, "Projector", "4096→768→768，L2", var="--fig-hi")
+    f.arrow(465, 330, 465, 370, "--fig-hi"); f.text(473, 356, "末层 h", "s")
+    f.box(260, 452, 290, 60, "语音 token 解码器", "0.3B，Llama 20 层，d 768", var="--fig-hi")
+    f.arrow(300, 330, 300, 450); f.text(308, 392, "文本 token", "s")
+    f.arrow(465, 416, 465, 450, "--fig-hi"); f.text(473, 438, "+", "tb")
+    f.box(315, 540, 180, 56, "flow matching", "+ HiFT 声码器", "参考音频定音色", var="--fig-mute")
+    f.arrow(405, 512, 405, 538); f.text(413, 530, "S3，25 / s", "s")
+    f.box(345, 612, 120, 24, "音频输出 24 kHz", bold=False)
+    f.arrow(405, 596, 405, 610)
+    for k, t in enumerate(["语音 token 解码器的输入", "= 文本 token 的嵌入", "+ 投影后的 h", "（逐元素相加）"]):
+        f.text(60, 470 + 16 * k, t, "s")
     return f
 
 
