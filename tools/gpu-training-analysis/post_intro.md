@@ -10,7 +10,7 @@ series: ["GPU training optimization"]
 series_order: 1
 ---
 
-这个系列讲怎么让 Transformer 训练在 GPU 上跑得更快。这一篇先打基础：[第 1 节](#hardware)介绍 GPU 的硬件，包括数据存在哪几层、一个 SM 里有什么、CUDA 的执行层级怎么对应到硬件、数据能在哪几层之间搬；[第 2 节](#triton)用四个例子介绍 Triton，后面两篇的 kernel 都用它写。[第 3 节](#tune)看写好的 kernel 在 SM 上怎么跑、怎么调：`num_warps` 和 `num_stages` 改了什么，一个 SM 放几个 program，warp 怎么藏住访存延迟，program 怎么分批，matmul 的 block 大小怎么选。几代 NVIDIA GPU 的规格对比放在 [Appendix A](#specs)，TPU 和 GPU 的对照放在 [Appendix B](#tpu)。
+这个系列讲怎么让 Transformer 训练在 GPU 上跑得更快。这一篇先打基础：[第 1 节](#hardware)介绍 GPU 的硬件，包括数据存在哪几层、一个 SM 里有什么、CUDA 的执行层级怎么对应到硬件、数据能在哪几层之间搬；[第 2 节](#triton)用四个例子介绍 Triton，后面两篇的 kernel 都用它写。[第 3 节](#tune)看写好的 kernel 在 SM 上怎么跑、怎么调：`num_warps` 和 `num_stages` 改了什么，一个 SM 放几个 program，warp 怎么藏住访存延迟，program 怎么分批，matmul 的 block 大小怎么选。几代 NVIDIA GPU 的规格对比放在 [Appendix A](#specs)，TPU 和 GPU 的对照放在 [Appendix B](#tpu)，TMA 和异步同步放在 [Appendix C](#tma)。
 
 下一篇[谁偷走了 5090 的算力和显存](/blog/gpu-training-analysis/)用这些知识在 RTX 5090 上拆解一步训练的时间和显存，第三篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 讲 attention 的 IO-aware kernel。
 
@@ -57,7 +57,7 @@ cp.async 是 Ampere（compute capability 8.0）开始有的 PTX 指令，把显�
 
 普通的 ld.global 发出以后 thread 也不会马上停，但数据要先落进 register，再由 st.shared 写进 shared memory，st.shared 用到这个 register 时就得等数据到齐；想提前几轮搬，register 里就得多存几轮数据。cp.async 不占 register，发出以后 thread 接着往下执行，真正要用时再等：几条 cp.async 用 `cp.async.commit_group` 打成一组，`cp.async.wait_group N` 等到最多只剩 N 组还在路上，再用 bar.sync 让同一个 block 的所有 thread 都看到搬好的数据。
 
-Triton 代码里只有 `tl.load` 和 `tl.store`，走[表 1-1](#tab-1-1)的哪一行由编译器决定：[第 2 节](#triton)的 GELU、softmax、row sum 都是显存和 register 之间直接读写；matmul 的 A、B 要经过 shared memory，编出来用的是 cp.async（[3.3 节](#stages)）；用 tensor descriptor 写的 load 才会用 TMA（[1.2 节](#hw-sm)）。
+Triton 代码里只有 `tl.load` 和 `tl.store`，走[表 1-1](#tab-1-1)的哪一行由编译器决定：[第 2 节](#triton)的 GELU、softmax、row sum 都是显存和 register 之间直接读写；matmul 的 A、B 要经过 shared memory，编出来用的是 cp.async（[3.3 节](#stages)）；用 tensor descriptor 写的 load 才会用 TMA（[Appendix C](#tma)）。
 
 register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构。
 
@@ -91,27 +91,9 @@ GA102 白皮书列出的切法见[表 1-2](#tab-1-2)。跑 kernel 时（compute 
 
 </details>
 
-[图 1-3](#fig-h-2) 右下角的 TMA（Tensor Memory Accelerator）是 Hopper 起 SM 里专门搬数据的单元，负责显存和 shared memory 之间的整块搬运（[表 1-1](#tab-1-1)）。它是一个硬件单元，每个 SM 一个，4 个 SMSP 共用：[Hopper 白皮书](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)的 SM 结构图把它画在 4 个 SMSP 之外、紧挨着 L1 / shared memory；5090 的白皮书没有单独画它。程序通过 `cp.async.bulk.tensor` 这类指令来用它，就像通过 ld / st 指令用 LD/ST 单元、通过 mma 指令用 Tensor core。它也不是另一条通路，和 LD/ST 发出的请求走的是同一条路，经片上互联到 L2；区别在请求由谁发、地址由谁算。cp.async 要每个 thread 自己算地址、各搬一小段；TMA 只要一个 thread 发一条指令，给它一个 tensor descriptor（整个张量的起点、形状、stride，以及这次要搬的一块有多大），地址由 TMA 算，越界的部分自动补零。搬没搬完用 shared memory 里的 mbarrier 来等。它还能反过来，把 shared memory 里的一块写回显存，这是 cp.async 做不到的。5090 也有 TMA：用 Triton 的 `tl.make_tensor_descriptor` 写一个复制 kernel，编出来的 PTX 里读是 `cp.async.bulk.tensor.2d.shared::cluster.global`、用 mbarrier 等，写回是 `cp.async.bulk.tensor.2d.global.shared::cta`。
+[图 1-3](#fig-h-2) 右下角的 TMA（Tensor Memory Accelerator）是 Hopper 起 SM 里专门在显存和 shared memory 之间整块搬数据的硬件单元。它和 LD/ST 走同一条路，区别在于只要一个 thread 交给它一块数据的描述，地址由它自己算。正文的 kernel 用不到它，细节放在 [Appendix C](#tma)。
 
-从显存到 shared memory 的三种搬法放在一起比（[表 1-3](#tab-1-3)）：
-
-| | ld.global + st.shared | cp.async | TMA |
-|:--|:--|:--|:--|
-| 数据经不经过 register | 经过：先读进 register，再写进 shared memory | 不经过 | 不经过 |
-| 发出以后 thread 要不要等 | 用到那个 register 时要等 | 不等，要用时用 `cp.async.wait_group` 等 | 不等，要用时用 mbarrier 等 |
-| 谁发指令、谁算地址 | 每个 thread 自己算，一条最多 16 B | 每个 thread 自己算，一条最多 16 B | 一个 thread 发一条指令，地址由 TMA 生成 |
-| 越界 | 每个 thread 自己用 mask 判断 | 每个 thread 自己用 mask 判断 | TMA 自动处理，越界补零 |
-{#tab-1-3 caption="**表 1-3** 从显存搬到 shared memory 的三种办法"}
-
-ld.global 和 cp.async 的区别是数据进不进 register；cp.async 和 TMA 都是异步、都直接进 shared memory，区别是谁来干搬运的活。拿 [2.4 节](#triton-matmul)的 matmul 算一下：每轮 A、B 的 block 各 8 KB。用 cp.async，一条搬 16 B，8 KB 要 512 条，分给 128 个 thread，每个 thread 每轮 A、B 各发 4 条，每条之前还要自己算地址和 mask。换成 TMA，一轮只要 A、B 各一条指令，由一个 thread 发出。
-
-打个比方，shared memory 是 SM 里的公共货架，显存是远处的仓库。ld.global 是每个人自己去仓库搬箱子，先揣在身上（register），回来再放上货架。cp.async 是每个人各自下单，让仓库直接送到货架，自己不用揣着，之后等自己的单都到了。TMA 是只派一个人，把一张清单交给叉车，清单上写着要的是仓库里哪一块矩形（tensor descriptor），叉车自己算位置、整块搬到货架，搬完按一下铃（mbarrier）。TMA 省下的是 thread 的指令和 register：算地址、算 mask、发几百条小请求的活都不用 thread 做，于是可以只让一个 warp 发 TMA，其余的 warp 专心算。
-
-叉车按的那个铃，是 shared memory 里的一个 barrier（mbarrier）。普通的同步 bar.sync 要所有 thread 都走到这一行才一起往下走，先到的只能干等。Ampere 加的 asynchronous barrier 把它拆成两步：thread 干完自己那份先 arrive，arrive 不会停，接着做不依赖这批数据的活；真要用数据时再 wait，等所有 thread 都 arrive 过（[图 1-4](#fig-b-1) 上）。cp.async 用这种办法就够了，每个 thread 搬的是自己发出的那几条，搬完自己知道。TMA 不一样：数据是硬件搬的，没有哪个 thread 能说「我的那份到了」。所以 Hopper 加了 asynchronous transaction barrier，它除了数 thread 的 arrive，还数字节：发起 TMA 的 thread 先登记这次要等多少字节，TMA 每写进 shared memory 一段就把字节数加到 barrier 上，wait 要等 thread 都 arrive 过、字节数也到齐才放行（图 1-4 下）。5090 上用 TMA 编出来的 PTX 就是这一套：`mbarrier.init` 建 barrier，`mbarrier.arrive.expect_tx` 登记字节数，`cp.async.bulk.tensor ... mbarrier::complete_tx::bytes` 搬完时把字节数报给 barrier，`mbarrier.try_wait.parity` 等。
-
-{{fig-b-1}}
-
-[图 1-5](#fig-h-9) 是一个 SMSP 的结构，放在这里作参考。后文要用到其中两件事。
+[图 1-4](#fig-h-9) 是一个 SMSP 的结构，放在这里作参考。后文要用到其中两件事。
 
 第一件是 CUDA core 和 Tensor core 的分工。CUDA core 一次算一个数：一条 FMA 指令里 warp 的 32 个 thread 各用一个 CUDA core，各做一次乘加（2 FLOPs）。5090 一共 170 × 128 个 CUDA core，fp32 峰值 1.05e14 FLOPS。Tensor core 一次算一个小矩阵乘：一条指令由整个 warp 一起发出，算一小块 A × B 再加到累加器上。它只吃 bf16、fp16、tf32、fp8 这类低精度输入，bf16 的峰值是 2.1e14 FLOPS（fp32 累加），fp8 更高。第 2 节的 `tl.dot` 默认走 Tensor core，加减乘除在 CUDA core 上算，exp 这类函数在 SFU 上算。
 
@@ -125,7 +107,7 @@ ld.global 和 cp.async 的区别是数据进不进 register；cp.async 和 TMA �
 
 ### 1.3 编程模型 {#hw-model}
 
-CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 warp 的 32 个 thread 同一时刻执行同一条指令。thread 往上分四层：thread、warp（32 个 thread）、block（也叫 CTA，若干个 warp）、grid（一次 kernel 启动的全部 block），每层跑在哪个硬件上见[图 1-6](#fig-h-5)。
+CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 warp 的 32 个 thread 同一时刻执行同一条指令。thread 往上分四层：thread、warp（32 个 thread）、block（也叫 CTA，若干个 warp）、grid（一次 kernel 启动的全部 block），每层跑在哪个硬件上见[图 1-5](#fig-h-5)。
 
 {{fig-h-5}}
 
@@ -376,7 +358,7 @@ softmax 在 `num_warps=1` 时每个 SM 只驻留 12 个 warp，也没怎么变�
 
 ### 3.2 warp 调度：藏住访存延迟 {#sched-warp}
 
-一个 program 的 warp 按编号轮流分到 4 个 SMSP，每个 SMSP 有自己的 warp scheduler、register file 和 32 个 CUDA core（[图 1-5](#fig-h-9)）。调度器每拍从驻留的 warp 里挑一个就绪的，发出它的一条指令。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp。所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态，所以同时驻留的 warp 越多，访存延迟越容易藏住（[图 3-2](#fig-h-6)）。
+一个 program 的 warp 按编号轮流分到 4 个 SMSP，每个 SMSP 有自己的 warp scheduler、register file 和 32 个 CUDA core（[图 1-4](#fig-h-9)）。调度器每拍从驻留的 warp 里挑一个就绪的，发出它的一条指令。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp。所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态，所以同时驻留的 warp 越多，访存延迟越容易藏住（[图 3-2](#fig-h-6)）。
 
 {{fig-h-6}}
 
@@ -542,13 +524,51 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 B-2](#fig-h-
 
 ---
 
+## Appendix C TMA 和异步同步 {#tma}
+
+[1.1 节](#hw-move)讲了 cp.async，[1.2 节](#hw-sm)提到 SM 里还有一个专门搬数据的单元 TMA。正文的 kernel 都没用到 TMA，这个 appendix 讲它和 cp.async 差在哪（[C.1](#tma-vs-cpasync)），怎么知道它搬完了（[C.2](#tma-barrier)），以及有了它以后 kernel 怎么分工（[C.3](#tma-ws)）。
+
+### C.1 TMA 和 cp.async 的区别 {#tma-vs-cpasync}
+
+TMA 是一个硬件单元，每个 SM 一个，4 个 SMSP 共用：[H100 白皮书](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)的 SM 结构图把它画在 4 个 SMSP 之外、紧挨着 L1 / shared memory；5090 的白皮书没有单独画它。程序通过 `cp.async.bulk.tensor` 这类指令来用它，就像通过 ld / st 指令用 LD/ST 单元、通过 mma 指令用 Tensor core。它也不是另一条通路，和 LD/ST 发出的请求一样经片上互联到 L2，区别在请求由谁发、地址由谁算。它还能反过来，把 shared memory 里的一块写回显存，这是 cp.async 做不到的。
+
+cp.async 要每个 thread 自己算地址、各搬一小段；TMA 只要一个 thread 发一条指令，给它一个 tensor descriptor（整个张量的起点、形状、stride，以及这次要搬的一块有多大），地址由 TMA 算，越界的部分自动补零。5090 也有 TMA：用 Triton 的 `tl.make_tensor_descriptor` 写一个复制 kernel，编出来的 PTX 里读是 `cp.async.bulk.tensor.2d.shared::cluster.global`、用 mbarrier 等，写回是 `cp.async.bulk.tensor.2d.global.shared::cta`。
+
+从显存到 shared memory 的三种搬法放在一起比（[表 C-1](#tab-c-1)）：
+
+| | ld.global + st.shared | cp.async | TMA |
+|:--|:--|:--|:--|
+| 数据经不经过 register | 经过：先读进 register，再写进 shared memory | 不经过 | 不经过 |
+| 发出以后 thread 要不要等 | 用到那个 register 时要等 | 不等，要用时用 `cp.async.wait_group` 等 | 不等，要用时用 mbarrier 等 |
+| 谁发指令、谁算地址 | 每个 thread 自己算，一条最多 16 B | 每个 thread 自己算，一条最多 16 B | 一个 thread 发一条指令，地址由 TMA 生成 |
+| 越界 | 每个 thread 自己用 mask 判断 | 每个 thread 自己用 mask 判断 | TMA 自动处理，越界补零 |
+{#tab-c-1 caption="**表 C-1** 从显存搬到 shared memory 的三种办法"}
+
+ld.global 和 cp.async 的区别是数据进不进 register；cp.async 和 TMA 都是异步、都直接进 shared memory，区别是谁来干搬运的活。拿 [2.4 节](#triton-matmul)的 matmul 算一下：每轮 A、B 的 block 各 8 KB。用 cp.async，一条搬 16 B，8 KB 要 512 条，分给 128 个 thread，每个 thread 每轮 A、B 各发 4 条，每条之前还要自己算地址和 mask。换成 TMA，一轮只要 A、B 各一条指令，由一个 thread 发出。
+
+打个比方，shared memory 是 SM 里的公共货架，显存是远处的仓库。ld.global 是每个人自己去仓库搬箱子，先揣在身上（register），回来再放上货架。cp.async 是每个人各自下单，让仓库直接送到货架，自己不用揣着，之后等自己的单都到了。TMA 是只派一个人，把一张清单交给叉车，清单上写着要的是仓库里哪一块矩形（tensor descriptor），叉车自己算位置、整块搬到货架，搬完按一下铃（mbarrier）。TMA 省下的是 thread 的指令和 register：算地址、算 mask、发几百条小请求的活都不用 thread 做，于是可以只让一个 warp 发 TMA，其余的 warp 专心算。
+
+### C.2 怎么知道搬完了 {#tma-barrier}
+
+叉车按的那个铃，是 shared memory 里的一个 barrier（mbarrier）。普通的同步 bar.sync 要所有 thread 都走到这一行才一起往下走，先到的只能干等。Ampere 加的 asynchronous barrier 把它拆成两步：thread 干完自己那份先 arrive，arrive 不会停，接着做不依赖这批数据的活；真要用数据时再 wait，等所有 thread 都 arrive 过（[图 C-1](#fig-b-1) 上）。cp.async 用这种办法就够了，每个 thread 搬的是自己发出的那几条，搬完自己知道。TMA 不一样：数据是硬件搬的，没有哪个 thread 能说「我的那份到了」。所以 Hopper 加了 asynchronous transaction barrier，它除了数 thread 的 arrive，还数字节：发起 TMA 的 thread 先登记这次要等多少字节，TMA 每写进 shared memory 一段就把字节数加到 barrier 上，wait 要等 thread 都 arrive 过、字节数也到齐才放行（图 C-1 下）。5090 上用 TMA 编出来的 PTX 就是这一套：`mbarrier.init` 建 barrier，`mbarrier.arrive.expect_tx` 登记字节数，`cp.async.bulk.tensor ... mbarrier::complete_tx::bytes` 搬完时把字节数报给 barrier，`mbarrier.try_wait.parity` 等。
+
+{{fig-b-1}}
+
+### C.3 有了 TMA 以后怎么分工 {#tma-ws}
+
+[H100 白皮书](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)说，有了 TMA，只要很少几个 thread 就能用满显存带宽，其余的 thread 可以专心计算。常见的写法叫 warp specialization：把一个 program 的 warp 分成两种，producer warp 只发 TMA，把后面几轮的 block 搬进 slot；consumer warp 只用 Tensor core 算。两边按 slot 交接：每个 slot 配一个 transaction barrier 表示「满了」，TMA 搬完时它放行，consumer 等它再开始算；再配一个只数 arrive 的 barrier 表示「空了」，consumer 算完时 arrive，producer 等它再往这个 slot 搬下一批。这和 [3.3 节](#stages)的流水线是同一件事，只是搬和算交给了不同的 warp，不再是同一个 warp 里先发 load 再算。FlashAttention-3 在 Hopper 上就是这么写的，见 [FlashAttention 1–4](/blog/flashattention-1-to-4/)。
+
+白皮书里还有 thread block cluster：一组保证同时调度、分布在几个 SM 上的 block。transaction barrier 可以在 cluster 里跨 SM 同步，TMA 也能在 cluster 里的 block 之间直接搬数据。这篇用不到，不展开。
+
+---
+
 ## References {#references}
 
 1. Gholami, Yao, Kim, Hooper, Mahoney, Keutzer. [AI and Memory Wall](https://arxiv.org/abs/2403.14123). IEEE Micro, 2024. 图 1-1。
 2. NVIDIA. [NVIDIA RTX Blackwell GPU Architecture](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)（白皮书）。RTX 5090 的存储层级和 SM 结构，图 1-2、图 1-3。
 3. NVIDIA. [NVIDIA Ampere GA102 GPU Architecture](https://www.nvidia.com/content/PDF/nvidia-ampere-ga-102-gpu-architecture-whitepaper-v2.pdf)（白皮书）。compute 模式下 L1 和 shared memory 的几种切法（28 KB L1 + 100 KB shared memory 等），第 1.2 节。
 4. NVIDIA. [NVIDIA A100 Tensor Core GPU Architecture](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)、[NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)、[NVIDIA Blackwell Architecture](https://resources.nvidia.com/en-us-blackwell-architecture)。表 A-1 的 A100、H100、B200 一列；峰值另参考 [A100](https://www.nvidia.com/en-us/data-center/a100/)、[H100](https://www.nvidia.com/en-us/data-center/h100/) 产品页和 [HGX](https://www.nvidia.com/en-us/data-center/hgx/) 平台页（B200 的单卡数按 8 卡的 dense 值除以 8）。
-5. NVIDIA. [NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)（白皮书）。第 1.2 节的 TMA：SM 结构图（Figure 7）里每个 SM 一个，由一个 thread 发起，地址生成和数据搬运由硬件完成（Figure 18、19）；图 1-4 的两种 barrier（Figure 20）。
+5. NVIDIA. [NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)（白皮书）。第 1.2 节和 Appendix C 的 TMA：SM 结构图（Figure 7）里每个 SM 一个，由一个 thread 发起，地址生成和数据搬运由硬件完成（Figure 18、19）；Appendix C 的两种 barrier（Figure 20）和 warp 分工。
 6. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、block、register 和 shared memory 上限，表 3-1、表 A-1，CUDA 执行层级。
 7. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 停顿原因的定义，图 3-4。
 8. Austin et al. [How to Scale Your Model](https://jax-ml.github.io/scaling-book/gpus/), Google DeepMind, 2025. Appendix B 的 TPU v5p 规格、systolic array 的数据流和表 B-1。
@@ -559,4 +579,4 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 B-2](#fig-h-
 13. Hendrycks, Gimpel. [Gaussian Error Linear Units (GELUs)](https://arxiv.org/abs/1606.08415). arXiv:1606.08415, 2016. 第 2.1 节的 tanh 近似。
 14. Milakov, Gimelshein. [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867). arXiv:1805.02867, 2018. 第 2.3 节提到的 online softmax。
 15. [triton.autotune](https://triton-lang.org/main/python-api/generated/triton.autotune.html) 和 [triton.Config](https://triton-lang.org/main/python-api/generated/triton.Config.html)（Triton API 文档）。3.6 节的参数。
-16. NVIDIA. [PTX ISA: cp.async](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async) 和 [cp.async.bulk.tensor](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async-bulk-tensor)。1.1 节 cp.async、commit_group、wait_group 和 TMA 指令的语义。
+16. NVIDIA. [PTX ISA: cp.async](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async) 和 [cp.async.bulk.tensor](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async-bulk-tensor)。1.1 节和 Appendix C 里 cp.async、commit_group、wait_group 和 TMA、mbarrier 指令的语义。
