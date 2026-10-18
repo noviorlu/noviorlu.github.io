@@ -71,29 +71,32 @@ series_order: 1
   <text class="s" x="373" y="56" text-anchor="middle">64/帧</text>
   <path d="M356,172 L390,172" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
   <text class="s" x="373" y="166" text-anchor="middle">10/s</text>
-  <path d="M504,80 L560,80" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
-  <text class="s" x="532" y="74" text-anchor="middle">文本</text>
-  <text class="t" x="566" y="84" text-anchor="start">文本输出</text>
-  <rect x="392" y="232" width="112" height="44" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 16%, var(--fig-bg)); stroke: var(--fig-hi)" stroke-width="1.6"/>
-  <text class="tb" x="448.0" y="250.5" text-anchor="middle">Projector</text>
-  <text class="s" x="448.0" y="265.5" text-anchor="middle">4096→768→768，L2</text>
-  <path d="M448,200 L448,230" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-1-1-m1)"/>
-  <text class="s" x="454" y="220" text-anchor="start">末层 h</text>
-  <rect x="526" y="222" width="106" height="64" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 16%, var(--fig-bg)); stroke: var(--fig-hi)" stroke-width="1.6"/>
-  <text class="tb" x="579.0" y="243.0" text-anchor="middle">语音 token</text>
-  <text class="s" x="579.0" y="258.0" text-anchor="middle">解码器 0.3B</text>
-  <text class="s" x="579.0" y="273.0" text-anchor="middle">Llama 20 层，d 768</text>
-  <path d="M504,254 L524,254" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-1-1-m1)"/>
-  <text class="tb" x="515" y="244" text-anchor="middle">+</text>
-  <text class="s" x="392" y="300" text-anchor="start">解码器输入 = 文本嵌入 + 投影后的 h</text>
-  <rect x="526" y="120" width="106" height="64" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 16%, var(--fig-bg)); stroke: var(--fig-mute)" stroke-width="1.6"/>
-  <text class="tb" x="579.0" y="141.0" text-anchor="middle">flow matching</text>
-  <text class="s" x="579.0" y="156.0" text-anchor="middle">+ HiFT 声码器</text>
-  <text class="s" x="579.0" y="171.0" text-anchor="middle">参考音频定音色</text>
-  <path d="M579,220 L579,186" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
-  <text class="s" x="585" y="206" text-anchor="start">S3 25/s</text>
-  <path d="M579,118 L579,100" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
-  <text class="s" x="585" y="114" text-anchor="start">24 kHz</text>
+  <rect x="526" y="34" width="106" height="34" rx="6" class="op"/>
+  <text class="t" x="579.0" y="55.0" text-anchor="middle">文本输出</text>
+  <path d="M504,51 L524,51" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
+  <rect x="526" y="92" width="106" height="64" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 16%, var(--fig-bg)); stroke: var(--fig-hi)" stroke-width="1.6"/>
+  <text class="tb" x="579.0" y="113.0" text-anchor="middle">语音 token</text>
+  <text class="s" x="579.0" y="128.0" text-anchor="middle">解码器 0.3B</text>
+  <text class="s" x="579.0" y="143.0" text-anchor="middle">Llama 20 层，d 768</text>
+  <path d="M504,108 L524,108" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
+  <rect x="392" y="226" width="112" height="44" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 16%, var(--fig-bg)); stroke: var(--fig-hi)" stroke-width="1.6"/>
+  <text class="tb" x="448.0" y="244.5" text-anchor="middle">Projector</text>
+  <text class="s" x="448.0" y="259.5" text-anchor="middle">4096→768→768，L2</text>
+  <path d="M448,200 L448,224" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-1-1-m1)"/>
+  <text class="s" x="454" y="216" text-anchor="start">末层 h</text>
+  <path d="M504,248 L514,248 L514,140 L524,140" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-1-1-m1)"/>
+  <text class="tb" x="519" y="133" text-anchor="middle">+</text>
+  <rect x="526" y="182" width="106" height="60" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 16%, var(--fig-bg)); stroke: var(--fig-mute)" stroke-width="1.6"/>
+  <text class="tb" x="579.0" y="201.0" text-anchor="middle">flow matching</text>
+  <text class="s" x="579.0" y="216.0" text-anchor="middle">+ HiFT 声码器</text>
+  <text class="s" x="579.0" y="231.0" text-anchor="middle">参考音频定音色</text>
+  <path d="M579,156 L579,180" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
+  <text class="s" x="585" y="172" text-anchor="start">S3 25/s</text>
+  <rect x="526" y="270" width="106" height="34" rx="6" class="op"/>
+  <text class="t" x="579.0" y="283.5" text-anchor="middle">音频输出</text>
+  <text class="s" x="579.0" y="298.5" text-anchor="middle">24 kHz</text>
+  <path d="M579,242 L579,268" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
+  <text class="s" x="104" y="300" text-anchor="start">语音 token 解码器的输入 = 文本 token 的嵌入 + 投影后的 h（逐元素相加）</text>
   <text class="lab2" x="8" y="18" text-anchor="start">箭头上的数字是进入下一模块的 token 数</text>
 </svg>
 <figcaption><strong>图 1-1</strong> MiniCPM-o 4.5 的三块：编码器、LLM、语音解码器。数字取自论文表 13 和 HuggingFace 上的推理代码；音频 50 Hz 到 10 Hz 那一步，代码里是先过 MLP 再做 5 帧均值池化。</figcaption>

@@ -77,19 +77,21 @@ def arch():
     f.box(392, 34, 112, 166, "Qwen3-8B", "36 层，d = 4096", "每秒 3–4 个文本 token", var="--fig-1")
     f.arrow(356, 62, 390, 62); f.text(373, 56, "64/帧", "s", "middle")
     f.arrow(356, 172, 390, 172); f.text(373, 166, "10/s", "s", "middle")
-    f.arrow(504, 80, 560, 80); f.text(532, 74, "文本", "s", "middle")
-    f.text(566, 84, "文本输出", "t")
+    # right column: text out / speech decoder / flow matching / audio out
+    f.box(526, 34, 106, 34, "文本输出", bold=False)
+    f.arrow(504, 51, 524, 51)
+    f.box(526, 92, 106, 64, "语音 token", "解码器 0.3B", "Llama 20 层，d 768", var="--fig-hi")
+    f.arrow(504, 108, 524, 108)
     # hidden -> projector -> decoder
-    f.box(392, 232, 112, 44, "Projector", "4096→768→768，L2", var="--fig-hi")
-    f.arrow(448, 200, 448, 230, "--fig-hi"); f.text(454, 220, "末层 h", "s")
-    f.box(526, 222, 106, 64, "语音 token", "解码器 0.3B", "Llama 20 层，d 768", var="--fig-hi")
-    f.arrow(504, 254, 524, 254, "--fig-hi")
-    f.text(515, 244, "+", "tb", "middle")
-    f.text(392, 300, "解码器输入 = 文本嵌入 + 投影后的 h", "s")
-    # flow matching
-    f.box(526, 120, 106, 64, "flow matching", "+ HiFT 声码器", "参考音频定音色", var="--fig-mute")
-    f.arrow(579, 220, 579, 186); f.text(585, 206, "S3 25/s", "s")
-    f.arrow(579, 118, 579, 100); f.text(585, 114, "24 kHz", "s")
+    f.box(392, 226, 112, 44, "Projector", "4096→768→768，L2", var="--fig-hi")
+    f.arrow(448, 200, 448, 224, "--fig-hi"); f.text(454, 216, "末层 h", "s")
+    f.path("M504,248 L514,248 L514,140 L524,140", "--fig-hi")
+    f.text(519, 133, "+", "tb", "middle")
+    f.box(526, 182, 106, 60, "flow matching", "+ HiFT 声码器", "参考音频定音色", var="--fig-mute")
+    f.arrow(579, 156, 579, 180); f.text(585, 172, "S3 25/s", "s")
+    f.box(526, 270, 106, 34, "音频输出", "24 kHz", bold=False)
+    f.arrow(579, 242, 579, 268)
+    f.text(104, 300, "语音 token 解码器的输入 = 文本 token 的嵌入 + 投影后的 h（逐元素相加）", "s")
     f.text(8, 18, "箭头上的数字是进入下一模块的 token 数", "lab2")
     return f
 
