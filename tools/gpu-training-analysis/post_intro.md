@@ -109,16 +109,16 @@ block 之间不能直接共享数据，只能通过显存交换，而这正是�
 
 | | [GELU](#triton-gelu) | [softmax](#triton-softmax) | [row sum](#triton-rowsum) | [matmul + ReLU](#triton-matmul) |
 |:--|--:|--:|--:|--:|
-| eager | 204.6 | 268.6 | 53.8 | 173.4 |
-| torch.compile | 47.5（4.3×） | 99.2（2.7×） | 54.1（1.0×） | 171.6（1.0×） |
-| Triton | 47.9（4.3×） | 98.1（2.7×） | 57.4（0.9×） | 211.7（0.8×） |
-{#tab-2-1 caption="**表 2-1** 同一个 op 的三种写法（µs，括号里是相对 eager 的加速）" note="RTX 5090，fp32，形状和各小节一样：GELU n = 8388608，softmax 和 row sum 4096 × 4096，matmul A 4096 × 2048、B 2048 × 512。eager 分别是按 tanh 公式逐个运算、<code>softmax_naive</code>、<code>x.sum(1)</code>、<code>torch.relu(A @ B)</code>，matmul 关掉了 tf32。Triton 一行用的是各小节代码里的固定参数，没有 autotune；<code>torch.compile</code> 会自己挑 block 大小和 <code>num_warps</code>，matmul 的另外两行直接调 cuBLAS。<code>triton.testing.do_bench</code> 跑 5 次取中位数。换一张卡数字会变，三行之间的对比关系一般不变。"}
+| eager | 194.7 | 244.0 | 51.3 | 158.5 |
+| torch.compile | 47.3（4.1×） | 91.0（2.7×） | 48.2（1.1×） | 164.7（1.0×） |
+| Triton | 46.6（4.2×） | 95.4（2.6×） | 48.9（1.0×） | 173.0（0.9×） |
+{#tab-2-1 caption="**表 2-1** 同一个 op 的三种写法（µs，括号里是相对 eager 的加速）" note="RTX 5090，fp32，形状和各小节一样：GELU n = 8388608，softmax 和 row sum 4096 × 4096，matmul A 4096 × 2048、B 2048 × 512。eager 分别是按 tanh 公式逐个运算、<code>softmax_naive</code>、<code>x.sum(1)</code>、<code>torch.relu(A @ B)</code>，matmul 关掉了 tf32。Triton 一行是各小节的 kernel 套上 <code>triton.autotune</code> 以后的结果，候选和选中的配置见 3.7 节；<code>torch.compile</code> 也会自己挑 block 大小和 <code>num_warps</code>，matmul 的另外两行直接调 cuBLAS。<code>triton.testing.do_bench</code> 跑 5 次取中位数。换一张卡数字会变，三行之间的对比关系一般不变。"}
 
-GELU 和 softmax 的 eager 写法里，每个运算都单独跑一遍，中间结果要写回显存、下一个运算再读回来。`torch.compile` 和 Triton 都把这些运算合成一个 kernel，中间结果留在 register 里，显存只读写一次，所以都快了 4.3 倍和 2.7 倍左右。两者差不多快并不奇怪：`torch.compile` 在 GPU 上生成的也是 Triton kernel，这一节自己写一遍，看清楚它做了什么。
+GELU 和 softmax 的 eager 写法里，每个运算都单独跑一遍，中间结果要写回显存、下一个运算再读回来。`torch.compile` 和 Triton 都把这些运算合成一个 kernel，中间结果留在 register 里，显存只读写一次，所以都快了 4.2 倍和 2.6 倍左右。两者差不多快并不奇怪：`torch.compile` 在 GPU 上生成的也是 Triton kernel，这一节自己写一遍，看清楚它做了什么。
 
-row sum 本来就只有一步求和，没有中间结果可省，三种写法都受显存带宽限制，都在 54 到 57 µs。Triton 版稍慢一点，把每轮读的数从 1024 个换成 2048 个、`num_warps` 从 4 换成 16，就是 54.5 µs，和另外两种一样；这两个参数在[第 3 节](#tune)讲。
+row sum 本来就只有一步求和，没有中间结果可省，三种写法都受显存带宽限制，都在 48 到 51 µs。
 
-matmul + ReLU 的 eager 版和 `torch.compile` 版跑的是同一个 cuBLAS kernel，ReLU 都在后面单独跑一个约 4 µs 的 kernel，矩阵乘本身约 151 µs，所以融合 ReLU 省不了多少。Triton 版把 ReLU 融了进去，但矩阵乘本身慢，整体慢 22%，原因也在第 3 节。
+matmul + ReLU 的 eager 版和 `torch.compile` 版跑的是同一个 cuBLAS kernel，ReLU 都在后面单独跑一个约 4 µs 的 kernel，矩阵乘本身约 153 µs，所以融合 ReLU 省不了多少。Triton 版把 ReLU 融了进去，矩阵乘本身还是比 cuBLAS 慢，整体慢 9%，[第 3 节](#tune)会讲到它慢在哪。
 
 Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的 tiling。CUDA 要写清楚每个 thread 做什么，shared memory 和同步都要自己管；Triton 只写一个 block 做什么：把它负责的数据读进来，在片上算完，再写回显存，block 内怎么分给 thread、要不要经过 shared memory 由编译器决定。Triton 把一个 block 叫作一个 program（[表 2-2](#tab-2-2)）。
 
@@ -296,7 +296,7 @@ grid 是二维的：
 
 ## 3 调度和调参 {#tune}
 
-[表 2-2](#tab-2-2) 之后说过，program 内部从 thread 到 shared memory 都交给编译器，能直接调的只有启动参数 `num_warps`、`num_stages` 和 block 的大小。这一节先说两个参数是什么（[3.1](#knobs)），再看 `num_stages` 怎么用预取藏住 load（[3.2](#stages)）、一个 SM 能放几个 program（[3.3](#sched-limits)）、驻留的 warp 怎么藏住访存延迟（[3.4](#sched-warp)）、program 放不下时怎么分批（[3.5](#sched-wave)），最后用 matmul 扫一遍 block 大小（[3.6](#tile)）。
+[表 2-2](#tab-2-2) 之后说过，program 内部从 thread 到 shared memory 都交给编译器，能直接调的只有启动参数 `num_warps`、`num_stages` 和 block 的大小。这一节先说两个参数是什么（[3.1](#knobs)），再看 `num_stages` 怎么用预取藏住 load（[3.2](#stages)）、一个 SM 能放几个 program（[3.3](#sched-limits)）、驻留的 warp 怎么藏住访存延迟（[3.4](#sched-warp)）、program 放不下时怎么分批（[3.5](#sched-wave)），用 matmul 扫一遍 block 大小（[3.6](#tile)），最后让 autotune 自动挑（[3.7](#autotune)）。
 
 ### 3.1 num_warps 和 num_stages {#knobs}
 
@@ -395,7 +395,7 @@ A 换成 4032 × 2048 时，504 个 program 一批放下，同一个 kernel 只�
 
 ### 3.6 matmul 的 block 大小 {#tile}
 
-[2.4 节](#triton-matmul)的 BM = BN = 64、BK = 32 是为了讲解随手定的。这几个数 Triton 不替你选，实际工程里一般用 `@triton.autotune` 列一组候选配置，第一次遇到某个形状时都跑一遍，挑最快的记下来。这一小节把候选扫一遍，看最快的配置在一个 SM 上用了多少 warp、register 和 shared memory，再从中找出怎么选。
+[2.4 节](#triton-matmul)的 BM = BN = 64、BK = 32 是为了讲解随手定的。这几个数 Triton 不替你选，实际工程里一般用 `@triton.autotune` 列一组候选配置，第一次遇到某个形状时都跑一遍，挑最快的记下来（[3.7 节](#autotune)）。这一小节把候选扫一遍，看最快的配置在一个 SM 上用了多少 warp、register 和 shared memory，再从中找出怎么选。
 
 扫了两个形状：正文的 A 4096 × 2048、B 2048 × 512，和 4096 × 4096 × 4096。BM、BN 各取 32 到 256，BK 取 16、32、64，`num_warps` 取 4、8、16，`num_stages` 取 2、3，去掉放不下的组合，每个形状 198 组。都是 fp32、`input_precision="ieee"`，乘加走 CUDA core。
 
@@ -424,6 +424,32 @@ block 本身也要够大。每个 program 读进 A 的 BM × K 和 B 的 K × BN
 合起来，先定每个 thread 放 64 个左右的 acc，并且不 spill；在这个前提下让 BM × BN 尽量大；`num_warps` 取 BM × BN / (32 × 64)，把这两件事对上，128 × 128 就是 8 个 warp；BK 取 16 或 32，两三个 slot 放得进 shared memory 就行。occupancy 不用追，每个 SM 8 到 16 个 warp 就够。
 
 这些结论只对 fp32 走 CUDA core 成立。bf16、tf32 走 Tensor core 时，acc 在 thread 之间的分法换成 mma 指令要求的排布，shared memory 的带宽也会变成约束，最优点会移动。每组配置只跑了一次，前几名之间只差 1% 到 2%，谁排第一并不稳定，稳定的是它们共同的资源用法。
+
+### 3.7 用 autotune 挑参数 {#autotune}
+
+3.1 到 3.6 节说明，block 大小、`num_warps`、`num_stages` 都会影响速度，而最快的组合随形状和显卡变。Triton 的办法是把候选列出来，第一次调用时都试一遍，用最快的那个：
+
+```python {role="program" tag="matmul 的 kernel 不变，外面套一层 autotune"}
+{{code:triton_autotune.py:matmul_autotune}}
+```
+
+`triton.autotune` 套在 `@triton.jit` 的 kernel 外面，kernel 本身不用改。`configs` 是候选，每个 `triton.Config` 给一组 constexpr 参数（这里是 BM、BN、BK），再加 `num_warps` 和 `num_stages`。这里按 3.6 节的结论挑了 6 种 block 形状、2 种 BK、2 种 `num_warps`、2 种 `num_stages`，共 48 个。`key` 列出哪些参数一变就要重新挑，这里是 M、N、K，同一个形状只挑一次。调用时不再传 BM、BN、BK；grid 写成 `lambda META: ...`，program 的个数由选中的 BM、BN 算出来。
+
+第一次调用时，autotune 把每个候选编译出来，用 `do_bench` 各跑一遍，记下最快的；之后同一个 `key` 直接用它。另外三个 kernel 也这样套一层（[表 3-3](#tab-3-3)）。
+
+| op | 候选数 | 第一次调用 | 选中的配置 | 第 2 节的固定参数 | autotune 后 |
+|:--|--:|--:|:--|--:|--:|
+| GELU | 25 | 3.6 s | BLOCK = 4096，8 个 warp | 46.5 | 46.6 |
+| softmax | 6 | 1.0 s | 8 个 warp | 90.8 | 95.4 |
+| row sum | 16 | 2.3 s | TILE = 2048，16 个 warp | 52.8 | 48.9 |
+| matmul + ReLU | 48 | 79.5 s | BM = BN = 128，BK = 32，8 个 warp，3 级 | 197.5 | 173.0 |
+{#tab-3-3 caption="**表 3-3** 四个 kernel autotune 前后（µs）" note="RTX 5090，fp32，形状同<a href=\"#tab-2-1\">表 2-1</a>，和表 2-1 是同一次测量。第一次调用从空的编译缓存开始算，包含编译所有候选和试跑。耗时是 <code>do_bench</code> 跑 5 次的中位数。"}
+
+matmul 选中的就是 3.6 节扫出来最快的那组，比第 2 节的 64 × 64 快 12%；row sum 选中每轮 2048 个数、16 个 warp，快 7%。GELU 和 softmax 原来的参数已经够好，前后只差几个百分点，softmax 选中的 8 个 warp 在这次测量里反而慢一点：候选之间本来就只差几个百分点时，autotune 按它自己那次试跑挑，选中谁有随机性。
+
+代价在第一次调用：matmul 的 48 个候选要 79.5 s，包括把 48 个候选都编译一遍。编译结果会缓存到磁盘（默认 `~/.triton/cache`），换个进程再调用只需重新试跑；`cache_results=True` 还会把试跑的结果也存到磁盘。候选太多时，可以用 `prune_configs_by` 先按 shared memory 用量之类的条件筛掉一批。
+
+还有一个坑：试跑会把 kernel 执行很多遍。如果 kernel 原地修改数据，比如用 `tl.atomic_add` 往输出上累加，每试一次就多加一遍，要用 `reset_to_zero` 在每次试跑前把输出清零，或者用 `restore_value` 试完恢复原值。这一节的四个 kernel 只写输出、不读输出，不受影响。
 
 第 2、3 节合起来是写一个 Triton kernel 的全过程：按 block 切数据、在片上算完，再看它在 SM 上能放几个、会不会留下 tail。[下一篇](/blog/gpu-training-analysis/)在 5090 上拆解一步训练的时间和显存，用的就是第 2 节的模式：把 RMSNorm 的几个 kernel 融合成一个，少读写一遍中间结果。
 
@@ -496,3 +522,4 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 B-2](#fig-h-
 11. [Triton tutorials](https://triton-lang.org/main/getting-started/tutorials/index.html)。第 2 节 softmax 和 matmul 例子的写法，3.6 节提到的 `@triton.autotune`。
 12. Hendrycks, Gimpel. [Gaussian Error Linear Units (GELUs)](https://arxiv.org/abs/1606.08415). arXiv:1606.08415, 2016. 第 2.1 节的 tanh 近似。
 13. Milakov, Gimelshein. [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867). arXiv:1805.02867, 2018. 第 2.3 节提到的 online softmax。
+14. [triton.autotune](https://triton-lang.org/main/python-api/generated/triton.autotune.html) 和 [triton.Config](https://triton-lang.org/main/python-api/generated/triton.Config.html)（Triton API 文档）。3.7 节的参数。

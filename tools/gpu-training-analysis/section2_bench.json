@@ -2,31 +2,31 @@
  "gelu": {
   "shape": "n = 8388608",
   "eager": {
-   "us": 204.6,
+   "us": 194.7,
    "kernels": [
     [
      "void at::native::vectorized_elementwise_kernel<4, at::native",
-     26.8
+     27.0
     ],
     [
      "void at::native::vectorized_elementwise_kernel<4, at::native",
-     21.4
+     19.1
     ],
     [
      "void at::native::vectorized_elementwise_kernel<4, at::native",
-     17.4
+     17.3
     ],
     [
      "void at::native::vectorized_elementwise_kernel<4, at::native",
-     23.1
-    ],
-    [
-     "void at::native::vectorized_elementwise_kernel<4, at::native",
-     12.2
+     22.6
     ],
     [
      "void at::native::vectorized_elementwise_kernel<4, at::native",
      12.2
+    ],
+    [
+     "void at::native::vectorized_elementwise_kernel<4, at::native",
+     11.9
     ],
     [
      "void at::native::vectorized_elementwise_kernel<4, at::native",
@@ -34,112 +34,138 @@
     ],
     [
      "void at::native::vectorized_elementwise_kernel<4, at::native",
-     27.7
+     27.5
     ]
    ]
   },
   "compile": {
-   "us": 47.5,
+   "us": 47.3,
    "kernels": [
     [
      "triton_poi_fused_add_mul_pow_tanh_0",
-     12.7
+     12.6
     ]
    ]
   },
   "triton": {
-   "us": 47.9,
+   "us": 46.5,
    "kernels": [
     [
      "gelu_kernel",
-     12.4
+     12.2
     ]
    ]
+  },
+  "autotune": {
+   "us": 46.6,
+   "configs": 25,
+   "first_call_s": 3.6,
+   "best": {
+    "BLOCK": 4096,
+    "num_warps": 8,
+    "num_stages": 3
+   }
   }
  },
  "softmax": {
   "shape": "4096 × 4096",
   "eager": {
-   "us": 268.6,
+   "us": 244.0,
    "kernels": [
     [
      "void at::native::reduce_kernel<512, 1, at::native::ReduceOp<",
-     44.2
+     47.3
     ],
     [
      "void at::native::elementwise_kernel<128, 2, at::native::gpu_",
-     50.7
+     59.3
     ],
     [
      "void at::native::vectorized_elementwise_kernel<4, at::native",
-     62.3
+     68.0
     ],
     [
      "void at::native::reduce_kernel<512, 1, at::native::ReduceOp<",
-     19.7
+     20.7
     ],
     [
      "void at::native::elementwise_kernel<128, 2, at::native::gpu_",
-     50.6
+     49.0
     ]
    ]
   },
   "compile": {
-   "us": 99.2,
+   "us": 91.0,
    "kernels": [
     [
      "triton_red_fused_div_exp_max_sub_sum_0",
-     62.1
+     59.8
     ]
    ]
   },
   "triton": {
-   "us": 98.1,
+   "us": 90.8,
    "kernels": [
     [
      "softmax_kernel",
-     67.3
+     56.0
     ]
    ]
+  },
+  "autotune": {
+   "us": 95.4,
+   "configs": 6,
+   "first_call_s": 1.0,
+   "best": {
+    "num_warps": 8,
+    "num_stages": 3
+   }
   }
  },
  "row_sum": {
   "shape": "4096 × 4096",
   "eager": {
-   "us": 53.8,
+   "us": 51.3,
    "kernels": [
     [
      "void at::native::reduce_kernel<512, 1, at::native::ReduceOp<",
-     29.8
+     28.4
     ]
    ]
   },
   "compile": {
-   "us": 54.1,
+   "us": 48.2,
    "kernels": [
     [
      "triton_red_fused_sum_0",
-     40.5
+     40.8
     ]
    ]
   },
   "triton": {
-   "us": 57.4,
+   "us": 52.8,
    "kernels": [
     [
      "row_sum_kernel",
-     31.0
+     22.2
     ]
    ]
   },
-  "triton_tile2048_nw16": {
-   "us": 54.5
+  "autotune": {
+   "us": 48.9,
+   "configs": 16,
+   "first_call_s": 2.3,
+   "best": {
+    "TILE": 2048,
+    "num_warps": 16,
+    "num_stages": 3
+   }
   }
  },
  "matmul_relu": {
   "shape": "4096 × 2048 × 512",
   "eager": {
-   "us": 173.4,
+   "us": 158.5,
    "kernels": [
     [
      "Memset (Device)",
@@ -147,39 +173,52 @@
     ],
     [
      "void cutlass::Kernel2<cutlass_80_simt_sgemm_256x128_8x4_nn_a",
-     150.7
+     153.2
     ],
     [
      "void at::native::vectorized_elementwise_kernel<4, at::native",
-     3.9
-    ]
-   ]
-  },
-  "compile": {
-   "us": 171.6,
-   "kernels": [
-    [
-     "Memset (Device)",
-     0.3
-    ],
-    [
-     "void cutlass::Kernel2<cutlass_80_simt_sgemm_256x128_8x4_nn_a",
-     154.3
-    ],
-    [
-     "triton_poi_fused_relu_0",
      3.8
     ]
    ]
   },
+  "compile": {
+   "us": 164.7,
+   "kernels": [
+    [
+     "Memset (Device)",
+     0.3
+    ],
+    [
+     "void cutlass::Kernel2<cutlass_80_simt_sgemm_256x128_8x4_nn_a",
+     154.6
+    ],
+    [
+     "triton_poi_fused_relu_0",
+     3.7
+    ]
+   ]
+  },
   "triton": {
-   "us": 211.7,
+   "us": 197.5,
    "kernels": [
     [
      "matmul_relu_kernel",
-     201.8
+     201.2
     ]
    ]
+  },
+  "autotune": {
+   "us": 173.0,
+   "configs": 48,
+   "first_call_s": 79.5,
+   "best": {
+    "BM": 128,
+    "BN": 128,
+    "BK": 32,
+    "num_warps": 8,
+    "num_stages": 3
+   },
+   "max_err": 0.0005340576171875
   }
  }
 }

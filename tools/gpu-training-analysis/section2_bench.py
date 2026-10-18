@@ -2,14 +2,17 @@
 
 eager 是读者用张量运算直接写的版本：GELU 按 tanh 公式逐个运算，softmax 是正文的 softmax_naive，
 row sum 是 x.sum(1)，matmul + ReLU 是 torch.relu(A @ B)（cuBLAS，关掉 tf32）。compile 是同一份 eager 代码包一层 torch.compile。
+triton 是第 2 节的固定参数，autotune 是 triton_autotune.py 里套了 triton.autotune 的同一个 kernel：记第一次调用（编译加试跑所有候选，编译缓存是空的）花多久、选中哪个配置。
 耗时用 triton.testing.do_bench，每个跑 5 次取中位数；每个 kernel 的名字和耗时用 torch.profiler 记，只用来核对正文的说法。
 Run: python3 section2_bench.py   (needs CUDA)，结果写到 section2_bench.json。
 """
-import json, math, os, statistics
+import json, math, os, statistics, tempfile, time
+os.environ["TRITON_CACHE_DIR"] = tempfile.mkdtemp()   # 空的编译缓存：第一次调用的时间包含编译所有候选
 import torch
 import triton
 from torch.profiler import profile, ProfilerActivity
-from triton_tutorial import gelu, softmax, softmax_naive, row_sum, row_sum_kernel, matmul_relu
+from triton_tutorial import gelu, softmax, softmax_naive, row_sum, matmul_relu
+import triton_autotune as ta
 
 
 def gelu_eager(x):
@@ -52,9 +55,17 @@ def main():
                 r[k] = {"us": us(c[k]), "kernels": kernels(c[k])}
         res[name] = r
         print(name, r)
-    out = torch.empty(4096, device="cuda")                                          # row sum 换一组 TILE、num_warps
-    res["row_sum"]["triton_tile2048_nw16"] = {"us": us(lambda: row_sum_kernel[(4096,)](X, out, 4096, TILE=2048, num_warps=16))}
-    print(res["row_sum"]["triton_tile2048_nw16"])
+    auto = {"gelu": (ta.gelu_tuned, lambda: ta.gelu_auto(x)), "softmax": (ta.softmax_tuned, lambda: ta.softmax_auto(X)),
+            "row_sum": (ta.row_sum_tuned, lambda: ta.row_sum_auto(X)), "matmul_relu": (ta.matmul_relu_tuned, lambda: ta.matmul_relu_auto(A, B))}
+    for name, (tuner, f) in auto.items():
+        torch.cuda.synchronize(); t0 = time.perf_counter()
+        f(); torch.cuda.synchronize()                 # 第一次调用：编译并试跑所有候选
+        first = time.perf_counter() - t0
+        bc = tuner.best_config
+        res[name]["autotune"] = {"us": us(f), "configs": len(tuner.configs), "first_call_s": round(first, 1),
+                                 "best": {**bc.kwargs, "num_warps": bc.num_warps, "num_stages": bc.num_stages}}
+        print(name, res[name]["autotune"])
+    res["matmul_relu"]["autotune"]["max_err"] = (ta.matmul_relu_auto(A, B) - torch.relu(A @ B)).abs().max().item()
     json.dump(res, open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "section2_bench.json"), "w"), indent=1, ensure_ascii=False)
 
 
