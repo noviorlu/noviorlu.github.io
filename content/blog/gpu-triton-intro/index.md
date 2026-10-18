@@ -213,7 +213,7 @@ GA102 白皮书列出的切法见[表 1-1](#tab-1-1)。跑 kernel 时（compute 
 三个例子：
 
 - 每个 thread 用 40 个：65536 / 40 = 1638，超过上限，1536 个都放得下。
-- 第 2 节的 softmax 每个 thread 用 55 个，按 56 算：一个 program 有 128 个 thread，占 56 × 128 = 7168 个；65536 / 7168 = 9.1，一个 SM 只放得下 9 个 program（[图 3-1](#fig-t-8)）。
+- 第 2 节的 softmax 每个 thread 用 55 个，按 56 算：一个 program 有 128 个 thread，占 56 × 128 = 7168 个；65536 / 7168 = 9.1，一个 SM 只放得下 9 个 program（[图 3-3](#fig-t-8)）。
 - 每个 thread 用满 255 个，按 256 算：65536 / 256 = 256 个 thread，即 8 个 warp，是上限 1536 个的六分之一。
 
 <figure id="fig-h-9" class="fg-fig">
@@ -588,7 +588,7 @@ def gelu(x):
     return y
 ```
 
-program 编译后就是 CUDA 的一个 block。8192 个 program 远多于 170 个 SM，GPU 会把它们一批一批地排到 SM 上，每个 SM 同时跑 12 个（为什么是 12 个见 [图 3-1](#fig-t-8)，怎么分批见 [3.4 节](#sched-wave)）。
+program 编译后就是 CUDA 的一个 block。8192 个 program 远多于 170 个 SM，GPU 会把它们一批一批地排到 SM 上，每个 SM 同时跑 12 个（为什么是 12 个见 [图 3-3](#fig-t-8)，怎么分批见 [3.5 节](#sched-wave)）。
 
 n = 8388608 时 Triton 版 45.2 µs，读写共 64 MB，有效带宽 1.49e12 B/s，是显存带宽的 83%，和 PyTorch 的 `F.gelu(x, approximate="tanh")`（45.9 µs）持平。
 
@@ -1555,23 +1555,174 @@ def matmul_relu(a, b, BM=64, BN=64, BK=32):
 - **多个 thread 要用，但只有几个数**：softmax 和 row sum 最后要把整行的部分结果合成一个最大值或一个和。warp 内用 shuffle 在 register 之间直接传，只有 4 个 warp 之间经过 shared memory，一共 16 B。
 - **多个 thread 要用同一整块数据**：matmul。C 的 64 × 64 个 acc 分给 128 个 thread，每个 thread 存 8 行 × 4 列，共 32 个。C 的第 $i$ 行分在 16 个 thread 手里，所以 $A_{ik}$ 要送到这 16 个 thread；第 $j$ 列分在 4 个 warp 的 8 个 thread 手里，所以 $B_{kj}$ 要送到这 8 个 thread。每个 $A_{ik}$ 一共要乘 64 次（BN），一个 thread 只做其中 4 次，其余 60 次在别的 thread 里。每一轮 A、B 的 block 共 16 KB，先整块读进 shared memory，每个 thread 再从里面取自己要的 8 个 A 值和 4 个 B 值；不这样做，16 个 thread 就要各自从显存读一次同一个 $A_{ik}$。
 
-所以只有 matmul 把 A、B 的 block 放在 shared memory 里，每个 program 32 KB（一轮 16 KB，存两轮，见 [3.1 节](#knobs)）；softmax 和 row sum 把整个 block 放进 shared memory 只会多搬一趟。代价是 shared memory 用得越多，一个 SM 能同时放的 program 越少：每个 SM 的上限是 100 KB，matmul 每个 program 占 32 KB，再加每个 program 保留的 1 KB，只放得下 3 个（3 × 33 = 99 KB，见 [图 3-1](#fig-t-8)）。
+所以只有 matmul 把 A、B 的 block 放在 shared memory 里，每个 program 32 KB（一轮 16 KB，存两轮，见 [3.2 节](#stages)）；softmax 和 row sum 把整个 block 放进 shared memory 只会多搬一趟。代价是 shared memory 用得越多，一个 SM 能同时放的 program 越少：每个 SM 的上限是 100 KB，matmul 每个 program 占 32 KB，再加每个 program 保留的 1 KB，只放得下 3 个（3 × 33 = 99 KB，见 [图 3-3](#fig-t-8)）。
 
 </div>
 
-A 4096 × 2048、B 2048 × 512 时 Triton 版 203.3 µs，4.23e13 FLOPS，是 fp32 标称峰值 1.05e14 FLOPS（170 个 SM × 128 个 CUDA core × 2 FLOPs × 2.41e9 Hz）的 40%；cuBLAS（`torch.relu(A  B)`，关掉 tf32）是 160.5 µs。差距主要来自 tail effect：每个 SM 只放 3 个 program，512 个 program 要分两批跑，第二批只有 2 个，它们跑的时候另外 168 个 SM 都空着（见 [3.4 节](#sched-wave)）。BM、BN 本身也不是最优的：换成 128 × 128、8 个 warp，只有 128 个 program，一批就跑完，176.9 µs；这几个数怎么选见 [3.5 节](#tile)。
+A 4096 × 2048、B 2048 × 512 时 Triton 版 203.3 µs，4.23e13 FLOPS，是 fp32 标称峰值 1.05e14 FLOPS（170 个 SM × 128 个 CUDA core × 2 FLOPs × 2.41e9 Hz）的 40%；cuBLAS（`torch.relu(A  B)`，关掉 tf32）是 160.5 µs。差距主要来自 tail effect：每个 SM 只放 3 个 program，512 个 program 要分两批跑，第二批只有 2 个，它们跑的时候另外 168 个 SM 都空着（见 [3.5 节](#sched-wave)）。BM、BN 本身也不是最优的：换成 128 × 128、8 个 warp，只有 128 个 program，一批就跑完，176.9 µs；这几个数怎么选见 [3.6 节](#tile)。
 
-<details class="fold doc aside" id="mm-prefetch">
-<summary>matmul 的 load 藏住了吗</summary>
+<details class="fold doc aside">
+<summary>matmul 编译出来什么样</summary>
 
-Triton 默认 `num_stages=3`，编译器把这个循环改写成流水线（[3.1 节](#knobs)）：A、B 各开两个槽，算第 $T$ 轮时，第 $T+1$ 轮的 block 已经在搬了。从编译出的 TTGIR 和 PTX 里能数清楚 A、B 的 block 怎么进出 shared memory。循环前先发出第 0、1 轮的 cp.async；第 $T$ 轮先等第 $T$ 轮的数据到齐，用 ld.shared 读进 register 做乘加，读完马上往刚空出来的槽发第 $T+2$ 轮。A、B 各搬 64 次，每次 8 KB，一个 program 一共 1 MB；512 个 program 加起来 512 MB，而 A、B 本身只有 36 MB，所以 L2 命中率有 91%，大部分读不用到显存。每轮从 shared memory 读进 register 的是 192 KB，同一个数平均被读 12 次，这就是前面说的复用。写回之前 acc 还要经 shared memory 换一次排布：`tl.dot` 输出时每个 thread 拿两个 4 × 4 的小方块，编译器给 `tl.store` 选的排布是每个 thread 拿 8 段、每段一行里连续的 4 个数，同一个数换到了别的 thread 甚至别的 warp 手里，而 register 是每个 thread 私有的，只能先写进 shared memory、同步一次再按新排布读出来。两种排布写显存时都是一个 warp 一次写两整行，并不是为了合并写入；这一步是两种排布对不上留下的。代码里加了 `input_precision="ieee"`，所以 `tl.dot` 编译成 CUDA core 上的 `fma.rn.f32x2`；不加的话 fp32 输入默认走 tf32 的 Tensor core，和 fp32 矩阵乘的结果差 0.1 左右。
+从编译出的 TTGIR 和 PTX 里能数清楚 A、B 的 block 怎么进出 shared memory，流水线本身见 [3.2 节](#stages)。A、B 各搬 64 次，每次 8 KB，一个 program 一共 1 MB；512 个 program 加起来 512 MB，而 A、B 本身只有 36 MB，所以 L2 命中率有 91%，大部分读不用到显存。每轮从 shared memory 读进 register 的是 192 KB，同一个数平均被读 12 次，这就是前面说的复用。写回之前 acc 还要经 shared memory 换一次排布：`tl.dot` 输出时每个 thread 拿两个 4 × 4 的小方块，编译器给 `tl.store` 选的排布是每个 thread 拿 8 段、每段一行里连续的 4 个数，同一个数换到了别的 thread 甚至别的 warp 手里，而 register 是每个 thread 私有的，只能先写进 shared memory、同步一次再按新排布读出来。两种排布写显存时都是一个 warp 一次写两整行，并不是为了合并写入；这一步是两种排布对不上留下的。代码里加了 `input_precision="ieee"`，所以 `tl.dot` 编译成 CUDA core 上的 `fma.rn.f32x2`；不加的话 fp32 输入默认走 tf32 的 Tensor core，和 fp32 矩阵乘的结果差 0.1 左右。
 
-预取藏住了多少 load，用 Nsight Compute 测（[图 2-4a](#fig-t-6)）。ncu 给的是一个 warp 每两条指令之间平均隔几拍、这几拍里在等什么，乘上每轮的指令数（约 1220 条），就是每轮的拍数。不预取（`num_stages=1`）时每轮 5601 拍，其中 852 拍在等 L2 或显存的数据，等到了才能算，一轮接一轮。预取以后每轮 4901 拍，等数据只剩 74 拍：block $k$ 的 load 在两轮之前就发出了，约 852 拍就到，到用的时候早已在 shared memory 里。load 只占一轮的六分之一，提前一轮发其实就够。
+</details>
 
-每轮少了 13%，整个 kernel 只快 6%（168.2 µs 到 158.3 µs）：一个 warp 等数据的时候，同一个 SMSP 上另外两个 warp 本来就能发射，这段等待原本就被藏住了一部分。剩下的时间主要花在等 ld.shared 的结果和轮不到发射上：FMA 管线只忙了 66%，shared memory 读只用了 55%，两边都没满。每个 SMSP 上只有 3 个 warp，一个 warp 等 ld.shared 时，没有足够多的别的 warp 补上。
+第 2 节的四个例子是同一个模式：program 把一个 block 的数据读进 register，在片上做完能做的计算，再写回显存。代码只决定 program 做什么；它在 SM 上怎么排、能不能把 SM 用满，还取决于启动参数和 block 的大小，这是第 3 节的内容。
+
+---
+
+## 3 调度和调参 {#tune}
+
+[表 2-1](#tab-2-1) 之后说过，program 内部从 thread 到 shared memory 都交给编译器，能直接调的只有启动参数 `num_warps`、`num_stages` 和 block 的大小。这一节先说两个参数是什么（[3.1](#knobs)），再看 `num_stages` 怎么用预取藏住 load（[3.2](#stages)）、一个 SM 能放几个 program（[3.3](#sched-limits)）、驻留的 warp 怎么藏住访存延迟（[3.4](#sched-warp)）、program 放不下时怎么分批（[3.5](#sched-wave)），最后用 matmul 扫一遍 block 大小（[3.6](#tile)）。
+
+### 3.1 num_warps 和 num_stages {#knobs}
+
+两个参数都在启动 kernel 时传：`kernel[grid](..., num_warps=4, num_stages=3)`，这是 Triton 的默认值。也可以写成 `triton.Config`，列一组候选交给 `@triton.autotune` 去试（[3.6 节](#tile)）。`triton.Config` 里还有 `maxnreg`，限制每个 thread 最多用几个 register，对应 PTX 的 `.maxnreg`；`num_ctas` 只在 SM90 以上有用，5090 用不上。
+
+`num_warps` 决定一个 program 有几个 thread：32 × `num_warps` 个。block 的大小写在代码里，thread 多了，每个 thread 分到的就少：[GELU](#triton-gelu) 一个 program 1024 个数，默认 128 个 thread，每个 thread 8 个；[matmul](#triton-matmul) 的 64 × 64 个 acc，每个 thread 32 个。一个 program 占几个 warp 名额也由它定，这会影响一个 SM 放几个 program（[3.3 节](#sched-limits)）。
+
+`num_stages` 决定循环里的 load 提前几轮发出，管的是 shared memory 里的槽，[3.2 节](#stages)专门讲。
+
+### 3.2 num_stages：用预取藏住 load {#stages}
+
+matmul 的循环每轮做两件事：把 $A_{IT}$、$B_{TJ}$ 从显存搬进 shared memory 的槽，一共 16 KB；再从槽里读进 register 做乘加。`num_stages=1` 时这两件事一轮接一轮：编出来的 PTX 先用 ld.global 把数据读进 register，再 st.shared 写进槽，同步之后才读出来算，每轮都要先等数据到齐（[图 3-1](#fig-t-9) 上半）。
+
+`num_stages` 取 S > 1 时，编译器把循环改写成流水线：load 改用 cp.async，从显存直接搬进槽，不经过 register；第 $k$ 轮的 load 在第 $k-(S-1)$ 轮算完以后就发出。默认 S = 3，第 $k$ 轮的数据从发出 load 到被用完跨三轮：第 $k-2$ 轮算完后发出，第 $k-1$ 轮期间在路上，第 $k$ 轮被读出来算，所以叫 3 级。它从发出到第 $k$ 轮算完一直占着一个槽，算完槽才空出来，接着搬第 $k+2$ 轮。任何时刻占着槽的只有两轮，正在算的这一轮和下一轮，所以 A、B 各 2 个槽就够（[图 3-1](#fig-t-9) 下半）。一般地，S 级要 A、B 各 S − 1 个槽，每多一级多 16 KB shared memory（[表 3-1](#tab-3-1)）；`num_stages=1` 也有 1 个槽，因为 `tl.dot` 的输入总要先经过 shared memory。
+
+<figure id="fig-t-9" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="matmul 循环按 shared memory 槽画的甘特图。num_stages = 1 只有 1 个槽：每轮先搬数据、等 852 拍，再从槽里读出来算，一轮接一轮。num_stages = 3 有 2 个槽：第 k 轮的 load 在第 k − 2 轮算完后发出，第 k − 1 轮期间在路上，第 k 轮被读出来算，偶数轮用槽 0、奇数轮用槽 1；算第 k 轮时，第 k + 1 轮已经在另一个槽里">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <text class="tb" x="8" y="30">num_stages = 1</text><text class="lab2" x="160" y="30">1 个槽，不预取：每轮 5601 拍</text>
+  <text class="lab" x="8" y="55.0">槽</text>
+  <text class="lab" x="8" y="77.0">warp</text>
+  <line class="grid" x1="96.0" y1="40" x2="96.0" y2="84"/>
+  <line class="grid" x1="212.1" y1="40" x2="212.1" y2="84"/>
+  <line class="grid" x1="328.2" y1="40" x2="328.2" y2="84"/>
+  <line class="grid" x1="444.3" y1="40" x2="444.3" y2="84"/>
+  <line class="grid" x1="560.3" y1="40" x2="560.3" y2="84"/>
+  <g class="m"><title>第 0 轮：load 在路上，852 拍</title><rect x="96.0" y="43" width="19.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 0 轮：在槽里被读</title><rect x="115.8" y="43" width="110.3" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="170.9" y="55.0" text-anchor="middle">第 0 轮</text>
+  <g class="m"><title>第 0 轮：等数据 852 拍</title><rect x="96.0" y="65" width="19.8" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 0 轮：ld.shared 和乘加 4749 拍</title><rect x="115.8" y="65" width="110.3" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="170.9" y="77.0" text-anchor="middle">算第 0 轮</text>
+  <g class="m"><title>第 1 轮：load 在路上，852 拍</title><rect x="226.1" y="43" width="19.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 1 轮：在槽里被读</title><rect x="245.8" y="43" width="110.3" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="301.0" y="55.0" text-anchor="middle">第 1 轮</text>
+  <g class="m"><title>第 1 轮：等数据 852 拍</title><rect x="226.1" y="65" width="19.8" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 1 轮：ld.shared 和乘加 4749 拍</title><rect x="245.8" y="65" width="110.3" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="301.0" y="77.0" text-anchor="middle">算第 1 轮</text>
+  <g class="m"><title>第 2 轮：load 在路上，852 拍</title><rect x="356.1" y="43" width="19.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 2 轮：在槽里被读</title><rect x="375.9" y="43" width="110.3" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="431.0" y="55.0" text-anchor="middle">第 2 轮</text>
+  <g class="m"><title>第 2 轮：等数据 852 拍</title><rect x="356.1" y="65" width="19.8" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 2 轮：ld.shared 和乘加 4749 拍</title><rect x="375.9" y="65" width="110.3" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="431.0" y="77.0" text-anchor="middle">算第 2 轮</text>
+  <g class="m"><title>第 3 轮：load 在路上，852 拍</title><rect x="486.2" y="43" width="19.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 3 轮：在槽里被读</title><rect x="505.9" y="43" width="110.3" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="561.1" y="55.0" text-anchor="middle">第 3 轮</text>
+  <g class="m"><title>第 3 轮：等数据 852 拍</title><rect x="486.2" y="65" width="19.8" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 3 轮：ld.shared 和乘加 4749 拍</title><rect x="505.9" y="65" width="110.3" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="561.1" y="77.0" text-anchor="middle">算第 3 轮</text>
+  <g class="m"><title>第 4 轮：load 在路上，852 拍</title><rect x="616.2" y="43" width="13.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 4 轮：等数据 852 拍</title><rect x="616.2" y="65" width="13.8" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <text class="tb" x="8" y="124">num_stages = 3</text><text class="lab2" x="160" y="124">2 个槽，提前一整轮发 load：每轮 4901 拍</text>
+  <text class="lab" x="8" y="149.0">槽 0</text>
+  <text class="lab" x="8" y="171.0">槽 1</text>
+  <text class="lab" x="8" y="193.0">warp</text>
+  <line class="grid" x1="96.0" y1="134" x2="96.0" y2="200"/>
+  <line class="grid" x1="212.1" y1="134" x2="212.1" y2="200"/>
+  <line class="grid" x1="328.2" y1="134" x2="328.2" y2="200"/>
+  <line class="grid" x1="444.3" y1="134" x2="444.3" y2="200"/>
+  <line class="grid" x1="560.3" y1="134" x2="560.3" y2="200"/>
+  <g class="m"><title>第 0 轮：load 在路上，约 852 拍</title><rect x="96.0" y="137" width="19.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 0 轮：已到槽里，等着被读</title><rect x="115.8" y="137" width="0.8" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
+  <g class="m"><title>第 0 轮：在槽里被读</title><rect x="115.8" y="137" width="113.8" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="172.7" y="149.0" text-anchor="middle">第 0 轮</text>
+  <g class="m"><title>第 1 轮：load 在路上，约 852 拍</title><rect x="96.0" y="159" width="19.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 1 轮：已到槽里，等着被读</title><rect x="115.8" y="159" width="113.8" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
+  <g class="m"><title>第 1 轮：在槽里被读</title><rect x="229.6" y="159" width="113.8" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="286.5" y="171.0" text-anchor="middle">第 1 轮</text>
+  <g class="m"><title>第 2 轮：load 在路上，约 852 拍</title><rect x="229.6" y="137" width="19.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 2 轮：已到槽里，等着被读</title><rect x="249.4" y="137" width="94.0" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
+  <g class="m"><title>第 2 轮：在槽里被读</title><rect x="343.4" y="137" width="113.8" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="400.3" y="149.0" text-anchor="middle">第 2 轮</text>
+  <g class="m"><title>第 3 轮：load 在路上，约 852 拍</title><rect x="343.4" y="159" width="19.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 3 轮：已到槽里，等着被读</title><rect x="363.2" y="159" width="94.0" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
+  <g class="m"><title>第 3 轮：在槽里被读</title><rect x="457.1" y="159" width="113.8" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="514.0" y="171.0" text-anchor="middle">第 3 轮</text>
+  <g class="m"><title>第 4 轮：load 在路上，约 852 拍</title><rect x="457.1" y="137" width="19.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 4 轮：已到槽里，等着被读</title><rect x="476.9" y="137" width="94.0" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
+  <g class="m"><title>第 4 轮：在槽里被读</title><rect x="570.9" y="137" width="59.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="600.5" y="149.0" text-anchor="middle">第 4 轮</text>
+  <g class="m"><title>第 5 轮：load 在路上，约 852 拍</title><rect x="570.9" y="159" width="19.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 5 轮：已到槽里，等着被读</title><rect x="590.7" y="159" width="39.3" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
+  <g class="m"><title>第 0 轮：等数据 852 拍</title><rect x="96.0" y="181" width="19.8" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 0 轮：等数据 74 拍</title><rect x="115.8" y="181" width="1.7" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 0 轮：ld.shared 和乘加 4827 拍</title><rect x="117.5" y="181" width="112.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="173.5" y="193.0" text-anchor="middle">算第 0 轮</text>
+  <g class="m"><title>第 1 轮：等数据 74 拍</title><rect x="229.6" y="181" width="1.7" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 1 轮：ld.shared 和乘加 4827 拍</title><rect x="231.3" y="181" width="112.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="287.3" y="193.0" text-anchor="middle">算第 1 轮</text>
+  <g class="m"><title>第 2 轮：等数据 74 拍</title><rect x="343.4" y="181" width="1.7" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 2 轮：ld.shared 和乘加 4827 拍</title><rect x="345.1" y="181" width="112.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="401.1" y="193.0" text-anchor="middle">算第 2 轮</text>
+  <g class="m"><title>第 3 轮：等数据 74 拍</title><rect x="457.1" y="181" width="1.7" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 3 轮：ld.shared 和乘加 4827 拍</title><rect x="458.9" y="181" width="112.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="514.9" y="193.0" text-anchor="middle">算第 3 轮</text>
+  <g class="m"><title>第 4 轮：等数据 74 拍</title><rect x="570.9" y="181" width="1.7" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 4 轮：ld.shared 和乘加 4827 拍</title><rect x="572.6" y="181" width="57.4" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="601.3" y="193.0" text-anchor="middle">算第 4 轮</text>
+  <line x1="434.4" y1="130" x2="434.4" y2="204" stroke="currentColor" stroke-opacity=".55" stroke-dasharray="4 3"/>
+  <text class="tick" x="96.0" y="214" text-anchor="middle">0</text>
+  <text class="tick" x="212.1" y="214" text-anchor="middle">5000</text>
+  <text class="tick" x="328.2" y="214" text-anchor="middle">10000</text>
+  <text class="tick" x="444.3" y="214" text-anchor="middle">15000</text>
+  <text class="tick" x="560.3" y="214" text-anchor="middle">20000</text>
+  <text class="lab2" x="88" y="214" text-anchor="end">拍</text>
+  <text class="s" x="96" y="232">竖虚线这一刻：第 2 轮在槽 0 里被读、在算；第 3 轮已经到了槽 1；第 4 轮要等第 2 轮算完才发</text>
+  <rect x="8" y="245" width="20" height="11" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-dasharray="3 2"/><text class="s" x="34" y="254">load 在路上</text>
+  <rect x="119" y="245" width="20" height="11" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/><text class="s" x="145" y="254">已到槽里，等着被读</text>
+  <rect x="266" y="245" width="20" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/><text class="s" x="292" y="254">在槽里被读</text>
+  <rect x="369" y="245" width="20" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/><text class="s" x="395" y="254">ld.shared 和乘加</text>
+  <rect x="510" y="245" width="20" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/><text class="s" x="536" y="254">等数据</text>
+</svg>
+<figcaption><strong>图 3-1</strong> matmul 的循环按 shared memory 槽看（RTX 5090，fp32，A 4032 × 2048，B 2048 × 512，BM = BN = 64，BK = 32，4 个 warp），条长和<a href="#fig-t-6">图 3-2</a>一样按 Nsight Compute 测的每轮平均拍数画。num_stages = 3 时，第 k 轮的数据从发出 load 到被用完跨三轮：第 k − 2 轮算完后发出，第 k − 1 轮期间在路上，第 k 轮被读出来算，所以叫 3 级。它从发出到第 k 轮算完一直占着一个槽，任何时刻都有两轮的数据占着槽，所以 2 个槽就够。只画前 5 轮。</figcaption>
+</figure>
+
+| num_stages | A、B 各几个槽 | load 提前几整轮 | shared memory | 每个 SM 放几个 program | 耗时 |
+|:--|--:|--:|--:|--:|--:|
+| 1 | 1 | — | 16 KB | 5 | 181.4 µs |
+| 2 | 1 | 0 | 16 KB | 5 | 175.8 µs |
+| 3（默认） | 2 | 1 | 32 KB | 3 | 169.3 µs |
+| 4 | 3 | 2 | 48 KB | 2 | 210.0 µs |
+{#tab-3-1 caption="**表 3-1** matmul 的 num_stages 改了什么（A 4032 × 2048，B 2048 × 512，BM = BN = 64，BK = 32，4 个 warp）" note="槽数读自编译出的 TTGIR，提前几轮读自 PTX 里 cp.async 的发出位置，shared memory 读自编译结果的 metadata。用 4032 行是为了避开 3.5 节的 tail effect：504 个 program 在每个 SM 放 3 个时正好一批。耗时是 <code>do_bench</code> 跑 5 次的中位数。它和 3.5 节的 158.3 µs 是不同时间的两次测量，整体差约 7%，比较各档只看这一张表。"}
+
+前三档越来越快，181.4、175.8、169.3 µs。`num_stages=2` 只有 1 个槽，第 $k+1$ 轮的 load 要等第 $k$ 轮算完、槽空出来才能发，发完紧接着就要用（PTX 里是 `cp.async.wait_group 0`），同一个 warp 里搬和算并没有重叠；它比 `num_stages=1` 快，是因为 cp.async 直接从显存搬进槽，省掉了经 register 再 st.shared 的一来一回。`num_stages=3` 才真正提前一整轮。到 `num_stages=4`，48 KB 的 shared memory 让每个 SM 只放得下 2 个 program，全卡一批只放得下 340 个，504 个 program 要分两批，耗时退回 210.0 µs。`num_stages` 是拿 shared memory 换预取，槽多到挤掉驻留的 program 就得不偿失。
+
+预取藏住了多少等待，用 Nsight Compute 量（[图 3-2](#fig-t-6)）。ncu 给的是一个 warp 每两条指令之间平均隔几拍、这几拍里在等什么，乘上每轮的指令数（约 1220 条），就是每轮的拍数。`num_stages=1` 时每轮 5601 拍，其中 852 拍在等 L2 或显存的数据。`num_stages=3` 时每轮 4901 拍，等数据只剩 74 拍：第 $k$ 轮的 load 提前一整轮发出，约 852 拍就到，到用的时候早已在槽里。load 只占一轮的六分之一，提前一轮已经够，再多的槽只是多占 shared memory。
 
 <figure id="fig-t-6" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 340" width="100%" role="img" aria-label="matmul 一个 warp 的流水线，条长是 Nsight Compute 测的每轮平均拍数：不预取时每轮 5601 拍，先等数据 852 拍再计算，一轮接一轮；num_stages = 3 时第 k 个 block 提前两轮发出 load，852 拍后就到了，到用的时候只等 74 拍，每轮 4901 拍">
+<svg class="fg" viewBox="0 0 640 340" width="100%" role="img" aria-label="matmul 一个 warp 的流水线，条长是 Nsight Compute 测的每轮平均拍数：不预取时每轮 5601 拍，先等数据 852 拍再计算，一轮接一轮；num_stages = 3 时第 k 个 block 的 load 在第 k − 2 轮算完后发出，852 拍后就到了，到用的时候只等 74 拍，每轮 4901 拍">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -1656,42 +1807,16 @@ Triton 默认 `num_stages=3`，编译器把这个循环改写成流水线（[3.1
   <rect x="8" y="289" width="22" height="11" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-dasharray="3 2"/><text class="s" x="38" y="298">load 在路上（约 852 拍）</text>
   <rect x="308" y="289" width="22" height="11" rx="2" style="fill: var(--fig-2)" fill-opacity="0.25"/><text class="s" x="338" y="298">已到 shared memory，等着被用</text>
 </svg>
-<figcaption><strong>图 2-4a</strong> matmul kernel 一个 warp 的流水线（RTX 5090，fp32，A 4032 × 2048，504 个 program 一批跑完；Nsight Compute 实测，<code>--clock-control none</code>）。每轮的拍数 = 每条指令平均隔几拍 × 每轮的指令数，等数据的拍数 = 每条指令平均等 L2 / 显存几拍 × 每轮的指令数，都是 64 轮的平均值。load 的延迟没法直接测，按不预取时每轮等数据的拍数画。只画前 5 轮。</figcaption>
+<figcaption><strong>图 3-2</strong> matmul kernel 一个 warp 的流水线（RTX 5090，fp32，A 4032 × 2048，504 个 program 一批跑完；Nsight Compute 实测，<code>--clock-control none</code>）。每轮的拍数 = 每条指令平均隔几拍 × 每轮的指令数，等数据的拍数 = 每条指令平均等 L2 / 显存几拍 × 每轮的指令数，都是 64 轮的平均值。load 的延迟没法直接测，按不预取时每轮等数据的拍数画。只画前 5 轮。</figcaption>
 </figure>
 
-</details>
+每轮少了 13%，整个 kernel 只快 7%（[表 3-1](#tab-3-1)）：一个 warp 等数据的时候，同一个 SMSP 上另外两个 warp 本来就能发射，这段等待原本就被藏住了一部分。剩下的时间主要花在等 ld.shared 的结果和轮不到发射上：FMA 管线只忙了 66%，shared memory 读只用了 55%，两边都没满。每个 SMSP 上只有 3 个 warp，一个 warp 等 ld.shared 时，没有足够多的别的 warp 补上。
 
-第 2 节的四个例子是同一个模式：program 把一个 block 的数据读进 register，在片上做完能做的计算，再写回显存。代码只决定 program 做什么；它在 SM 上怎么排、能不能把 SM 用满，还取决于启动参数和 block 的大小，这是第 3 节的内容。
+row sum 也有循环，但 `num_stages` 对它没有作用：取 1、2、3 时编出的 TTGIR 都没有 cp.async，也没有开槽，三档耗时相差 1% 以内。这四个例子里，只有 matmul 的循环被改写成了流水线；GELU 和 softmax 没有循环，更用不上。
 
----
+`num_warps` 和 `num_stages` 都会改变一个 program 占的资源：`num_warps` 决定占几个 warp 名额、每个 thread 分到多少数据，`num_stages` 决定开几个 shared memory 槽。占得越多，一个 SM 能同时放的 program 越少，下面就来算这笔账。
 
-## 3 调度和调参 {#tune}
-
-[表 2-1](#tab-2-1) 之后说过，program 内部从 thread 到 shared memory 都交给编译器，能直接调的只有启动参数 `num_warps`、`num_stages` 和 block 的大小。这一节先说两个参数改了什么（[3.1](#knobs)），再看一个 SM 能放几个 program（[3.2](#sched-limits)）、驻留的 warp 怎么藏住访存延迟（[3.3](#sched-warp)）、program 放不下时怎么分批（[3.4](#sched-wave)），最后用 matmul 扫一遍 block 大小（[3.5](#tile)）。
-
-### 3.1 num_warps 和 num_stages {#knobs}
-
-两个参数都在启动 kernel 时传：`kernel[grid](..., num_warps=4, num_stages=3)`，这是 Triton 的默认值。也可以写成 `triton.Config`，列一组候选交给 `@triton.autotune` 去试（[3.5 节](#tile)）。`triton.Config` 里还有 `maxnreg`，限制每个 thread 最多用几个 register，对应 PTX 的 `.maxnreg`；`num_ctas` 只在 SM90 以上有用，5090 用不上。
-
-`num_warps` 决定一个 program 有几个 thread：32 × `num_warps` 个。block 的大小写在代码里，thread 多了，每个 thread 分到的就少：[GELU](#triton-gelu) 一个 program 1024 个数，默认 128 个 thread，每个 thread 8 个；[matmul](#triton-matmul) 的 64 × 64 个 acc，每个 thread 32 个。一个 program 占几个 warp 名额也由它定，这会影响一个 SM 放几个 program（[3.2 节](#sched-limits)）。
-
-`num_stages` 决定循环里的 load 提前几轮发出。matmul 每轮把 $A_{IT}$、$B_{TJ}$ 读进 shared memory，一共 16 KB。`num_stages` 大于 1 时，编译器把循环改写成流水线，用 cp.async 异步发出后面几轮的 load，算第 $T$ 轮的时候，后面的 block 已经在路上。提前几轮就要多开几个槽来放：编出来 A、B 各有 `num_stages` − 1 个槽（`num_stages=1` 时也有 1 个，只是不提前搬），每多一个槽多 16 KB shared memory（[表 3-1](#tab-3-1)）。默认 3 级却只有 2 个槽，是因为有一级在 register 里：第 $T$ 轮要算之前，先用 ld.shared 把它从槽里读进 register，槽马上空出来去搬第 $T+2$ 轮。算第 $T$ 轮的时候，第 $T+1$、$T+2$ 轮在两个槽里，第 $T$ 轮在 register 里，一共三级。
-
-| num_stages | A、B 各几个槽 | cp.async | shared memory | 每个 SM 放几个 program | 耗时 |
-|:--|--:|:--|--:|--:|--:|
-| 1 | 1 | 无 | 16 KB | 5 | 172.9 µs |
-| 2 | 1 | 有 | 16 KB | 5 | 166.0 µs |
-| 3（默认） | 2 | 有 | 32 KB | 3 | 161.0 µs |
-| 4 | 3 | 有 | 48 KB | 2 | 202.2 µs |
-{#tab-3-1 caption="**表 3-1** matmul 的 num_stages 改了什么（A 4032 × 2048，B 2048 × 512，BM = BN = 64，BK = 32，4 个 warp）" note="槽数和 cp.async 读自编译出的 TTGIR，shared memory 读自编译结果的 metadata。用 4032 行是为了避开 3.4 节的 tail effect：504 个 program 在每个 SM 放 3 个时正好一批。耗时是 <code>do_bench</code> 跑 5 次的中位数，和 2.4 节 notes、3.4 节里的 158.3 µs 是不同的测量。"}
-
-前三档越提前搬越快，172.9、166.0、161.0 µs。到 `num_stages=4`，48 KB 的 shared memory 让每个 SM 只放得下 2 个 program，全卡一批只放得下 340 个，504 个 program 要分两批，耗时退回 202.2 µs。`num_stages` 是拿 shared memory 换预取，槽多到挤掉驻留的 program 就得不偿失。预取到底藏住了多少 load，[2.4 节的 notes](#mm-prefetch) 用 Nsight Compute 量过。
-
-row sum 也有循环，但 `num_stages` 对它没有作用：取 1、2、3 时编出的 TTGIR 都没有 cp.async，也没有开槽，三档耗时相差 1% 左右。这四个例子里，只有 matmul 的循环被改写成了流水线；GELU 和 softmax 没有循环，更用不上。
-
-这两个参数都会改变一个 program 占的资源：`num_warps` 决定占几个 warp 名额、每个 thread 分到多少数据，`num_stages` 决定开几个 shared memory 槽。占得越多，一个 SM 能同时放的 program 越少，下面就来算这笔账。
-
-### 3.2 驻留上限 {#sched-limits}
+### 3.3 驻留上限 {#sched-limits}
 
 program（也就是 CUDA block）放到 SM 上以后就一直驻留，直到它的 thread 全部跑完。一个 SM 能同时驻留多少，由四条硬件上限决定（[表 3-2](#tab-3-2)），哪条先用完就卡在哪条。warp 的上限分摊到每个 SMSP 的调度器；program 的上限记在整个 SM 上，因为一个 program 的 shared memory 和同步由 4 个 SMSP 共用。
 
@@ -1703,7 +1828,7 @@ program（也就是 CUDA block）放到 SM 上以后就一直驻留，直到它�
 | shared memory | 100 KB（128 KB 的 L1 / shared memory 里最多切出这么多，见 [1.2 节](#hw-sm)），每个 program 另占 1 KB |
 {#tab-3-2 caption="**表 3-2** RTX 5090 一个 SM 的驻留上限" note="用 <code>cuDeviceGetAttribute</code> 在 5090 上读出，和 CUDA Programming Guide 里 compute capability 12.0 的数一致。"}
 
-第 2 节的图画的是一个 program 怎么读写数据。放到 SM 上时，一个 program 就是一个 CUDA block：`num_warps` 个 warp（默认 4 个，128 个 thread），每个 thread 带着自己的 register，整个 program 共用一块 shared memory。所以它在 SM 上要占四样东西，正好对应表 3-2 的四条上限：`num_warps` 个 warp 名额，1 个 program 名额，32 × `num_warps` × 每个 thread 的 register 数，shared memory 的用量再加 1 KB 保留。前两样由 `num_warps` 定；shared memory 在 matmul 里主要是 `num_stages` 开的槽。每条上限各自能放下几个 program，取最小的那个，就是一个 SM 实际放几个（[图 3-1](#fig-t-8)）。
+第 2 节的图画的是一个 program 怎么读写数据。放到 SM 上时，一个 program 就是一个 CUDA block：`num_warps` 个 warp（默认 4 个，128 个 thread），每个 thread 带着自己的 register，整个 program 共用一块 shared memory。所以它在 SM 上要占四样东西，正好对应表 3-2 的四条上限：`num_warps` 个 warp 名额，1 个 program 名额，32 × `num_warps` × 每个 thread 的 register 数，shared memory 的用量再加 1 KB 保留。前两样由 `num_warps` 定；shared memory 在 matmul 里主要是 `num_stages` 开的槽。每条上限各自能放下几个 program，取最小的那个，就是一个 SM 实际放几个（[图 3-3](#fig-t-8)）。
 
 <figure id="fig-t-8" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 590" width="100%" role="img" aria-label="第 2 节图里的一个 program 是一个 CUDA block：4 个 warp、128 个 thread。放上 SM 时占 4 个 warp 名额、1 个 program 名额、128 × 每个 thread 的 register、shared memory 加 1 KB；四个 kernel 各画四根条，哪条先用完就放几个：GELU 和 row sum 卡在 warp，softmax 卡在 register，matmul 卡在 shared memory">
@@ -1995,12 +2120,12 @@ program（也就是 CUDA block）放到 SM 上以后就一直驻留，直到它�
   <rect x="238" y="567" width="22" height="10" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="5 3"/><text class="lab" x="268" y="576">只看这一条，还能再放</text>
   <rect x="410" y="566" width="22" height="12" rx="2" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/><text class="lab" x="440" y="576">先用完的那条</text>
 </svg>
-<figcaption><strong>图 3-1</strong> 第 2 节四个 kernel 的 program 怎么放上一个 SM（RTX 5090，形状同正文，每个 program 4 个 warp）。上面：第 2 节图里 grid 的一格是一个 program，也就是一个 CUDA block，放上 SM 时要占四样东西。下面每个 kernel 四根条，对应<a href="#tab-3-2">表 3-2</a> 的四条上限，条长是这条上限的总量；深色一格是一个实际放进去的 program 占的量，虚线框是只看这一条还能再放的，红框是先用完的那条，它决定了一个 SM 放几个。register 和 shared memory 读自编译出的 kernel；register 以 warp 为单位按 256 个分配，摊到每个 thread 是 8 的倍数，shared memory 按 128 B 取整。四条取最小的结果和 <code>cuOccupancyMaxActiveBlocksPerMultiprocessor</code> 算出的一致。softmax 和 row sum 的 16 B shared memory 用来让 4 个 warp 交换归约的部分结果。</figcaption>
+<figcaption><strong>图 3-3</strong> 第 2 节四个 kernel 的 program 怎么放上一个 SM（RTX 5090，形状同正文，每个 program 4 个 warp）。上面：第 2 节图里 grid 的一格是一个 program，也就是一个 CUDA block，放上 SM 时要占四样东西。下面每个 kernel 四根条，对应<a href="#tab-3-2">表 3-2</a> 的四条上限，条长是这条上限的总量；深色一格是一个实际放进去的 program 占的量，虚线框是只看这一条还能再放的，红框是先用完的那条，它决定了一个 SM 放几个。register 和 shared memory 读自编译出的 kernel；register 以 warp 为单位按 256 个分配，摊到每个 thread 是 8 的倍数，shared memory 按 128 B 取整。四条取最小的结果和 <code>cuOccupancyMaxActiveBlocksPerMultiprocessor</code> 算出的一致。softmax 和 row sum 的 16 B shared memory 用来让 4 个 warp 交换归约的部分结果。</figcaption>
 </figure>
 
 GELU 和 row sum 用的 register 少、几乎不用 shared memory，先用完的是 warp 名额：48 / 4 = 12。softmax 把一整行 4096 个数放在 register 里，每个 thread 55 个，按 56 分配，一个 program 占 56 × 128 = 7168 个，65536 / 7168 = 9.1，只放得下 9 个，比 warp 名额允许的 12 个少。matmul 的 `tl.dot` 要把 A、B 的 block 先放进 shared memory，`num_stages=3` 时两个槽，一个 program 32 KB，加上保留的 1 KB 是 33 KB，100 KB 只放得下 3 个；按 register 能放 5 个，用不满。program 名额有 24 个，四个 kernel 都用不完。
 
-四个 kernel 都用默认的 `num_warps=4`，一个 program 4 个 warp。这个数调大调小影响不大，只有 program 大到 48 个 warp 名额放不满时才明显变慢。matmul 加大 block 时要跟着改，见 [3.5 节](#tile)。
+四个 kernel 都用默认的 `num_warps=4`，一个 program 4 个 warp。这个数调大调小影响不大，只有 program 大到 48 个 warp 名额放不满时才明显变慢。matmul 加大 block 时要跟着改，见 [3.6 节](#tile)。
 
 <details class="fold doc aside">
 <summary>num_warps 调大调小</summary>
@@ -2009,7 +2134,7 @@ program 个数不变时把 `num_warps` 调大，同样的数据分给更多 thre
 
 每个 SM 放的 program 也跟着变少：48 个 warp 名额只够放 48 / num_warps 个。`num_warps` 从 2 到 16，warp 名额都是满的，每个 SM 驻留的 warp 总数不变，GELU 的耗时也基本不变。变化出在两头。`num_warps=1` 时先用完的是 24 个 program 名额，每个 SM 只驻留 24 个 warp，但 GELU 没有变慢，因为每个 thread 要处理 32 个数，一次能发出好几个 load。`num_warps=32` 时一个 program 就占 32 个 warp，第二个放不下，48 个名额空着 16 个，每个 thread 又只处理 1 个数，GELU 明显变慢。
 
-softmax 在 `num_warps=1` 时每个 SM 只驻留 12 个 warp，也没怎么变慢：每个 thread 处理这一行里的 128 个数，同时有很多个 load 在路上，几个 warp 就能让显存一直有请求在处理。这是藏延迟的另一种办法，[3.3 节](#sched-warp)末尾会把几种办法放在一起。
+softmax 在 `num_warps=1` 时每个 SM 只驻留 12 个 warp，也没怎么变慢：每个 thread 处理这一行里的 128 个数，同时有很多个 load 在路上，几个 warp 就能让显存一直有请求在处理。这是藏延迟的另一种办法，[3.4 节](#sched-warp)末尾会把几种办法放在一起。
 
 </details>
 
@@ -2017,9 +2142,9 @@ softmax 在 `num_warps=1` 时每个 SM 只驻留 12 个 warp，也没怎么变�
 
 驻留只说明 program 占住了名额，不说明它在跑。同一时刻真正在发射指令的，是每个 SMSP 的调度器挑中的那一个 warp。
 
-### 3.3 warp 调度 {#sched-warp}
+### 3.4 warp 调度 {#sched-warp}
 
-一个 program 的 warp 按编号轮流分到 4 个 SMSP，每个 SMSP 有自己的 warp scheduler、register file 和 32 个 CUDA core（[图 1-4](#fig-h-9)）。调度器每拍从驻留的 warp 里挑一个就绪的，发出它的一条指令。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp。所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态，所以同时驻留的 warp 越多，访存延迟越容易藏住（[图 3-2](#fig-h-6)）。
+一个 program 的 warp 按编号轮流分到 4 个 SMSP，每个 SMSP 有自己的 warp scheduler、register file 和 32 个 CUDA core（[图 1-4](#fig-h-9)）。调度器每拍从驻留的 warp 里挑一个就绪的，发出它的一条指令。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp。所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态，所以同时驻留的 warp 越多，访存延迟越容易藏住（[图 3-4](#fig-h-6)）。
 
 <figure id="fig-h-6" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="一个 SM 上驻留 3 个 program、每个 4 个 warp 时的某一拍：每个 SMSP 有 3 个 warp，分别来自 3 个 program；每个调度器这一拍最多发射一个，SMSP 2 的 3 个都在等数据，调度器空转">
@@ -2133,16 +2258,16 @@ softmax 在 `num_warps=1` 时每个 SM 只驻留 12 个 warp，也没怎么变�
   <rect x="343" y="272" width="17" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity=".55"/><text class="lab2" x="367" y="281">等数据</text>
   <rect x="434" y="272" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/><text class="lab2" x="458" y="281">空槽</text>
 </svg>
-<figcaption><strong>图 3-2</strong> 一个 SM 上驻留 3 个 program（P0、P1、P2）时的某一拍。格子里写的是这个 warp 属于哪个 program，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。</figcaption>
+<figcaption><strong>图 3-4</strong> 一个 SM 上驻留 3 个 program（P0、P1、P2）时的某一拍。格子里写的是这个 warp 属于哪个 program，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。</figcaption>
 </figure>
 
-藏访存延迟一共有三种办法，前面都出现过。一是多驻留 warp，一个 warp 等数据时调度器换另一个发射，靠的是一个 SM 放得下的 program 多，也就是这一节讲的。二是在同一个 warp 里提前发 load，等用到时数据已经到了，这是 `num_stages`（[3.1 节](#knobs)）。三是让每个 thread 多干活，同时有很多个 load 在路上，比如 [3.2 节 notes](#sched-limits) 里 `num_warps=1` 的 softmax。三种办法可以互相替代：matmul 每个 SMSP 只驻留 3 个 warp，warp 不够多，靠的是预取，每轮等数据的时间从 852 拍降到 74 拍（[2.4 节的 notes](#mm-prefetch)）。
+藏访存延迟一共有三种办法，前面都出现过。一是多驻留 warp，一个 warp 等数据时调度器换另一个发射，靠的是一个 SM 放得下的 program 多，也就是这一节讲的。二是在同一个 warp 里提前发 load，等用到时数据已经到了，这是 `num_stages`（[3.2 节](#stages)）。三是让每个 thread 多干活，同时有很多个 load 在路上，比如 [3.3 节 notes](#sched-limits) 里 `num_warps=1` 的 softmax。三种办法可以互相替代：matmul 每个 SMSP 只驻留 3 个 warp，warp 不够多，靠的是预取，每轮等数据的时间从 852 拍降到 74 拍（[3.2 节](#stages)）。
 
 名额是有限的。grid 里的 program 多于全卡的名额时，GPU 只能一批一批地往 SM 上排。
 
-### 3.4 wave 和 tail effect {#sched-wave}
+### 3.5 wave 和 tail effect {#sched-wave}
 
-GELU 每个 SM 放 12 个 program，全卡一次放得下 170 × 12 = 2040 个，8192 个要 5 批，第 5 批只有 32 个。[图 3-3](#fig-t-5) 上半部分的纵轴是某一时刻全卡已经开始、还没结束的 program 数：在横轴上任取一个时刻，曲线的高度就是那一刻 170 个 SM 上一共在跑几个 program。实测的时间线上批次之间却没有分界：一个 program 跑完，它的名额很快就换下一个进来，第 2 批在 2.6 µs 就开始了，第 1 批到 15.4 µs 才全部跑完。曲线也没有一直贴着 2040：从一个 program 发出最后一条 store，到同一个名额上的下一个 program 执行第一条指令，中间有一段空档，名额上没有 program 在执行指令，叫 bubble（图里浅红色的部分）。空档里可能是上一个 program 还在等 store 写完、名额还没回收，也可能是新 program 还没启动，打点分不出来。从第一个 program 结束到最后一个 program 开始，平均有 25% 的名额处在 bubble 里。同一批的 program 都在抢显存带宽，耗时从 4.2 µs 到 11.9 µs 不等（10% 和 90% 分位）。36.5 µs 时最后一个 program 开始，之后名额一个个空出来，在跑的 program 从 1400 个左右降到 0，这段约 10 µs，占整个 kernel 的 22%，叫 tail effect。打点的开销很小：打点版 46.9 µs，不打点 45.2 µs。
+GELU 每个 SM 放 12 个 program，全卡一次放得下 170 × 12 = 2040 个，8192 个要 5 批，第 5 批只有 32 个。[图 3-5](#fig-t-5) 上半部分的纵轴是某一时刻全卡已经开始、还没结束的 program 数：在横轴上任取一个时刻，曲线的高度就是那一刻 170 个 SM 上一共在跑几个 program。实测的时间线上批次之间却没有分界：一个 program 跑完，它的名额很快就换下一个进来，第 2 批在 2.6 µs 就开始了，第 1 批到 15.4 µs 才全部跑完。曲线也没有一直贴着 2040：从一个 program 发出最后一条 store，到同一个名额上的下一个 program 执行第一条指令，中间有一段空档，名额上没有 program 在执行指令，叫 bubble（图里浅红色的部分）。空档里可能是上一个 program 还在等 store 写完、名额还没回收，也可能是新 program 还没启动，打点分不出来。从第一个 program 结束到最后一个 program 开始，平均有 25% 的名额处在 bubble 里。同一批的 program 都在抢显存带宽，耗时从 4.2 µs 到 11.9 µs 不等（10% 和 90% 分位）。36.5 µs 时最后一个 program 开始，之后名额一个个空出来，在跑的 program 从 1400 个左右降到 0，这段约 10 µs，占整个 kernel 的 22%，叫 tail effect。打点的开销很小：打点版 46.9 µs，不打点 45.2 µs。
 
 <figure id="fig-t-5" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 404" width="100%" role="img" aria-label="GELU 的 8192 个 program 在 170 个 SM 上的实测时间线：上面是全卡同时在跑的 program 数，按批次堆叠，最多 2040 个；下面是一个 SM 的 12 个名额，前一个 program 结束就换下一个进来，批次之间没有清楚的分界，最后一批只有 32 个">
@@ -2267,10 +2392,10 @@ GELU 每个 SM 放 12 个 program，全卡一次放得下 170 × 12 = 2040 个�
   <rect x="434" y="385" width="12" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity="0.68"/><text class="lab" x="451" y="394">6120–8159</text>
   <rect x="542" y="385" width="12" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity="0.9"/><text class="lab" x="559" y="394">8160–8191</text>
 </svg>
-<figcaption><strong>图 3-3</strong> GELU 的 8192 个 program 实际怎么分批跑（RTX 5090，n = 8388608，fp32，每个 program 4 个 warp）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，store 发出后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 编号所在的批次，一批 2040 个。浅红色是 bubble：名额上没有 program 在执行指令；最后一个 program 开始以后是 tail。下面的名额是按开始、结束时间排出来的，红框是这个 SM 上最长的一段空档。悬停可看 program 编号和时间。</figcaption>
+<figcaption><strong>图 3-5</strong> GELU 的 8192 个 program 实际怎么分批跑（RTX 5090，n = 8388608，fp32，每个 program 4 个 warp）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，store 发出后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 编号所在的批次，一批 2040 个。浅红色是 bubble：名额上没有 program 在执行指令；最后一个 program 开始以后是 tail。下面的名额是按开始、结束时间排出来的，红框是这个 SM 上最长的一段空档。悬停可看 program 编号和时间。</figcaption>
 </figure>
 
-program 少而每个都重时，尾巴更明显。matmul 每个 SM 只放 3 个 program（`num_stages=3` 的两个槽占了 32 KB，见 [3.2 节](#sched-limits)），全卡一批 510 个，512 个 program 要跑 2 批，第 2 批只有 2 个（[图 3-4](#fig-t-7)）。第 1 批的 510 个 program 在开头一起开始，各跑 125 到 152 µs；全卡最先跑完的两个在 SM 68 和 SM 135 上，约 125 µs 结束，第 2 批的 2 个这时才开始。152 µs 以后全卡只剩这 2 个 program，另外 168 个 SM 空着，一直等到 200 µs。这 2 个 program 后半段独占一个 SM，只跑了 75 µs，比第 1 批的中位数 135 µs 快得多。
+program 少而每个都重时，尾巴更明显。matmul 每个 SM 只放 3 个 program（`num_stages=3` 的两个槽占了 32 KB，见 [3.3 节](#sched-limits)），全卡一批 510 个，512 个 program 要跑 2 批，第 2 批只有 2 个（[图 3-6](#fig-t-7)）。第 1 批的 510 个 program 在开头一起开始，各跑 125 到 152 µs；全卡最先跑完的两个在 SM 68 和 SM 135 上，约 125 µs 结束，第 2 批的 2 个这时才开始。152 µs 以后全卡只剩这 2 个 program，另外 168 个 SM 空着，一直等到 200 µs。这 2 个 program 后半段独占一个 SM，只跑了 75 µs，比第 1 批的中位数 135 µs 快得多。
 
 <figure id="fig-t-7" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 372" width="100%" role="img" aria-label="matmul 的 512 个 program 在 170 个 SM 上的实测时间线：上面是全卡同时在跑的 program 数，按批次堆叠，最多 510 个；第 1 批 510 个一起开始，第 2 批只有 2 个，等到 125 µs 才开始，152 µs 以后全卡只有这 2 个在跑。虚线是 A 4032 × 2048 时 504 个 program 一批跑完的对照。下面是跑了第 2 批的两个 SM 的 3 个名额">
@@ -2344,14 +2469,14 @@ program 少而每个都重时，尾巴更明显。matmul 每个 SM 只放 3 个 
   <rect x="210" y="337" width="12" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity="0.9"/><text class="lab" x="227" y="346">510–511</text>
   <line x1="324" y1="342" x2="346" y2="342" style="stroke: var(--fig-hi)" stroke-width="1.6" stroke-dasharray="5 3"/><text class="lab" x="354" y="346">A 4032 × 2048：504 个，一批</text>
 </svg>
-<figcaption><strong>图 3-4</strong> matmul kernel 的 512 个 program 实际怎么分批跑（RTX 5090，fp32，A 4096 × 2048，B 2048 × 512，每个 SM 3 个 program），画法同<a href="#fig-t-5">图 3-3</a>。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，写回 C 之后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 的发射顺序所在的批次，一批 510 个。第 2 批只有 2 个，按比例只有 1 像素高，图里画成底边上的一条粗线并用红框圈出。悬停可看 program 编号和时间。</figcaption>
+<figcaption><strong>图 3-6</strong> matmul kernel 的 512 个 program 实际怎么分批跑（RTX 5090，fp32，A 4096 × 2048，B 2048 × 512，每个 SM 3 个 program），画法同<a href="#fig-t-5">图 3-5</a>。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，写回 C 之后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 的发射顺序所在的批次，一批 510 个。第 2 批只有 2 个，按比例只有 1 像素高，图里画成底边上的一条粗线并用红框圈出。悬停可看 program 编号和时间。</figcaption>
 </figure>
 
 A 换成 4032 × 2048 时，504 个 program 一批放下，同一个 kernel 只要 158.3 µs，和 cuBLAS 的 160.5 µs 相当。4096 比 4032 的计算量只多 1.6%，耗时多 28%。打点的开销不大：打点版 210.8 µs 和 162.8 µs，不打点 203.3 µs 和 158.3 µs。
 
-换 `num_stages` 也躲不开：4096 行时 `num_stages` 取 1 到 4，每个 SM 放 5、5、3、2 个 program，耗时都在 201 到 207 µs。512 个 program 分给 170 个 SM，平均每个 SM 3.01 个，总有 SM 要多跑一个，整个 kernel 等的就是它们。要躲开 tail，得改 program 的个数，也就是 block 的大小。
+换 `num_stages` 也躲不开：4096 行时 `num_stages` 取 1 到 4，每个 SM 放 5、5、3、2 个 program，耗时都在 209 到 214 µs（和表 3-1 是同一次测量）。512 个 program 分给 170 个 SM，平均每个 SM 3.01 个，总有 SM 要多跑一个，整个 kernel 等的就是它们。要躲开 tail，得改 program 的个数，也就是 block 的大小。
 
-### 3.5 matmul 的 block 大小 {#tile}
+### 3.6 matmul 的 block 大小 {#tile}
 
 [2.4 节](#triton-matmul)的 BM = BN = 64、BK = 32 是为了讲解随手定的。这几个数 Triton 不替你选，实际工程里一般用 `@triton.autotune` 列一组候选配置，第一次遇到某个形状时都跑一遍，挑最快的记下来。这一小节把候选扫一遍，看最快的配置在一个 SM 上用了多少 warp、register 和 shared memory，再从中找出怎么选。
 
@@ -2359,7 +2484,7 @@ A 换成 4032 × 2048 时，504 个 program 一批放下，同一个 kernel 只�
 
 #### 最快的配置 {#tile-best}
 
-正文形状下最快的是 BM = BN = 128、BK = 32、8 个 warp，176.9 µs，比正文的配置（这次扫描里 203.0 µs）少用 13% 的时间。[图 3-5](#fig-d-1) 把两者放上一个 SM 对比：最快的配置每个 SM 只驻留 1 个 program、8 个 warp，warp 名额只用了 17%，register 却用掉 88%，先用完的是 register。它只有 128 个 program，170 个 SM 里有 42 个整场空着，还是最快。
+正文形状下最快的是 BM = BN = 128、BK = 32、8 个 warp，176.9 µs，比正文的配置（这次扫描里 203.0 µs）少用 13% 的时间。[图 3-7](#fig-d-1) 把两者放上一个 SM 对比：最快的配置每个 SM 只驻留 1 个 program、8 个 warp，warp 名额只用了 17%，register 却用掉 88%，先用完的是 register。它只有 128 个 program，170 个 SM 里有 42 个整场空着，还是最快。
 
 <figure id="fig-d-1" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 262" width="100%" role="img" aria-label="正文形状下最快的配置（BM = BN = 128，8 个 warp）和正文用的 64 × 64、4 个 warp，在一个 SM 上各用了多少：最快的只驻留 8 个 warp，register 用掉 88%">
@@ -2435,14 +2560,14 @@ A 换成 4032 × 2048 时，504 个 program 一批放下，同一个 kernel 只�
   <rect x="22" y="240" width="22" height="10" style="fill: var(--fig-1)"/><text class="lab" x="52" y="249">一格是一个 program 占的量</text>
   <rect x="230" y="239" width="22" height="12" rx="2" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/><text class="lab" x="260" y="249">先用完的那条</text>
 </svg>
-<figcaption><strong>图 3-5</strong> 正文形状（A 4096 × 2048，B 2048 × 512，fp32）下最快的配置和正文用的配置，在一个 SM 上各用了多少，画法同<a href="#fig-t-8">图 3-1</a>。条长是这条上限的总量，深色一格是一个 program 占的量，红框是先用完的那条。</figcaption>
+<figcaption><strong>图 3-7</strong> 正文形状（A 4096 × 2048，B 2048 × 512，fp32）下最快的配置和正文用的配置，在一个 SM 上各用了多少，画法同<a href="#fig-t-8">图 3-3</a>。条长是这条上限的总量，深色一格是一个 program 占的量，红框是先用完的那条。</figcaption>
 </figure>
 
 方阵下最快的是 BM = 64、BN = 128、BK = 16、4 个 warp，2417.6 µs，5.68e13 FLOPS，是 fp32 峰值的 54%。它每个 SM 放 3 个 program、12 个 warp，register 用掉 98%。配置和上面的不一样，资源的用法却一样：warp 只用了四分之一左右，register 几乎用满，每个 thread 都存 64 个 acc。
 
 #### 规律 {#tile-rules}
 
-把所有配置按两个量分组（[图 3-6](#fig-d-2)）：每个 thread 存多少个 acc，即 BM × BN / (32 × `num_warps`)；每个 SM 驻留多少个 warp。
+把所有配置按两个量分组（[图 3-8](#fig-d-2)）：每个 thread 存多少个 acc，即 BM × BN / (32 × `num_warps`)；每个 SM 驻留多少个 warp。
 
 <figure id="fig-d-2" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="按每个 thread 的 acc 个数、每个 SM 驻留的 warp 数分组，每组最快的配置比整体最快慢多少：acc 在 32 到 64 个、warp 在 8 到 16 个时最快，warp 驻留满 48 个反而慢一倍">
@@ -2534,12 +2659,12 @@ A 换成 4032 × 2048 时，504 个 program 一批放下，同一个 kernel 只�
   <line x1="60" y1="286" x2="82" y2="286" style="stroke: var(--fig-1)" stroke-width="2"/><text class="lab" x="90" y="290">正文形状 4096 × 2048 × 512</text>
   <line x1="310" y1="286" x2="332" y2="286" style="stroke: var(--fig-hi)" stroke-width="2"/><text class="lab" x="340" y="290">4096 × 4096 × 4096</text>
 </svg>
-<figcaption><strong>图 3-6</strong> 两个形状各扫 198 组配置（RTX 5090，fp32，<code>input_precision="ieee"</code>）。左：按每个 thread 存的 acc 个数（BM × BN / (32 × num_warps)）分组；右：按每个 SM 驻留的 warp 数分组。每组取最快的一个，纵轴是它比这个形状下整体最快的配置慢几倍；有 spill 的配置不算在内。悬停可看时间。</figcaption>
+<figcaption><strong>图 3-8</strong> 两个形状各扫 198 组配置（RTX 5090，fp32，<code>input_precision="ieee"</code>）。左：按每个 thread 存的 acc 个数（BM × BN / (32 × num_warps)）分组；右：按每个 SM 驻留的 warp 数分组。每组取最快的一个，纵轴是它比这个形状下整体最快的配置慢几倍；有 spill 的配置不算在内。悬停可看时间。</figcaption>
 </figure>
 
 每个 thread 放 32 到 64 个 acc 最快，越少越慢，只放 2 个时慢 2.1 到 2.4 倍。register 这一层也有复用：thread 每从 shared memory 读进 a、b 的一个数，就拿它和手里的一小块 acc 一起算，8 × 8 的 acc 每读 8 + 8 个数做 64 次 FMA，acc 越多，每读一个数做的 FMA 越多。上限是 register 的个数：acc 加上 a、b 和地址一起超过 255 个就要 spill 到 local memory。最严重的一组是 256 × 128、4 个 warp，每个 thread 有 554 个 4 B 的值放不进 register，两个形状下分别慢 10.7 倍和 6.8 倍。
 
-每个 SM 驻留 8 到 16 个 warp 最快，驻留满 48 个反而慢 1.8 到 2.0 倍。这两条其实是同一件事：一个 SM 的 register 总共 65536 个，驻留的 warp 越多，每个 thread 分到的越少。驻留 48 个 warp 时每个 thread 最多 40 个 register（65536 / 1536 再按 8 个一组取整），放不下 32 个 acc 再加上 a、b。matmul 也不需要多驻留 warp 来藏延迟：每个 thread 手里有几十个互不依赖的 FMA 可以连着发，下一轮的 A、B 也已经由 `num_stages` 的两个槽提前搬好。这一点和 [3.2 节 notes](#sched-limits) 里 softmax 的情况一样，都是让每个 thread 多干活来代替多驻留 warp。
+每个 SM 驻留 8 到 16 个 warp 最快，驻留满 48 个反而慢 1.8 到 2.0 倍。这两条其实是同一件事：一个 SM 的 register 总共 65536 个，驻留的 warp 越多，每个 thread 分到的越少。驻留 48 个 warp 时每个 thread 最多 40 个 register（65536 / 1536 再按 8 个一组取整），放不下 32 个 acc 再加上 a、b。matmul 也不需要多驻留 warp 来藏延迟：每个 thread 手里有几十个互不依赖的 FMA 可以连着发，下一轮的 A、B 也已经由 `num_stages` 的两个槽提前搬好。这一点和 [3.3 节 notes](#sched-limits) 里 softmax 的情况一样，都是让每个 thread 多干活来代替多驻留 warp。
 
 block 本身也要够大。每个 program 读进 A 的 BM × K 和 B 的 K × BN，做 BM × BN × K 次乘加，每读一个数做 BM · BN / (BM + BN) 次：64 × 64 是 32 次，128 × 128 是 64 次。正文形状下，A、B 一共被读的量因此从 512 MB 降到 256 MB。shared memory 反而不是关键，两个形状下最快的配置只用了 65% 和 75%，够放两三个槽就行。
 
@@ -2790,11 +2915,11 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 B-2](#fig-h-
 3. NVIDIA. [NVIDIA Ampere GA102 GPU Architecture](https://www.nvidia.com/content/PDF/nvidia-ampere-ga-102-gpu-architecture-whitepaper-v2.pdf)（白皮书）。compute 模式下 L1 和 shared memory 的几种切法（28 KB L1 + 100 KB shared memory 等），第 1.2 节。
 4. NVIDIA. [NVIDIA A100 Tensor Core GPU Architecture](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)、[NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)、[NVIDIA Blackwell Architecture](https://resources.nvidia.com/en-us-blackwell-architecture)。表 A-1 的 A100、H100、B200 一列；峰值另参考 [A100](https://www.nvidia.com/en-us/data-center/a100/)、[H100](https://www.nvidia.com/en-us/data-center/h100/) 产品页和 [HGX](https://www.nvidia.com/en-us/data-center/hgx/) 平台页（B200 的单卡数按 8 卡的 dense 值除以 8）。
 5. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、block、register 和 shared memory 上限，表 3-2、表 A-1，CUDA 执行层级。
-6. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 停顿原因的定义，图 2-4a。
+6. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 停顿原因的定义，图 3-2。
 7. Austin et al. [How to Scale Your Model](https://jax-ml.github.io/scaling-book/gpus/), Google DeepMind, 2025. Appendix B 的 TPU v5p 规格、systolic array 的数据流和表 B-1。
 8. Jouppi et al. [In-Datacenter Performance Analysis of a Tensor Processing Unit](https://arxiv.org/abs/1704.04760). ISCA 2017. 第一代 TPU 和它的 systolic array。
 9. Kung. [Why Systolic Architectures?](https://doi.org/10.1109/MC.1982.1653825). IEEE Computer, 1982.
 10. Tillet, Kung, Cox. [Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations](https://doi.org/10.1145/3315508.3329973). MAPL 2019.
-11. [Triton tutorials](https://triton-lang.org/main/getting-started/tutorials/index.html)。第 2 节 softmax 和 matmul 例子的写法，3.5 节提到的 `@triton.autotune`。
+11. [Triton tutorials](https://triton-lang.org/main/getting-started/tutorials/index.html)。第 2 节 softmax 和 matmul 例子的写法，3.6 节提到的 `@triton.autotune`。
 12. Hendrycks, Gimpel. [Gaussian Error Linear Units (GELUs)](https://arxiv.org/abs/1606.08415). arXiv:1606.08415, 2016. 第 2.1 节的 tanh 近似。
 13. Milakov, Gimelshein. [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867). arXiv:1805.02867, 2018. 第 2.3 节提到的 online softmax。

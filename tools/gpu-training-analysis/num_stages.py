@@ -1,6 +1,7 @@
-"""num_stages 改了什么：matmul 和 row sum 各取几档，看编译出的槽数、shared memory、每 SM 能放几个 program 和耗时（RTX 5090，第 3.1 节的数据）。
+"""num_stages 改了什么：matmul 和 row sum 各取几档，看编译出的槽数、shared memory、每 SM 能放几个 program 和耗时（RTX 5090，第 3.2 节的数据）。
 
 槽数读自 TTGIR 里 A、B 的 local_alloc（形如 2x64x32），cp.async 条数是 async_copy_global_to_local 的个数。
+提前几整轮读自 PTX：循环里的 cp.async.wait_group N 允许 N 组还在路上，每轮 A、B 各一组，所以是 N / 2。
 耗时用 triton.testing.do_bench，每档跑 5 次取中位数。形状和正文一样。
 Run: python3 num_stages.py   (needs CUDA)，结果写到 num_stages.json。
 """
@@ -22,7 +23,9 @@ def info(k, f):
     allocs = re.findall(r"local_alloc[^\n]*memdesc<([0-9x]+)xf32", s)
     slots = [int(a.split("x")[0]) if a.count("x") == 2 else 1 for a in allocs]
     us = statistics.median(do_bench(f, warmup=50, rep=500) for _ in range(5)) * 1e3
+    waits = re.findall(r"cp\.async\.wait_group\s+(\d+)", k.asm["ptx"])                 # 第一个在循环里
     return {"slots": slots[0] if slots else 0, "async_copies": len(re.findall(r"async_copy_global_to_local", s)),
+            "ahead": int(waits[0]) // 2 if waits else None,
             "shared": k.metadata.shared, "regs": k.n_regs, "per_sm": blocks_per_sm(k), "us": round(us, 1)}
 
 

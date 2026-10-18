@@ -1,4 +1,4 @@
-"""matmul 的 BM、BN、BK、num_warps、num_stages 扫一遍（RTX 5090，fp32，input_precision="ieee"，3.5 节的数据）。
+"""matmul 的 BM、BN、BK、num_warps、num_stages 扫一遍（RTX 5090，fp32，input_precision="ieee"，3.6 节的数据）。
 
 两个形状：正文的 A 4096 × 2048、B 2048 × 512，和 4096 × 4096 × 4096。每组记录时间、register、spill、shared memory、
 每 SM 放几个 program（cuOccupancyMaxActiveBlocksPerMultiprocessor），以及按一个 SM 算的 warp / register / shared memory 占用。

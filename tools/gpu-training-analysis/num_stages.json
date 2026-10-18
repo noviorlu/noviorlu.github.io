@@ -3,94 +3,105 @@
   "1": {
    "slots": 1,
    "async_copies": 0,
+   "ahead": null,
    "shared": 16384,
    "regs": 96,
    "per_sm": 5,
-   "us": 202.7
+   "us": 209.2
   },
   "2": {
    "slots": 1,
    "async_copies": 4,
+   "ahead": 0,
    "shared": 16384,
    "regs": 96,
    "per_sm": 5,
-   "us": 202.9
+   "us": 209.4
   },
   "3": {
    "slots": 2,
    "async_copies": 6,
+   "ahead": 1,
    "shared": 32768,
    "regs": 96,
    "per_sm": 3,
-   "us": 206.7
+   "us": 213.5
   },
   "4": {
    "slots": 3,
    "async_copies": 8,
+   "ahead": 2,
    "shared": 49152,
    "regs": 96,
    "per_sm": 2,
-   "us": 201.1
+   "us": 209.9
   }
  },
  "matmul_4032": {
   "1": {
    "slots": 1,
    "async_copies": 0,
+   "ahead": null,
    "shared": 16384,
    "regs": 96,
    "per_sm": 5,
-   "us": 172.9
+   "us": 181.4
   },
   "2": {
    "slots": 1,
    "async_copies": 4,
+   "ahead": 0,
    "shared": 16384,
    "regs": 96,
    "per_sm": 5,
-   "us": 166.0
+   "us": 175.8
   },
   "3": {
    "slots": 2,
    "async_copies": 6,
+   "ahead": 1,
    "shared": 32768,
    "regs": 96,
    "per_sm": 3,
-   "us": 161.0
+   "us": 169.3
   },
   "4": {
    "slots": 3,
    "async_copies": 8,
+   "ahead": 2,
    "shared": 49152,
    "regs": 96,
    "per_sm": 2,
-   "us": 202.2
+   "us": 210.0
   }
  },
  "row_sum": {
   "1": {
    "slots": 0,
    "async_copies": 0,
+   "ahead": null,
    "shared": 16,
    "regs": 23,
    "per_sm": 12,
-   "us": 52.3
+   "us": 54.8
   },
   "2": {
    "slots": 0,
    "async_copies": 0,
+   "ahead": null,
    "shared": 16,
    "regs": 23,
    "per_sm": 12,
-   "us": 51.8
+   "us": 54.2
   },
   "3": {
    "slots": 0,
    "async_copies": 0,
+   "ahead": null,
    "shared": 16,
    "regs": 23,
    "per_sm": 12,
-   "us": 51.7
+   "us": 54.3
   }
  }
 }

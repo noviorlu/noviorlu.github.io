@@ -835,7 +835,7 @@ def hw_smsp():
         y += 15 * len(lines) + 8
     return f
 
-# ── 3.5 节：matmul 的 BM、BN 扫描（mm_tile_sweep.json） ─────────────────────
+# ── 3.6 节：matmul 的 BM、BN 扫描（mm_tile_sweep.json） ─────────────────────
 def _tile_rows():
     rows = json.load(open(os.environ.get("MM_TILE_JSON", os.path.join(HERE, "mm_tile_sweep.json"))))
     for r in rows:
@@ -910,7 +910,7 @@ def tile_rules():
         lx += 250
     return f
 
-# ── 图 3-1 第 2 节四个 kernel 的 program 怎么放上一个 SM（residency.json） ─────────
+# ── 图 3-3 第 2 节四个 kernel 的 program 怎么放上一个 SM（residency.json） ─────────
 def residency():
     R = json.load(open(os.path.join(HERE, "residency.json")))
     L = R["limits"]
@@ -1157,7 +1157,7 @@ def tile_sweep():
         f.w(f'<line x1="{px(1024) + 24:.1f}" y1="{ly - 4}" x2="{px(1024) + 46:.1f}" y2="{ly - 4}" style="stroke: var({var})" stroke-width="2"/><text class="lab" x="{px(1024) + 54:.1f}" y="{ly}">{lab}</text>')
     return f
 
-# ── 图 3-3 GELU 的 8192 个 program 怎么分批跑（实测 trace） ──────────────────────
+# ── 图 3-5 GELU 的 8192 个 program 怎么分批跑（实测 trace） ──────────────────────
 def wave_trace():
     d = json.load(open(os.path.join(HERE, "wave_trace.json")))
     tr, cap = d["trace"], 170 * 12
@@ -1564,7 +1564,7 @@ def tri_matmul():
     f.w(f'<text class="s" x="{lx}" y="{ly + 40}">每轮读 A 的 64 × 32、B 的 32 × 64，各 8 KB；</text><text class="s" x="{lx}" y="{ly + 54}">图里一格 256 列，是 8 轮</text>')
     return f
 
-# ── 图 3-4 matmul 的 512 个 program 怎么分批跑（实测 trace） ─────────────────────
+# ── 图 3-6 matmul 的 512 个 program 怎么分批跑（实测 trace） ─────────────────────
 def mm_wave():
     runs = {r["M"]: r for r in json.load(open(os.path.join(HERE, "mm_wave_trace.json")))}
     cap, NB = 170 * 3, 8                                             # 名额；grid 第二维（N / BN）
@@ -1647,7 +1647,7 @@ def mm_pipe_ncu():
     P3, W3 = run[3]["cycles_per_inst"] * run[3]["inst_per_round"], wait(run[3])     # 预取
     L = W1                                                                           # load 的延迟：按不预取时每轮等数据的拍数画
     N = 5
-    f = F("fig-t-6", 340, f"matmul 一个 warp 的流水线，条长是 Nsight Compute 测的每轮平均拍数：不预取时每轮 {P1:.0f} 拍，先等数据 {W1:.0f} 拍再计算，一轮接一轮；num_stages = 3 时第 k 个 block 提前两轮发出 load，{L:.0f} 拍后就到了，到用的时候只等 {W3:.0f} 拍，每轮 {P3:.0f} 拍")
+    f = F("fig-t-6", 340, f"matmul 一个 warp 的流水线，条长是 Nsight Compute 测的每轮平均拍数：不预取时每轮 {P1:.0f} 拍，先等数据 {W1:.0f} 拍再计算，一轮接一轮；num_stages = 3 时第 k 个 block 的 load 在第 k − 2 轮算完后发出，{L:.0f} 拍后就到了，到用的时候只等 {W3:.0f} 拍，每轮 {P3:.0f} 拍")
     X0, X1, TMAX = 112, 626, 30000
     px = lambda t: X0 + t / TMAX * (X1 - X0)
     RH = 15
@@ -1690,22 +1690,94 @@ def mm_pipe_ncu():
         f.w(f'<rect x="{x}" y="{y - 9}" width="22" height="11" rx="2" {st}/><text class="s" x="{x + 30}" y="{y}">{lab}</text>')
     return f
 
+def _ncu_rounds():
+    d = json.load(open(os.path.join(HERE, "ncu_matmul.json")))
+    run = {r["num_stages"]: r for r in d["runs"] if r["M"] == 4032}
+    wait = lambda r: (r["stall"]["long_scoreboard"] + r["stall"]["lg_throttle"]) * r["inst_per_round"]
+    return (run[1]["cycles_per_inst"] * run[1]["inst_per_round"], wait(run[1]),
+            run[3]["cycles_per_inst"] * run[3]["inst_per_round"], wait(run[3]))
+
+# ── 图 3-1 num_stages：按 shared memory 槽看 matmul 的循环（ncu_matmul.json） ───────────
+def pipe_slots():
+    P1, W1, P3, W3 = _ncu_rounds()
+    L = W1                                                                           # load 的延迟，按不预取时每轮等数据的拍数画
+    f = F("fig-t-9", 300, f"matmul 循环按 shared memory 槽画的甘特图。num_stages = 1 只有 1 个槽：每轮先搬数据、等 {W1:.0f} 拍，再从槽里读出来算，一轮接一轮。num_stages = 3 有 2 个槽：第 k 轮的 load 在第 k − 2 轮算完后发出，第 k − 1 轮期间在路上，第 k 轮被读出来算，偶数轮用槽 0、奇数轮用槽 1；算第 k 轮时，第 k + 1 轮已经在另一个槽里")
+    X0, X1, TMAX = 96, 630, 23000
+    px = lambda t: X0 + min(t, TMAX) / TMAX * (X1 - X0)
+    RH = 22
+    def bar(t0, t1, y, var, op=1, dash=False, tip="", lab=""):
+        if t0 >= TMAX: return
+        st = (f'style="fill: none; stroke: var({var})" stroke-opacity=".85" stroke-dasharray="3 2"' if dash
+              else f'style="fill: var({var})" fill-opacity="{op}"')
+        w = max(px(t1) - px(t0), .8)
+        f.w(f'<g class="m"><title>{tip}</title><rect x="{px(t0):.1f}" y="{y + 3}" width="{w:.1f}" height="{RH - 6}" rx="2" {st}/></g>')
+        if lab and w > 40:
+            f.w(f'<text class="s" x="{px(t0) + w / 2:.1f}" y="{y + RH / 2 + 4}" text-anchor="middle">{lab}</text>')
+    def rows(y0, names):
+        for i, n in enumerate(names):
+            f.w(f'<text class="lab" x="8" y="{y0 + i * RH + RH / 2 + 4}">{n}</text>')
+        for t in range(0, TMAX + 1, 5000):
+            f.w(f'<line class="grid" x1="{px(t):.1f}" y1="{y0}" x2="{px(t):.1f}" y2="{y0 + len(names) * RH}"/>')
+    # num_stages = 1
+    Y1 = 40
+    f.w(f'<text class="tb" x="8" y="{Y1 - 10}">num_stages = 1</text><text class="lab2" x="{X0 + 64}" y="{Y1 - 10}">1 个槽，不预取：每轮 {P1:.0f} 拍</text>')
+    rows(Y1, ["槽", "warp"])
+    for k in range(5):
+        t = k * P1
+        bar(t, t + W1, Y1, "--fig-1", dash=True, tip=f"第 {k} 轮：load 在路上，{W1:.0f} 拍")
+        bar(t + W1, t + P1, Y1, "--fig-1", .22, tip=f"第 {k} 轮：在槽里被读", lab=f"第 {k} 轮")
+        bar(t, t + W1, Y1 + RH, "--fig-hi", tip=f"第 {k} 轮：等数据 {W1:.0f} 拍")
+        bar(t + W1, t + P1, Y1 + RH, "--fig-1", .6, tip=f"第 {k} 轮：ld.shared 和乘加 {P1 - W1:.0f} 拍", lab=f"算第 {k} 轮")
+    # num_stages = 3
+    Y3 = Y1 + 2 * RH + 50
+    f.w(f'<text class="tb" x="8" y="{Y3 - 10}">num_stages = 3</text><text class="lab2" x="{X0 + 64}" y="{Y3 - 10}">2 个槽，提前一整轮发 load：每轮 {P3:.0f} 拍</text>')
+    rows(Y3, ["槽 0", "槽 1", "warp"])
+    s = lambda k: L + k * P3                                                         # 第 k 轮开始算
+    for k in range(6):
+        y = Y3 + (k % 2) * RH
+        issue = 0 if k < 2 else s(k - 1)                                             # 第 k − 2 轮算完（= 第 k − 1 轮开始）时发出
+        bar(issue, issue + L, y, "--fig-1", dash=True, tip=f"第 {k} 轮：load 在路上，约 {L:.0f} 拍")
+        bar(issue + L, s(k), y, "--fig-2", .28, tip=f"第 {k} 轮：已到槽里，等着被读")
+        bar(s(k), s(k) + P3, y, "--fig-1", .22, tip=f"第 {k} 轮：在槽里被读", lab=f"第 {k} 轮")
+    yw = Y3 + 2 * RH
+    bar(0, L, yw, "--fig-hi", tip=f"第 0 轮：等数据 {L:.0f} 拍")
+    for k in range(5):
+        bar(s(k), s(k) + W3, yw, "--fig-hi", tip=f"第 {k} 轮：等数据 {W3:.0f} 拍")
+        bar(s(k) + W3, s(k) + P3, yw, "--fig-1", .6, tip=f"第 {k} 轮：ld.shared 和乘加 {P3 - W3:.0f} 拍", lab=f"算第 {k} 轮")
+    tm = s(2) + P3 * .8                                                             # 标一个时刻
+    f.w(f'<line x1="{px(tm):.1f}" y1="{Y3 - 4}" x2="{px(tm):.1f}" y2="{yw + RH + 4}" stroke="currentColor" stroke-opacity=".55" stroke-dasharray="4 3"/>')
+    yb = yw + RH
+    for t in range(0, TMAX + 1, 5000):
+        f.w(f'<text class="tick" x="{px(t):.1f}" y="{yb + 14}" text-anchor="middle">{t}</text>')
+    f.w(f'<text class="lab2" x="{X0 - 8}" y="{yb + 14}" text-anchor="end">拍</text>')
+    f.w(f'<text class="s" x="{X0}" y="{yb + 32}">竖虚线这一刻：第 2 轮在槽 0 里被读、在算；第 3 轮已经到了槽 1；第 4 轮要等第 2 轮算完才发</text>')
+    ly = yb + 54
+    items = [("--fig-1", 1, True, "load 在路上"), ("--fig-2", .28, False, "已到槽里，等着被读"),
+             ("--fig-1", .22, False, "在槽里被读"), ("--fig-1", .6, False, "ld.shared 和乘加"), ("--fig-hi", 1, False, "等数据")]
+    x = 8
+    for var, op, dash, lab in items:
+        st = f'style="fill: none; stroke: var({var})" stroke-dasharray="3 2"' if dash else f'style="fill: var({var})" fill-opacity="{op}"'
+        f.w(f'<rect x="{x}" y="{ly - 9}" width="20" height="11" rx="2" {st}/><text class="s" x="{x + 26}" y="{ly}">{lab}</text>')
+        x += 34 + sum(11 if ord(c) > 0x2E80 else 6 for c in lab) + 14
+    return f
+
 CAPS = {
  "hw_hierarchy": '<strong>图 1-2</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。',
  "hw_sm": '<strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core 和 1 个 Tensor core，4 个 SMSP 共享 L1 / shared memory。',
- "residency": '<strong>图 3-1</strong> 第 2 节四个 kernel 的 program 怎么放上一个 SM（RTX 5090，形状同正文，每个 program 4 个 warp）。上面：第 2 节图里 grid 的一格是一个 program，也就是一个 CUDA block，放上 SM 时要占四样东西。下面每个 kernel 四根条，对应<a href="#tab-3-2">表 3-2</a> 的四条上限，条长是这条上限的总量；深色一格是一个实际放进去的 program 占的量，虚线框是只看这一条还能再放的，红框是先用完的那条，它决定了一个 SM 放几个。register 和 shared memory 读自编译出的 kernel；register 以 warp 为单位按 256 个分配，摊到每个 thread 是 8 的倍数，shared memory 按 128 B 取整。四条取最小的结果和 <code>cuOccupancyMaxActiveBlocksPerMultiprocessor</code> 算出的一致。softmax 和 row sum 的 16 B shared memory 用来让 4 个 warp 交换归约的部分结果。',
- "tile_res": '<strong>图 3-5</strong> 正文形状（A 4096 × 2048，B 2048 × 512，fp32）下最快的配置和正文用的配置，在一个 SM 上各用了多少，画法同<a href="#fig-t-8">图 3-1</a>。条长是这条上限的总量，深色一格是一个 program 占的量，红框是先用完的那条。',
- "tile_rules": '<strong>图 3-6</strong> 两个形状各扫 198 组配置（RTX 5090，fp32，<code>input_precision="ieee"</code>）。左：按每个 thread 存的 acc 个数（BM × BN / (32 × num_warps)）分组；右：按每个 SM 驻留的 warp 数分组。每组取最快的一个，纵轴是它比这个形状下整体最快的配置慢几倍；有 spill 的配置不算在内。悬停可看时间。',
- "warp_slots": '<strong>图 3-2</strong> 一个 SM 上驻留 3 个 program（P0、P1、P2）时的某一拍。格子里写的是这个 warp 属于哪个 program，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。',
+ "residency": '<strong>图 3-3</strong> 第 2 节四个 kernel 的 program 怎么放上一个 SM（RTX 5090，形状同正文，每个 program 4 个 warp）。上面：第 2 节图里 grid 的一格是一个 program，也就是一个 CUDA block，放上 SM 时要占四样东西。下面每个 kernel 四根条，对应<a href="#tab-3-2">表 3-2</a> 的四条上限，条长是这条上限的总量；深色一格是一个实际放进去的 program 占的量，虚线框是只看这一条还能再放的，红框是先用完的那条，它决定了一个 SM 放几个。register 和 shared memory 读自编译出的 kernel；register 以 warp 为单位按 256 个分配，摊到每个 thread 是 8 的倍数，shared memory 按 128 B 取整。四条取最小的结果和 <code>cuOccupancyMaxActiveBlocksPerMultiprocessor</code> 算出的一致。softmax 和 row sum 的 16 B shared memory 用来让 4 个 warp 交换归约的部分结果。',
+ "tile_res": '<strong>图 3-7</strong> 正文形状（A 4096 × 2048，B 2048 × 512，fp32）下最快的配置和正文用的配置，在一个 SM 上各用了多少，画法同<a href="#fig-t-8">图 3-3</a>。条长是这条上限的总量，深色一格是一个 program 占的量，红框是先用完的那条。',
+ "tile_rules": '<strong>图 3-8</strong> 两个形状各扫 198 组配置（RTX 5090，fp32，<code>input_precision="ieee"</code>）。左：按每个 thread 存的 acc 个数（BM × BN / (32 × num_warps)）分组；右：按每个 SM 驻留的 warp 数分组。每组取最快的一个，纵轴是它比这个形状下整体最快的配置慢几倍；有 spill 的配置不算在内。悬停可看时间。',
+ "warp_slots": '<strong>图 3-4</strong> 一个 SM 上驻留 3 个 program（P0、P1、P2）时的某一拍。格子里写的是这个 warp 属于哪个 program，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。',
  "hw_smsp": '<strong>图 1-4</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。',
  "cuda_model": '<strong>图 1-5</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。',
  "tri_gelu": '<strong>图 2-1</strong> GELU kernel（n = 8388608，fp32）。左边是 grid，数组按 BLOCK = 1024 切段，一段一个 program。右边是 program 1 的数据流，泳道和箭头的含义见正文。显存泳道里的整条是整个 x、y（各 8388608 个 fp32，32 MB），深色一段是 program 1 读写的 1024 个（4 KB）；按比例只有整条的 1/8192，图里放大了。',
- "wave_trace": '<strong>图 3-3</strong> GELU 的 8192 个 program 实际怎么分批跑（RTX 5090，n = 8388608，fp32，每个 program 4 个 warp）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，store 发出后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 编号所在的批次，一批 2040 个。浅红色是 bubble：名额上没有 program 在执行指令；最后一个 program 开始以后是 tail。下面的名额是按开始、结束时间排出来的，红框是这个 SM 上最长的一段空档。悬停可看 program 编号和时间。',
+ "wave_trace": '<strong>图 3-5</strong> GELU 的 8192 个 program 实际怎么分批跑（RTX 5090，n = 8388608，fp32，每个 program 4 个 warp）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，store 发出后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 编号所在的批次，一批 2040 个。浅红色是 bubble：名额上没有 program 在执行指令；最后一个 program 开始以后是 tail。下面的名额是按开始、结束时间排出来的，红框是这个 SM 上最长的一段空档。悬停可看 program 编号和时间。',
  "tri_softmax": '<strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。显存泳道里的方块是整个 x、y（各 64 MB），深色一条是 program 1 读写的那一行（4096 个 fp32，16 KB），按比例只有 1/4096，图里放大了。',
  "tri_rowsum": '<strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 个 block，代码里 TILE = 1024。颜色由淡到浓是 for 循环读 block 的顺序：第 0 轮后 acc 只有 block 0 的数，最后的 acc 是 4 个 block 逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。',
  "tri_matmul": '<strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 个 row block 和 B 的第 1 个 column block，颜色由淡到浓是沿 K 读 block 的顺序。acc 就是 C 的 block (1, 1)，64 轮 dot 在它上面一轮轮累加，ReLU 之后就是要写回的值，图里 ReLU 后的那段叫 C block。shared memory 里 A、B 各有两个槽：循环开始前先把第 0 轮搬进槽 0、第 1 轮搬进槽 1；算第 T 轮时用槽 T % 2，另一个槽在搬第 T + 1 轮，算完空出来的槽接着搬第 T + 2 轮，所以偶数轮在槽 0、奇数轮在槽 1，T = 63 在槽 1。',
- "mm_wave": '<strong>图 3-4</strong> matmul kernel 的 512 个 program 实际怎么分批跑（RTX 5090，fp32，A 4096 × 2048，B 2048 × 512，每个 SM 3 个 program），画法同<a href="#fig-t-5">图 3-3</a>。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，写回 C 之后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 的发射顺序所在的批次，一批 510 个。第 2 批只有 2 个，按比例只有 1 像素高，图里画成底边上的一条粗线并用红框圈出。悬停可看 program 编号和时间。',
- "mm_pipe_ncu": '<strong>图 2-4a</strong> matmul kernel 一个 warp 的流水线（RTX 5090，fp32，A 4032 × 2048，504 个 program 一批跑完；Nsight Compute 实测，<code>--clock-control none</code>）。每轮的拍数 = 每条指令平均隔几拍 × 每轮的指令数，等数据的拍数 = 每条指令平均等 L2 / 显存几拍 × 每轮的指令数，都是 64 轮的平均值。load 的延迟没法直接测，按不预取时每轮等数据的拍数画。只画前 5 轮。',
+ "mm_wave": '<strong>图 3-6</strong> matmul kernel 的 512 个 program 实际怎么分批跑（RTX 5090，fp32，A 4096 × 2048，B 2048 × 512，每个 SM 3 个 program），画法同<a href="#fig-t-5">图 3-5</a>。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，写回 C 之后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 的发射顺序所在的批次，一批 510 个。第 2 批只有 2 个，按比例只有 1 像素高，图里画成底边上的一条粗线并用红框圈出。悬停可看 program 编号和时间。',
+ "pipe_slots": '<strong>图 3-1</strong> matmul 的循环按 shared memory 槽看（RTX 5090，fp32，A 4032 × 2048，B 2048 × 512，BM = BN = 64，BK = 32，4 个 warp），条长和<a href="#fig-t-6">图 3-2</a>一样按 Nsight Compute 测的每轮平均拍数画。num_stages = 3 时，第 k 轮的数据从发出 load 到被用完跨三轮：第 k − 2 轮算完后发出，第 k − 1 轮期间在路上，第 k 轮被读出来算，所以叫 3 级。它从发出到第 k 轮算完一直占着一个槽，任何时刻都有两轮的数据占着槽，所以 2 个槽就够。只画前 5 轮。',
+ "mm_pipe_ncu": '<strong>图 3-2</strong> matmul kernel 一个 warp 的流水线（RTX 5090，fp32，A 4032 × 2048，504 个 program 一批跑完；Nsight Compute 实测，<code>--clock-control none</code>）。每轮的拍数 = 每条指令平均隔几拍 × 每轮的指令数，等数据的拍数 = 每条指令平均等 L2 / 显存几拍 × 每轮的指令数，都是 64 轮的平均值。load 的延迟没法直接测，按不预取时每轮等数据的拍数画。只画前 5 轮。',
  "occ_sweep": '<strong>图 2-5</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。',
  "tile_sweep": '<strong>图 2-6</strong> row sum 的 TILE 和带宽（RTX 5090，fp32，两种形状都是 340 MiB，<code>num_warps=4</code>，每点取 8 次计时的最快值）。悬停可看耗时和每线程的 register 数。',
  "tpu_core": '<strong>图 B-1</strong> TPU v5p 一个 TensorCore 的结构示意，画法对应<a href="#fig-h-1">图 1-2</a>。规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>，原书也有一张 TensorCore 的结构图。',
@@ -1729,7 +1801,7 @@ CAPS = {
  "ckpt": '<strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。',
  "sweep": '<strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。',
 }
-OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("residency", residency), ("tile_res", tile_res), ("tile_rules", tile_rules), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("wave_trace", wave_trace), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("mm_wave", mm_wave), ("mm_pipe_ncu", mm_pipe_ncu), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
+OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("residency", residency), ("tile_res", tile_res), ("tile_rules", tile_rules), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("wave_trace", wave_trace), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("mm_wave", mm_wave), ("mm_pipe_ncu", mm_pipe_ncu), ("pipe_slots", pipe_slots), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
        ("flops_vs_time", flops_vs_time), ("share_vs_seq", share_vs_seq), ("peak_memory", peak_memory), ("peak_moment", peak_moment),
        ("rms_eager", rms_eager), ("rms_fused", rms_fused), ("attn_flow", attn_flow), ("layer_donut", layer_donut), ("timelines", timelines),
        ("bf16", bf16), ("ckpt", ckpt), ("sweep", sweep))}

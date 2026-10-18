@@ -1,7 +1,7 @@
-"""第 2 节四个 kernel 每个 program 用多少 register、shared memory，一个 SM 能同时放几个（RTX 5090，图 3-1 的数据）。
+"""第 2 节四个 kernel 每个 program 用多少 register、shared memory，一个 SM 能同时放几个（RTX 5090，图 3-3 的数据）。
 
 每 SM 能放几个用 cuOccupancyMaxActiveBlocksPerMultiprocessor 算，形状和正文一样。
-另外按表 3-2 的四条上限各算一次「只看这一条能放几个」（图 3-1），四个取最小，和 cuOccupancy 的结果对一遍。
+另外按表 3-2 的四条上限各算一次「只看这一条能放几个」（图 3-3），四个取最小，和 cuOccupancy 的结果对一遍。
 Run: python3 residency.py   (needs CUDA)，结果写到 residency.json。
 """
 import ctypes, json, os
