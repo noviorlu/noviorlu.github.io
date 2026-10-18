@@ -1536,18 +1536,25 @@ def opt_divergence():
     return f
 
 def opt_precision():
-    f = F("fig-o-4", 196, "一条 128 B 的 cache line 能装多少个数：fp32 32 个，bf16 64 个，fp8 128 个；位数减半，同样的带宽搬两倍的数")
-    X0, W = 120, 480
-    rows = [("fp32", 4, 32), ("bf16", 2, 64), ("fp8", 1, 128)]
-    f.w(f'<text class="tb" x="8" y="22">一条 128 B 的 cache line 能装多少个数</text>')
-    for i, (nm, by, n) in enumerate(rows):
-        y = 40 + i * 40
-        f.w(f'<text class="lab" x="8" y="{y + 15}">{nm}（{by} B）</text>')
-        cw = W / n
-        for k in range(n):
-            f.w(f'<rect x="{X0 + k * cw:.1f}" y="{y}" width="{max(cw - 0.8, 0.6):.1f}" height="20" {tint("--fig-1", 18 + 30 * (i == 0), sw=0.6)}/>')
-        f.w(f'<text class="s" x="{X0 + W + 8}" y="{y + 15}">{n} 个</text>')
-    f.w(f'<text class="s" x="8" y="{40 + 3 * 40 + 14}">以 ReLU 为例，读一个、写一个、做 1 次比较：fp32 每次运算要搬 8 B，bf16 4 B，fp8 2 B，算术强度跟着翻倍</text>')
+    f = F("fig-o-4", 292, "几种浮点格式的位：符号位、指数位、尾数位各几位，能表示的最大值，以及一条 128 B 的 cache line 装几个数。fp32 是 1、8、23；bf16 是 1、8、7；fp16 是 1、5、10；fp8 E4M3 是 1、4、3；fp8 E5M2 是 1、5、2；fp4 E2M1 是 1、2、1")
+    rows = [("fp32", 1, 8, 23, "3.4e38", 32), ("bf16", 1, 8, 7, "3.4e38", 64), ("fp16", 1, 5, 10, "65504", 64),
+            ("fp8 E4M3", 1, 4, 3, "448", 128), ("fp8 E5M2", 1, 5, 2, "57344", 128), ("fp4 E2M1", 1, 2, 1, "6", 256)]
+    X0, cw = 92, 11.5
+    f.w(f'<text class="s" x="{X0 + 33 * cw + 14}" y="22">最大值</text><text class="s" x="{X0 + 33 * cw + 72}" y="22">128 B 装几个</text>')
+    for i, (nm, s, e, m, mx, n) in enumerate(rows):
+        y = 32 + i * 34
+        f.w(f'<text class="lab" x="8" y="{y + 15}">{nm}</text>')
+        x = X0
+        for var, cnt, pct in (("--fig-hi", s, 45), ("--fig-1", e, 45), ("--fig-3", m, 55)):
+            for k in range(cnt):
+                f.w(f'<rect x="{x:.1f}" y="{y}" width="{cw - 1.5:.1f}" height="20" rx="1.5" {tint(var, pct, sw=0.8)}/>')
+                x += cw
+        f.w(f'<text class="s" x="{X0 + 33 * cw + 14}" y="{y + 15}">{mx}</text><text class="s" x="{X0 + 33 * cw + 72}" y="{y + 15}">{n} 个</text>')
+    ly = 32 + 6 * 34 + 20
+    x = 8
+    for var, pct, lab in (("--fig-hi", 45, "符号位"), ("--fig-1", 45, "指数位：决定范围"), ("--fig-3", 55, "尾数位：决定精度")):
+        f.w(f'<rect x="{x}" y="{ly - 10}" width="14" height="12" rx="2" {tint(var, pct, sw=0.8)}/><text class="s" x="{x + 20}" y="{ly}">{lab}</text>')
+        x += 40 + sum(10.5 if ord(c) > 0x2E80 else 5.8 for c in lab)
     return f
 
 def opt_mx():
@@ -1662,26 +1669,26 @@ def opt_coalescing():
     return f
 
 def opt_bank():
-    f = F("fig-o-8", 264, "bank conflict（按 8 个 bank 画）：8 × 8 的 fp32 矩阵按行存进 shared memory，一列的 8 个数都落在 bank 0，8 个 thread 同时读这一列要排 8 拍；每行多留一个数（padding），一列的数错开到 8 个不同的 bank，一拍读完")
-    def panel(x0, title, pad, note):
+    f = F("fig-o-8", 264, "bank conflict（按 8 个 bank 画）：8 × 8 的 fp32 矩阵按行存进 shared memory，一列的 8 个数都落在 bank 0，8 个 thread 同时读这一列要排 8 拍；每行多留一个数（padding），或者把第 r 行第 c 列放进第 (c xor r) 个 bank（swizzle），一列的数都错开到 8 个不同的 bank，一拍读完")
+    n, cw = 8, 23
+    def panel(x0, title, where, note, pad=False):
         f.w(f'<text class="tb" x="{x0}" y="22">{title}</text>')
-        n, cw = 8, 26
         for b in range(8):
-            f.w(f'<text class="s" x="{x0 + b * cw + cw / 2}" y="44" text-anchor="middle">bank {b}</text>' if b in (0, 7) else f'<text class="s" x="{x0 + b * cw + cw / 2}" y="44" text-anchor="middle">{b}</text>')
+            f.w(f'<text class="s" x="{x0 + b * cw + cw / 2}" y="44" text-anchor="middle">{b}</text>')
         for r in range(n):
             for c in range(n):
-                a = r * (n + pad) + c                         # 元素 (r, c) 的地址（以 4 B 为单位）
-                bank, slot = a % 8, a // 8
-                hit = c == 0
-                st = tint("--fig-hi", 45, sw=0.8) if hit else tint("--fig-1", 10, sw=0.8)
-                f.w(f'<rect x="{x0 + bank * cw + 1}" y="{52 + slot * 20}" width="{cw - 2}" height="18" rx="2" {st}/>')
-                f.w(f'<text class="s" x="{x0 + bank * cw + cw / 2}" y="{52 + slot * 20 + 13}" text-anchor="middle" style="font-size: 9px">{r},{c}</text>')
+                bank, slot = where(r, c)
+                st = tint("--fig-hi", 45, sw=0.8) if c == 0 else tint("--fig-1", 10, sw=0.8)
+                f.w(f'<rect x="{x0 + bank * cw + 1}" y="{52 + slot * 19}" width="{cw - 2}" height="17" rx="2" {st}/>')
+                f.w(f'<text class="s" x="{x0 + bank * cw + cw / 2}" y="{52 + slot * 19 + 12}" text-anchor="middle" style="font-size: 8.5px">{r},{c}</text>')
             if pad:
-                a = r * (n + pad) + n
-                f.w(f'<rect x="{x0 + (a % 8) * cw + 1}" y="{52 + (a // 8) * 20}" width="{cw - 2}" height="18" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="3 2"/>')
-        f.w(f'<text class="s" x="{x0}" y="{52 + 9 * 20 + 24}">{note}</text>')
-    panel(8, "每行 8 个数，按行存", 0, "第 0 列全在 bank 0：排 8 拍")
-    panel(330, "每行补 1 个空位（虚线）", 1, "第 0 列错开到 8 个 bank：一拍读完")
+                a = r * (n + 1) + n
+                f.w(f'<rect x="{x0 + (a % 8) * cw + 1}" y="{52 + (a // 8) * 19}" width="{cw - 2}" height="17" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="3 2"/>')
+        f.w(f'<text class="s" x="{x0}" y="{52 + 9 * 19 + 22}">{note}</text>')
+    f.w('<text class="s" x="8" y="40">bank</text>')
+    panel(36, "按行存", lambda r, c: (c, r), "第 0 列全在 bank 0：排 8 拍")
+    panel(240, "每行补 1 个空位（padding）", lambda r, c: ((r * 9 + c) % 8, (r * 9 + c) // 8), "错开到 8 个 bank：一拍", pad=True)
+    panel(444, "swizzle：bank = c xor r", lambda r, c: (c ^ r, r), "错开到 8 个 bank：一拍")
     return f
 
 def tri_gelu():
@@ -2166,12 +2173,12 @@ CAPS = {
  "op_split": '<strong>图 2-1</strong> 四个例子的数据怎么分给 program。深蓝是 pid = 1 的 program 要读的数据，红色是它写回的输出；row sum 和 matmul 要循环，实心是第 0 轮读的 block，斜线是之后几轮要读的。matmul 那格一格是一个 block。每个例子的完整数据流图在后面各小节。',
  "mm_tiling": '<strong>图 7-1</strong> matmul 怎么切 block，一格是一个 block。C 的 block (1, 1) 只用到 A 的第 1 个 row block 和 B 的第 1 个 column block；沿 K 一轮读一对 block，乘完加到累加器上，实心是第 0 轮，斜线是之后几轮。A block 里的每个数被 C block 里同一行的 BN 个输出用到，B block 里的每个数被同一列的 BM 个输出用到。',
  "opt_divergence": '<strong>图 1-1</strong> control divergence（按 8 条 lane 画，实际一个 warp 32 条），代码是 <code>if (lane &lt; 4) { A; B } else { X; Y }; Z</code>。虚线是这一段被屏蔽、没在执行的 lane。上：Pascal 及以前一个 warp 只有一个程序计数器，分支两边串行执行。中：Volta 起每个 thread 有自己的程序计数器，两边的语句可以交替执行，调度器也不保证在 Z 合起来；但每一拍仍然只执行一条指令，空着的 lane 一样多。下：分支按 warp 一致时没有空着的 lane。上、中两层的画法参考 <a href="https://images.nvidia.com/content/volta-architecture/pdf/volta-architecture-whitepaper.pdf">Volta 白皮书</a> Figure 20、22 和 <a href="https://github.com/stanford-cs336/lectures/blob/main/lecture_05.pdf">CS336 lecture 5</a>。',
- "opt_precision": '<strong>图 2-1</strong> 位数和一次能搬的数。显存、L2 都按 32 B 的 sector、128 B 的 cache line 搬数据，位数减半，同样的搬运量就多一倍的数。',
+ "opt_precision": '<strong>图 2-1</strong> 几种浮点格式的位分配。bf16 和 fp32 的指数位一样多，范围相同，只是尾数短；fp16 范围小得多，最大只到 65504；fp8 两种格式在范围和精度之间取舍，E4M3 精度高、E5M2 范围大。显存、L2 都按 128 B 的 cache line 搬数据，位数减半，同样的搬运量就多一倍的数。画法参考 CS336 lecture 5。',
  "opt_mx": '<strong>图 2-2</strong> block scaling 为什么转置以后要再量化一份（示意，一个 block 按 4 个数画，MX 格式是 32 个）。颜色深浅区分不同的 block，红色是每个 block 的 scale。W 按 PyTorch 的 Linear 存成 [N, K]。同一个 block 里的数共用一个 scale，所以 block 必须沿矩阵乘的归约方向连续：前向沿 K，反向算 dX 时沿 N，原来的 block 和 scale 用不上。',
  "opt_fusion": '<strong>图 3-1</strong> fusion 省掉中间结果的往返（示意，按 3 个 op 画）。eager 下每个 op 是一个 kernel，t1、t2 都要写回显存、下一个 kernel 再读回来；合成一个 kernel 以后，中间结果留在 register 里。画法参考 CS336 lecture 5。',
  "opt_recompute": '<strong>图 4-1</strong> 三层 sigmoid，存中间结果和反向重算各要几次显存读写。例子来自 <a href="https://dev-discuss.pytorch.org/t/min-cut-optimal-recomputation-i-e-activation-checkpointing-with-aotautograd/467">PyTorch dev-discuss 的 min-cut recomputation 一文</a>，CS336 lecture 5 也用了它。sigmoid 的导数只要 sigmoid 自己的值，所以反向读 x 就能重算出 s1、s2。',
  "opt_coalescing": '<strong>图 5-1</strong> memory coalescing（按 8 个 thread 画，实际一个 warp 32 个）。红色是被读的数，浅蓝是同一个 sector 里顺带取上来、没用到的字节。',
- "opt_bank": '<strong>图 6-1</strong> bank conflict 和 padding（按 8 个 bank、8 × 8 的矩阵画，实际是 32 个 bank）。一格是一个 4 B 的数，标的是它在矩阵里的 (行, 列)；同一列的格子是同一个 bank，同一个 bank 一拍只能读一个地址。红色是 8 个 thread 同时要读的第 0 列。',
+ "opt_bank": '<strong>图 6-1</strong> bank conflict 的两种解法（按 8 个 bank、8 × 8 的矩阵画，实际是 32 个 bank）。一格是一个 4 B 的数，标的是它在矩阵里的 (行, 列)；同一列的格子在同一个 bank，同一个 bank 一拍只能读一个地址。红色是 8 个 thread 同时要读的第 0 列。padding 多占一点空间；swizzle 不多占空间，按行读、按列读都不冲突。',
  "tri_gelu": '<strong>图 2-2</strong> GELU kernel（n = 8388608，fp32）。左边是 grid，数组按 BLOCK = 1024 切段，一段一个 program。右边是 program 1 的数据流，泳道和箭头的含义见正文。显存泳道里的整条是整个 x、y（各 8388608 个 fp32，32 MB），深色一段是 program 1 读写的 1024 个（4 KB）；按比例只有整条的 1/8192，图里放大了。',
  "wave_trace": '<strong>图 3-5</strong> GELU 的 8192 个 program 实际怎么分批跑（RTX 5090，n = 8388608，fp32，每个 program 4 个 warp）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，store 发出后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 编号所在的批次，一批 2040 个。浅红色是 bubble，最后一个 program 开始以后是 tail。下面的名额是按开始、结束时间排出来的，红框是这个 SM 上最长的一段空档。悬停可看 program 编号和时间。',
  "tri_softmax": '<strong>图 2-3</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-2</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。显存泳道里的方块是整个 x、y（各 64 MB），深色一条是 program 1 读写的那一行（4096 个 fp32，16 KB），按比例只有 1/4096，图里放大了。',

@@ -185,10 +185,10 @@ warp 内部的问题说完，下一个是每个数占多少位。
 
 ## 2 低精度 {#precision}
 
-把 fp32 换成 bf16、fp8、fp4，一是每个数的字节少了，同样的带宽能搬更多的数（[图 2-1](#fig-o-4)）；二是能用上更快的 Tensor core。5090 上 fp32 走 CUDA core，峰值 1.05e14 FLOPS；Tensor core 在 fp32 累加时，bf16 是 2.1e14，fp8 是 4.19e14，fp4 是 1.68e15（dense，[RTX Blackwell 白皮书](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)）。累加一般还是用 fp32：bf16 只有 7 位尾数，长求和在低精度下会丢精度。
+把 fp32 换成 bf16、fp8、fp4，一是每个数的字节少了，同样的带宽能搬更多的数（[图 2-1](#fig-o-4)）；二是能用上更快的 Tensor core。5090 上 fp32 走 CUDA core，峰值 1.05e14 FLOPS；Tensor core 在 fp32 累加时，bf16 是 2.1e14，fp8 是 4.19e14，fp4 是 1.68e15（dense，[RTX Blackwell 白皮书](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)）。Tensor core 的输入是低精度，乘积按全精度算，再加到一个 fp32 的累加器上，所以矩阵乘的累加本来就是 fp32。各种格式差在指数位和尾数位怎么分（[图 2-1](#fig-o-4)）：指数位决定范围，尾数位决定精度。
 
 <figure id="fig-o-4" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 196" width="100%" role="img" aria-label="一条 128 B 的 cache line 能装多少个数：fp32 32 个，bf16 64 个，fp8 128 个；位数减半，同样的带宽搬两倍的数">
+<svg class="fg" viewBox="0 0 640 292" width="100%" role="img" aria-label="几种浮点格式的位：符号位、指数位、尾数位各几位，能表示的最大值，以及一条 128 B 的 cache line 装几个数。fp32 是 1、8、23；bf16 是 1、8、7；fp16 是 1、5、10；fp8 E4M3 是 1、4、3；fp8 E5M2 是 1、5、2；fp4 E2M1 是 1、2、1">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -208,245 +208,130 @@ warp 内部的问题说完，下一个是每个数占多少位。
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
   </style>
-  <text class="tb" x="8" y="22">一条 128 B 的 cache line 能装多少个数</text>
-  <text class="lab" x="8" y="55">fp32（4 B）</text>
-  <rect x="120.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="135.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="150.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="165.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="180.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="195.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="210.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="225.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="240.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="255.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="270.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="285.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="300.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="315.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="330.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="345.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="360.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="375.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="390.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="405.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="420.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="435.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="450.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="465.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="480.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="495.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="510.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="525.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="540.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="555.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="570.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="585.0" y="40" width="14.2" height="20" style="fill: color-mix(in srgb, var(--fig-1) 48%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <text class="s" x="608" y="55">32 个</text>
-  <text class="lab" x="8" y="95">bf16（2 B）</text>
-  <rect x="120.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="127.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="135.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="142.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="150.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="157.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="165.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="172.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="180.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="187.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="195.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="202.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="210.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="217.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="225.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="232.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="240.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="247.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="255.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="262.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="270.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="277.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="285.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="292.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="300.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="307.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="315.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="322.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="330.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="337.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="345.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="352.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="360.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="367.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="375.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="382.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="390.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="397.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="405.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="412.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="420.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="427.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="435.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="442.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="450.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="457.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="465.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="472.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="480.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="487.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="495.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="502.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="510.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="517.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="525.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="532.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="540.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="547.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="555.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="562.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="570.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="577.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="585.0" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="592.5" y="80" width="6.7" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <text class="s" x="608" y="95">64 个</text>
-  <text class="lab" x="8" y="135">fp8（1 B）</text>
-  <rect x="120.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="123.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="127.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="131.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="135.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="138.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="142.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="146.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="150.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="153.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="157.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="161.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="165.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="168.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="172.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="176.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="180.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="183.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="187.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="191.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="195.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="198.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="202.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="206.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="210.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="213.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="217.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="221.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="225.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="228.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="232.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="236.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="240.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="243.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="247.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="251.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="255.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="258.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="262.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="266.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="270.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="273.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="277.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="281.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="285.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="288.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="292.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="296.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="300.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="303.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="307.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="311.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="315.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="318.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="322.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="326.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="330.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="333.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="337.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="341.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="345.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="348.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="352.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="356.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="360.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="363.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="367.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="371.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="375.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="378.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="382.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="386.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="390.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="393.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="397.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="401.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="405.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="408.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="412.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="416.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="420.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="423.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="427.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="431.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="435.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="438.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="442.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="446.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="450.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="453.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="457.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="461.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="465.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="468.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="472.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="476.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="480.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="483.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="487.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="491.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="495.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="498.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="502.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="506.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="510.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="513.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="517.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="521.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="525.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="528.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="532.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="536.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="540.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="543.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="547.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="551.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="555.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="558.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="562.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="566.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="570.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="573.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="577.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="581.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="585.0" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="588.8" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="592.5" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <rect x="596.2" y="120" width="3.0" height="20" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="0.6"/>
-  <text class="s" x="608" y="135">128 个</text>
-  <text class="s" x="8" y="174">以 ReLU 为例，读一个、写一个、做 1 次比较：fp32 每次运算要搬 8 B，bf16 4 B，fp8 2 B，算术强度跟着翻倍</text>
+  <text class="s" x="485.5" y="22">最大值</text><text class="s" x="543.5" y="22">128 B 装几个</text>
+  <text class="lab" x="8" y="47">fp32</text>
+  <rect x="92.0" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <rect x="103.5" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="115.0" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="126.5" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="138.0" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="149.5" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="161.0" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="172.5" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="184.0" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="195.5" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="207.0" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="218.5" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="230.0" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="241.5" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="253.0" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="264.5" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="276.0" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="287.5" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="299.0" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="310.5" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="322.0" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="333.5" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="345.0" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="356.5" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="368.0" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="379.5" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="391.0" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="402.5" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="414.0" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="425.5" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="437.0" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="448.5" y="32" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <text class="s" x="485.5" y="47">3.4e38</text><text class="s" x="543.5" y="47">32 个</text>
+  <text class="lab" x="8" y="81">bf16</text>
+  <rect x="92.0" y="66" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <rect x="103.5" y="66" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="115.0" y="66" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="126.5" y="66" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="138.0" y="66" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="149.5" y="66" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="161.0" y="66" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="172.5" y="66" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="184.0" y="66" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="195.5" y="66" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="207.0" y="66" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="218.5" y="66" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="230.0" y="66" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="241.5" y="66" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="253.0" y="66" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="264.5" y="66" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <text class="s" x="485.5" y="81">3.4e38</text><text class="s" x="543.5" y="81">64 个</text>
+  <text class="lab" x="8" y="115">fp16</text>
+  <rect x="92.0" y="100" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <rect x="103.5" y="100" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="115.0" y="100" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="126.5" y="100" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="138.0" y="100" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="149.5" y="100" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="161.0" y="100" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="172.5" y="100" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="184.0" y="100" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="195.5" y="100" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="207.0" y="100" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="218.5" y="100" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="230.0" y="100" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="241.5" y="100" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="253.0" y="100" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="264.5" y="100" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <text class="s" x="485.5" y="115">65504</text><text class="s" x="543.5" y="115">64 个</text>
+  <text class="lab" x="8" y="149">fp8 E4M3</text>
+  <rect x="92.0" y="134" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <rect x="103.5" y="134" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="115.0" y="134" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="126.5" y="134" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="138.0" y="134" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="149.5" y="134" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="161.0" y="134" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="172.5" y="134" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <text class="s" x="485.5" y="149">448</text><text class="s" x="543.5" y="149">128 个</text>
+  <text class="lab" x="8" y="183">fp8 E5M2</text>
+  <rect x="92.0" y="168" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <rect x="103.5" y="168" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="115.0" y="168" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="126.5" y="168" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="138.0" y="168" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="149.5" y="168" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="161.0" y="168" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <rect x="172.5" y="168" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <text class="s" x="485.5" y="183">57344</text><text class="s" x="543.5" y="183">128 个</text>
+  <text class="lab" x="8" y="217">fp4 E2M1</text>
+  <rect x="92.0" y="202" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <rect x="103.5" y="202" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="115.0" y="202" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <rect x="126.5" y="202" width="10.0" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/>
+  <text class="s" x="485.5" y="217">6</text><text class="s" x="543.5" y="217">256 个</text>
+  <rect x="8" y="246" width="14" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/><text class="s" x="28" y="256">符号位</text>
+  <rect x="79.5" y="246" width="14" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/><text class="s" x="99.5" y="256">指数位：决定范围</text>
+  <rect x="203.5" y="246" width="14" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-3)" stroke-width="0.8"/><text class="s" x="223.5" y="256">尾数位：决定精度</text>
 </svg>
-<figcaption><strong>图 2-1</strong> 位数和一次能搬的数。显存、L2 都按 32 B 的 sector、128 B 的 cache line 搬数据，位数减半，同样的搬运量就多一倍的数。</figcaption>
+<figcaption><strong>图 2-1</strong> 几种浮点格式的位分配。bf16 和 fp32 的指数位一样多，范围相同，只是尾数短；fp16 范围小得多，最大只到 65504；fp8 两种格式在范围和精度之间取舍，E4M3 精度高、E5M2 范围大。显存、L2 都按 128 B 的 cache line 搬数据，位数减半，同样的搬运量就多一倍的数。画法参考 CS336 lecture 5。</figcaption>
 </figure>
 
-fp8 和 fp4 能表示的范围很窄，E4M3 最大只到 448，不能直接把 bf16 的数截过去，要先除以一个 scale 再取整，算完再乘回来。scale 怎么选是量化的核心问题。整个张量只用一个 scale 时，一个很大的离群值就会把 scale 撑大，其他数都挤到很少几个格子里。所以现在的格式都按 block 给 scale：[OCP 的 MX 格式](https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf)每 32 个连续的数共用一个 E8M0 的 scale，E8M0 只有指数位，也就是一个 2 的幂，元素是 MXFP8（E4M3 或 E5M2）或 MXFP4（E2M1）；NVIDIA 的 [NVFP4](https://developer.nvidia.com/blog/introducing-nvfp4-for-efficient-and-accurate-low-precision-inference/) 每 16 个 E2M1 的数共用一个 E4M3 的 scale，外面再乘一个 fp32 的 per-tensor scale。DeepSeek-V3 的 fp8 训练也是这个思路：activation 每 1 × 128 个数一个 scale，权重每 128 × 128 一个，Tensor core 每累加 128 个数就把部分和搬到 CUDA core 上用 fp32 加，避免累加误差变大（[DeepSeek-V3](https://arxiv.org/abs/2412.19437)）。
+所以训练时不是所有 op 都能换成低精度（[表 2-1](#tab-2-1)）。
 
-block scaling 带来一个训练时才有的麻烦：转置（[图 2-2](#fig-o-9)）。一个 block 里的数共用一个 scale，block 必须沿矩阵乘的归约方向连续。权重按 PyTorch 的 Linear 存成 [N, K]，前向 Y = X Wᵀ 沿 K 归约，block 横着分；反向算 dX = dY W 沿 N 归约，block 要竖着分，原来那组 block 和 scale 用不上。量化过的 W 再转置重新量化会叠加误差，所以 [MXFP8 的训练方案](https://arxiv.org/abs/2506.08027)给每个张量存两份，一份沿行量化、一份沿列量化，都从高精度的数量化出来。DeepSeek-V3 的 activation 在反向时也要从 1 × 128 的 tile 转成 128 × 1，它把 scale 都取成 2 的幂，让重新量化不再引入额外误差，但这一来一回要先反量化、转置、再量化，还得经过一次显存。
+| | 哪些 op | 原因 |
+|:--|:--|:--|
+| 可以用 16 位存 | 矩阵乘；relu、tanh、add、mul 这类逐元素 op | 每个输出只和几个输入有关，误差不会累积 |
+| 要更高精度（fp32） | sum、softmax、normalization 这类归约；把小数加到很大的和上 | 尾数短，小数加到大数上会被舍掉 |
+| 要更大的范围（fp32 或 bf16） | exp、log、pow 这类输出远大于输入的逐元素 op；loss | fp16 最大只到 65504，容易溢出 |
+{#tab-2-1 caption="**表 2-1** 训练时哪些 op 能用低精度" note="分类来自 NVIDIA 的 <a href=\"https://nvlabs.github.io/eccv2020-mixed-precision-tutorial/files/dusan_stosic-training-neural-networks-with-tensor-cores.pdf\">mixed precision 教程</a>，CS336 lecture 5 也用了它。"}
+
+fp8 和 fp4 能表示的范围很窄，E4M3 最大只到 448，不能直接把 bf16 的数截过去，要先除以一个 scale 再取整，算完再乘回来。scale 怎么选是量化的核心问题。整个张量只用一个 scale 时，一个很大的离群值就会把 scale 撑大，其他数都挤到很少几个格子里。所以现在的格式都按 block 给 scale：[OCP 的 MX 格式](https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf)每 32 个连续的数共用一个 E8M0 的 scale，E8M0 只有指数位，也就是一个 2 的幂，元素是 MXFP8（E4M3 或 E5M2）或 MXFP4（E2M1）；NVIDIA 的 [NVFP4](https://developer.nvidia.com/blog/introducing-nvfp4-for-efficient-and-accurate-low-precision-inference/) 每 16 个 E2M1 的数共用一个 E4M3 的 scale，外面再乘一个 fp32 的 per-tensor scale。E2M1 一共只有 16 个编码：0、0.5、1、1.5、2、3、4、6 和它们的负数，fp4 能用全靠 scale。DeepSeek-V3 的 fp8 训练也是这个思路：activation 每 1 × 128 个数一个 scale，权重每 128 × 128 一个，Tensor core 每累加 128 个数就把部分和搬到 CUDA core 上用 fp32 加，避免累加误差变大（[DeepSeek-V3](https://arxiv.org/abs/2412.19437)）。
+
+block scaling 带来一个训练时才有的麻烦：转置（[图 2-2](#fig-o-9)）。一个 block 里的数共用一个 scale，block 必须沿矩阵乘的归约方向连续。权重按 PyTorch 的 Linear 存成 [N, K]，前向 Y = X Wᵀ 沿 K 归约，block 横着分；反向算 dX = dY W 沿 N 归约，block 要竖着分，原来那组 block 和 scale 用不上。量化过的 W 再转置重新量化会叠加误差，所以 [MXFP8 的训练方案](https://arxiv.org/abs/2506.08027)给每个张量存两份，一份沿行量化、一份沿列量化，都从高精度的数量化出来。不只是 W：一个 Linear 有三个矩阵乘，每个输入张量都要在其中两个里出现，归约方向各不相同（[表 2-2](#tab-2-2)）。
+
+| | 前向 Y = X Wᵀ | 反向 dX = dY W | 反向 dW = dYᵀ X |
+|:--|:--|:--|:--|
+| X [M, K] | 沿行（K） | | 沿列（M） |
+| W [N, K] | 沿行（K） | 沿列（N） | |
+| dY [M, N] | | 沿行（N） | 沿列（M） |
+{#tab-2-2 caption="**表 2-2** 一个 Linear 的三个矩阵乘，各要沿哪个方向量化" note="block 要沿归约方向连续，所以 X、W、dY 各要量化两份。MXFP8 的方案里三个矩阵乘的输入都是 MXFP8，前向和 dX 输出 bf16，dW 输出 fp32 给优化器。"}
+DeepSeek-V3 的 activation 在反向时也要从 1 × 128 的 tile 转成 128 × 1，它把 scale 都取成 2 的幂，让重新量化不再引入额外误差，但这一来一回要先反量化、转置、再量化，还得经过一次显存。
 
 <figure id="fig-o-9" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 290" width="100%" role="img" aria-label="block scaling 和转置：W 是 [N, K]，前向 Y = X Wᵀ 沿 K 归约，每行 4 个数一个 block、一个 scale；反向 dX = dY W 沿 N 归约，block 要竖着分，原来的 scale 对不上，只能从高精度的 W 再量化一份">
@@ -645,7 +530,7 @@ block scaling 带来一个训练时才有的麻烦：转置（[图 2-2](#fig-o-9
 <figcaption><strong>图 2-2</strong> block scaling 为什么转置以后要再量化一份（示意，一个 block 按 4 个数画，MX 格式是 32 个）。颜色深浅区分不同的 block，红色是每个 block 的 scale。W 按 PyTorch 的 Linear 存成 [N, K]。同一个 block 里的数共用一个 scale，所以 block 必须沿矩阵乘的归约方向连续：前向沿 K，反向算 dX 时沿 N，原来的 block 和 scale 用不上。</figcaption>
 </figure>
 
-在 Transformer 里，fp8 已经能用在训练的矩阵乘上：MXFP8 的方案在 8B 模型、15T token 上和 bf16 训练的结果对得上，权重、activation、梯度都用 E4M3；norm、softmax、loss 和优化器状态还是留在高精度。fp4 也开始用在预训练上（[NVFP4 预训练](https://arxiv.org/abs/2509.25149)），推理时更常见。再往下是只有三个值的权重：[BitNet b1.58](https://arxiv.org/abs/2402.17764) 的权重取 −1、0、+1（log₂3 ≈ 1.58 bit），先除以整个矩阵绝对值的平均再取整截断，activation 按 token 量化成 8 bit；乘以 ±1、0 只是加、减或跳过，矩阵乘几乎没有乘法。它是从头按这种精度训练的，不是训完再量化。推理时还常把训好的权重压到 2 到 4 bit，比如 [QuIP#](https://arxiv.org/abs/2402.04396)，算之前再反量化回 bf16。
+在 Transformer 里，fp8 已经能用在训练的矩阵乘上：MXFP8 的方案在 8B 模型、15T token 上和 bf16 训练的结果对得上，权重、activation、梯度都用 E4M3。用 MXFP8 的只是 QKV、attention 输出的 projection、FFN 的两个 Linear 这几处矩阵乘；LayerNorm、softmax、attention 里的两个 BMM、残差加法、loss 和优化器状态都还是 bf16 或 fp32，和表 2-1 的分类一致。fp4 也开始用在预训练上（[NVFP4 预训练](https://arxiv.org/abs/2509.25149)），推理时更常见。再往下是只有三个值的权重：[BitNet b1.58](https://arxiv.org/abs/2402.17764) 的权重取 −1、0、+1（log₂3 ≈ 1.58 bit），先除以整个矩阵绝对值的平均再取整截断，activation 按 token 量化成 8 bit；乘以 ±1、0 只是加、减或跳过，矩阵乘几乎没有乘法。它是从头按这种精度训练的，不是训完再量化。推理时还常把训好的权重压到 2 到 4 bit，比如 [QuIP#](https://arxiv.org/abs/2402.04396)，算之前再反量化回 bf16。
 
 还有两点容易踩。一是 Triton 的 `tl.dot` 遇到 fp32 输入默认走 tf32 的 Tensor core，结果和 fp32 矩阵乘差 0.1 左右，要精确的 fp32 得写 `input_precision="ieee"`（[入门篇 2.4 节](/blog/gpu-triton-intro/#triton-matmul)）。二是低精度省的主要是时间，显存不一定省得多：下一篇在 5090 上用 bf16 autocast 训练，前向快了 1.9–2.3 倍，显存只省了 18–21%，因为权重、梯度、Adam 状态还是 fp32，norm、softmax 这些也还在 fp32 下算（[下一篇 4.1 节](/blog/gpu-training-analysis/#bf16)）。
 
@@ -653,7 +538,7 @@ block scaling 带来一个训练时才有的麻烦：转置（[图 2-2](#fig-o-9
 
 ## 3 Fusion {#fusion}
 
-逐元素和归约类的 op 算得很少，时间几乎都花在读写显存上。几个这样的 op 接在一起时，每个 op 都把中间结果写回显存、下一个再读回来，fusion 把它们合成一个 kernel，中间结果留在 register 里，显存只读写一次（[图 3-1](#fig-o-5)）。入门篇[表 2-1](/blog/gpu-triton-intro/#tab-2-1) 里，GELU 按公式用张量运算写，eager 要跑 8 个 kernel，194.7 µs；合成一个 Triton kernel 是 46.6 µs，快 4.2 倍。softmax 从 5 个 kernel 合成 1 个，快 2.6 倍。`torch.compile` 自动做的就是这件事，它在 GPU 上生成的也是 Triton kernel。
+[Horace He](https://horace.io/brrr_intro.html) 把 GPU 比作一座工厂：计算单元是车间，显存是仓库，每个 kernel 都要把原料从仓库运进车间，做完再把产品运回仓库。逐元素和归约类的 op 算得很少，时间几乎都花在这两趟运输上。CS336 lecture 5 的例子是 $\sin^2 x + \cos^2 x$：eager 下 sin、cos、两个平方和一个加法是 5 个 kernel，中间结果在显存和计算单元之间来回搬了 4 趟。几个这样的 op 接在一起时，每个 op 都把中间结果写回显存、下一个再读回来，fusion 把它们合成一个 kernel，中间结果留在 register 里，显存只读写一次（[图 3-1](#fig-o-5)）。入门篇[表 2-1](/blog/gpu-triton-intro/#tab-2-1) 里，GELU 按公式用张量运算写，eager 要跑 8 个 kernel，194.7 µs；合成一个 Triton kernel 是 46.6 µs，快 4.2 倍。softmax 从 5 个 kernel 合成 1 个，快 2.6 倍。`torch.compile` 自动做的就是这件事，它在 GPU 上生成的也是 Triton kernel。
 
 <figure id="fig-o-5" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 262" width="100%" role="img" aria-label="fusion：eager 每个 op 是一个 kernel，中间结果都写回显存、下一个再读回来；fused 一个 kernel 读一次 x、写一次 y，中间结果留在 register 里">
@@ -776,6 +661,8 @@ fusion 对一个 kernel 本来就受算力限制的 op 帮助不大：matmul 后
 前面几节都在少搬数据，后面三节看同样的数据怎么搬更快。
 
 ## 5 Memory coalescing {#coalescing}
+
+先看显存本身。DRAM 读一个地址时，要先把这个地址所在的一整行搬进 sense amplifier，这一步很慢；搬进来以后，同一行附近的一段数据（burst）可以接着连续送出来，几乎不花额外时间。所以显存总是一段一段地读，GPU 这边对应的单位是 32 B 的 sector 和 128 B 的 cache line。
 
 一个 warp 发一条 load 时，硬件把 32 个 thread 的地址合起来，按 32 B 的 sector 去显存取，128 B 是一条 cache line。相邻的 thread 读相邻的地址，32 个 thread 的请求就落在几条连续的 cache line 里，取上来的字节都用得上，这叫 coalescing。相邻的 thread 隔得很远，比如按列读一个行优先的矩阵，每个 thread 都要单独取一个 sector，大部分字节是白取的（[图 5-1](#fig-o-7)）。
 
@@ -980,7 +867,7 @@ fusion 对一个 kernel 本来就受算力限制的 op 帮助不大：matmul 后
 <figcaption><strong>图 5-1</strong> memory coalescing（按 8 个 thread 画，实际一个 warp 32 个）。红色是被读的数，浅蓝是同一个 sector 里顺带取上来、没用到的字节。</figcaption>
 </figure>
 
-每个 thread 一次读几个相邻的数也有关系。入门篇的 GELU 里，n 是 16 的倍数时，Triton 知道地址按 16 B 对齐，一个 thread 用一条 `ld.global.v4` 读 4 个 fp32；n 不是 16 的倍数时，就变成 4 条 4 B 的 `ld.global`（[入门篇 2.1 节 notes](/blog/gpu-triton-intro/#triton-gelu)），条数多了 4 倍。写 Triton 时，让 `tl.arange` 沿着内存里连续的那一维，block 的这一维取得够长，编译器就会排成合并的读写。
+每个 thread 一次读几个相邻的数也有关系。入门篇的 GELU 里，n 是 16 的倍数时，Triton 知道地址按 16 B 对齐，一个 thread 用一条 `ld.global.v4` 读 4 个 fp32；n 不是 16 的倍数时，就变成 4 条 4 B 的 `ld.global`（[入门篇 2.1 节 notes](/blog/gpu-triton-intro/#triton-gelu)），条数多了 4 倍。矩阵乘里最容易踩：A 是行优先存的，如果让相邻的 thread 各负责一行、每个 thread 沿着自己那一行往右读，同一时刻 32 个 thread 读的是同一列上的 32 个数，相隔一整行，完全不合并；让相邻的 thread 负责相邻的列、一起往下走，同一时刻读的是同一行上连续的数，才是合并的。写 Triton 时，让 `tl.arange` 沿着内存里连续的那一维，block 的这一维取得够长，编译器就会排成合并的读写。
 
 显存这边讲完，shared memory 也有自己的规矩。
 
@@ -988,10 +875,10 @@ fusion 对一个 kernel 本来就受算力限制的 op 帮助不大：matmul 后
 
 shared memory 分成 32 个 bank，每个 bank 宽 4 B，地址按 4 B 轮流分到各个 bank 上（[CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)）。一个 warp 读 shared memory 时，32 个 thread 落在 32 个不同的 bank 上，一拍就能读完；如果有几个 thread 落在同一个 bank 的不同地址上，这几个请求只能排队，一拍拆成几拍，这叫 bank conflict。几个 thread 读同一个地址不算冲突，会广播。
 
-最常见的例子是按列读一个 32 × 32 的 fp32 矩阵：一列的 32 个数隔 128 B，全落在同一个 bank 上，要排 32 拍。常见的解法有两种：每行多留一个数（padding），让一列的数错开到不同的 bank；或者按一定的规律打乱存放的位置（swizzle）。[图 6-1](#fig-o-8) 按 8 个 bank 画了 padding 的效果。
+最常见的例子是按列读一个 32 × 32 的 fp32 矩阵：一列的 32 个数隔 128 B，全落在同一个 bank 上，要排 32 拍。matmul 里这种访问躲不掉：A 的 block 要按行读，B 的 block 要按列读，总有一个方向会撞上同一个 bank。常见的解法有两种：每行多留一个数（padding），让一列的数错开到不同的 bank；或者按规律打乱存放的位置（swizzle），比如把第 r 行第 c 列放进第 (c xor r) 个 bank，这样按行读、按列读都落在不同的 bank 上，也不多占空间（[图 6-1](#fig-o-8)）。
 
 <figure id="fig-o-8" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 264" width="100%" role="img" aria-label="bank conflict（按 8 个 bank 画）：8 × 8 的 fp32 矩阵按行存进 shared memory，一列的 8 个数都落在 bank 0，8 个 thread 同时读这一列要排 8 拍；每行多留一个数（padding），一列的数错开到 8 个不同的 bank，一拍读完">
+<svg class="fg" viewBox="0 0 640 264" width="100%" role="img" aria-label="bank conflict（按 8 个 bank 画）：8 × 8 的 fp32 矩阵按行存进 shared memory，一列的 8 个数都落在 bank 0，8 个 thread 同时读这一列要排 8 拍；每行多留一个数（padding），或者把第 r 行第 c 列放进第 (c xor r) 个 bank（swizzle），一列的数都错开到 8 个不同的 bank，一拍读完">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -1011,292 +898,431 @@ shared memory 分成 32 个 bank，每个 bank 宽 4 B，地址按 4 B 轮流分
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
   </style>
-  <text class="tb" x="8" y="22">每行 8 个数，按行存</text>
-  <text class="s" x="21.0" y="44" text-anchor="middle">bank 0</text>
-  <text class="s" x="47.0" y="44" text-anchor="middle">1</text>
-  <text class="s" x="73.0" y="44" text-anchor="middle">2</text>
-  <text class="s" x="99.0" y="44" text-anchor="middle">3</text>
-  <text class="s" x="125.0" y="44" text-anchor="middle">4</text>
-  <text class="s" x="151.0" y="44" text-anchor="middle">5</text>
-  <text class="s" x="177.0" y="44" text-anchor="middle">6</text>
-  <text class="s" x="203.0" y="44" text-anchor="middle">bank 7</text>
-  <rect x="9" y="52" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
-  <text class="s" x="21.0" y="65" text-anchor="middle" style="font-size: 9px">0,0</text>
-  <rect x="35" y="52" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="47.0" y="65" text-anchor="middle" style="font-size: 9px">0,1</text>
-  <rect x="61" y="52" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="73.0" y="65" text-anchor="middle" style="font-size: 9px">0,2</text>
-  <rect x="87" y="52" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="99.0" y="65" text-anchor="middle" style="font-size: 9px">0,3</text>
-  <rect x="113" y="52" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="125.0" y="65" text-anchor="middle" style="font-size: 9px">0,4</text>
-  <rect x="139" y="52" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="151.0" y="65" text-anchor="middle" style="font-size: 9px">0,5</text>
-  <rect x="165" y="52" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="177.0" y="65" text-anchor="middle" style="font-size: 9px">0,6</text>
-  <rect x="191" y="52" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="203.0" y="65" text-anchor="middle" style="font-size: 9px">0,7</text>
-  <rect x="9" y="72" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
-  <text class="s" x="21.0" y="85" text-anchor="middle" style="font-size: 9px">1,0</text>
-  <rect x="35" y="72" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="47.0" y="85" text-anchor="middle" style="font-size: 9px">1,1</text>
-  <rect x="61" y="72" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="73.0" y="85" text-anchor="middle" style="font-size: 9px">1,2</text>
-  <rect x="87" y="72" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="99.0" y="85" text-anchor="middle" style="font-size: 9px">1,3</text>
-  <rect x="113" y="72" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="125.0" y="85" text-anchor="middle" style="font-size: 9px">1,4</text>
-  <rect x="139" y="72" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="151.0" y="85" text-anchor="middle" style="font-size: 9px">1,5</text>
-  <rect x="165" y="72" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="177.0" y="85" text-anchor="middle" style="font-size: 9px">1,6</text>
-  <rect x="191" y="72" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="203.0" y="85" text-anchor="middle" style="font-size: 9px">1,7</text>
-  <rect x="9" y="92" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
-  <text class="s" x="21.0" y="105" text-anchor="middle" style="font-size: 9px">2,0</text>
-  <rect x="35" y="92" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="47.0" y="105" text-anchor="middle" style="font-size: 9px">2,1</text>
-  <rect x="61" y="92" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="73.0" y="105" text-anchor="middle" style="font-size: 9px">2,2</text>
-  <rect x="87" y="92" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="99.0" y="105" text-anchor="middle" style="font-size: 9px">2,3</text>
-  <rect x="113" y="92" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="125.0" y="105" text-anchor="middle" style="font-size: 9px">2,4</text>
-  <rect x="139" y="92" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="151.0" y="105" text-anchor="middle" style="font-size: 9px">2,5</text>
-  <rect x="165" y="92" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="177.0" y="105" text-anchor="middle" style="font-size: 9px">2,6</text>
-  <rect x="191" y="92" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="203.0" y="105" text-anchor="middle" style="font-size: 9px">2,7</text>
-  <rect x="9" y="112" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
-  <text class="s" x="21.0" y="125" text-anchor="middle" style="font-size: 9px">3,0</text>
-  <rect x="35" y="112" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="47.0" y="125" text-anchor="middle" style="font-size: 9px">3,1</text>
-  <rect x="61" y="112" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="73.0" y="125" text-anchor="middle" style="font-size: 9px">3,2</text>
-  <rect x="87" y="112" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="99.0" y="125" text-anchor="middle" style="font-size: 9px">3,3</text>
-  <rect x="113" y="112" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="125.0" y="125" text-anchor="middle" style="font-size: 9px">3,4</text>
-  <rect x="139" y="112" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="151.0" y="125" text-anchor="middle" style="font-size: 9px">3,5</text>
-  <rect x="165" y="112" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="177.0" y="125" text-anchor="middle" style="font-size: 9px">3,6</text>
-  <rect x="191" y="112" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="203.0" y="125" text-anchor="middle" style="font-size: 9px">3,7</text>
-  <rect x="9" y="132" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
-  <text class="s" x="21.0" y="145" text-anchor="middle" style="font-size: 9px">4,0</text>
-  <rect x="35" y="132" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="47.0" y="145" text-anchor="middle" style="font-size: 9px">4,1</text>
-  <rect x="61" y="132" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="73.0" y="145" text-anchor="middle" style="font-size: 9px">4,2</text>
-  <rect x="87" y="132" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="99.0" y="145" text-anchor="middle" style="font-size: 9px">4,3</text>
-  <rect x="113" y="132" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="125.0" y="145" text-anchor="middle" style="font-size: 9px">4,4</text>
-  <rect x="139" y="132" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="151.0" y="145" text-anchor="middle" style="font-size: 9px">4,5</text>
-  <rect x="165" y="132" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="177.0" y="145" text-anchor="middle" style="font-size: 9px">4,6</text>
-  <rect x="191" y="132" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="203.0" y="145" text-anchor="middle" style="font-size: 9px">4,7</text>
-  <rect x="9" y="152" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
-  <text class="s" x="21.0" y="165" text-anchor="middle" style="font-size: 9px">5,0</text>
-  <rect x="35" y="152" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="47.0" y="165" text-anchor="middle" style="font-size: 9px">5,1</text>
-  <rect x="61" y="152" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="73.0" y="165" text-anchor="middle" style="font-size: 9px">5,2</text>
-  <rect x="87" y="152" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="99.0" y="165" text-anchor="middle" style="font-size: 9px">5,3</text>
-  <rect x="113" y="152" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="125.0" y="165" text-anchor="middle" style="font-size: 9px">5,4</text>
-  <rect x="139" y="152" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="151.0" y="165" text-anchor="middle" style="font-size: 9px">5,5</text>
-  <rect x="165" y="152" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="177.0" y="165" text-anchor="middle" style="font-size: 9px">5,6</text>
-  <rect x="191" y="152" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="203.0" y="165" text-anchor="middle" style="font-size: 9px">5,7</text>
-  <rect x="9" y="172" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
-  <text class="s" x="21.0" y="185" text-anchor="middle" style="font-size: 9px">6,0</text>
-  <rect x="35" y="172" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="47.0" y="185" text-anchor="middle" style="font-size: 9px">6,1</text>
-  <rect x="61" y="172" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="73.0" y="185" text-anchor="middle" style="font-size: 9px">6,2</text>
-  <rect x="87" y="172" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="99.0" y="185" text-anchor="middle" style="font-size: 9px">6,3</text>
-  <rect x="113" y="172" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="125.0" y="185" text-anchor="middle" style="font-size: 9px">6,4</text>
-  <rect x="139" y="172" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="151.0" y="185" text-anchor="middle" style="font-size: 9px">6,5</text>
-  <rect x="165" y="172" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="177.0" y="185" text-anchor="middle" style="font-size: 9px">6,6</text>
-  <rect x="191" y="172" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="203.0" y="185" text-anchor="middle" style="font-size: 9px">6,7</text>
-  <rect x="9" y="192" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
-  <text class="s" x="21.0" y="205" text-anchor="middle" style="font-size: 9px">7,0</text>
-  <rect x="35" y="192" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="47.0" y="205" text-anchor="middle" style="font-size: 9px">7,1</text>
-  <rect x="61" y="192" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="73.0" y="205" text-anchor="middle" style="font-size: 9px">7,2</text>
-  <rect x="87" y="192" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="99.0" y="205" text-anchor="middle" style="font-size: 9px">7,3</text>
-  <rect x="113" y="192" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="125.0" y="205" text-anchor="middle" style="font-size: 9px">7,4</text>
-  <rect x="139" y="192" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="151.0" y="205" text-anchor="middle" style="font-size: 9px">7,5</text>
-  <rect x="165" y="192" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="177.0" y="205" text-anchor="middle" style="font-size: 9px">7,6</text>
-  <rect x="191" y="192" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="203.0" y="205" text-anchor="middle" style="font-size: 9px">7,7</text>
-  <text class="s" x="8" y="256">第 0 列全在 bank 0：排 8 拍</text>
-  <text class="tb" x="330" y="22">每行补 1 个空位（虚线）</text>
-  <text class="s" x="343.0" y="44" text-anchor="middle">bank 0</text>
-  <text class="s" x="369.0" y="44" text-anchor="middle">1</text>
-  <text class="s" x="395.0" y="44" text-anchor="middle">2</text>
-  <text class="s" x="421.0" y="44" text-anchor="middle">3</text>
-  <text class="s" x="447.0" y="44" text-anchor="middle">4</text>
-  <text class="s" x="473.0" y="44" text-anchor="middle">5</text>
-  <text class="s" x="499.0" y="44" text-anchor="middle">6</text>
-  <text class="s" x="525.0" y="44" text-anchor="middle">bank 7</text>
-  <rect x="331" y="52" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
-  <text class="s" x="343.0" y="65" text-anchor="middle" style="font-size: 9px">0,0</text>
-  <rect x="357" y="52" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="369.0" y="65" text-anchor="middle" style="font-size: 9px">0,1</text>
-  <rect x="383" y="52" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="395.0" y="65" text-anchor="middle" style="font-size: 9px">0,2</text>
-  <rect x="409" y="52" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="421.0" y="65" text-anchor="middle" style="font-size: 9px">0,3</text>
-  <rect x="435" y="52" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="447.0" y="65" text-anchor="middle" style="font-size: 9px">0,4</text>
-  <rect x="461" y="52" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="473.0" y="65" text-anchor="middle" style="font-size: 9px">0,5</text>
-  <rect x="487" y="52" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="499.0" y="65" text-anchor="middle" style="font-size: 9px">0,6</text>
-  <rect x="513" y="52" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="525.0" y="65" text-anchor="middle" style="font-size: 9px">0,7</text>
-  <rect x="331" y="72" width="24" height="18" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="3 2"/>
-  <rect x="357" y="72" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
-  <text class="s" x="369.0" y="85" text-anchor="middle" style="font-size: 9px">1,0</text>
-  <rect x="383" y="72" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="395.0" y="85" text-anchor="middle" style="font-size: 9px">1,1</text>
-  <rect x="409" y="72" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="421.0" y="85" text-anchor="middle" style="font-size: 9px">1,2</text>
-  <rect x="435" y="72" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="447.0" y="85" text-anchor="middle" style="font-size: 9px">1,3</text>
-  <rect x="461" y="72" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="473.0" y="85" text-anchor="middle" style="font-size: 9px">1,4</text>
-  <rect x="487" y="72" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="499.0" y="85" text-anchor="middle" style="font-size: 9px">1,5</text>
-  <rect x="513" y="72" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="525.0" y="85" text-anchor="middle" style="font-size: 9px">1,6</text>
-  <rect x="331" y="92" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="343.0" y="105" text-anchor="middle" style="font-size: 9px">1,7</text>
-  <rect x="357" y="92" width="24" height="18" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="3 2"/>
-  <rect x="383" y="92" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
-  <text class="s" x="395.0" y="105" text-anchor="middle" style="font-size: 9px">2,0</text>
-  <rect x="409" y="92" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="421.0" y="105" text-anchor="middle" style="font-size: 9px">2,1</text>
-  <rect x="435" y="92" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="447.0" y="105" text-anchor="middle" style="font-size: 9px">2,2</text>
-  <rect x="461" y="92" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="473.0" y="105" text-anchor="middle" style="font-size: 9px">2,3</text>
-  <rect x="487" y="92" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="499.0" y="105" text-anchor="middle" style="font-size: 9px">2,4</text>
-  <rect x="513" y="92" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="525.0" y="105" text-anchor="middle" style="font-size: 9px">2,5</text>
-  <rect x="331" y="112" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="343.0" y="125" text-anchor="middle" style="font-size: 9px">2,6</text>
-  <rect x="357" y="112" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="369.0" y="125" text-anchor="middle" style="font-size: 9px">2,7</text>
-  <rect x="383" y="112" width="24" height="18" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="3 2"/>
-  <rect x="409" y="112" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
-  <text class="s" x="421.0" y="125" text-anchor="middle" style="font-size: 9px">3,0</text>
-  <rect x="435" y="112" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="447.0" y="125" text-anchor="middle" style="font-size: 9px">3,1</text>
-  <rect x="461" y="112" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="473.0" y="125" text-anchor="middle" style="font-size: 9px">3,2</text>
-  <rect x="487" y="112" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="499.0" y="125" text-anchor="middle" style="font-size: 9px">3,3</text>
-  <rect x="513" y="112" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="525.0" y="125" text-anchor="middle" style="font-size: 9px">3,4</text>
-  <rect x="331" y="132" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="343.0" y="145" text-anchor="middle" style="font-size: 9px">3,5</text>
-  <rect x="357" y="132" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="369.0" y="145" text-anchor="middle" style="font-size: 9px">3,6</text>
-  <rect x="383" y="132" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="395.0" y="145" text-anchor="middle" style="font-size: 9px">3,7</text>
-  <rect x="409" y="132" width="24" height="18" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="3 2"/>
-  <rect x="435" y="132" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
-  <text class="s" x="447.0" y="145" text-anchor="middle" style="font-size: 9px">4,0</text>
-  <rect x="461" y="132" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="473.0" y="145" text-anchor="middle" style="font-size: 9px">4,1</text>
-  <rect x="487" y="132" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="499.0" y="145" text-anchor="middle" style="font-size: 9px">4,2</text>
-  <rect x="513" y="132" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="525.0" y="145" text-anchor="middle" style="font-size: 9px">4,3</text>
-  <rect x="331" y="152" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="343.0" y="165" text-anchor="middle" style="font-size: 9px">4,4</text>
-  <rect x="357" y="152" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="369.0" y="165" text-anchor="middle" style="font-size: 9px">4,5</text>
-  <rect x="383" y="152" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="395.0" y="165" text-anchor="middle" style="font-size: 9px">4,6</text>
-  <rect x="409" y="152" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="421.0" y="165" text-anchor="middle" style="font-size: 9px">4,7</text>
-  <rect x="435" y="152" width="24" height="18" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="3 2"/>
-  <rect x="461" y="152" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
-  <text class="s" x="473.0" y="165" text-anchor="middle" style="font-size: 9px">5,0</text>
-  <rect x="487" y="152" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="499.0" y="165" text-anchor="middle" style="font-size: 9px">5,1</text>
-  <rect x="513" y="152" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="525.0" y="165" text-anchor="middle" style="font-size: 9px">5,2</text>
-  <rect x="331" y="172" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="343.0" y="185" text-anchor="middle" style="font-size: 9px">5,3</text>
-  <rect x="357" y="172" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="369.0" y="185" text-anchor="middle" style="font-size: 9px">5,4</text>
-  <rect x="383" y="172" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="395.0" y="185" text-anchor="middle" style="font-size: 9px">5,5</text>
-  <rect x="409" y="172" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="421.0" y="185" text-anchor="middle" style="font-size: 9px">5,6</text>
-  <rect x="435" y="172" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="447.0" y="185" text-anchor="middle" style="font-size: 9px">5,7</text>
-  <rect x="461" y="172" width="24" height="18" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="3 2"/>
-  <rect x="487" y="172" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
-  <text class="s" x="499.0" y="185" text-anchor="middle" style="font-size: 9px">6,0</text>
-  <rect x="513" y="172" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="525.0" y="185" text-anchor="middle" style="font-size: 9px">6,1</text>
-  <rect x="331" y="192" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="343.0" y="205" text-anchor="middle" style="font-size: 9px">6,2</text>
-  <rect x="357" y="192" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="369.0" y="205" text-anchor="middle" style="font-size: 9px">6,3</text>
-  <rect x="383" y="192" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="395.0" y="205" text-anchor="middle" style="font-size: 9px">6,4</text>
-  <rect x="409" y="192" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="421.0" y="205" text-anchor="middle" style="font-size: 9px">6,5</text>
-  <rect x="435" y="192" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="447.0" y="205" text-anchor="middle" style="font-size: 9px">6,6</text>
-  <rect x="461" y="192" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="473.0" y="205" text-anchor="middle" style="font-size: 9px">6,7</text>
-  <rect x="487" y="192" width="24" height="18" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="3 2"/>
-  <rect x="513" y="192" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
-  <text class="s" x="525.0" y="205" text-anchor="middle" style="font-size: 9px">7,0</text>
-  <rect x="331" y="212" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="343.0" y="225" text-anchor="middle" style="font-size: 9px">7,1</text>
-  <rect x="357" y="212" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="369.0" y="225" text-anchor="middle" style="font-size: 9px">7,2</text>
-  <rect x="383" y="212" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="395.0" y="225" text-anchor="middle" style="font-size: 9px">7,3</text>
-  <rect x="409" y="212" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="421.0" y="225" text-anchor="middle" style="font-size: 9px">7,4</text>
-  <rect x="435" y="212" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="447.0" y="225" text-anchor="middle" style="font-size: 9px">7,5</text>
-  <rect x="461" y="212" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="473.0" y="225" text-anchor="middle" style="font-size: 9px">7,6</text>
-  <rect x="487" y="212" width="24" height="18" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
-  <text class="s" x="499.0" y="225" text-anchor="middle" style="font-size: 9px">7,7</text>
-  <rect x="513" y="212" width="24" height="18" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="3 2"/>
-  <text class="s" x="330" y="256">第 0 列错开到 8 个 bank：一拍读完</text>
+  <text class="s" x="8" y="40">bank</text>
+  <text class="tb" x="36" y="22">按行存</text>
+  <text class="s" x="47.5" y="44" text-anchor="middle">0</text>
+  <text class="s" x="70.5" y="44" text-anchor="middle">1</text>
+  <text class="s" x="93.5" y="44" text-anchor="middle">2</text>
+  <text class="s" x="116.5" y="44" text-anchor="middle">3</text>
+  <text class="s" x="139.5" y="44" text-anchor="middle">4</text>
+  <text class="s" x="162.5" y="44" text-anchor="middle">5</text>
+  <text class="s" x="185.5" y="44" text-anchor="middle">6</text>
+  <text class="s" x="208.5" y="44" text-anchor="middle">7</text>
+  <rect x="37" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="47.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,0</text>
+  <rect x="60" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="70.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,1</text>
+  <rect x="83" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="93.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,2</text>
+  <rect x="106" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="116.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,3</text>
+  <rect x="129" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="139.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,4</text>
+  <rect x="152" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="162.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,5</text>
+  <rect x="175" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="185.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,6</text>
+  <rect x="198" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="208.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,7</text>
+  <rect x="37" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="47.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,0</text>
+  <rect x="60" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="70.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,1</text>
+  <rect x="83" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="93.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,2</text>
+  <rect x="106" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="116.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,3</text>
+  <rect x="129" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="139.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,4</text>
+  <rect x="152" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="162.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,5</text>
+  <rect x="175" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="185.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,6</text>
+  <rect x="198" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="208.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,7</text>
+  <rect x="37" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="47.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,0</text>
+  <rect x="60" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="70.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,1</text>
+  <rect x="83" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="93.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,2</text>
+  <rect x="106" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="116.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,3</text>
+  <rect x="129" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="139.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,4</text>
+  <rect x="152" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="162.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,5</text>
+  <rect x="175" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="185.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,6</text>
+  <rect x="198" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="208.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,7</text>
+  <rect x="37" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="47.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,0</text>
+  <rect x="60" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="70.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,1</text>
+  <rect x="83" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="93.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,2</text>
+  <rect x="106" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="116.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,3</text>
+  <rect x="129" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="139.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,4</text>
+  <rect x="152" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="162.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,5</text>
+  <rect x="175" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="185.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,6</text>
+  <rect x="198" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="208.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,7</text>
+  <rect x="37" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="47.5" y="140" text-anchor="middle" style="font-size: 8.5px">4,0</text>
+  <rect x="60" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="70.5" y="140" text-anchor="middle" style="font-size: 8.5px">4,1</text>
+  <rect x="83" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="93.5" y="140" text-anchor="middle" style="font-size: 8.5px">4,2</text>
+  <rect x="106" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="116.5" y="140" text-anchor="middle" style="font-size: 8.5px">4,3</text>
+  <rect x="129" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="139.5" y="140" text-anchor="middle" style="font-size: 8.5px">4,4</text>
+  <rect x="152" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="162.5" y="140" text-anchor="middle" style="font-size: 8.5px">4,5</text>
+  <rect x="175" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="185.5" y="140" text-anchor="middle" style="font-size: 8.5px">4,6</text>
+  <rect x="198" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="208.5" y="140" text-anchor="middle" style="font-size: 8.5px">4,7</text>
+  <rect x="37" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="47.5" y="159" text-anchor="middle" style="font-size: 8.5px">5,0</text>
+  <rect x="60" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="70.5" y="159" text-anchor="middle" style="font-size: 8.5px">5,1</text>
+  <rect x="83" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="93.5" y="159" text-anchor="middle" style="font-size: 8.5px">5,2</text>
+  <rect x="106" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="116.5" y="159" text-anchor="middle" style="font-size: 8.5px">5,3</text>
+  <rect x="129" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="139.5" y="159" text-anchor="middle" style="font-size: 8.5px">5,4</text>
+  <rect x="152" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="162.5" y="159" text-anchor="middle" style="font-size: 8.5px">5,5</text>
+  <rect x="175" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="185.5" y="159" text-anchor="middle" style="font-size: 8.5px">5,6</text>
+  <rect x="198" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="208.5" y="159" text-anchor="middle" style="font-size: 8.5px">5,7</text>
+  <rect x="37" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="47.5" y="178" text-anchor="middle" style="font-size: 8.5px">6,0</text>
+  <rect x="60" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="70.5" y="178" text-anchor="middle" style="font-size: 8.5px">6,1</text>
+  <rect x="83" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="93.5" y="178" text-anchor="middle" style="font-size: 8.5px">6,2</text>
+  <rect x="106" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="116.5" y="178" text-anchor="middle" style="font-size: 8.5px">6,3</text>
+  <rect x="129" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="139.5" y="178" text-anchor="middle" style="font-size: 8.5px">6,4</text>
+  <rect x="152" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="162.5" y="178" text-anchor="middle" style="font-size: 8.5px">6,5</text>
+  <rect x="175" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="185.5" y="178" text-anchor="middle" style="font-size: 8.5px">6,6</text>
+  <rect x="198" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="208.5" y="178" text-anchor="middle" style="font-size: 8.5px">6,7</text>
+  <rect x="37" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="47.5" y="197" text-anchor="middle" style="font-size: 8.5px">7,0</text>
+  <rect x="60" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="70.5" y="197" text-anchor="middle" style="font-size: 8.5px">7,1</text>
+  <rect x="83" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="93.5" y="197" text-anchor="middle" style="font-size: 8.5px">7,2</text>
+  <rect x="106" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="116.5" y="197" text-anchor="middle" style="font-size: 8.5px">7,3</text>
+  <rect x="129" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="139.5" y="197" text-anchor="middle" style="font-size: 8.5px">7,4</text>
+  <rect x="152" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="162.5" y="197" text-anchor="middle" style="font-size: 8.5px">7,5</text>
+  <rect x="175" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="185.5" y="197" text-anchor="middle" style="font-size: 8.5px">7,6</text>
+  <rect x="198" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="208.5" y="197" text-anchor="middle" style="font-size: 8.5px">7,7</text>
+  <text class="s" x="36" y="245">第 0 列全在 bank 0：排 8 拍</text>
+  <text class="tb" x="240" y="22">每行补 1 个空位（padding）</text>
+  <text class="s" x="251.5" y="44" text-anchor="middle">0</text>
+  <text class="s" x="274.5" y="44" text-anchor="middle">1</text>
+  <text class="s" x="297.5" y="44" text-anchor="middle">2</text>
+  <text class="s" x="320.5" y="44" text-anchor="middle">3</text>
+  <text class="s" x="343.5" y="44" text-anchor="middle">4</text>
+  <text class="s" x="366.5" y="44" text-anchor="middle">5</text>
+  <text class="s" x="389.5" y="44" text-anchor="middle">6</text>
+  <text class="s" x="412.5" y="44" text-anchor="middle">7</text>
+  <rect x="241" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="251.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,0</text>
+  <rect x="264" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="274.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,1</text>
+  <rect x="287" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="297.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,2</text>
+  <rect x="310" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="320.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,3</text>
+  <rect x="333" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="343.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,4</text>
+  <rect x="356" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="366.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,5</text>
+  <rect x="379" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="389.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,6</text>
+  <rect x="402" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="412.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,7</text>
+  <rect x="241" y="71" width="21" height="17" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="3 2"/>
+  <rect x="264" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="274.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,0</text>
+  <rect x="287" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="297.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,1</text>
+  <rect x="310" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="320.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,2</text>
+  <rect x="333" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="343.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,3</text>
+  <rect x="356" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="366.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,4</text>
+  <rect x="379" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="389.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,5</text>
+  <rect x="402" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="412.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,6</text>
+  <rect x="241" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="251.5" y="102" text-anchor="middle" style="font-size: 8.5px">1,7</text>
+  <rect x="264" y="90" width="21" height="17" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="3 2"/>
+  <rect x="287" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="297.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,0</text>
+  <rect x="310" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="320.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,1</text>
+  <rect x="333" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="343.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,2</text>
+  <rect x="356" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="366.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,3</text>
+  <rect x="379" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="389.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,4</text>
+  <rect x="402" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="412.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,5</text>
+  <rect x="241" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="251.5" y="121" text-anchor="middle" style="font-size: 8.5px">2,6</text>
+  <rect x="264" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="274.5" y="121" text-anchor="middle" style="font-size: 8.5px">2,7</text>
+  <rect x="287" y="109" width="21" height="17" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="3 2"/>
+  <rect x="310" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="320.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,0</text>
+  <rect x="333" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="343.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,1</text>
+  <rect x="356" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="366.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,2</text>
+  <rect x="379" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="389.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,3</text>
+  <rect x="402" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="412.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,4</text>
+  <rect x="241" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="251.5" y="140" text-anchor="middle" style="font-size: 8.5px">3,5</text>
+  <rect x="264" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="274.5" y="140" text-anchor="middle" style="font-size: 8.5px">3,6</text>
+  <rect x="287" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="297.5" y="140" text-anchor="middle" style="font-size: 8.5px">3,7</text>
+  <rect x="310" y="128" width="21" height="17" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="3 2"/>
+  <rect x="333" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="343.5" y="140" text-anchor="middle" style="font-size: 8.5px">4,0</text>
+  <rect x="356" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="366.5" y="140" text-anchor="middle" style="font-size: 8.5px">4,1</text>
+  <rect x="379" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="389.5" y="140" text-anchor="middle" style="font-size: 8.5px">4,2</text>
+  <rect x="402" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="412.5" y="140" text-anchor="middle" style="font-size: 8.5px">4,3</text>
+  <rect x="241" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="251.5" y="159" text-anchor="middle" style="font-size: 8.5px">4,4</text>
+  <rect x="264" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="274.5" y="159" text-anchor="middle" style="font-size: 8.5px">4,5</text>
+  <rect x="287" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="297.5" y="159" text-anchor="middle" style="font-size: 8.5px">4,6</text>
+  <rect x="310" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="320.5" y="159" text-anchor="middle" style="font-size: 8.5px">4,7</text>
+  <rect x="333" y="147" width="21" height="17" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="3 2"/>
+  <rect x="356" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="366.5" y="159" text-anchor="middle" style="font-size: 8.5px">5,0</text>
+  <rect x="379" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="389.5" y="159" text-anchor="middle" style="font-size: 8.5px">5,1</text>
+  <rect x="402" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="412.5" y="159" text-anchor="middle" style="font-size: 8.5px">5,2</text>
+  <rect x="241" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="251.5" y="178" text-anchor="middle" style="font-size: 8.5px">5,3</text>
+  <rect x="264" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="274.5" y="178" text-anchor="middle" style="font-size: 8.5px">5,4</text>
+  <rect x="287" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="297.5" y="178" text-anchor="middle" style="font-size: 8.5px">5,5</text>
+  <rect x="310" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="320.5" y="178" text-anchor="middle" style="font-size: 8.5px">5,6</text>
+  <rect x="333" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="343.5" y="178" text-anchor="middle" style="font-size: 8.5px">5,7</text>
+  <rect x="356" y="166" width="21" height="17" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="3 2"/>
+  <rect x="379" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="389.5" y="178" text-anchor="middle" style="font-size: 8.5px">6,0</text>
+  <rect x="402" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="412.5" y="178" text-anchor="middle" style="font-size: 8.5px">6,1</text>
+  <rect x="241" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="251.5" y="197" text-anchor="middle" style="font-size: 8.5px">6,2</text>
+  <rect x="264" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="274.5" y="197" text-anchor="middle" style="font-size: 8.5px">6,3</text>
+  <rect x="287" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="297.5" y="197" text-anchor="middle" style="font-size: 8.5px">6,4</text>
+  <rect x="310" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="320.5" y="197" text-anchor="middle" style="font-size: 8.5px">6,5</text>
+  <rect x="333" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="343.5" y="197" text-anchor="middle" style="font-size: 8.5px">6,6</text>
+  <rect x="356" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="366.5" y="197" text-anchor="middle" style="font-size: 8.5px">6,7</text>
+  <rect x="379" y="185" width="21" height="17" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="3 2"/>
+  <rect x="402" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="412.5" y="197" text-anchor="middle" style="font-size: 8.5px">7,0</text>
+  <rect x="241" y="204" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="251.5" y="216" text-anchor="middle" style="font-size: 8.5px">7,1</text>
+  <rect x="264" y="204" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="274.5" y="216" text-anchor="middle" style="font-size: 8.5px">7,2</text>
+  <rect x="287" y="204" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="297.5" y="216" text-anchor="middle" style="font-size: 8.5px">7,3</text>
+  <rect x="310" y="204" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="320.5" y="216" text-anchor="middle" style="font-size: 8.5px">7,4</text>
+  <rect x="333" y="204" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="343.5" y="216" text-anchor="middle" style="font-size: 8.5px">7,5</text>
+  <rect x="356" y="204" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="366.5" y="216" text-anchor="middle" style="font-size: 8.5px">7,6</text>
+  <rect x="379" y="204" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="389.5" y="216" text-anchor="middle" style="font-size: 8.5px">7,7</text>
+  <rect x="402" y="204" width="21" height="17" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="3 2"/>
+  <text class="s" x="240" y="245">错开到 8 个 bank：一拍</text>
+  <text class="tb" x="444" y="22">swizzle：bank = c xor r</text>
+  <text class="s" x="455.5" y="44" text-anchor="middle">0</text>
+  <text class="s" x="478.5" y="44" text-anchor="middle">1</text>
+  <text class="s" x="501.5" y="44" text-anchor="middle">2</text>
+  <text class="s" x="524.5" y="44" text-anchor="middle">3</text>
+  <text class="s" x="547.5" y="44" text-anchor="middle">4</text>
+  <text class="s" x="570.5" y="44" text-anchor="middle">5</text>
+  <text class="s" x="593.5" y="44" text-anchor="middle">6</text>
+  <text class="s" x="616.5" y="44" text-anchor="middle">7</text>
+  <rect x="445" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="455.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,0</text>
+  <rect x="468" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="478.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,1</text>
+  <rect x="491" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="501.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,2</text>
+  <rect x="514" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="524.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,3</text>
+  <rect x="537" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="547.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,4</text>
+  <rect x="560" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="570.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,5</text>
+  <rect x="583" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="593.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,6</text>
+  <rect x="606" y="52" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="616.5" y="64" text-anchor="middle" style="font-size: 8.5px">0,7</text>
+  <rect x="468" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="478.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,0</text>
+  <rect x="445" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="455.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,1</text>
+  <rect x="514" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="524.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,2</text>
+  <rect x="491" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="501.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,3</text>
+  <rect x="560" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="570.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,4</text>
+  <rect x="537" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="547.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,5</text>
+  <rect x="606" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="616.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,6</text>
+  <rect x="583" y="71" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="593.5" y="83" text-anchor="middle" style="font-size: 8.5px">1,7</text>
+  <rect x="491" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="501.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,0</text>
+  <rect x="514" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="524.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,1</text>
+  <rect x="445" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="455.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,2</text>
+  <rect x="468" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="478.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,3</text>
+  <rect x="583" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="593.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,4</text>
+  <rect x="606" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="616.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,5</text>
+  <rect x="537" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="547.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,6</text>
+  <rect x="560" y="90" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="570.5" y="102" text-anchor="middle" style="font-size: 8.5px">2,7</text>
+  <rect x="514" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="524.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,0</text>
+  <rect x="491" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="501.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,1</text>
+  <rect x="468" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="478.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,2</text>
+  <rect x="445" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="455.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,3</text>
+  <rect x="606" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="616.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,4</text>
+  <rect x="583" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="593.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,5</text>
+  <rect x="560" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="570.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,6</text>
+  <rect x="537" y="109" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="547.5" y="121" text-anchor="middle" style="font-size: 8.5px">3,7</text>
+  <rect x="537" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="547.5" y="140" text-anchor="middle" style="font-size: 8.5px">4,0</text>
+  <rect x="560" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="570.5" y="140" text-anchor="middle" style="font-size: 8.5px">4,1</text>
+  <rect x="583" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="593.5" y="140" text-anchor="middle" style="font-size: 8.5px">4,2</text>
+  <rect x="606" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="616.5" y="140" text-anchor="middle" style="font-size: 8.5px">4,3</text>
+  <rect x="445" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="455.5" y="140" text-anchor="middle" style="font-size: 8.5px">4,4</text>
+  <rect x="468" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="478.5" y="140" text-anchor="middle" style="font-size: 8.5px">4,5</text>
+  <rect x="491" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="501.5" y="140" text-anchor="middle" style="font-size: 8.5px">4,6</text>
+  <rect x="514" y="128" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="524.5" y="140" text-anchor="middle" style="font-size: 8.5px">4,7</text>
+  <rect x="560" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="570.5" y="159" text-anchor="middle" style="font-size: 8.5px">5,0</text>
+  <rect x="537" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="547.5" y="159" text-anchor="middle" style="font-size: 8.5px">5,1</text>
+  <rect x="606" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="616.5" y="159" text-anchor="middle" style="font-size: 8.5px">5,2</text>
+  <rect x="583" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="593.5" y="159" text-anchor="middle" style="font-size: 8.5px">5,3</text>
+  <rect x="468" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="478.5" y="159" text-anchor="middle" style="font-size: 8.5px">5,4</text>
+  <rect x="445" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="455.5" y="159" text-anchor="middle" style="font-size: 8.5px">5,5</text>
+  <rect x="514" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="524.5" y="159" text-anchor="middle" style="font-size: 8.5px">5,6</text>
+  <rect x="491" y="147" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="501.5" y="159" text-anchor="middle" style="font-size: 8.5px">5,7</text>
+  <rect x="583" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="593.5" y="178" text-anchor="middle" style="font-size: 8.5px">6,0</text>
+  <rect x="606" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="616.5" y="178" text-anchor="middle" style="font-size: 8.5px">6,1</text>
+  <rect x="537" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="547.5" y="178" text-anchor="middle" style="font-size: 8.5px">6,2</text>
+  <rect x="560" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="570.5" y="178" text-anchor="middle" style="font-size: 8.5px">6,3</text>
+  <rect x="491" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="501.5" y="178" text-anchor="middle" style="font-size: 8.5px">6,4</text>
+  <rect x="514" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="524.5" y="178" text-anchor="middle" style="font-size: 8.5px">6,5</text>
+  <rect x="445" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="455.5" y="178" text-anchor="middle" style="font-size: 8.5px">6,6</text>
+  <rect x="468" y="166" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="478.5" y="178" text-anchor="middle" style="font-size: 8.5px">6,7</text>
+  <rect x="606" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-hi) 45%, transparent); stroke: var(--fig-hi)" stroke-width="0.8"/>
+  <text class="s" x="616.5" y="197" text-anchor="middle" style="font-size: 8.5px">7,0</text>
+  <rect x="583" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="593.5" y="197" text-anchor="middle" style="font-size: 8.5px">7,1</text>
+  <rect x="560" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="570.5" y="197" text-anchor="middle" style="font-size: 8.5px">7,2</text>
+  <rect x="537" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="547.5" y="197" text-anchor="middle" style="font-size: 8.5px">7,3</text>
+  <rect x="514" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="524.5" y="197" text-anchor="middle" style="font-size: 8.5px">7,4</text>
+  <rect x="491" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="501.5" y="197" text-anchor="middle" style="font-size: 8.5px">7,5</text>
+  <rect x="468" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="478.5" y="197" text-anchor="middle" style="font-size: 8.5px">7,6</text>
+  <rect x="445" y="185" width="21" height="17" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="0.8"/>
+  <text class="s" x="455.5" y="197" text-anchor="middle" style="font-size: 8.5px">7,7</text>
+  <text class="s" x="444" y="245">错开到 8 个 bank：一拍</text>
 </svg>
-<figcaption><strong>图 6-1</strong> bank conflict 和 padding（按 8 个 bank、8 × 8 的矩阵画，实际是 32 个 bank）。一格是一个 4 B 的数，标的是它在矩阵里的 (行, 列)；同一列的格子是同一个 bank，同一个 bank 一拍只能读一个地址。红色是 8 个 thread 同时要读的第 0 列。</figcaption>
+<figcaption><strong>图 6-1</strong> bank conflict 的两种解法（按 8 个 bank、8 × 8 的矩阵画，实际是 32 个 bank）。一格是一个 4 B 的数，标的是它在矩阵里的 (行, 列)；同一列的格子在同一个 bank，同一个 bank 一拍只能读一个地址。红色是 8 个 thread 同时要读的第 0 列。padding 多占一点空间；swizzle 不多占空间，按行读、按列读都不冲突。</figcaption>
 </figure>
 
 写 Triton 时这件事由编译器决定，shared memory 的布局写在 TTGIR 里：入门篇 2.4 节那个 fp32 的 matmul，A、B 的 slot 用的是 `swizzled_shared<{vec = 1, perPhase = 1, maxPhase = 1}>`，也就是没有打乱；走 Tensor core 的 `tl.dot` 编译器会换成别的布局。
@@ -1405,7 +1431,7 @@ matmul $C = A B$ 里，A 是 M × K，B 是 K × N。A 的每个数要和 B 的 
 <figcaption><strong>图 7-1</strong> matmul 怎么切 block，一格是一个 block。C 的 block (1, 1) 只用到 A 的第 1 个 row block 和 B 的第 1 个 column block；沿 K 一轮读一对 block，乘完加到累加器上，实心是第 0 轮，斜线是之后几轮。A block 里的每个数被 C block 里同一行的 BN 个输出用到，B block 里的每个数被同一列的 BM 个输出用到。</figcaption>
 </figure>
 
-tile 越大，显存读得越少，但一个 program 要占更多 register 和 shared memory，怎么取见入门篇 [3.5 节](/blog/gpu-triton-intro/#tile)。在 Triton 里 BM、BN、BK 都得是 2 的幂，这是 `tl.arange` 的要求；`tl.dot` 还要求 BK 至少 16。tile 的大小还带来两种 quantization。一是矩阵的维度不是 tile 的整数倍时，边上的 tile 只有一部分是有用的数，叫 tile quantization。二是 tile 的个数不是全卡一批能放下的整数倍时，最后一批只有几个 tile 在跑，叫 wave quantization。入门篇 3.4 节的 matmul 就是第二种：A 从 4032 行变成 4096 行，计算量只多 1.6%，耗时多 28%，因为 512 个 program 比全卡一批能放的 510 个多了 2 个（[入门篇 3.4 节](/blog/gpu-triton-intro/#sched-wave)）。
+tile 越大，显存读得越少，但一个 program 要占更多 register 和 shared memory，怎么取见入门篇 [3.5 节](/blog/gpu-triton-intro/#tile)。在 Triton 里 BM、BN、BK 都得是 2 的幂，这是 `tl.arange` 的要求；`tl.dot` 还要求 BK 至少 16。tile 的大小还带来两种 quantization。一是矩阵的维度不是 tile 的整数倍时，边上的 tile 只有一部分是有用的数，叫 tile quantization；行长不是 burst 的整数倍时，一个 tile 的一行还会跨过两个 burst，读起来也慢。二是 tile 的个数不是全卡一批能放下的整数倍时，最后一批只有几个 tile 在跑，叫 wave quantization。CS336 lecture 5 引的例子是 A100 上的方阵乘：tile 取 256 × 128，N = 1792 时有 (1792 / 256) × (1792 / 128) = 7 × 14 = 98 个 tile，A100 的 108 个 SM 一批放得下；N = 1793 时变成 8 × 15 = 120 个，要分两批，FLOPS 突然掉下去（[thonking.ai](https://www.thonking.ai/p/what-shapes-do-matrix-multiplications)）。入门篇 3.4 节的 matmul 也是这样：A 从 4032 行变成 4096 行，计算量只多 1.6%，耗时多 28%，因为 512 个 program 比全卡一批能放的 510 个多了 2 个（[入门篇 3.4 节](/blog/gpu-triton-intro/#sched-wave)）。
 
 tiling 不只在 shared memory 这一层。每个 thread 从 shared memory 读进 A、B 的一小段，再和自己 register 里的一小块累加器一起算，一个数在 register 里也被用好几次；入门篇 [3.5 节](/blog/gpu-triton-intro/#tile)扫 matmul 的 block 大小时，最快的配置每个 thread 存 64 个累加器，就是这一层的 tiling。
 
@@ -1433,3 +1459,7 @@ tiling 不只在 shared memory 这一层。每个 thread 从 shared memory 读�
 14. Chen, Xu, Zhang, Guestrin. [Training Deep Nets with Sublinear Memory Cost](https://arxiv.org/abs/1604.06174). arXiv:1604.06174, 2016. activation checkpoint。
 15. Dao, Fu, Ermon, Rudra, Ré. [FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness](https://arxiv.org/abs/2205.14135). NeurIPS 2022. 反向时重算 P。
 16. [Triton tutorials](https://triton-lang.org/main/getting-started/tutorials/index.html)。fused softmax、matmul 的写法。
+17. NVIDIA (Dusan Stosic). [Training Neural Networks with Tensor Cores](https://nvlabs.github.io/eccv2020-mixed-precision-tutorial/files/dusan_stosic-training-neural-networks-with-tensor-cores.pdf)（ECCV 2020 mixed precision tutorial）。表 2-1 的分类，Tensor core 的全精度乘积和 fp32 累加。
+18. Horace He. [Making Deep Learning Go Brrrr From First Principles](https://horace.io/brrr_intro.html)。第 3 节把 GPU 比作工厂、显存比作仓库的说法。
+19. Horace He. [What Shapes Do Matrix Multiplications Like?](https://www.thonking.ai/p/what-shapes-do-matrix-multiplications)。第 7 节对齐和 wave quantization 的例子。
+20. NVIDIA. [Matrix Multiplication Background User's Guide](https://docs.nvidia.com/deeplearning/performance/dl-performance-matrix-multiplication/index.html)。tile quantization 和 wave quantization。
