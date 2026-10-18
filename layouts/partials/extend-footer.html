@@ -86,3 +86,22 @@
     document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", init) : init();
   })();
 </script>
+
+<script>
+  /* Keep the highlighted TOC entry visible inside the scrollable side TOC on long posts. */
+  (function () {
+    var box = document.querySelector(".nv-article__toc .toc-right");
+    if (!box) return;
+    var last = null, pending = false;
+    function follow() {
+      pending = false;
+      var a = box.querySelectorAll("#TableOfContents a.active");
+      a = a[a.length - 1];
+      if (!a || a === last) return;
+      last = a;
+      var r = a.getBoundingClientRect(), b = box.getBoundingClientRect();
+      if (r.top < b.top + 24 || r.bottom > b.bottom - 24) box.scrollTop += r.top - b.top - box.clientHeight / 3;
+    }
+    window.addEventListener("scroll", function () { if (!pending) { pending = true; requestAnimationFrame(follow); } }, { passive: true });
+  })();
+</script>

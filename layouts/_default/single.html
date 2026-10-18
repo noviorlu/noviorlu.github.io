@@ -5,7 +5,7 @@
   {{ $enableToc = .Params.showTableOfContents | default $enableToc }}
   {{ $showToc := and $enableToc (in .TableOfContents "<ul") }}
   {{ $showShare := .Params.showShare | default true }}
-  <article class="nv-article{{ if $showToc }} has-toc{{ end }}">
+  <article class="nv-article{{ if $showToc }} has-toc{{ end }}{{ if $isDaily }} is-daily{{ end }}">
     {{/* Header */}}
     <header id="single_header" class="nv-article__header">
       {{ if .Params.showBreadcrumbs | default (site.Params.article.showBreadcrumbs | default false) }}
