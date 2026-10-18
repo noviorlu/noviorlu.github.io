@@ -112,7 +112,7 @@ block 之间不能直接共享数据，只能通过显存交换，而这正是�
 | eager | 204.6 | 268.6 | 53.8 | 173.4 |
 | torch.compile | 47.5（4.3×） | 99.2（2.7×） | 54.1（1.0×） | 171.6（1.0×） |
 | Triton | 47.9（4.3×） | 98.1（2.7×） | 57.4（0.9×） | 211.7（0.8×） |
-{#tab-2-1 caption="**表 2-1** 同一个 op 的三种写法（µs，括号里是相对 eager 的加速）" note="RTX 5090，fp32，形状和各小节一样：GELU n = 8388608，softmax 和 row sum 4096 × 4096，matmul A 4096 × 2048、B 2048 × 512。eager 分别是按 tanh 公式逐个运算、<code>softmax_naive</code>、<code>x.sum(1)</code>、<code>torch.relu(A @ B)</code>，matmul 关掉了 tf32。<code>triton.testing.do_bench</code> 跑 5 次取中位数。换一张卡数字会变，三行之间的对比关系一般不变。"}
+{#tab-2-1 caption="**表 2-1** 同一个 op 的三种写法（µs，括号里是相对 eager 的加速）" note="RTX 5090，fp32，形状和各小节一样：GELU n = 8388608，softmax 和 row sum 4096 × 4096，matmul A 4096 × 2048、B 2048 × 512。eager 分别是按 tanh 公式逐个运算、<code>softmax_naive</code>、<code>x.sum(1)</code>、<code>torch.relu(A @ B)</code>，matmul 关掉了 tf32。Triton 一行用的是各小节代码里的固定参数，没有 autotune；<code>torch.compile</code> 会自己挑 block 大小和 <code>num_warps</code>，matmul 的另外两行直接调 cuBLAS。<code>triton.testing.do_bench</code> 跑 5 次取中位数。换一张卡数字会变，三行之间的对比关系一般不变。"}
 
 GELU 和 softmax 的 eager 写法里，每个运算都单独跑一遍，中间结果要写回显存、下一个运算再读回来。`torch.compile` 和 Triton 都把这些运算合成一个 kernel，中间结果留在 register 里，显存只读写一次，所以都快了 4.3 倍和 2.7 倍左右。两者差不多快并不奇怪：`torch.compile` 在 GPU 上生成的也是 Triton kernel，这一节自己写一遍，看清楚它做了什么。
 
