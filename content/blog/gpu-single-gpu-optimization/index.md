@@ -20,8 +20,10 @@ series_order: 2
 
 一个 warp 的 32 个 thread 同一时刻执行同一条指令（[入门篇 1.3 节](/blog/gpu-triton-intro/#hw-model)）。如果遇到分支，warp 里一部分 thread 走 if、另一部分走 else，硬件只能把两边都执行一遍：执行 if 那段时，走 else 的 thread 被屏蔽掉，什么也不做，反过来也一样。这叫 control divergence，代价是两段的时间加起来。分支在不同 warp 之间不一样没关系，每个 warp 只走自己那条路（[图 1-1](#fig-o-3)）。
 
+两边怎么排，从 Volta 开始变了。Pascal 及以前，一个 warp 只有一个程序计数器，分支两边串行：if 那边全部执行完，才轮到 else，结束后 warp 在 Z 合起来，32 个 thread 又一起执行（图 1-1 上）。Volta 起每个 thread 有自己的程序计数器，两边的语句可以交替执行，A、X、B、Y 轮流推进；调度器还要保守地假设 Z 可能用到别的分支产生的数据，所以不保证在 Z 合起来，Z 也可能分两次执行（图 1-1 中）。A、B、X、Y 里没有同步操作时，调度器能判断合起来是安全的，就会和以前一样在 Z 合起来；也可以在 Z 前面调用 `__syncwarp()` 强制合起来（[Volta 白皮书](https://images.nvidia.com/content/volta-architecture/pdf/volta-architecture-whitepaper.pdf)）。不管哪种排法，每一拍仍然只执行一条指令，同一时刻只有一边的 thread 在算，空着的 lane 一样多，divergence 的代价没有变。
+
 <figure id="fig-o-3" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="control divergence：一个 warp 里 lane 0 到 3 走 if、lane 4 到 7 走 else，硬件先执行 A、B，此时 lane 4 到 7 被屏蔽，再执行 X、Y，lane 0 到 3 被屏蔽，最后一起执行 Z；如果分支按 warp 一致，两个 warp 各走各的，每个 warp 只执行一条路">
+<svg class="fg" viewBox="0 0 640 446" width="100%" role="img" aria-label="control divergence：if (lane < 4) { A; B } else { X; Y }; Z。Pascal 及以前分支两边串行，先 A、B 再 X、Y，执行一边时另一半 lane 被屏蔽，最后一起执行 Z，共 5 段；Volta 起两边可以交替执行，A、X、B、Y 轮流，Z 也可能分两次执行，共 6 段，同一时刻仍只有一半 lane 在执行；分支按 warp 一致时，每个 warp 只走自己那条路">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -42,75 +44,139 @@ series_order: 2
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
   </style>
   <defs><marker id="fig-o-3-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
-  <text class="tb" x="8" y="22">warp 内分支不一样：if (lane &lt; 4) { A; B } else { X; Y }; Z</text>
-  <text class="s" x="115.0" y="38" text-anchor="middle">A</text>
-  <text class="s" x="161.0" y="38" text-anchor="middle">B</text>
-  <text class="s" x="207.0" y="38" text-anchor="middle">X</text>
-  <text class="s" x="253.0" y="38" text-anchor="middle">Y</text>
-  <text class="s" x="299.0" y="38" text-anchor="middle">Z</text>
-  <text class="s" x="84" y="53" text-anchor="end">lane 0</text>
-  <rect x="93" y="42" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="139" y="42" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="185" y="42" width="44" height="14" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
-  <rect x="231" y="42" width="44" height="14" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
-  <rect x="277" y="42" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <text class="s" x="84" y="71" text-anchor="end">lane 1</text>
-  <rect x="93" y="60" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="139" y="60" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="185" y="60" width="44" height="14" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
-  <rect x="231" y="60" width="44" height="14" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
-  <rect x="277" y="60" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <text class="s" x="84" y="89" text-anchor="end">lane 2</text>
-  <rect x="93" y="78" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="139" y="78" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="185" y="78" width="44" height="14" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
-  <rect x="231" y="78" width="44" height="14" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
-  <rect x="277" y="78" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <text class="s" x="84" y="107" text-anchor="end">lane 3</text>
-  <rect x="93" y="96" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="139" y="96" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="185" y="96" width="44" height="14" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
-  <rect x="231" y="96" width="44" height="14" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
-  <rect x="277" y="96" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <text class="s" x="84" y="125" text-anchor="end">lane 4</text>
-  <rect x="93" y="114" width="44" height="14" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
-  <rect x="139" y="114" width="44" height="14" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
-  <rect x="185" y="114" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="231" y="114" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="277" y="114" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <text class="s" x="84" y="143" text-anchor="end">lane 5</text>
-  <rect x="93" y="132" width="44" height="14" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
-  <rect x="139" y="132" width="44" height="14" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
-  <rect x="185" y="132" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="231" y="132" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="277" y="132" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <text class="s" x="84" y="161" text-anchor="end">lane 6</text>
-  <rect x="93" y="150" width="44" height="14" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
-  <rect x="139" y="150" width="44" height="14" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
-  <rect x="185" y="150" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="231" y="150" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="277" y="150" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <text class="s" x="84" y="179" text-anchor="end">lane 7</text>
-  <rect x="93" y="168" width="44" height="14" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
-  <rect x="139" y="168" width="44" height="14" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
-  <rect x="185" y="168" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="231" y="168" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="277" y="168" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <text class="s" x="332" y="107">5 段时间，每段都有一半 lane 空着</text>
-  <text class="tb" x="8" y="204">分支按 warp 一致：warp 0 都走 if，warp 1 都走 else，两个 warp 各自只走一条路</text>
-  <text class="s" x="84" y="231" text-anchor="end">warp 0</text>
-  <rect x="93" y="220" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/><text class="s" x="115.0" y="231" text-anchor="middle">A</text>
-  <rect x="139" y="220" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/><text class="s" x="161.0" y="231" text-anchor="middle">B</text>
-  <rect x="185" y="220" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/><text class="s" x="207.0" y="231" text-anchor="middle">Z</text>
-  <text class="s" x="84" y="253" text-anchor="end">warp 1</text>
-  <rect x="93" y="242" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/><text class="s" x="115.0" y="253" text-anchor="middle">X</text>
-  <rect x="139" y="242" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/><text class="s" x="161.0" y="253" text-anchor="middle">Y</text>
-  <rect x="185" y="242" width="44" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/><text class="s" x="207.0" y="253" text-anchor="middle">Z</text>
-  <text class="s" x="240" y="253">每个 warp 3 段，没有空着的 lane</text>
-  <line x1="92.0" y1="290.0" x2="322.0" y2="290.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.2" marker-end="url(#fig-o-3-m0)"/>
-  <text class="s" x="328" y="294">时间</text>
+  <text class="tb" x="8" y="22">Pascal 及以前：分支两边串行，结束后在 Z 合起来</text>
+  <text class="s" x="118.0" y="40" text-anchor="middle">A</text>
+  <text class="s" x="162.0" y="40" text-anchor="middle">B</text>
+  <text class="s" x="206.0" y="40" text-anchor="middle">X</text>
+  <text class="s" x="250.0" y="40" text-anchor="middle">Y</text>
+  <text class="s" x="294.0" y="40" text-anchor="middle">Z</text>
+  <text class="s" x="88" y="56" text-anchor="end">lane 0</text>
+  <rect x="97" y="46" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="141" y="46" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="185" y="46" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="229" y="46" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="273" y="46" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="88" y="71" text-anchor="end">lane 1</text>
+  <rect x="97" y="61" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="141" y="61" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="185" y="61" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="229" y="61" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="273" y="61" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="88" y="86" text-anchor="end">lane 2</text>
+  <rect x="97" y="76" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="141" y="76" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="185" y="76" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="229" y="76" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="273" y="76" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="88" y="101" text-anchor="end">lane 3</text>
+  <rect x="97" y="91" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="141" y="91" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="185" y="91" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="229" y="91" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="273" y="91" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="88" y="116" text-anchor="end">lane 4</text>
+  <rect x="97" y="106" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="141" y="106" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="185" y="106" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="229" y="106" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="273" y="106" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="88" y="131" text-anchor="end">lane 5</text>
+  <rect x="97" y="121" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="141" y="121" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="185" y="121" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="229" y="121" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="273" y="121" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="88" y="146" text-anchor="end">lane 6</text>
+  <rect x="97" y="136" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="141" y="136" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="185" y="136" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="229" y="136" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="273" y="136" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="88" y="161" text-anchor="end">lane 7</text>
+  <rect x="97" y="151" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="141" y="151" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="185" y="151" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="229" y="151" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="273" y="151" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="326" y="109">5 段，前 4 段都有一半 lane 空着</text>
+  <text class="tb" x="8" y="196">Volta 起：两边可以交替执行，Z 不一定合起来</text>
+  <text class="s" x="118.0" y="214" text-anchor="middle">A</text>
+  <text class="s" x="162.0" y="214" text-anchor="middle">X</text>
+  <text class="s" x="206.0" y="214" text-anchor="middle">B</text>
+  <text class="s" x="250.0" y="214" text-anchor="middle">Y</text>
+  <text class="s" x="294.0" y="214" text-anchor="middle">Z</text>
+  <text class="s" x="338.0" y="214" text-anchor="middle">Z</text>
+  <text class="s" x="88" y="230" text-anchor="end">lane 0</text>
+  <rect x="97" y="220" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="141" y="220" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="185" y="220" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="229" y="220" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="273" y="220" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="317" y="220" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <text class="s" x="88" y="245" text-anchor="end">lane 1</text>
+  <rect x="97" y="235" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="141" y="235" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="185" y="235" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="229" y="235" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="273" y="235" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="317" y="235" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <text class="s" x="88" y="260" text-anchor="end">lane 2</text>
+  <rect x="97" y="250" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="141" y="250" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="185" y="250" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="229" y="250" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="273" y="250" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="317" y="250" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <text class="s" x="88" y="275" text-anchor="end">lane 3</text>
+  <rect x="97" y="265" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="141" y="265" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="185" y="265" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="229" y="265" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="273" y="265" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="317" y="265" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <text class="s" x="88" y="290" text-anchor="end">lane 4</text>
+  <rect x="97" y="280" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="141" y="280" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="185" y="280" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="229" y="280" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="273" y="280" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="317" y="280" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="88" y="305" text-anchor="end">lane 5</text>
+  <rect x="97" y="295" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="141" y="295" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="185" y="295" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="229" y="295" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="273" y="295" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="317" y="295" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="88" y="320" text-anchor="end">lane 6</text>
+  <rect x="97" y="310" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="141" y="310" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="185" y="310" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="229" y="310" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="273" y="310" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="317" y="310" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="88" y="335" text-anchor="end">lane 7</text>
+  <rect x="97" y="325" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="141" y="325" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="185" y="325" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="229" y="325" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="273" y="325" width="42" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/>
+  <rect x="317" y="325" width="42" height="12" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <text class="s" x="370" y="283">6 段，同一时刻仍只有一半 lane 在执行</text>
+  <text class="tb" x="8" y="374">分支按 warp 一致：warp 0 都走 if，warp 1 都走 else</text>
+  <text class="s" x="88" y="396" text-anchor="end">warp 0</text>
+  <rect x="97" y="386" width="42" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/><text class="s" x="118.0" y="397" text-anchor="middle">A</text>
+  <rect x="141" y="386" width="42" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/><text class="s" x="162.0" y="397" text-anchor="middle">B</text>
+  <rect x="185" y="386" width="42" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/><text class="s" x="206.0" y="397" text-anchor="middle">Z</text>
+  <text class="s" x="88" y="416" text-anchor="end">warp 1</text>
+  <rect x="97" y="406" width="42" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/><text class="s" x="118.0" y="417" text-anchor="middle">X</text>
+  <rect x="141" y="406" width="42" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/><text class="s" x="162.0" y="417" text-anchor="middle">Y</text>
+  <rect x="185" y="406" width="42" height="14" rx="2" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/><text class="s" x="206.0" y="417" text-anchor="middle">Z</text>
+  <text class="s" x="238" y="417">每个 warp 3 段，没有空着的 lane</text>
+  <line x1="96.0" y1="440.0" x2="360.0" y2="440.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.2" marker-end="url(#fig-o-3-m0)"/>
+  <text class="s" x="366" y="444">时间</text>
 </svg>
-<figcaption><strong>图 1-1</strong> control divergence（按 8 条 lane 画，实际一个 warp 32 条）。上：同一个 warp 里分支不一样，A、B 和 X、Y 两段都要执行，执行一段时另一半 lane 被屏蔽（虚线）；下：分支按 warp 一致时，每个 warp 只走自己那条路。画法参考 <a href="https://github.com/stanford-cs336/lectures/blob/main/lecture_05.pdf">CS336 lecture 5</a>。</figcaption>
+<figcaption><strong>图 1-1</strong> control divergence（按 8 条 lane 画，实际一个 warp 32 条），代码是 <code>if (lane &lt; 4) { A; B } else { X; Y }; Z</code>。虚线是这一段被屏蔽、没在执行的 lane。上：Pascal 及以前一个 warp 只有一个程序计数器，分支两边串行执行。中：Volta 起每个 thread 有自己的程序计数器，两边的语句可以交替执行，调度器也不保证在 Z 合起来；但每一拍仍然只执行一条指令，空着的 lane 一样多。下：分支按 warp 一致时没有空着的 lane。上、中两层的画法参考 <a href="https://images.nvidia.com/content/volta-architecture/pdf/volta-architecture-whitepaper.pdf">Volta 白皮书</a> Figure 20、22 和 <a href="https://github.com/stanford-cs336/lectures/blob/main/lecture_05.pdf">CS336 lecture 5</a>。</figcaption>
 </figure>
 
 所以分支条件最好在一个 warp 里一致，比如按 program、按行来分，而不是按单个元素。逐元素的条件可以改成计算：两边都算出来，再用 select 挑一个，没有跳转，也就没有 divergence。Triton 里 `tl.where(cond, a, b)` 就是这样，`tl.load` 的 `mask` 编出来是带谓词的指令：入门篇 GELU 的 PTX 里，`@%p1 ld.global.v4.b32` 前面的 `%p1` 就是谓词，越界的 thread 不读，但大家执行的是同一条指令。Triton 里的 `if`、`for` 只能用在整个 program 共有的标量上，所以写 Triton 时很少遇到这个问题；写 CUDA 时才要自己留意。
@@ -1353,16 +1419,17 @@ tiling 不只在 shared memory 这一层。每个 thread 从 shared memory 读�
 
 1. Stanford CS336. [Lecture 5: GPUs](https://github.com/stanford-cs336/lectures/blob/main/lecture_05.pdf)。这一篇七种方法的顺序和第 1、3、4、5、7 节示意图的画法。
 2. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。SIMT 和分支、global memory 的合并访问、shared memory 的 bank。
-3. NVIDIA. [PTX ISA](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html)。谓词执行和 `ld.global.v4` 等访存指令。
-4. NVIDIA. [NVIDIA RTX Blackwell GPU Architecture](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)（白皮书）。第 2 节 5090 上 bf16、fp8、fp4 Tensor core 的峰值。
-5. Open Compute Project. [OCP Microscaling Formats (MX) Specification v1.0](https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf)。MX 格式：32 个数一个 E8M0 的 scale。
-6. NVIDIA. [Introducing NVFP4 for Efficient and Accurate Low-Precision Inference](https://developer.nvidia.com/blog/introducing-nvfp4-for-efficient-and-accurate-low-precision-inference/)。NVFP4：16 个数一个 E4M3 的 scale，外加 per-tensor 的 fp32 scale。
-7. Mishra, Stosic, Layton, Micikevicius. [Recipes for Pre-training LLMs with MXFP8](https://arxiv.org/abs/2506.08027). arXiv:2506.08027, 2025. 所有张量用 E4M3，每个张量沿行、沿列各量化一份。
-8. DeepSeek-AI. [DeepSeek-V3 Technical Report](https://arxiv.org/abs/2412.19437). arXiv:2412.19437, 2024. fp8 训练的 1 × 128、128 × 128 scale，累加提升到 fp32，反向时 tile 的转置。
-9. NVIDIA. [Pretraining Large Language Models with NVFP4](https://arxiv.org/abs/2509.25149). arXiv:2509.25149, 2025.
-10. Ma et al. [The Era of 1-bit LLMs: All Large Language Models are in 1.58 Bits](https://arxiv.org/abs/2402.17764). arXiv:2402.17764, 2024. BitNet b1.58。
-11. Tseng, Chee, Sun, Kuleshov, De Sa. [QuIP#: Even Better LLM Quantization with Hadamard Incoherence and Lattice Codebooks](https://arxiv.org/abs/2402.04396). ICML 2024. 推理时 2 到 4 bit 的权重量化。
-12. Chillee (Horace He). [Min-cut optimal(*) recomputation (i.e. activation checkpointing) with AOTAutograd](https://dev-discuss.pytorch.org/t/min-cut-optimal-recomputation-i-e-activation-checkpointing-with-aotautograd/467)。第 4 节三层 sigmoid 的例子。
-13. Chen, Xu, Zhang, Guestrin. [Training Deep Nets with Sublinear Memory Cost](https://arxiv.org/abs/1604.06174). arXiv:1604.06174, 2016. activation checkpoint。
-14. Dao, Fu, Ermon, Rudra, Ré. [FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness](https://arxiv.org/abs/2205.14135). NeurIPS 2022. 反向时重算 P。
-15. [Triton tutorials](https://triton-lang.org/main/getting-started/tutorials/index.html)。fused softmax、matmul 的写法。
+3. NVIDIA. [NVIDIA Tesla V100 GPU Architecture](https://images.nvidia.com/content/volta-architecture/pdf/volta-architecture-whitepaper.pdf)（白皮书）。第 1 节的 independent thread scheduling、分支交替执行和 `__syncwarp()`，图 1-1 上、中两层的画法（Figure 20、22）。
+4. NVIDIA. [PTX ISA](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html)。谓词执行和 `ld.global.v4` 等访存指令。
+5. NVIDIA. [NVIDIA RTX Blackwell GPU Architecture](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)（白皮书）。第 2 节 5090 上 bf16、fp8、fp4 Tensor core 的峰值。
+6. Open Compute Project. [OCP Microscaling Formats (MX) Specification v1.0](https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf)。MX 格式：32 个数一个 E8M0 的 scale。
+7. NVIDIA. [Introducing NVFP4 for Efficient and Accurate Low-Precision Inference](https://developer.nvidia.com/blog/introducing-nvfp4-for-efficient-and-accurate-low-precision-inference/)。NVFP4：16 个数一个 E4M3 的 scale，外加 per-tensor 的 fp32 scale。
+8. Mishra, Stosic, Layton, Micikevicius. [Recipes for Pre-training LLMs with MXFP8](https://arxiv.org/abs/2506.08027). arXiv:2506.08027, 2025. 所有张量用 E4M3，每个张量沿行、沿列各量化一份。
+9. DeepSeek-AI. [DeepSeek-V3 Technical Report](https://arxiv.org/abs/2412.19437). arXiv:2412.19437, 2024. fp8 训练的 1 × 128、128 × 128 scale，累加提升到 fp32，反向时 tile 的转置。
+10. NVIDIA. [Pretraining Large Language Models with NVFP4](https://arxiv.org/abs/2509.25149). arXiv:2509.25149, 2025.
+11. Ma et al. [The Era of 1-bit LLMs: All Large Language Models are in 1.58 Bits](https://arxiv.org/abs/2402.17764). arXiv:2402.17764, 2024. BitNet b1.58。
+12. Tseng, Chee, Sun, Kuleshov, De Sa. [QuIP#: Even Better LLM Quantization with Hadamard Incoherence and Lattice Codebooks](https://arxiv.org/abs/2402.04396). ICML 2024. 推理时 2 到 4 bit 的权重量化。
+13. Chillee (Horace He). [Min-cut optimal(*) recomputation (i.e. activation checkpointing) with AOTAutograd](https://dev-discuss.pytorch.org/t/min-cut-optimal-recomputation-i-e-activation-checkpointing-with-aotautograd/467)。第 4 节三层 sigmoid 的例子。
+14. Chen, Xu, Zhang, Guestrin. [Training Deep Nets with Sublinear Memory Cost](https://arxiv.org/abs/1604.06174). arXiv:1604.06174, 2016. activation checkpoint。
+15. Dao, Fu, Ermon, Rudra, Ré. [FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness](https://arxiv.org/abs/2205.14135). NeurIPS 2022. 反向时重算 P。
+16. [Triton tutorials](https://triton-lang.org/main/getting-started/tutorials/index.html)。fused softmax、matmul 的写法。

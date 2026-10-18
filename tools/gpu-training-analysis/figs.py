@@ -1503,31 +1503,36 @@ def mm_tiling():
 
 # ── 单卡优化方法一文的示意图（画法参考 CS336 lecture 5） ─────────────────────────
 def opt_divergence():
-    f = F("fig-o-3", 300, "control divergence：一个 warp 里 lane 0 到 3 走 if、lane 4 到 7 走 else，硬件先执行 A、B，此时 lane 4 到 7 被屏蔽，再执行 X、Y，lane 0 到 3 被屏蔽，最后一起执行 Z；如果分支按 warp 一致，两个 warp 各走各的，每个 warp 只执行一条路")
-    X0, U = 92, 46
-    def lane_row(y, k, segs):
-        f.w(f'<text class="s" x="{X0 - 8}" y="{y + 11}" text-anchor="end">lane {k}</text>')
-        for u0, u1, lab, on in segs:
-            st = tint("--fig-1", 40, sw=1) if on else 'style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"'
-            f.w(f'<rect x="{X0 + u0 * U + 1}" y="{y}" width="{(u1 - u0) * U - 2}" height="14" rx="2" {st}/>')
-
-    f.w('<text class="tb" x="8" y="22">warp 内分支不一样：if (lane &lt; 4) { A; B } else { X; Y }; Z</text>')
-    for i, lab in enumerate(("A", "B", "X", "Y", "Z")):
-        f.w(f'<text class="s" x="{X0 + (i + 0.5) * U}" y="38" text-anchor="middle">{lab}</text>')
-    for k in range(8):
-        a = k < 4
-        lane_row(42 + k * 18, k, [(0, 1, "A", a), (1, 2, "B", a), (2, 3, "X", not a), (3, 4, "Y", not a), (4, 5, "Z", True)])
-    f.w(f'<text class="s" x="{X0 + 5 * U + 10}" y="{42 + 3 * 18 + 11}">5 段时间，每段都有一半 lane 空着</text>')
-    y2 = 42 + 8 * 18 + 28
-    f.w(f'<text class="tb" x="8" y="{y2 - 10}">分支按 warp 一致：warp 0 都走 if，warp 1 都走 else，两个 warp 各自只走一条路</text>')
-    for w, segs in ((0, [(0, 1, "A", True), (1, 2, "B", True), (2, 3, "Z", True)]), (1, [(0, 1, "X", True), (1, 2, "Y", True), (2, 3, "Z", True)])):
-        y = y2 + 6 + w * 22
-        f.w(f'<text class="s" x="{X0 - 8}" y="{y + 11}" text-anchor="end">warp {w}</text>')
-        for u0, u1, lab, on in segs:
-            f.w(f'<rect x="{X0 + u0 * U + 1}" y="{y}" width="{U - 2}" height="14" rx="2" {tint("--fig-1", 40, sw=1)}/><text class="s" x="{X0 + (u0 + 0.5) * U}" y="{y + 11}" text-anchor="middle">{lab}</text>')
-    f.w(f'<text class="s" x="{X0 + 3 * U + 10}" y="{y2 + 6 + 22 + 11}">每个 warp 3 段，没有空着的 lane</text>')
-    f.arrow(X0, 290, X0 + 5 * U, 290, None, width=1.2)
-    f.w(f'<text class="s" x="{X0 + 5 * U + 6}" y="{294}">时间</text>')
+    f = F("fig-o-3", 446, "control divergence：if (lane < 4) { A; B } else { X; Y }; Z。Pascal 及以前分支两边串行，先 A、B 再 X、Y，执行一边时另一半 lane 被屏蔽，最后一起执行 Z，共 5 段；Volta 起两边可以交替执行，A、X、B、Y 轮流，Z 也可能分两次执行，共 6 段，同一时刻仍只有一半 lane 在执行；分支按 warp 一致时，每个 warp 只走自己那条路")
+    X0, U = 96, 44
+    on_st = tint("--fig-1", 40, sw=1)
+    off_st = 'style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"'
+    def panel(y0, title, sched, note):
+        f.w(f'<text class="tb" x="8" y="{y0}">{title}</text>')
+        for i, (lab, who) in enumerate(sched):
+            f.w(f'<text class="s" x="{X0 + (i + 0.5) * U}" y="{y0 + 18}" text-anchor="middle">{lab}</text>')
+        for k in range(8):
+            y = y0 + 24 + k * 15
+            f.w(f'<text class="s" x="{X0 - 8}" y="{y + 10}" text-anchor="end">lane {k}</text>')
+            for i, (lab, who) in enumerate(sched):
+                act = who == "all" or (who == "lo") == (k < 4)
+                f.w(f'<rect x="{X0 + i * U + 1}" y="{y}" width="{U - 2}" height="12" rx="2" {on_st if act else off_st}/>')
+        f.w(f'<text class="s" x="{X0 + len(sched) * U + 10}" y="{y0 + 24 + 4 * 15 + 3}">{note}</text>')
+    panel(22, "Pascal 及以前：分支两边串行，结束后在 Z 合起来",
+          [("A", "lo"), ("B", "lo"), ("X", "hi"), ("Y", "hi"), ("Z", "all")], "5 段，前 4 段都有一半 lane 空着")
+    panel(196, "Volta 起：两边可以交替执行，Z 不一定合起来",
+          [("A", "lo"), ("X", "hi"), ("B", "lo"), ("Y", "hi"), ("Z", "lo"), ("Z", "hi")], "6 段，同一时刻仍只有一半 lane 在执行")
+    y2 = 196 + 24 + 8 * 15 + 34
+    f.w(f'<text class="tb" x="8" y="{y2}">分支按 warp 一致：warp 0 都走 if，warp 1 都走 else</text>')
+    for w, segs in ((0, ("A", "B", "Z")), (1, ("X", "Y", "Z"))):
+        y = y2 + 12 + w * 20
+        f.w(f'<text class="s" x="{X0 - 8}" y="{y + 10}" text-anchor="end">warp {w}</text>')
+        for i, lab in enumerate(segs):
+            f.w(f'<rect x="{X0 + i * U + 1}" y="{y}" width="{U - 2}" height="14" rx="2" {on_st}/><text class="s" x="{X0 + (i + 0.5) * U}" y="{y + 11}" text-anchor="middle">{lab}</text>')
+    f.w(f'<text class="s" x="{X0 + 3 * U + 10}" y="{y2 + 12 + 20 + 11}">每个 warp 3 段，没有空着的 lane</text>')
+    ya = y2 + 12 + 40 + 14
+    f.arrow(X0, ya, X0 + 6 * U, ya, None, width=1.2)
+    f.w(f'<text class="s" x="{X0 + 6 * U + 6}" y="{ya + 4}">时间</text>')
     return f
 
 def opt_precision():
@@ -2160,7 +2165,7 @@ CAPS = {
  "cuda_model": '<strong>图 1-5</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；中间是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>；右边是这一层在 Triton 里怎么写。',
  "op_split": '<strong>图 2-1</strong> 四个例子的数据怎么分给 program。深蓝是 pid = 1 的 program 要读的数据，红色是它写回的输出；row sum 和 matmul 要循环，实心是第 0 轮读的 block，斜线是之后几轮要读的。matmul 那格一格是一个 block。每个例子的完整数据流图在后面各小节。',
  "mm_tiling": '<strong>图 7-1</strong> matmul 怎么切 block，一格是一个 block。C 的 block (1, 1) 只用到 A 的第 1 个 row block 和 B 的第 1 个 column block；沿 K 一轮读一对 block，乘完加到累加器上，实心是第 0 轮，斜线是之后几轮。A block 里的每个数被 C block 里同一行的 BN 个输出用到，B block 里的每个数被同一列的 BM 个输出用到。',
- "opt_divergence": '<strong>图 1-1</strong> control divergence（按 8 条 lane 画，实际一个 warp 32 条）。上：同一个 warp 里分支不一样，A、B 和 X、Y 两段都要执行，执行一段时另一半 lane 被屏蔽（虚线）；下：分支按 warp 一致时，每个 warp 只走自己那条路。画法参考 <a href="https://github.com/stanford-cs336/lectures/blob/main/lecture_05.pdf">CS336 lecture 5</a>。',
+ "opt_divergence": '<strong>图 1-1</strong> control divergence（按 8 条 lane 画，实际一个 warp 32 条），代码是 <code>if (lane &lt; 4) { A; B } else { X; Y }; Z</code>。虚线是这一段被屏蔽、没在执行的 lane。上：Pascal 及以前一个 warp 只有一个程序计数器，分支两边串行执行。中：Volta 起每个 thread 有自己的程序计数器，两边的语句可以交替执行，调度器也不保证在 Z 合起来；但每一拍仍然只执行一条指令，空着的 lane 一样多。下：分支按 warp 一致时没有空着的 lane。上、中两层的画法参考 <a href="https://images.nvidia.com/content/volta-architecture/pdf/volta-architecture-whitepaper.pdf">Volta 白皮书</a> Figure 20、22 和 <a href="https://github.com/stanford-cs336/lectures/blob/main/lecture_05.pdf">CS336 lecture 5</a>。',
  "opt_precision": '<strong>图 2-1</strong> 位数和一次能搬的数。显存、L2 都按 32 B 的 sector、128 B 的 cache line 搬数据，位数减半，同样的搬运量就多一倍的数。',
  "opt_mx": '<strong>图 2-2</strong> block scaling 为什么转置以后要再量化一份（示意，一个 block 按 4 个数画，MX 格式是 32 个）。颜色深浅区分不同的 block，红色是每个 block 的 scale。W 按 PyTorch 的 Linear 存成 [N, K]。同一个 block 里的数共用一个 scale，所以 block 必须沿矩阵乘的归约方向连续：前向沿 K，反向算 dX 时沿 N，原来的 block 和 scale 用不上。',
  "opt_fusion": '<strong>图 3-1</strong> fusion 省掉中间结果的往返（示意，按 3 个 op 画）。eager 下每个 op 是一个 kernel，t1、t2 都要写回显存、下一个 kernel 再读回来；合成一个 kernel 以后，中间结果留在 register 里。画法参考 CS336 lecture 5。',
