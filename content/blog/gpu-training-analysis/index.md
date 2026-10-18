@@ -10,13 +10,15 @@ series: ["GPU training optimization"]
 series_order: 2
 ---
 
-这篇文章回答一个问题：在一张 RTX 5090 上用 PyTorch 训练 Transformer，一步训练的时间和显存花在了哪里。起因是两个实测结果：medium 和 large 按 6N 算 MFU 只有 31%；xl（3.41B）在 seq 2048 下显存放不下。下面用 roofline 和逐个 op 的实测把原因找出来。
+这篇是 Stanford CS336（Language Modeling from Scratch）2025 年 [Assignment 2: Systems](https://github.com/stanford-cs336/assignment2-systems) 的笔记。CS336 的 Assignment 1 要求只用 PyTorch 的基础张量运算从零写一个 Transformer 语言模型，Linear、Embedding、RMSNorm、RoPE、SwiGLU、causal multi-head attention 和 AdamW 都自己实现，不用 `torch.nn` 里现成的层。Assignment 2 接着在 GPU 上测这个模型：一步训练要多久、时间花在哪些 kernel 上、显存峰值有多大、混合精度能省多少，然后用 Triton 写 FlashAttention-2。
+
+我用 Assignment 1 里手写的模型在一张 RTX 5090 上做了这些测量。有两个结果需要解释：medium 和 large 按 6N 算 MFU 只有 31%；xl（3.41B）在 seq 2048 下显存放不下。所以这篇文章回答一个问题：一步训练的时间和显存花在了哪里。方法是用 roofline 当尺子，先算整步的总账，再把单个 op 拆开实测。
 
 结论有两条。时间上，矩阵乘本身不慢，慢的是夹在矩阵乘之间、几乎不做计算的逐元素 kernel，它们占一步 GPU 时间的 40%。其中随 seq 涨得最快的是 attention 里的缩放、mask 和 softmax，它们反复读写 seq × seq 的分数矩阵 S = QKᵀ，seq 1024 时 attention 占前向时间的 46%。显存上，峰值主要由前向为反向存下的 activation 决定，其中一半以上是 attention 存下的两份 seq × seq 张量：softmax 的中间结果和输出的注意力权重 P。两条结论都指向 attention 把 seq × seq 的中间结果写进了显存，这也是下一篇 FlashAttention 要解决的问题。
 
-文章分四步走：[第 1 节](#basics)准备工具 roofline；[第 2 节](#step)算一步训练的总账，找出时间和显存的大头；[第 3 节](#ops)逐个 op 拆开，看每一步算了多少、读写了多少显存、为反向存了什么，先拿最简单的 RMSNorm 走一遍，再用同样的方法拆 attention；[第 4 节](#savings)试 bf16 和 activation checkpoint 能省多少。怎么把 S、P 彻底去掉，留给下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/)。GPU 的硬件和 Triton 的基本写法放在系列的上一篇 [GPU 与 Triton 入门](/blog/gpu-triton-intro/)。
+文章分四步走：[第 1 节](#basics)准备工具 roofline；[第 2 节](#step)算一步训练的总账，找出时间和显存的大头；[第 3 节](#ops)逐个 op 拆开，看每一步算了多少、读写了多少显存、为反向存了什么，先拿最简单的 RMSNorm 走一遍，再用同样的方法拆 attention；[第 4 节](#savings)试 bf16 和 activation checkpoint 能省多少。怎么把 S、P 彻底去掉，也就是作业的 FlashAttention-2 部分，留给下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/)。GPU 的硬件和 Triton 的基本写法放在系列的上一篇 [GPU 与 Triton 入门](/blog/gpu-triton-intro/)。
 
-模型是我自己写的 Transformer LM（RMSNorm、RoPE、SwiGLU，pre-norm），一共五档：small 0.13B、medium 0.42B、large 0.97B、xl 3.41B，以及 10B（实际 12.83B 参数）。
+模型就是 Assignment 1 写的 Transformer LM（RMSNorm、RoPE、SwiGLU，pre-norm），所有 block 都是手写的，测了五档：small 0.13B、medium 0.42B、large 0.97B、xl 3.41B，以及 10B（实际 12.83B 参数）。
 
 > 环境：RTX 5090 32 GB，torch 2.11.0+cu130。fp32 基准关掉 tf32（`allow_tf32=False`）。除注明外 batch 4、seq 512，预热 5 步、计时 10 步。「full step」指前向、反向加 optimizer 的一整步，「前向 + 反向」不含 optimizer。显存一律 GiB = 2³⁰ B（`max_memory_allocated() / 1024³`）。
 
