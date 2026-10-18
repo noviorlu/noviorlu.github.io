@@ -25,7 +25,7 @@ series_order: 1
 先来看整体结构。如[图 1-1](#fig-1-1)，MiniCPM-o 4.5 由三块组成：编码器把视频和音频变成 LLM 的输入嵌入；LLM 出文本，同时把每个文本 token 的隐状态交给语音解码器；语音解码器出离散的语音 token，最后由 flow matching 合成波形。
 
 <figure id="fig-1-1" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 640" width="100%" role="img" aria-label="MiniCPM-o 4.5 架构（从上到下）：视频和音频分别经 SigLIP 加 Resampler、Whisper 加 MLP 和均值池化变成 LLM 的嵌入；Qwen3-8B 出文本，同时把文本 token 和末层隐状态交给 0.3B 的语音 token 解码器，两者相加作为条件，出 25 Hz 的 S3 token，再由 flow matching 合成 24 kHz 音频">
+<svg class="fg" viewBox="0 0 640 756" width="100%" role="img" aria-label="MiniCPM-o 4.5 架构（从上到下）：视频和音频分别经 SigLIP 加 Resampler、Whisper 加 MLP 和均值池化变成 4096 维嵌入，每秒按 unit 标记、视觉、音频的顺序沿序列拼成一段，接在 KV cache 后面交给 Qwen3-8B；LLM 出文本，同时把文本 token 和末层隐状态交给 0.3B 的语音 token 解码器，出 25 Hz 的 S3 token，再由 flow matching 合成 24 kHz 音频">
   <style>
     .fg .t { font-size: 12.5px; fill: currentColor; }
     .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
@@ -37,7 +37,7 @@ series_order: 1
     .fg .tick { stroke: currentColor; stroke-opacity: .35; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
   </style>
-  <defs><marker id="fig-1-1-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-1-1-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker></defs>
+  <defs><marker id="fig-1-1-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker><marker id="fig-1-1-m1" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-2)"/></marker><marker id="fig-1-1-m2" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-3)"/></marker><marker id="fig-1-1-m3" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker></defs>
   <text class="lab2" x="20" y="18" text-anchor="start">箭头旁的数字是进入下一模块的 token 数</text>
   <rect x="90" y="32" width="140" height="40" rx="6" class="op"/>
   <text class="t" x="160.0" y="48.5" text-anchor="middle">视频帧</text>
@@ -64,44 +64,64 @@ series_order: 1
   <path d="M440,72 L440,94" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
   <path d="M160,152 L160,174" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
   <path d="M440,152 L440,174" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
-  <path d="M160,226 L160,264" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
-  <text class="s" x="168" y="250" text-anchor="start">64 / 帧</text>
-  <path d="M440,232 L440,264" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
-  <text class="s" x="448" y="252" text-anchor="start">10 / s</text>
-  <rect x="50" y="266" width="500" height="64" rx="6" style="fill: color-mix(in srgb, var(--fig-1) 16%, var(--fig-bg)); stroke: var(--fig-1)" stroke-width="1.6"/>
-  <text class="tb" x="300.0" y="287.0" text-anchor="middle">Qwen3-8B</text>
-  <text class="s" x="300.0" y="302.0" text-anchor="middle">36 层，d = 4096</text>
-  <text class="s" x="300.0" y="317.0" text-anchor="middle">每秒 3–4 个文本 token</text>
-  <rect x="60" y="372" width="140" height="40" rx="6" class="op"/>
-  <text class="t" x="130.0" y="396.0" text-anchor="middle">文本输出</text>
-  <path d="M130,330 L130,370" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
-  <rect x="380" y="372" width="170" height="44" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 16%, var(--fig-bg)); stroke: var(--fig-hi)" stroke-width="1.6"/>
-  <text class="tb" x="465.0" y="390.5" text-anchor="middle">Projector</text>
-  <text class="s" x="465.0" y="405.5" text-anchor="middle">4096→768→768，L2</text>
-  <path d="M465,330 L465,370" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-1-1-m1)"/>
-  <text class="s" x="473" y="356" text-anchor="start">末层 h</text>
-  <rect x="260" y="452" width="290" height="60" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 16%, var(--fig-bg)); stroke: var(--fig-hi)" stroke-width="1.6"/>
-  <text class="tb" x="405.0" y="478.5" text-anchor="middle">语音 token 解码器</text>
-  <text class="s" x="405.0" y="493.5" text-anchor="middle">0.3B，Llama 20 层，d 768</text>
-  <path d="M300,330 L300,450" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
-  <text class="s" x="308" y="392" text-anchor="start">文本 token</text>
-  <path d="M465,416 L465,450" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-1-1-m1)"/>
-  <text class="tb" x="473" y="438" text-anchor="start">+</text>
-  <rect x="315" y="540" width="180" height="56" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 16%, var(--fig-bg)); stroke: var(--fig-mute)" stroke-width="1.6"/>
-  <text class="tb" x="405.0" y="557.0" text-anchor="middle">flow matching</text>
-  <text class="s" x="405.0" y="572.0" text-anchor="middle">+ HiFT 声码器</text>
-  <text class="s" x="405.0" y="587.0" text-anchor="middle">参考音频定音色</text>
-  <path d="M405,512 L405,538" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
-  <text class="s" x="413" y="530" text-anchor="start">S3，25 / s</text>
-  <rect x="345" y="612" width="120" height="24" rx="6" class="op"/>
-  <text class="t" x="405.0" y="628.0" text-anchor="middle">音频输出 24 kHz</text>
-  <path d="M405,596 L405,610" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
-  <text class="s" x="60" y="470" text-anchor="start">语音 token 解码器的输入</text>
-  <text class="s" x="60" y="486" text-anchor="start">= 文本 token 的嵌入</text>
-  <text class="s" x="60" y="502" text-anchor="start">+ 投影后的 h</text>
-  <text class="s" x="60" y="518" text-anchor="start">（逐元素相加）</text>
+  <rect class="band" x="20" y="262" width="600" height="92" rx="8"/>
+  <text class="ttl" x="32" y="322" text-anchor="start">按时间拼成一条序列：每秒一个 unit，沿序列方向拼接（不相加）</text>
+  <rect x="32" y="270" width="48" height="30" rx="4" class="op"/>
+  <text x="56.0" y="289" text-anchor="middle" font-size="10.5" fill="currentColor">&lt;unit&gt;</text>
+  <rect x="84" y="270" width="54" height="30" rx="4" class="op"/>
+  <text x="111.0" y="289" text-anchor="middle" font-size="10.5" fill="currentColor">&lt;image&gt;</text>
+  <rect x="142" y="270" width="104" height="30" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 18%, var(--fig-bg)); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text x="194.0" y="289" text-anchor="middle" font-size="10.5" fill="currentColor">64 个视觉嵌入</text>
+  <rect x="250" y="270" width="58" height="30" rx="4" class="op"/>
+  <text x="279.0" y="289" text-anchor="middle" font-size="10.5" fill="currentColor">&lt;/image&gt;</text>
+  <rect x="312" y="270" width="98" height="30" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 18%, var(--fig-bg)); stroke: var(--fig-3)" stroke-width="1.4"/>
+  <text x="361.0" y="289" text-anchor="middle" font-size="10.5" fill="currentColor">10 个音频嵌入</text>
+  <rect x="414" y="270" width="70" height="30" rx="4" style="fill: color-mix(in srgb, var(--fig-1) 18%, var(--fig-bg)); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text x="449.0" y="289" text-anchor="middle" font-size="10.5" fill="currentColor">LLM 生成</text>
+  <rect x="488" y="270" width="48" height="30" rx="4" class="op"/>
+  <text x="512.0" y="289" text-anchor="middle" font-size="10.5" fill="currentColor">&lt;/unit&gt;</text>
+  <rect x="540" y="270" width="62" height="30" rx="4" class="op" stroke-dasharray="4 3"/>
+  <text x="571.0" y="289" text-anchor="middle" font-size="10.5" fill="currentColor">下一秒 …</text>
+  <text class="s" x="32" y="342" text-anchor="start">尖括号是词表里的特殊 token（查词表嵌入）；视觉、音频嵌入直接写进对应位置，都是 4096 维</text>
+  <path d="M160,226 L160,244 L194,244 L194,268" fill="none" style="stroke: var(--fig-2)" stroke-width="1.5" marker-end="url(#fig-1-1-m1)"/>
+  <text class="s" x="168" y="240" text-anchor="start">64 / 帧</text>
+  <path d="M440,232 L440,250 L361,250 L361,268" fill="none" style="stroke: var(--fig-3)" stroke-width="1.5" marker-end="url(#fig-1-1-m2)"/>
+  <text class="s" x="448" y="246" text-anchor="start">10 / s</text>
+  <path d="M320,354 L320,374" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
+  <rect x="50" y="376" width="500" height="64" rx="6" style="fill: color-mix(in srgb, var(--fig-1) 16%, var(--fig-bg)); stroke: var(--fig-1)" stroke-width="1.6"/>
+  <text class="tb" x="300.0" y="397.0" text-anchor="middle">Qwen3-8B</text>
+  <text class="s" x="300.0" y="412.0" text-anchor="middle">36 层，d = 4096</text>
+  <text class="s" x="300.0" y="427.0" text-anchor="middle">每秒 3–4 个文本 token</text>
+  <rect x="60" y="482" width="140" height="40" rx="6" class="op"/>
+  <text class="t" x="130.0" y="506.0" text-anchor="middle">文本输出</text>
+  <path d="M130,440 L130,480" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
+  <rect x="380" y="482" width="170" height="44" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 16%, var(--fig-bg)); stroke: var(--fig-hi)" stroke-width="1.6"/>
+  <text class="tb" x="465.0" y="500.5" text-anchor="middle">Projector</text>
+  <text class="s" x="465.0" y="515.5" text-anchor="middle">4096→768→768，L2</text>
+  <path d="M465,440 L465,480" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-1-1-m3)"/>
+  <text class="s" x="473" y="466" text-anchor="start">末层 h</text>
+  <rect x="260" y="562" width="290" height="60" rx="6" style="fill: color-mix(in srgb, var(--fig-hi) 16%, var(--fig-bg)); stroke: var(--fig-hi)" stroke-width="1.6"/>
+  <text class="tb" x="405.0" y="588.5" text-anchor="middle">语音 token 解码器</text>
+  <text class="s" x="405.0" y="603.5" text-anchor="middle">0.3B，Llama 20 层，d 768</text>
+  <path d="M300,440 L300,560" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
+  <text class="s" x="308" y="502" text-anchor="start">文本 token</text>
+  <path d="M465,526 L465,560" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#fig-1-1-m3)"/>
+  <text class="tb" x="473" y="548" text-anchor="start">+</text>
+  <rect x="315" y="650" width="180" height="56" rx="6" style="fill: color-mix(in srgb, var(--fig-mute) 16%, var(--fig-bg)); stroke: var(--fig-mute)" stroke-width="1.6"/>
+  <text class="tb" x="405.0" y="667.0" text-anchor="middle">flow matching</text>
+  <text class="s" x="405.0" y="682.0" text-anchor="middle">+ HiFT 声码器</text>
+  <text class="s" x="405.0" y="697.0" text-anchor="middle">参考音频定音色</text>
+  <path d="M405,622 L405,648" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
+  <text class="s" x="413" y="640" text-anchor="start">S3，25 / s</text>
+  <rect x="345" y="722" width="120" height="24" rx="6" class="op"/>
+  <text class="t" x="405.0" y="738.0" text-anchor="middle">音频输出 24 kHz</text>
+  <path d="M405,706 L405,720" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-1-m0)"/>
+  <text class="s" x="60" y="580" text-anchor="start">语音 token 解码器的输入</text>
+  <text class="s" x="60" y="596" text-anchor="start">= 文本 token 的嵌入</text>
+  <text class="s" x="60" y="612" text-anchor="start">+ 投影后的 h</text>
+  <text class="s" x="60" y="628" text-anchor="start">（逐元素相加）</text>
 </svg>
-<figcaption><strong>图 1-1</strong> MiniCPM-o 4.5 的三块：编码器、LLM、语音解码器。数字取自论文表 13 和 HuggingFace 上的推理代码；音频 50 Hz 到 10 Hz 那一步，代码里是先过 MLP 再做 5 帧均值池化。</figcaption>
+<figcaption><strong>图 1-1</strong> MiniCPM-o 4.5 的三块：编码器、LLM、语音解码器；中间一排是音视频嵌入怎么拼进 LLM 的输入序列。数字取自论文表 13 和 HuggingFace 上的推理代码；音频 50 Hz 到 10 Hz 那一步，代码里是先过 MLP 再做 5 帧均值池化。</figcaption>
 </figure>
 
 | 模块 | 结构 | 参数量 | 速率 |
@@ -120,6 +140,7 @@ series_order: 1
 
 - **视觉**：全双工模式下图像最大 448×448，只取原图不切片，所以每帧就是 64 个 token（加上首尾两个标记）。非全双工模式可以切片到 2240×2240。
 - **音频**：1 秒音频先变成 100 帧 log-mel，Whisper 的第二个卷积步长为 2，出 50 帧；每帧过 MLP 映射到 4096 维，再每 5 帧取平均，变成 10 个 token。论文说的「两层 MLP 做 5 倍时间压缩」，代码里压缩这一步是均值池化，不是学出来的。
+- **音视频怎么合在一起**：进 LLM 之前，视觉和音频不在嵌入层面相加或做任何融合，只是按时间沿序列拼接（图 1-1 中间那一排）。每秒一个 unit：先是 `<unit>`、`<image>` 这类特殊 token，再是 64 个视觉嵌入、10 个音频嵌入，然后才是 LLM 这一秒生成的内容。两种模态之间的交互全部交给 LLM 的 attention。序列的细节见[第 2 节](#sequence)。
 - **LLM 只出文本**：论文的理由是，如果让 backbone 直接出 25 Hz 的语音 token，每秒的解码步数要多六到八倍，语言能力也会掉。所以每秒只出 3–4 个文本 token，语音交给小解码器。
 - **语音解码器的输入**：每个文本 token 对应一个输入向量，等于解码器自己的文本嵌入加上 LLM 末层隐状态经投影、L2 归一化之后的向量，两者逐元素相加。论文的说法是 LLM 已经把韵律决策编码进隐状态，小解码器只管发音。
 - **音色**：语音 token 解码器不接收说话人向量。音色由 flow matching 那一步的参考音频决定；参考音频同时也作为系统提示的一部分送进 LLM。

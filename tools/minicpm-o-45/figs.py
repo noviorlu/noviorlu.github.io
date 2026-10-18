@@ -63,7 +63,7 @@ class F:
 
 # ── 图 1-1 架构 ───────────────────────────────────────────────────────────────
 def arch():
-    f = F("fig-1-1", 640, "MiniCPM-o 4.5 架构（从上到下）：视频和音频分别经 SigLIP 加 Resampler、Whisper 加 MLP 和均值池化变成 LLM 的嵌入；Qwen3-8B 出文本，同时把文本 token 和末层隐状态交给 0.3B 的语音 token 解码器，两者相加作为条件，出 25 Hz 的 S3 token，再由 flow matching 合成 24 kHz 音频")
+    f = F("fig-1-1", 756, "MiniCPM-o 4.5 架构（从上到下）：视频和音频分别经 SigLIP 加 Resampler、Whisper 加 MLP 和均值池化变成 4096 维嵌入，每秒按 unit 标记、视觉、音频的顺序沿序列拼成一段，接在 KV cache 后面交给 Qwen3-8B；LLM 出文本，同时把文本 token 和末层隐状态交给 0.3B 的语音 token 解码器，出 25 Hz 的 S3 token，再由 flow matching 合成 24 kHz 音频")
     L, R, BW = 160, 440, 210          # column centres, box width
     f.text(20, 18, "箭头旁的数字是进入下一模块的 token 数", "lab2")
     # inputs
@@ -77,24 +77,42 @@ def arch():
     for x in (L, R):
         f.arrow(x, 72, x, 94)
     f.arrow(L, 152, L, 174); f.arrow(R, 152, R, 174)
-    f.arrow(L, 226, L, 264); f.text(L + 8, 250, "64 / 帧", "s")
-    f.arrow(R, 232, R, 264); f.text(R + 8, 252, "10 / s", "s")
+    # combine: one unit per second, concatenated along the sequence
+    f.w('<rect class="band" x="20" y="262" width="600" height="92" rx="8"/>')
+    f.text(32, 322, "按时间拼成一条序列：每秒一个 unit，沿序列方向拼接（不相加）", "ttl")
+    cells = [("&lt;unit&gt;", 48, None), ("&lt;image&gt;", 54, None), ("64 个视觉嵌入", 104, "--fig-2"), ("&lt;/image&gt;", 58, None),
+             ("10 个音频嵌入", 98, "--fig-3"), ("LLM 生成", 70, "--fig-1"), ("&lt;/unit&gt;", 48, None), ("下一秒 …", 62, None)]
+    x, pos = 32, {}
+    for lab, w, var in cells:
+        st = (f'style="fill: color-mix(in srgb, var({var}) 18%, var(--fig-bg)); stroke: var({var})" stroke-width="1.4"'
+              if var else 'class="op"')
+        dash = ' stroke-dasharray="4 3"' if lab.startswith("下一秒") else ''
+        f.w(f'<rect x="{x}" y="270" width="{w}" height="30" rx="4" {st}{dash}/>')
+        f.w(f'<text x="{x + w / 2}" y="289" text-anchor="middle" font-size="10.5" fill="currentColor">{lab}</text>')
+        pos[lab] = x + w / 2
+        x += w + 4
+    f.text(32, 342, "尖括号是词表里的特殊 token（查词表嵌入）；视觉、音频嵌入直接写进对应位置，都是 4096 维", "s")
+    xv, xa = pos["64 个视觉嵌入"], pos["10 个音频嵌入"]
+    f.path(f"M{L},226 L{L},244 L{xv:.0f},244 L{xv:.0f},268", "--fig-2"); f.text(L + 8, 240, "64 / 帧", "s")
+    f.path(f"M{R},232 L{R},250 L{xa:.0f},250 L{xa:.0f},268", "--fig-3"); f.text(R + 8, 246, "10 / s", "s")
+    f.arrow(320, 354, 320, 374)
     # LLM
-    f.box(50, 266, 500, 64, "Qwen3-8B", "36 层，d = 4096", "每秒 3–4 个文本 token", var="--fig-1")
+    f.box(50, 376, 500, 64, "Qwen3-8B", "36 层，d = 4096", "每秒 3–4 个文本 token", var="--fig-1")
     # outputs
-    f.box(60, 372, 140, 40, "文本输出", bold=False)
-    f.arrow(130, 330, 130, 370)
-    f.box(380, 372, 170, 44, "Projector", "4096→768→768，L2", var="--fig-hi")
-    f.arrow(465, 330, 465, 370, "--fig-hi"); f.text(473, 356, "末层 h", "s")
-    f.box(260, 452, 290, 60, "语音 token 解码器", "0.3B，Llama 20 层，d 768", var="--fig-hi")
-    f.arrow(300, 330, 300, 450); f.text(308, 392, "文本 token", "s")
-    f.arrow(465, 416, 465, 450, "--fig-hi"); f.text(473, 438, "+", "tb")
-    f.box(315, 540, 180, 56, "flow matching", "+ HiFT 声码器", "参考音频定音色", var="--fig-mute")
-    f.arrow(405, 512, 405, 538); f.text(413, 530, "S3，25 / s", "s")
-    f.box(345, 612, 120, 24, "音频输出 24 kHz", bold=False)
-    f.arrow(405, 596, 405, 610)
+    Y = 110  # shift of the output part
+    f.box(60, 372 + Y, 140, 40, "文本输出", bold=False)
+    f.arrow(130, 330 + Y, 130, 370 + Y)
+    f.box(380, 372 + Y, 170, 44, "Projector", "4096→768→768，L2", var="--fig-hi")
+    f.arrow(465, 330 + Y, 465, 370 + Y, "--fig-hi"); f.text(473, 356 + Y, "末层 h", "s")
+    f.box(260, 452 + Y, 290, 60, "语音 token 解码器", "0.3B，Llama 20 层，d 768", var="--fig-hi")
+    f.arrow(300, 330 + Y, 300, 450 + Y); f.text(308, 392 + Y, "文本 token", "s")
+    f.arrow(465, 416 + Y, 465, 450 + Y, "--fig-hi"); f.text(473, 438 + Y, "+", "tb")
+    f.box(315, 540 + Y, 180, 56, "flow matching", "+ HiFT 声码器", "参考音频定音色", var="--fig-mute")
+    f.arrow(405, 512 + Y, 405, 538 + Y); f.text(413, 530 + Y, "S3，25 / s", "s")
+    f.box(345, 612 + Y, 120, 24, "音频输出 24 kHz", bold=False)
+    f.arrow(405, 596 + Y, 405, 610 + Y)
     for k, t in enumerate(["语音 token 解码器的输入", "= 文本 token 的嵌入", "+ 投影后的 h", "（逐元素相加）"]):
-        f.text(60, 470 + 16 * k, t, "s")
+        f.text(60, 470 + Y + 16 * k, t, "s")
     return f
 
 
@@ -184,7 +202,7 @@ def tail():
 
 
 CAPTIONS = {
-    "arch": '<strong>图 1-1</strong> MiniCPM-o 4.5 的三块：编码器、LLM、语音解码器。数字取自论文表 13 和 HuggingFace 上的推理代码；音频 50 Hz 到 10 Hz 那一步，代码里是先过 MLP 再做 5 帧均值池化。',
+    "arch": '<strong>图 1-1</strong> MiniCPM-o 4.5 的三块：编码器、LLM、语音解码器；中间一排是音视频嵌入怎么拼进 LLM 的输入序列。数字取自论文表 13 和 HuggingFace 上的推理代码；音频 50 Hz 到 10 Hz 那一步，代码里是先过 MLP 再做 5 帧均值池化。',
     "unit": '<strong>图 2-1</strong> 全双工模式下一个 unit（1 秒）的 token 顺序，取自推理代码 <code>MiniCPMODuplex.streaming_prefill</code> 和 <code>streaming_generate</code>。',
     "timing": '<strong>图 2-2</strong> 推理时序示意：第 1 秒 listen，第 2 秒开始说话。每秒的输入攒满后才进 LLM，语音在下一秒播出，所以从收到输入到播出语音至少隔一个 chunk。',
     "tail": '<strong>图 3-1</strong> TAIL 的训练数据怎么分组（示意，词和时间是编的）。规则来自论文 3.4 节；推理代码里找不到显式的推迟逻辑，我的理解是解码器从这种数据排布里学会了推迟。',
