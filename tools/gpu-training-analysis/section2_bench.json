@@ -2,52 +2,60 @@
  "gelu": {
   "shape": "n = 8388608",
   "eager": {
-   "us": 198.4,
+   "us": 207.1,
    "kernels": 8
   },
-  "triton": {
-   "us": 48.4,
+  "compile": {
+   "us": 47.6,
    "kernels": 1
   },
-  "builtin": {
-   "us": 50.6,
+  "triton": {
+   "us": 49.1,
    "kernels": 1
   }
  },
  "softmax": {
   "shape": "4096 × 4096",
   "eager": {
-   "us": 260.6,
+   "us": 261.0,
    "kernels": 5
   },
-  "triton": {
-   "us": 95.2,
+  "compile": {
+   "us": 96.0,
    "kernels": 1
   },
-  "builtin": {
-   "us": 95.7,
+  "triton": {
+   "us": 97.3,
    "kernels": 1
   }
  },
  "row_sum": {
   "shape": "4096 × 4096",
   "eager": {
-   "us": 54.5,
+   "us": 52.9,
+   "kernels": 1
+  },
+  "compile": {
+   "us": 49.1,
    "kernels": 1
   },
   "triton": {
-   "us": 56.2,
+   "us": 56.7,
    "kernels": 1
   }
  },
  "matmul_relu": {
   "shape": "4096 × 2048 × 512",
   "eager": {
-   "us": 164.8,
+   "us": 169.9,
+   "kernels": 3
+  },
+  "compile": {
+   "us": 168.3,
    "kernels": 3
   },
   "triton": {
-   "us": 210.8,
+   "us": 213.1,
    "kernels": 1
   }
  }

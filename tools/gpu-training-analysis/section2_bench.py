@@ -1,8 +1,8 @@
 """第 2 节开头的对比：同一个 op 用 PyTorch eager 直接写 vs 用 Triton 写（RTX 5090，fp32，形状和正文一样）。
 
-eager 列是读者用张量运算直接写的版本：GELU 按 tanh 公式逐个运算，softmax 是正文的 softmax_naive，
-row sum 是 x.sum(1)，matmul + ReLU 是 torch.relu(A @ B)（cuBLAS，关掉 tf32）。builtin 列是 PyTorch 自带的单个融合 kernel，作参照。
-耗时用 triton.testing.do_bench，每个跑 5 次取中位数；kernel 个数用 torch.profiler 数。
+eager 是读者用张量运算直接写的版本：GELU 按 tanh 公式逐个运算，softmax 是正文的 softmax_naive，
+row sum 是 x.sum(1)，matmul + ReLU 是 torch.relu(A @ B)（cuBLAS，关掉 tf32）。compile 是同一份 eager 代码包一层 torch.compile。
+耗时用 triton.testing.do_bench，每个跑 5 次取中位数；kernel 个数用 torch.profiler 数，只用来核对正文的说法。
 Run: python3 section2_bench.py   (needs CUDA)，结果写到 section2_bench.json。
 """
 import json, math, os, statistics
@@ -33,18 +33,20 @@ def main():
     x = torch.randn(8388608, device="cuda")
     X = torch.randn(4096, 4096, device="cuda")
     A, B = torch.randn(4096, 2048, device="cuda"), torch.randn(2048, 512, device="cuda")
-    cases = {
-        "gelu": {"shape": "n = 8388608", "eager": lambda: gelu_eager(x), "triton": lambda: gelu(x),
-                 "builtin": lambda: torch.nn.functional.gelu(x, approximate="tanh")},
-        "softmax": {"shape": "4096 × 4096", "eager": lambda: softmax_naive(X), "triton": lambda: softmax(X),
-                    "builtin": lambda: torch.softmax(X, 1)},
-        "row_sum": {"shape": "4096 × 4096", "eager": lambda: X.sum(1), "triton": lambda: row_sum(X)},
-        "matmul_relu": {"shape": "4096 × 2048 × 512", "eager": lambda: torch.relu(A @ B), "triton": lambda: matmul_relu(A, B)},
-    }
+    fns = {"gelu": (lambda x: gelu_eager(x), lambda: gelu(x), (x,)),
+           "softmax": (lambda X: softmax_naive(X), lambda: softmax(X), (X,)),
+           "row_sum": (lambda X: X.sum(1), lambda: row_sum(X), (X,)),
+           "matmul_relu": (lambda A, B: torch.relu(A @ B), lambda: matmul_relu(A, B), (A, B))}
+    shapes = {"gelu": "n = 8388608", "softmax": "4096 × 4096", "row_sum": "4096 × 4096", "matmul_relu": "4096 × 2048 × 512"}
+    cases = {}
+    for name, (eager, tri, args) in fns.items():
+        comp = torch.compile(eager)
+        cases[name] = {"shape": shapes[name], "eager": lambda e=eager, a=args: e(*a),
+                       "compile": lambda c=comp, a=args: c(*a), "triton": tri}
     res = {}
     for name, c in cases.items():
         r = {"shape": c["shape"]}
-        for k in ("eager", "triton", "builtin"):
+        for k in ("eager", "compile", "triton"):
             if k in c:
                 r[k] = {"us": us(c[k]), "kernels": kernels(c[k])}
         res[name] = r
