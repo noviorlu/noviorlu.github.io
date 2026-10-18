@@ -303,7 +303,7 @@ Triton 默认 `num_stages=3`，编译器把这个循环改写成流水线（[3.1
 
 `num_warps` 决定一个 program 有几个 thread：32 × `num_warps` 个。block 的大小写在代码里，thread 多了，每个 thread 分到的就少：[GELU](#triton-gelu) 一个 program 1024 个数，默认 128 个 thread，每个 thread 8 个；[matmul](#triton-matmul) 的 64 × 64 个 acc，每个 thread 32 个。一个 program 占几个 warp 名额也由它定，这会影响一个 SM 放几个 program（[3.2 节](#sched-limits)）。
 
-`num_stages` 决定循环里的 load 提前几轮发出。matmul 每轮把 $A_{IT}$、$B_{TJ}$ 读进 shared memory，一共 16 KB。`num_stages` 大于 1 时，编译器把循环改写成流水线，用 cp.async 异步发出后面几轮的 load，算第 $T$ 轮的时候，后面的 block 已经在路上。提前几轮就要多开几个槽来放：编出来 A、B 各有 `num_stages` − 1 个槽（`num_stages=1` 时也有 1 个，只是不提前搬），每多一个槽多 16 KB shared memory（[表 3-1](#tab-3-1)）。
+`num_stages` 决定循环里的 load 提前几轮发出。matmul 每轮把 $A_{IT}$、$B_{TJ}$ 读进 shared memory，一共 16 KB。`num_stages` 大于 1 时，编译器把循环改写成流水线，用 cp.async 异步发出后面几轮的 load，算第 $T$ 轮的时候，后面的 block 已经在路上。提前几轮就要多开几个槽来放：编出来 A、B 各有 `num_stages` − 1 个槽（`num_stages=1` 时也有 1 个，只是不提前搬），每多一个槽多 16 KB shared memory（[表 3-1](#tab-3-1)）。默认 3 级却只有 2 个槽，是因为有一级在 register 里：第 $T$ 轮要算之前，先用 ld.shared 把它从槽里读进 register，槽马上空出来去搬第 $T+2$ 轮。算第 $T$ 轮的时候，第 $T+1$、$T+2$ 轮在两个槽里，第 $T$ 轮在 register 里，一共三级。
 
 | num_stages | A、B 各几个槽 | cp.async | shared memory | 每个 SM 放几个 program | 耗时 |
 |:--|--:|:--|--:|--:|--:|
