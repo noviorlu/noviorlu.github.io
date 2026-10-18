@@ -1081,8 +1081,10 @@ def systolic():
     return f
 
 def cuda_model():
-    f = F("fig-h-5", 352, "CUDA 的执行层级：grid 由 block 组成，block 由 warp 组成，warp 由 32 个 thread 组成；分别跑在整张 GPU、一个 SM、一个 SMSP 和一条 lane 上")
-    f.w('<text class="ttl" x="20" y="18">软件：一次 kernel 启动</text><text class="ttl" x="432" y="18">硬件：跑在哪里（RTX 5090）</text>')
+    f = F("fig-h-5", 352, "CUDA 的执行层级：grid 由 block 组成，block 由 warp 组成，warp 由 32 个 thread 组成；分别跑在整张 GPU、一个 SM、一个 SMSP 和一条 lane 上；在 Triton 里，grid 自己定，block 叫 program，warp 只能定个数，thread 写不到", W=820)
+    f.w('<text class="ttl" x="20" y="18">软件：一次 kernel 启动</text><text class="ttl" x="432" y="18">硬件：跑在哪里（RTX 5090）</text><text class="ttl" x="648" y="18">Triton 里</text>')
+    tri = [("grid", "kernel[grid](...) 自己定", "program 之间不能同步"), ("program", "tl.program_id 是它的编号", "shared memory 由编译器分配"),
+           ("只给个数", "num_warps，默认 4", ""), ("写不到", "怎么分给 thread 由编译器定", "")]
     rows = [(30, 66, "--fig-mute", 12), (126, 66, "--fig-1", 12), (222, 50, "--fig-2", 16), (302, 42, "--fig-hi", 14)]
     hw = [("整张 GPU", "block 由硬件分到 170 个 SM"), ("一个 SM", "block 整个驻留，不跨 SM"),
           ("一个 SMSP", "调度器每拍发一条指令"), ("一条 lane", "CUDA core，自己的 register")]
@@ -1091,6 +1093,13 @@ def cuda_model():
         f.w(f'<rect x="432" y="{y}" width="196" height="{h}" rx="8" {tint(var, pct)}/>')
         f.w(f'<text class="tb" x="530" y="{y + h / 2 - 3}" text-anchor="middle">{t1}</text><text class="s" x="530" y="{y + h / 2 + 12}" text-anchor="middle">{t2}</text>')
         f.arrow(374, y + h / 2, 428, y + h / 2, None, width=1.5)
+    for (y, h, var, pct), (t1, t2, t3) in zip(rows, tri):
+        f.w(f'<rect x="648" y="{y}" width="166" height="{h}" rx="8" style="fill: var(--fig-bg); stroke: var(--fig-hi)" stroke-opacity=".7" stroke-width="1.2"/>')
+        lines = [x for x in (t2, t3) if x]
+        y0 = y + h / 2 - 7 * len(lines) + 2
+        f.w(f'<text class="tb" x="731" y="{y0}" text-anchor="middle">{t1}</text>')
+        for i, l in enumerate(lines):
+            f.w(f'<text class="s" x="731" y="{y0 + 15 + i * 14}" text-anchor="middle">{l}</text>')
     # grid
     f.w('<text class="lab" x="32" y="47">grid：所有 block，互相独立</text>')
     for k in range(7):
@@ -1856,7 +1865,7 @@ CAPS = {
  "tile_rules": '<strong>图 3-8</strong> 两个形状各扫 198 组配置（RTX 5090，fp32，<code>input_precision="ieee"</code>）。左：按每个 thread 存的 acc 个数（BM × BN / (32 × num_warps)）分组；右：按每个 SM 驻留的 warp 数分组。每组取最快的一个，纵轴是它比这个形状下整体最快的配置慢几倍；有 spill 的配置不算在内。悬停可看时间。',
  "warp_slots": '<strong>图 3-2</strong> 一个 SM 上驻留 3 个 program（P0、P1、P2）时的某一拍。格子里写的是这个 warp 属于哪个 program，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。',
  "hw_smsp": '<strong>图 1-4</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。',
- "cuda_model": '<strong>图 1-5</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。',
+ "cuda_model": '<strong>图 1-5</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；中间是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>；右边是这一层在 Triton 里怎么写。',
  "tri_gelu": '<strong>图 2-1</strong> GELU kernel（n = 8388608，fp32）。左边是 grid，数组按 BLOCK = 1024 切段，一段一个 program。右边是 program 1 的数据流，泳道和箭头的含义见正文。显存泳道里的整条是整个 x、y（各 8388608 个 fp32，32 MB），深色一段是 program 1 读写的 1024 个（4 KB）；按比例只有整条的 1/8192，图里放大了。',
  "wave_trace": '<strong>图 3-5</strong> GELU 的 8192 个 program 实际怎么分批跑（RTX 5090，n = 8388608，fp32，每个 program 4 个 warp）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，store 发出后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 编号所在的批次，一批 2040 个。浅红色是 bubble：名额上没有 program 在执行指令；最后一个 program 开始以后是 tail。下面的名额是按开始、结束时间排出来的，红框是这个 SM 上最长的一段空档。悬停可看 program 编号和时间。',
  "tri_softmax": '<strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。显存泳道里的方块是整个 x、y（各 64 MB），深色一条是 program 1 读写的那一行（4096 个 fp32，16 KB），按比例只有 1/4096，图里放大了。',
