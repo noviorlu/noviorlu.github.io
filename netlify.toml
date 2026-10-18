@@ -1,0 +1,19 @@
+# Netlify is used only for PR deploy previews. The live site is still built by
+# .github/workflows/hugo.yml and published to GitHub Pages (noviorlu.github.io).
+
+[build]
+  publish = "public"
+  command = "hugo --gc --minify --baseURL \"$DEPLOY_PRIME_URL/\""
+  # Skip production builds (pushes to main): exit 0 means "skip this build".
+  ignore = "[ \"$CONTEXT\" = \"production\" ]"
+
+[build.environment]
+  HUGO_VERSION = "0.155.3"
+  HUGO_ENVIRONMENT = "production"
+  TZ = "America/Toronto"
+
+# Keep previews out of search engines.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Robots-Tag = "noindex"
