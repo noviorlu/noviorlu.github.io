@@ -781,22 +781,33 @@ def hw_hierarchy():
     return f
 
 def hw_sm():
-    f = F("fig-h-2", 236, "RTX 5090 的一个 SM：4 个 SMSP，每个有 1 个 warp 调度器、64 KB register、32 个 CUDA core 和 1 个 Tensor core；4 个 SMSP 共享 128 KB 的 L1/shared memory，旁边是在显存和 shared memory 之间整块搬数据的 TMA")
-    f.w(f'<rect x="10" y="10" width="620" height="216" rx="12" {tint("--fig-1", 6, sw=1.4)}/>')
+    f = F("fig-h-2", 392, "RTX 5090 的一个 SM：4 个 SMSP，每个有 1 个 warp 调度器、64 KB register、32 个 CUDA core、1 个 Tensor core 和 4 个 LD/ST；LD/ST 把请求交给 4 个 SMSP 共享的 128 KB L1/shared memory；TMA 接在 shared memory 和片上互联之间；请求经片上互联到 L2，再到显存")
+    def bidir(x, y1, y2):                                     # 一来一回两条箭头，各有自己的杆
+        f.arrow(x - 5, y1, x - 5, y2, None, width=1.4)
+        f.arrow(x + 5, y2, x + 5, y1, None, width=1.4)
+    f.w(f'<rect x="10" y="10" width="620" height="306" rx="12" {tint("--fig-1", 6, sw=1.4)}/>')
     f.w('<text class="tb" x="24" y="32">SM（每颗 5090 有 170 个）</text>')
     for k in range(4):
         x = 24 + k * 151
-        f.w(f'<rect x="{x}" y="44" width="141" height="124" rx="8" class="op"/>')
+        f.w(f'<rect x="{x}" y="44" width="141" height="148" rx="8" class="op"/>')
         f.w(f'<text class="tb" x="{x + 70}" y="62" text-anchor="middle">SMSP {k}</text>')
-        rows = [("warp 调度器", "--fig-1", 10), ("register 64 KB", "--fig-hi", 16), ("CUDA core ×32", "--fig-2", 22), ("Tensor core ×1", "--fig-1", 22)]
+        rows = [("warp 调度器", "--fig-1", 10), ("register 64 KB", "--fig-hi", 16), ("CUDA core ×32", "--fig-2", 22),
+                ("Tensor core ×1", "--fig-1", 22), ("LD/ST ×4", "--fig-mute", 22)]
         for j, (t, var, pct) in enumerate(rows):
             y = 70 + j * 24
             f.w(f'<rect x="{x + 10}" y="{y}" width="121" height="20" rx="4" {tint(var, pct)}/>')
             f.w(f'<text class="s" x="{x + 70}" y="{y + 14}" text-anchor="middle">{t}</text>')
-    f.w(f'<rect x="24" y="178" width="443" height="38" rx="8" {tint("--fig-2", 22)}/>')
-    f.w('<text class="t" x="245" y="202" text-anchor="middle">L1 cache / shared memory 128 KB（4 个 SMSP 共享）</text>')
-    f.w(f'<rect x="477" y="178" width="141" height="38" rx="8" {tint("--fig-hi", 14)}/>')
-    f.w('<text class="tb" x="547" y="194" text-anchor="middle">TMA</text><text class="s" x="547" y="208" text-anchor="middle">显存 ↔ shared memory</text>')
+        bidir(x + 70, 192, 214)
+    f.w(f'<rect x="24" y="214" width="594" height="38" rx="8" {tint("--fig-2", 22)}/>')
+    f.w('<text class="t" x="321" y="238" text-anchor="middle">L1 cache / shared memory 128 KB（4 个 SMSP 共享）</text>')
+    f.w(f'<rect x="447" y="274" width="171" height="34" rx="8" {tint("--fig-hi", 14)}/>')
+    f.w('<text class="tb" x="532" y="289" text-anchor="middle">TMA</text><text class="s" x="532" y="302" text-anchor="middle">整块搬，自己算地址</text>')
+    bidir(532, 252, 274)
+    f.w(f'<rect x="24" y="346" width="594" height="30" rx="8" {tint("--fig-mute", 14)}/>')
+    f.w('<text class="t" x="321" y="366" text-anchor="middle">片上互联（crossbar）→ L2（所有 SM 共享）→ 显存</text>')
+    bidir(200, 252, 346)
+    bidir(532, 308, 346)
+    f.w('<text class="s" x="214" y="300">LD/ST 的请求</text><text class="s" x="434" y="330" text-anchor="end">TMA 的请求</text>')
     return f
 
 def hw_smsp():
@@ -1765,7 +1776,7 @@ def pipe_slots():
 
 CAPS = {
  "hw_hierarchy": '<strong>图 1-2</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。',
- "hw_sm": '<strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core 和 1 个 Tensor core，4 个 SMSP 共享 L1 / shared memory。TMA 是 SM 里专门在显存和 shared memory 之间整块搬数据的单元，见正文。',
+ "hw_sm": '<strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core 和 1 个 Tensor core，4 个 SMSP 共享 L1 / shared memory。普通的 load / store 由 SMSP 里的 LD/ST 单元按每个 thread 的地址发出，经 L1 / shared memory、片上互联到 L2。TMA 不是另一条通路，它接在同一条路上：一个 thread 交给它一个 tensor descriptor，它自己算地址、整块搬，数据从片上互联回来后直接写进 shared memory。',
  "residency": '<strong>图 3-1</strong> 第 2 节四个 kernel 的 program 怎么放上一个 SM（RTX 5090，形状同正文，每个 program 4 个 warp）。上面：第 2 节图里 grid 的一格是一个 program，也就是一个 CUDA block，放上 SM 时要占四样东西。下面每个 kernel 四根条，对应<a href="#tab-3-1">表 3-1</a> 的四条上限，条长是这条上限的总量；深色一格是一个实际放进去的 program 占的量，虚线框是只看这一条还能再放的，红框是先用完的那条，它决定了一个 SM 放几个。register 和 shared memory 读自编译出的 kernel；register 以 warp 为单位按 256 个分配，摊到每个 thread 是 8 的倍数，shared memory 按 128 B 取整。四条取最小的结果和 <code>cuOccupancyMaxActiveBlocksPerMultiprocessor</code> 算出的一致。softmax 和 row sum 的 16 B shared memory 用来让 4 个 warp 交换归约的部分结果。',
  "tile_res": '<strong>图 3-7</strong> 正文形状（A 4096 × 2048，B 2048 × 512，fp32）下最快的配置和正文用的配置，在一个 SM 上各用了多少，画法同<a href="#fig-t-8">图 3-1</a>。条长是这条上限的总量，深色一格是一个 program 占的量，红框是先用完的那条。',
  "tile_rules": '<strong>图 3-8</strong> 两个形状各扫 198 组配置（RTX 5090，fp32，<code>input_precision="ieee"</code>）。左：按每个 thread 存的 acc 个数（BM × BN / (32 × num_warps)）分组；右：按每个 SM 驻留的 warp 数分组。每组取最快的一个，纵轴是它比这个形状下整体最快的配置慢几倍；有 spill 的配置不算在内。悬停可看时间。',
