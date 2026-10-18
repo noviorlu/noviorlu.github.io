@@ -112,7 +112,7 @@ series_order: 2
 <figcaption><strong>图 1-1</strong> RTX 5090 各精度的 roofline：斜线是带宽，平线是峰值算力（dense，boost clock 2407 MHz，来自 NVIDIA RTX Blackwell 白皮书；Tensor core 按 fp32 累加）。</figcaption>
 </figure>
 
-一个 op 在拐角哪一边，用张量形状就能估。逐元素 op 在 fp32 下每个元素算 1 次、读写 8 字节，$I \approx 0.13$，远在拐角左边。矩阵乘的 $I$ 由 M、N、K 里最小的那个决定，fp32 下不超过它的一半。Linear 的三个维度都上千（medium、seq 1024 时 FFN 第一层是 `[4096, 1024] × [1024, 4096]`），$I \approx 340$，在拐角右边；attention 里的 QKᵀ 和 PV 都有一个维度是 d_head（64），$I$ 只有 28，在拐角左边。所以 QKᵀ 和 PV 虽然是矩阵乘，在 attention 里也是 memory-bound。这一点我一开始觉得挺反直觉的，按形状算过一遍才接受。[3.2 节](#attention)会把实测的 op 放到 fp32 的 roofline 上看（[图 3-5](#fig-3-5)）。
+一个 op 在拐角哪一边，用张量形状就能估。逐元素 op 在 fp32 下每个元素算 1 次、读写 8 字节，$I \approx 0.13$，远在拐角左边。矩阵乘的 $I$ 由 M、N、K 里最小的那个决定，fp32 下不超过它的一半。Linear 的三个维度都上千（medium、seq 1024 时 FFN 第一层是 `[4096, 1024] × [1024, 4096]`），$I \approx 340$，在拐角右边；attention 里的 QKᵀ 和 PV 都有一个维度是 d_head（64），$I$ 只有 28，在拐角左边。所以 QKᵀ 和 PV 虽然是矩阵乘，在 attention 里也是 memory-bound。[3.2 节](#attention)会把实测的 op 放到 fp32 的 roofline 上看（[图 3-5](#fig-3-5)）。
 
 ---
 
@@ -250,7 +250,7 @@ series_order: 2
 <figcaption><strong>图 2-2</strong> 一步训练里前向、反向、optimizer 的耗时占比（fp32，batch 4，seq 512），右侧是每步耗时和 MFU。</figcaption>
 </figure>
 
-按 6N 算，medium 和 large 的 MFU 只有 31%（实际 3.2e13 FLOPS，fp32 峰值 1.05e14），small 是 27%。但 MFU 低不能怪矩阵乘，单个大矩阵乘能跑到峰值的 64%；问题是所有矩阵乘加起来只占一步 GPU 时间的 60%，剩下 40% 花在几乎不做计算的逐元素 kernel 上，比如 norm、softmax、mask、激活函数。
+按 6N 算，medium 和 large 的 MFU 只有 31%（实际 3.2e13 FLOPS，fp32 峰值 1.05e14），small 是 27%。矩阵乘本身不慢，单个大矩阵乘能跑到峰值的 64%；问题是所有矩阵乘加起来只占一步 GPU 时间的 60%，剩下 40% 花在几乎不做计算的逐元素 kernel 上，比如 norm、softmax、mask、激活函数。
 
 ### 2.2 显存：权重只是小头 {#memory}
 
@@ -1711,7 +1711,7 @@ checkpoint 和 [3.1 节](#rmsnorm)里融合 RMSNorm 的做法一样，只是从�
 
 切得越细越省，是因为入口很小。设共 $L$ 层、每段 $e$ 层、入口大小 $a$、一层的 A 为 $A_1$，峰值约为 $\frac{L}{e}a + e\,A_1$。只要所有入口加起来比一层的 A 小（这里 36 × 5 MiB = 180 MiB < 220 MiB），$e = 1$ 就是最优。
 
-不过我觉得 checkpoint 在这里有个绕不开的问题：它解决不了 S、P。重算到某一层时，这一层的 S、P 照样要完整写进显存再读出来，seq 2048 时每层约 8 GiB 的峰值还在。
+但 checkpoint 解决不了 S、P。重算到某一层时，这一层的 S、P 照样要完整写进显存再读出来，seq 2048 时每层约 8 GiB 的峰值还在。
 
 ---
 
@@ -1719,7 +1719,7 @@ checkpoint 和 [3.1 节](#rmsnorm)里融合 RMSNorm 的做法一样，只是从�
 
 时间和显存的问题最后都落在 S、P 上。时间上，它们让 attention 成了 memory-bound，seq 1024 时占前向将近一半的时间；显存上，它们占一层 saved tensors 的一半以上，xl 在 seq 2048 时第 2 层就 OOM。bf16 只能把它们存小一点，checkpoint 只能推迟它们出现，都没能让它们离开显存。
 
-回头看，我觉得 Assignment 2 的顺序安排得挺合理：前半部分让我们测出 S、P 的问题，后半部分再用 Triton 写 FlashAttention-2 把它去掉。要解决，得把 RMSNorm 的做法用到 attention 上：把 QKᵀ、softmax、PV 合进一个 kernel，分块在片上算完，S、P 不写回显存，反向需要时再重算。下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 讲的就是这个。
+要解决，得把 RMSNorm 的做法用到 attention 上：把 QKᵀ、softmax、PV 合进一个 kernel，分块在片上算完，S、P 不写回显存，反向需要时再重算。下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 讲的就是这个。
 
 ---
 
