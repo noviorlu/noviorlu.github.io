@@ -1,21 +1,22 @@
 ﻿---
 title: "AI Daily Reports"
-description: "Project Luna 自动生成的 AI 领域日报，每天早上 8:00 AM 自动更新"
+description: "每天早上由定时任务自动整理的 AI 日报：最新论文、行业新闻和公司博客，每条附原文链接"
 date: 2026-03-07
 draft: false
 ---
 
 # 📰 AI Daily Reports
 
-这是 **Project Luna** 自动生成的 AI 领域日报，每天早上 8:00 AM 自动更新。
+每天早上由定时任务自动整理的 AI 日报：最新论文、行业新闻和公司博客。
 
-## 📬 数据源
+## 📚 数据源
 
-- 📚 **arXiv 论文** - 最近 3 天的最新论文（memory, emotion, persona, agent, reasoning 等方向）
-- 📰 **行业新闻** - Hacker News AI/ML, TechCrunch AI, The Verge AI
-- 🏢 **公司博客** - OpenAI, Anthropic, Google DeepMind, Meta AI, Microsoft Research
-- 💬 **社区讨论** - Reddit r/MachineLearning
-- 🛠️ **工具/产品** - GitHub Trending, Hacker News Show HN
+- **arXiv**：最近几天的新论文
+- **Hugging Face Daily Papers**
+- **Hacker News**
+- **公司博客**：OpenAI、Google DeepMind、Anthropic，以及 TechCrunch AI
+
+每一条都来自实际抓取到的条目，附原文链接；点评由模型自动生成，以原文为准。
 
 ## 📋 订阅
 
