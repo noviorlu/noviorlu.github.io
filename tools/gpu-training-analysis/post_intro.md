@@ -20,7 +20,7 @@ series_order: 1
 
 ## 1 GPU 硬件 {#hardware}
 
-做性能分析时最常用的两个数是峰值算力和显存带宽，一个 kernel 受哪个限制，取决于它要搬多少数据、在哪一层读写。这一节先看数据存在哪几层（[1.1](#hw-memory)）和 SM 里有什么（[1.2](#hw-sm)），再看 CUDA 的 thread、warp、block 怎么落到这些硬件上（[1.3](#hw-model)），最后看数据能在哪几层之间搬（[1.4](#hw-move)）。
+做性能分析时最常用的两个数是峰值算力和显存带宽，一个 kernel 受哪个限制，取决于它要搬多少数据、在哪一层读写。这一节先看数据存在哪几层、能在哪几层之间搬（[1.1](#hw-memory)）和 SM 里有什么（[1.2](#hw-sm)），再看 CUDA 的 thread、warp、block 怎么落到这些硬件上（[1.3](#hw-model)）。
 
 ### 1.1 存储层级 {#hw-memory}
 
@@ -37,6 +37,28 @@ series_order: 1
 
 5090 是消费级显卡，显存用的是 GDDR7（32 GB，512-bit，28 Gbps，带宽 1.79e12 B/s），不是数据中心卡上的 HBM，也没有 ECC 和 NVLink。
 
+#### 数据怎么在各层之间搬 {#hw-move}
+
+数据能从哪一层搬到哪一层，取决于每一层归谁用：计算单元只读写 register；register 只归一个 thread，shared memory 只归一个 block（thread、block 见 [1.3 节](#hw-model)）；显存和 L2 全卡共享。L1 和 L2 是 cache，没有指令能指定读写它们，数据只是经过。[表 1-1](#tab-1-1) 是各层之间能怎么搬。
+
+| 从 | 到 | 怎么搬 |
+|:--|:--|:--|
+| 显存 | register | ld.global（Triton 的 `tl.load`），经过 L2，一般也经过 L1 |
+| register | 显存 | st.global（`tl.store`），经过 L2 |
+| register | shared memory | st.shared |
+| shared memory | register | ld.shared |
+| 显存 | shared memory | 没有一步到位的普通 load：ld.global 读进 register 再 st.shared；或者 cp.async（Ampere 起）、TMA（Hopper 起，见 [1.2 节](#hw-sm)），都经过 L2，不经过 register |
+| shared memory | 显存 | ld.shared 读进 register 再 st.global；或者 TMA。cp.async 只能从显存往 shared memory 搬 |
+| 一个 thread 的 register | 同一个 warp 里别的 thread | shuffle（shfl.sync），出了 warp 就不行 |
+| 一个 block 的 shared memory | 别的 block | 不行，只能写回显存再读 |
+{#tab-1-1 caption="**表 1-1** 数据在各层之间能怎么搬" note="指令名是 PTX 里的写法。Hopper 起的 thread block cluster 里，几个 block 可以互读 shared memory，这篇用不到。"}
+
+cp.async 是 Ampere（compute capability 8.0）开始有的 PTX 指令，把显存里的数据复制到 shared memory。数据照样先经过 L2，到了 SM 以后直接写进 shared memory，不落到 register。每个 thread 自己算地址，一条搬 4、8 或 16 B；`cp.async.cg` 只在 L2 缓存，`cp.async.ca` 还会在 L1 留一份。
+
+普通的 ld.global 发出以后 thread 也不会马上停，但数据要先落进 register，再由 st.shared 写进 shared memory，st.shared 用到这个 register 时就得等数据到齐；想提前几轮搬，register 里就得多存几轮数据。cp.async 不占 register，发出以后 thread 接着往下执行，真正要用时再等：几条 cp.async 用 `cp.async.commit_group` 打成一组，`cp.async.wait_group N` 等到最多只剩 N 组还在路上，再用 bar.sync 让同一个 block 的所有 thread 都看到搬好的数据。
+
+Triton 代码里只有 `tl.load` 和 `tl.store`，走[表 1-1](#tab-1-1)的哪一行由编译器决定：[第 2 节](#triton)的 GELU、softmax、row sum 都是显存和 register 之间直接读写；matmul 的 A、B 要经过 shared memory，编出来用的是 cp.async（[3.3 节](#stages)）；用 tensor descriptor 写的 load 才会用 TMA（[1.2 节](#hw-sm)）。
+
 register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构。
 
 ### 1.2 SM 的结构 {#hw-sm}
@@ -50,7 +72,7 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 
 两者是同一块 SRAM，区别在谁来管、给谁用。L1 是 cache：从显存读进来的数据经过它，硬件按 128 B 的 cache line 自动放进去、自动换出，kernel 指定不了哪些数据留下。shared memory 是 kernel 按地址读写的一块空间，数据什么时候放进去、什么时候被覆盖都由 kernel 决定；写 Triton 时这件事由编译器替你做，比如 [2.4 节](#triton-matmul) `tl.dot` 的 A、B block 和 `num_stages` 的两个 slot。shared memory 按 program 分配，只有这个 program 的 thread 能读写，program 跑完才释放，所以它算在驻留上限里（[表 3-1](#tab-3-1)）。L1 由 SM 上所有 program 共用，不占名额，但里面的数据随时可能被别的 program 挤掉。
 
-GA102 白皮书列出的切法见[表 1-1](#tab-1-1)。跑 kernel 时（compute 模式）有 6 档，跑图形时固定一种，另外留 16 KB 给图形管线。
+GA102 白皮书列出的切法见[表 1-2](#tab-1-2)。跑 kernel 时（compute 模式）有 6 档，跑图形时固定一种，另外留 16 KB 给图形管线。
 
 | 模式 | L1 | shared memory | 图形管线 |
 |:--|--:|--:|--:|
@@ -61,13 +83,15 @@ GA102 白皮书列出的切法见[表 1-1](#tab-1-1)。跑 kernel 时（compute 
 | compute | 64 KB | 64 KB | — |
 | compute | 28 KB | 100 KB | — |
 | graphics | 64 KB | 48 KB | 16 KB |
-{#tab-1-1 caption="**表 1-1** 每个 SM 的 128 KB 怎么切（GA102 白皮书）" note="5090 能选的 shared memory 档位和 GA102 一样。"}
+{#tab-1-2 caption="**表 1-2** 每个 SM 的 128 KB 怎么切（GA102 白皮书）" note="5090 能选的 shared memory 档位和 GA102 一样。"}
 
 一个 kernel 用哪一档由驱动在启动时决定，kernel 可以通过 carveout 属性表达偏好，驱动不一定照办。
 
 白皮书只列了切法，没有说为什么 shared memory 最多 100 KB、至少留 28 KB 给 L1，CUDA 文档里也没有说明。能验证的是这 28 KB 确实还在当 L1 用。在 5090 上让一个 thread 在一段数据里按随机顺序跳着读，每次读的地址取决于上一次读到的值（pointer chase），这样每次读的耗时就是一次访存的延迟。shared memory 切到最大时，数据在 20 KB 以内每次读约 22 ns，都在 L1 命中；超过 24 KB 开始变慢，到 48 KB 约 140 ns，基本都要去 L2 读。切成 L1 优先时，64 KB 以内都还在 30 ns 以内。
 
 </details>
+
+[图 1-3](#fig-h-2) 右下角的 TMA（Tensor Memory Accelerator）是 Hopper 起 SM 里专门搬数据的单元，负责显存和 shared memory 之间的整块搬运（[表 1-1](#tab-1-1)）。cp.async 要每个 thread 自己算地址、各搬一小段；TMA 只要一个 thread 发一条指令，给它一个 tensor descriptor（整个张量的起点、形状、stride，以及这次要搬的一块有多大），地址由 TMA 算，越界的部分自动补零。搬没搬完用 shared memory 里的 mbarrier 来等。它还能反过来，把 shared memory 里的一块写回显存，这是 cp.async 做不到的。5090 也有 TMA：用 Triton 的 `tl.make_tensor_descriptor` 写一个复制 kernel，编出来的 PTX 里读是 `cp.async.bulk.tensor.2d.shared::cluster.global`、用 mbarrier 等，写回是 `cp.async.bulk.tensor.2d.global.shared::cta`。
 
 [图 1-4](#fig-h-9) 是一个 SMSP 的结构，放在这里作参考。后文要用到其中两件事。
 
@@ -90,31 +114,6 @@ CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 
 block 放到 SM 上以后一直驻留到跑完，一个 SM 可以同时驻留多个 block。一个 SM 能放几个 block、驻留的 warp 怎么轮流执行、block 多于全卡的名额时怎么分批跑，[第 3 节](#tune)再讲。
 
 block 之间不能直接共享数据，只能通过显存交换，而这正是最慢的一层。所以要尽量把会重复读的数据放进同一个 block 里处理，这就是 tiling。在 CUDA 里做 tiling 要自己管 shared memory 和 thread 同步，[第 2 节](#triton)的 Triton 把这部分交给编译器。
-
-
-### 1.4 数据怎么在各层之间搬 {#hw-move}
-
-1.1 节讲了数据存在哪几层，1.3 节讲了 thread、warp、block。哪一层归谁用，决定了数据能从哪搬到哪：计算单元只读写 register；register 只归一个 thread；shared memory 只归一个 block；显存和 L2 全卡共享。L1 和 L2 是 cache，没有指令能指定读写它们，数据只是经过。[表 1-2](#tab-1-2) 是各层之间能怎么搬。
-
-| 从 | 到 | 怎么搬 |
-|:--|:--|:--|
-| 显存 | register | ld.global（Triton 的 `tl.load`），经过 L2，一般也经过 L1 |
-| register | 显存 | st.global（`tl.store`），经过 L2 |
-| register | shared memory | st.shared |
-| shared memory | register | ld.shared |
-| 显存 | shared memory | 没有一步到位的普通 load：ld.global 读进 register 再 st.shared；或者 cp.async（Ampere 起）、TMA（Hopper 起），都经过 L2，不经过 register |
-| shared memory | 显存 | ld.shared 读进 register 再 st.global；或者 TMA（Hopper 起）。cp.async 只能从显存往 shared memory 搬 |
-| 一个 thread 的 register | 同一个 warp 里别的 thread | shuffle（shfl.sync），出了 warp 就不行 |
-| 一个 block 的 shared memory | 别的 block | 不行，只能写回显存再读 |
-{#tab-1-2 caption="**表 1-2** 数据在各层之间能怎么搬" note="指令名是 PTX 里的写法。Hopper 起的 thread block cluster 里，几个 block 可以互读 shared memory，这篇用不到。"}
-
-cp.async 是 Ampere（compute capability 8.0）开始有的 PTX 指令，把显存里的数据复制到 shared memory。数据照样先经过 L2，到了 SM 以后直接写进 shared memory，不落到 register。每个 thread 自己算地址，一条搬 4、8 或 16 B；`cp.async.cg` 只在 L2 缓存，`cp.async.ca` 还会在 L1 留一份。
-
-普通的 ld.global 发出以后 thread 也不会马上停，但数据要先落进 register，再由 st.shared 写进 shared memory，st.shared 用到这个 register 时就得等数据到齐；想提前几轮搬，register 里就得多存几轮数据。cp.async 不占 register，发出以后 thread 接着往下执行，真正要用时再等：几条 cp.async 用 `cp.async.commit_group` 打成一组，`cp.async.wait_group N` 等到最多只剩 N 组还在路上，再用 bar.sync 让同一个 block 的所有 thread 都看到搬好的数据。
-
-TMA（Tensor Memory Accelerator）是 Hopper 起 SM 里专门搬数据的单元。cp.async 要每个 thread 自己算地址、各搬一小段；TMA 只要一个 thread 发一条指令，给它一个 tensor descriptor（整个张量的起点、形状、stride，以及这次要搬的一块有多大），地址由 TMA 算，越界的部分自动补零。搬没搬完用 shared memory 里的 mbarrier 来等。它还能反过来，把 shared memory 里的一块写回显存，这是 cp.async 做不到的。5090 也有 TMA：用 Triton 的 `tl.make_tensor_descriptor` 写一个复制 kernel，编出来的 PTX 里读是 `cp.async.bulk.tensor.2d.shared::cluster.global`、用 mbarrier 等，写回是 `cp.async.bulk.tensor.2d.global.shared::cta`。
-
-Triton 代码里只有 `tl.load` 和 `tl.store`，走表 1-2 的哪一行由编译器决定：[第 2 节](#triton)的 GELU、softmax、row sum 都是显存和 register 之间直接读写；matmul 的 A、B 要经过 shared memory，编出来用的是 cp.async（[3.3 节](#stages)）；用 tensor descriptor 写的 load 才会用 TMA。
 
 ---
 
@@ -371,7 +370,7 @@ matmul 的循环每轮做两件事：把 $A_{IT}$、$B_{TJ}$ 从显存搬进 sha
 
 `num_stages` 取 S > 1 时，编译器把循环改写成流水线，load 改用 cp.async。
 
-cp.async 从显存经 L2 直接写进 shared memory，不占 register，发出以后 thread 接着往下执行，要用时再用 `cp.async.wait_group` 等（[1.4 节](#hw-move)）。这里编出来的是 `cp.async.cg`，每条 16 B。matmul 每轮 A、B 各打一组，`num_stages=3` 时循环里是 `wait_group 2`：第 $k$ 轮的两组到了就开始算，第 $k+1$ 轮的两组可以还在路上。
+cp.async 从显存经 L2 直接写进 shared memory，不占 register，发出以后 thread 接着往下执行，要用时再用 `cp.async.wait_group` 等（[1.1 节](#hw-move)）。这里编出来的是 `cp.async.cg`，每条 16 B。matmul 每轮 A、B 各打一组，`num_stages=3` 时循环里是 `wait_group 2`：第 $k$ 轮的两组到了就开始算，第 $k+1$ 轮的两组可以还在路上。
 
 有了 cp.async，第 $k$ 轮的 load 可以在第 $k-(S-1)$ 轮算完以后就发出。默认 S = 3，第 $k$ 轮的数据从发出 load 到被用完跨三轮：第 $k-2$ 轮算完后发出，第 $k-1$ 轮期间在路上，第 $k$ 轮被读出来算，所以叫 3 级。它从发出到第 $k$ 轮算完一直占着一个 slot，算完 slot 才空出来，接着搬第 $k+2$ 轮。任何时刻占着 slot 的只有两轮，正在算的这一轮和下一轮，所以 A、B 各 2 个 slot 就够（[图 3-3](#fig-t-9) 下半）。一般地，S 级要 A、B 各 S − 1 个 slot，每多一级多 16 KB shared memory（[表 3-2](#tab-3-2)）；`num_stages=1` 也有 1 个 slot，因为 `tl.dot` 的输入总要先经过 shared memory。
 
@@ -541,4 +540,4 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 B-2](#fig-h-
 12. Hendrycks, Gimpel. [Gaussian Error Linear Units (GELUs)](https://arxiv.org/abs/1606.08415). arXiv:1606.08415, 2016. 第 2.1 节的 tanh 近似。
 13. Milakov, Gimelshein. [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867). arXiv:1805.02867, 2018. 第 2.3 节提到的 online softmax。
 14. [triton.autotune](https://triton-lang.org/main/python-api/generated/triton.autotune.html) 和 [triton.Config](https://triton-lang.org/main/python-api/generated/triton.Config.html)（Triton API 文档）。3.6 节的参数。
-15. NVIDIA. [PTX ISA: cp.async](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async) 和 [cp.async.bulk.tensor](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async-bulk-tensor)。1.4 节 cp.async、commit_group、wait_group 和 TMA 指令的语义。
+15. NVIDIA. [PTX ISA: cp.async](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async) 和 [cp.async.bulk.tensor](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async-bulk-tensor)。1.1 节 cp.async、commit_group、wait_group 和 TMA 指令的语义。
