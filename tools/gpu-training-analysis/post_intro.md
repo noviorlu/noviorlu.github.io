@@ -109,12 +109,16 @@ block 之间不能直接共享数据，只能通过显存交换，而这正是�
 
 | | [GELU](#triton-gelu) | [softmax](#triton-softmax) | [row sum](#triton-rowsum) | [matmul + ReLU](#triton-matmul) |
 |:--|--:|--:|--:|--:|
-| eager | 207.1 | 261.0 | 52.9 | 169.9 |
-| torch.compile | 47.6（4.4×） | 96.0（2.7×） | 49.1（1.1×） | 168.3（1.0×） |
-| Triton | 49.1（4.2×） | 97.3（2.7×） | 56.7（0.9×） | 213.1（0.8×） |
+| eager | 204.6 | 268.6 | 53.8 | 173.4 |
+| torch.compile | 47.5（4.3×） | 99.2（2.7×） | 54.1（1.0×） | 171.6（1.0×） |
+| Triton | 47.9（4.3×） | 98.1（2.7×） | 57.4（0.9×） | 211.7（0.8×） |
 {#tab-2-1 caption="**表 2-1** 同一个 op 的三种写法（µs，括号里是相对 eager 的加速）" note="RTX 5090，fp32，形状和各小节一样：GELU n = 8388608，softmax 和 row sum 4096 × 4096，matmul A 4096 × 2048、B 2048 × 512。eager 分别是按 tanh 公式逐个运算、<code>softmax_naive</code>、<code>x.sum(1)</code>、<code>torch.relu(A @ B)</code>，matmul 关掉了 tf32。<code>triton.testing.do_bench</code> 跑 5 次取中位数。换一张卡数字会变，三行之间的对比关系一般不变。"}
 
-GELU 和 softmax 的 eager 写法里，每个运算都单独跑一遍，中间结果要写回显存、下一个运算再读回来。`torch.compile` 和 Triton 都把这些运算合成一个 kernel，中间结果留在 register 里，显存只读写一次，所以都快了 4 倍和 2.7 倍左右。两者差不多快并不奇怪：`torch.compile` 在 GPU 上生成的也是 Triton kernel，这一节自己写一遍，看清楚它做了什么。row sum 本来就只有一步求和，三种写法差不多。matmul + ReLU 的 eager 版走 cuBLAS，`torch.compile` 也还是调 cuBLAS；Triton 版慢 25%，原因在[第 3 节](#tune)。
+GELU 和 softmax 的 eager 写法里，每个运算都单独跑一遍，中间结果要写回显存、下一个运算再读回来。`torch.compile` 和 Triton 都把这些运算合成一个 kernel，中间结果留在 register 里，显存只读写一次，所以都快了 4.3 倍和 2.7 倍左右。两者差不多快并不奇怪：`torch.compile` 在 GPU 上生成的也是 Triton kernel，这一节自己写一遍，看清楚它做了什么。
+
+row sum 本来就只有一步求和，没有中间结果可省，三种写法都受显存带宽限制，都在 54 到 57 µs。Triton 版稍慢一点，把每轮读的数从 1024 个换成 2048 个、`num_warps` 从 4 换成 16，就是 54.5 µs，和另外两种一样；这两个参数在[第 3 节](#tune)讲。
+
+matmul + ReLU 的 eager 版和 `torch.compile` 版跑的是同一个 cuBLAS kernel，ReLU 都在后面单独跑一个约 4 µs 的 kernel，矩阵乘本身约 151 µs，所以融合 ReLU 省不了多少。Triton 版把 ReLU 融了进去，但矩阵乘本身慢，整体慢 22%，原因也在第 3 节。
 
 Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的 tiling。CUDA 要写清楚每个 thread 做什么，shared memory 和同步都要自己管；Triton 只写一个 block 做什么：把它负责的数据读进来，在片上算完，再写回显存，block 内怎么分给 thread、要不要经过 shared memory 由编译器决定。Triton 把一个 block 叫作一个 program（[表 2-2](#tab-2-2)）。
 

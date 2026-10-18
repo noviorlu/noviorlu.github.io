@@ -2,14 +2,14 @@
 
 eager 是读者用张量运算直接写的版本：GELU 按 tanh 公式逐个运算，softmax 是正文的 softmax_naive，
 row sum 是 x.sum(1)，matmul + ReLU 是 torch.relu(A @ B)（cuBLAS，关掉 tf32）。compile 是同一份 eager 代码包一层 torch.compile。
-耗时用 triton.testing.do_bench，每个跑 5 次取中位数；kernel 个数用 torch.profiler 数，只用来核对正文的说法。
+耗时用 triton.testing.do_bench，每个跑 5 次取中位数；每个 kernel 的名字和耗时用 torch.profiler 记，只用来核对正文的说法。
 Run: python3 section2_bench.py   (needs CUDA)，结果写到 section2_bench.json。
 """
 import json, math, os, statistics
 import torch
 import triton
 from torch.profiler import profile, ProfilerActivity
-from triton_tutorial import gelu, softmax, softmax_naive, row_sum, matmul_relu
+from triton_tutorial import gelu, softmax, softmax_naive, row_sum, row_sum_kernel, matmul_relu
 
 
 def gelu_eager(x):
@@ -21,10 +21,11 @@ def us(f):
 
 
 def kernels(f):
+    """跑了哪些 kernel、各自多少 µs（profiler 里 L2 是热的，只用来看各 kernel 占多少）。"""
     f(); torch.cuda.synchronize()
     with profile(activities=[ProfilerActivity.CUDA]) as p:
         f(); torch.cuda.synchronize()
-    return sum(1 for e in p.events() if e.device_type.name == "CUDA")
+    return [[e.name[:60], round(e.device_time, 1)] for e in p.events() if e.device_type.name == "CUDA"]
 
 
 def main():
@@ -51,6 +52,9 @@ def main():
                 r[k] = {"us": us(c[k]), "kernels": kernels(c[k])}
         res[name] = r
         print(name, r)
+    out = torch.empty(4096, device="cuda")                                          # row sum 换一组 TILE、num_warps
+    res["row_sum"]["triton_tile2048_nw16"] = {"us": us(lambda: row_sum_kernel[(4096,)](X, out, 4096, TILE=2048, num_warps=16))}
+    print(res["row_sum"]["triton_tile2048_nw16"])
     json.dump(res, open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "section2_bench.json"), "w"), indent=1, ensure_ascii=False)
 
 
