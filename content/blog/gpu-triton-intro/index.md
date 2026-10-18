@@ -125,7 +125,7 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 
 ### 1.2 SM 的结构 {#hw-sm}
 
-每个 SM 分成 4 个 SMSP（SM sub-partition），每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core（做 FP32 和 INT32 运算）、一个 Tensor core 和 4 个负责发出 load / store 的 LD/ST 单元，4 个 SMSP 共享 L1 / shared memory（[图 1-3](#fig-h-2)）。load / store 从 LD/ST 发出，先到 L1 / shared memory，不在这里的再经片上互联去 L2 和显存。L1 和 shared memory 是同一块 128 KB 的片上存储，按几种固定的比例切开用，shared memory 最多切到 100 KB，这时 L1 cache 只剩 28 KB。NVIDIA 在 [GA102（RTX 30 系列）白皮书](https://www.nvidia.com/content/PDF/nvidia-ampere-ga-102-gpu-architecture-whitepaper-v2.pdf)里列出了这几种切法，5090 能选的 shared memory 档位和它一样：0、8、16、32、64、100 KB。两者的区别在谁来管：L1 是硬件自动管理的 cache，shared memory 由 kernel 按地址读写，按 program 分配。
+每个 SM 分成 4 个 SMSP（SM sub-partition），每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core（做 FP32 和 INT32 运算）、一个 Tensor core 和 4 个 LD/ST 单元，4 个 SMSP 共享 L1 / shared memory（[图 1-3](#fig-h-2)）。load / store 从 LD/ST 发出，先到 L1 / shared memory，不在这里的再经片上互联去 L2 和显存。L1 和 shared memory 是同一块 128 KB 的片上存储，shared memory 最多切到 100 KB，下面的 notes 讲两者的区别和几种切法。
 
 <figure id="fig-h-2" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 392" width="100%" role="img" aria-label="RTX 5090 的一个 SM：4 个 SMSP，每个有 1 个 warp 调度器、64 KB register、32 个 CUDA core、1 个 Tensor core 和 4 个 LD/ST；LD/ST 把请求交给 4 个 SMSP 共享的 128 KB L1/shared memory；TMA 接在 shared memory 和片上互联之间；请求经片上互联到 L2，再到显存">
@@ -229,7 +229,7 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 
 两者是同一块 SRAM，区别在谁来管、给谁用。L1 是 cache：从显存读进来的数据经过它，硬件按 128 B 的 cache line 自动放进去、自动换出，kernel 指定不了哪些数据留下。shared memory 是 kernel 按地址读写的一块空间，数据什么时候放进去、什么时候被覆盖都由 kernel 决定；写 Triton 时这件事由编译器替你做，比如 [2.4 节](#triton-matmul) `tl.dot` 的 A、B block 和 `num_stages` 的两个 slot。shared memory 按 program 分配，只有这个 program 的 thread 能读写，program 跑完才释放，所以它算在驻留上限里（[表 3-1](#tab-3-1)）。L1 由 SM 上所有 program 共用，不占名额，但里面的数据随时可能被别的 program 挤掉。
 
-GA102 白皮书列出的切法见[表 1-2](#tab-1-2)。跑 kernel 时（compute 模式）有 6 档，跑图形时固定一种，另外留 16 KB 给图形管线。
+[GA102（RTX 30 系列）白皮书](https://www.nvidia.com/content/PDF/nvidia-ampere-ga-102-gpu-architecture-whitepaper-v2.pdf)列出的切法见[表 1-2](#tab-1-2)。跑 kernel 时（compute 模式）有 6 档，跑图形时固定一种，另外留 16 KB 给图形管线。
 
 | 模式 | L1 | shared memory | 图形管线 |
 |:--|--:|--:|--:|
