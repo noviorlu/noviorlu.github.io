@@ -1,7 +1,8 @@
 {{- /* Compact author card shown at the end of an article. */ -}}
 {{- with site.Params.Author }}
 <section class="nv-author" aria-label="作者">
-  <div class="nv-author__avatar" aria-hidden="true">喵</div>
+  {{ $me := index (partial "nv/functions/authors.html" (dict "Params" (dict))) 0 }}
+  <img class="nv-author__avatar" src="{{ $me.avatar }}" width="52" height="52" alt="" aria-hidden="true">
   <div class="nv-author__body">
     <p class="nv-author__name">{{ .name }}</p>
     {{ with .bio }}<p class="nv-author__bio">{{ . | markdownify }}</p>{{ end }}

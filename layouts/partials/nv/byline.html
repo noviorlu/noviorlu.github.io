@@ -1,0 +1,8 @@
+{{- /* Authors at the top of an article: GitHub avatar + name, one per author. Context: the page. */ -}}
+<span class="nv-byline">
+  {{- range partial "nv/functions/authors.html" . -}}
+    <a class="nv-byline__author" href="{{ .url }}" target="_blank" rel="noopener">
+      <img src="{{ .avatar }}" width="22" height="22" alt="" loading="lazy">{{ .name }}
+    </a>
+  {{- end -}}
+</span>

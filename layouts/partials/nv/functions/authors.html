@@ -1,0 +1,12 @@
+{{- /* Returns the page's authors as a slice of dict(name, url, avatar). Context: the page.
+       Sources: front matter `authors`, else data/authors.yaml `default`; see that file. */ -}}
+{{- $data := site.Data.authors -}}
+{{- $ids := .Params.authors | default (slice $data.default) -}}
+{{- $out := slice -}}
+{{- range $ids -}}
+  {{- $a := index $data . | default dict -}}
+  {{- $gh := $a.github | default . -}}
+  {{- $avatar := cond (isset $a "avatar") (relURL $a.avatar) (printf "https://github.com/%s.png?size=64" $gh) -}}
+  {{- $out = $out | append (dict "name" ($a.name | default .) "url" (printf "https://github.com/%s" $gh) "avatar" $avatar) -}}
+{{- end -}}
+{{- return $out -}}

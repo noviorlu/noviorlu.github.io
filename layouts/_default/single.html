@@ -19,6 +19,9 @@
         {{ end }}
       {{ end }}
       <div class="nv-article__meta print:hidden">
+        {{ if .Params.showAuthor | default (site.Params.article.showAuthor | default true) }}
+          {{ partial "nv/byline.html" . }}
+        {{ end }}
         {{ partial "nv/meta.html" (dict "page" . "scope" "single") }}
       </div>
       {{ if .Params.showTaxonomies | default (site.Params.article.showTaxonomies | default false) }}

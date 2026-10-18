@@ -1,0 +1,9 @@
+# Article authors, keyed by the id used in front matter: `authors: [noviorlu, someone]`.
+# An id missing here is treated as a GitHub username (name = id, avatar = their GitHub avatar),
+# so a guest author needs no entry. Posts without `authors` get `default`.
+default: noviorlu
+
+noviorlu:
+  name: Noviorlu喵
+  github: noviorlu
+  avatar: img/avatar-face.png   # face crop of the GitHub avatar (the full one is a full-body drawing)
