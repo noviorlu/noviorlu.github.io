@@ -35,8 +35,6 @@ series_order: 1
 
 {{fig-h-1}}
 
-5090 是消费级显卡，显存用的是 GDDR7（32 GB，512-bit，28 Gbps，带宽 1.79e12 B/s），不是数据中心卡上的 HBM，也没有 ECC 和 NVLink。
-
 #### 数据怎么在各层之间搬 {#hw-move}
 
 数据能从哪一层搬到哪一层，取决于每一层归谁用：计算单元只读写 register；register 只归一个 thread，shared memory 只归一个 block（thread、block 见 [1.3 节](#hw-model)）；显存和 L2 全卡共享。L1 和 L2 是 cache，没有指令能指定读写它们，数据只是经过。[表 1-1](#tab-1-1) 是各层之间能怎么搬。
