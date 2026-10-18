@@ -10,11 +10,16 @@ series: ["GPU training optimization"]
 series_order: 2
 ---
 
-这篇是 Stanford CS336 2025 年 [Assignment 2: Systems](https://github.com/stanford-cs336/assignment2-systems) 的笔记。作业要在 GPU 上测 Assignment 1 里从零手写的 Transformer LM（RMSNorm、RoPE、SwiGLU，pre-norm，不用 `torch.nn` 现成的层），看一步训练的时间和显存花在哪里。我在一张 RTX 5090 上测了五档：small 0.13B、medium 0.42B、large 0.97B、xl 3.41B 和 10B（实际 12.83B）。
+注：本文是 Stanford CS336 2025 [Assignment 2: Systems](https://github.com/stanford-cs336/assignment2-systems) 的笔记，测的模型是 Assignment 1 里从零手写的 Transformer LM（RMSNorm、RoPE、SwiGLU，pre-norm，不用 `torch.nn` 现成的层）。作业的 FlashAttention-2 部分放在下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/)，GPU 硬件和 Triton 基础见上一篇 [GPU 与 Triton 入门](/blog/gpu-triton-intro/)。
 
-结论：medium 和 large 按 6N 算 MFU 只有 31%，40% 的 GPU 时间花在几乎不做计算的逐元素 kernel 上；显存峰值由 activation 决定，xl 在 seq 2048 下放不下。两边随 seq 涨得最快的都是 attention 的 seq × seq 中间结果：缩放、mask 和 softmax 反复读写分数矩阵 S = QKᵀ，seq 1024 时 attention 占前向时间的 46%；为反向存下的两份 seq × seq 张量占一层 saved tensors 的一半以上。
+**(Why)** 作业要求在 GPU 上测一步训练的时间和显存。我在一张 RTX 5090 上测了五档模型：small 0.13B、medium 0.42B、large 0.97B、xl 3.41B 和 10B（实际 12.83B）。结果有两处对不上：
 
-[第 1 节](#basics)介绍 roofline，[第 2 节](#step)算一步训练的总账，[第 3 节](#ops)逐个 op 拆开 RMSNorm 和 attention，[第 4 节](#savings)试 bf16 和 activation checkpoint。作业的 FlashAttention-2 部分放在下一篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/)，GPU 硬件和 Triton 基础见上一篇 [GPU 与 Triton 入门](/blog/gpu-triton-intro/)。
+1. medium 和 large 按 6N 算 MFU 只有 31%，可单个大矩阵乘能跑到峰值的 64%，剩下的时间去哪了？
+2. large 一步的显存峰值是 27.5 GiB，权重加 Adam 状态只占 10.8 GiB，剩下的 16.6 GiB 是什么？
+
+**(What)** 两个问题最后都落在 attention 的 seq × seq 中间结果上，也就是分数矩阵（Score Matrix）S = QKᵀ 和过完 softmax 的注意力权重（Attention Weight）P。时间上，40% 的 GPU 时间花在几乎不做计算的逐元素 kernel 上，其中缩放、mask 和 softmax 反复读写 S，seq 1024 时 attention 占前向时间的 46%。显存上，峰值由前向为反向存下的 activation 决定，而 attention 存下的两份 seq × seq 张量占一层 saved tensors 的一半以上。
+
+**(How)** 用 roofline 当尺子：[第 1 节](#basics)介绍 roofline，[第 2 节](#step)算一步训练的总账，[第 3 节](#ops)逐个 op 拆开 RMSNorm 和 attention，[第 4 节](#savings)看 bf16 和 activation checkpoint 能省多少。
 
 > 环境：RTX 5090 32 GB，torch 2.11.0+cu130。fp32 基准关掉 tf32（`allow_tf32=False`）。除注明外 batch 4、seq 512，预热 5 步、计时 10 步。「full step」指前向、反向加 optimizer 的一整步，「前向 + 反向」不含 optimizer。显存一律 GiB = 2³⁰ B（`max_memory_allocated() / 1024³`）。
 
