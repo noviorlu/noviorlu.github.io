@@ -1,0 +1,54 @@
+{
+ "gelu": {
+  "shape": "n = 8388608",
+  "eager": {
+   "us": 198.4,
+   "kernels": 8
+  },
+  "triton": {
+   "us": 48.4,
+   "kernels": 1
+  },
+  "builtin": {
+   "us": 50.6,
+   "kernels": 1
+  }
+ },
+ "softmax": {
+  "shape": "4096 × 4096",
+  "eager": {
+   "us": 260.6,
+   "kernels": 5
+  },
+  "triton": {
+   "us": 95.2,
+   "kernels": 1
+  },
+  "builtin": {
+   "us": 95.7,
+   "kernels": 1
+  }
+ },
+ "row_sum": {
+  "shape": "4096 × 4096",
+  "eager": {
+   "us": 54.5,
+   "kernels": 1
+  },
+  "triton": {
+   "us": 56.2,
+   "kernels": 1
+  }
+ },
+ "matmul_relu": {
+  "shape": "4096 × 2048 × 512",
+  "eager": {
+   "us": 164.8,
+   "kernels": 3
+  },
+  "triton": {
+   "us": 210.8,
+   "kernels": 1
+  }
+ }
+}

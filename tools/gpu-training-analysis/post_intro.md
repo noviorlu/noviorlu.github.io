@@ -105,7 +105,19 @@ block 之间不能直接共享数据，只能通过显存交换，而这正是�
 
 ## 2 Triton 入门 {#triton}
 
-Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的 tiling。CUDA 要写清楚每个 thread 做什么，shared memory 和同步都要自己管；Triton 只写一个 block 做什么：把它负责的数据读进来，在片上算完，再写回显存，block 内怎么分给 thread、要不要经过 shared memory 由编译器决定。Triton 把一个 block 叫作一个 program（[表 2-1](#tab-2-1)）。
+先看用 Triton 写能换来什么。[表 2-1](#tab-2-1) 把这一节的四个例子各写两遍：一遍用 PyTorch 的张量运算直接写（eager），一遍用 Triton 写成一个 kernel。
+
+| op | 形状 | eager 写法 | eager 的 kernel 数 | eager | Triton | 加速 | PyTorch 自带的融合 kernel |
+|:--|:--|:--|--:|--:|--:|--:|--:|
+| [GELU](#triton-gelu) | n = 8388608 | 按公式逐个运算 | 8 | 198.4 µs | 48.4 µs | 4.1× | 50.6 µs |
+| [softmax](#triton-softmax) | 4096 × 4096 | `softmax_naive` | 5 | 260.6 µs | 95.2 µs | 2.7× | 95.7 µs |
+| [row sum](#triton-rowsum) | 4096 × 4096 | `x.sum(1)` | 1 | 54.5 µs | 56.2 µs | 0.97× | — |
+| [matmul + ReLU](#triton-matmul) | 4096 × 2048 × 512 | `torch.relu(A @ B)` | 3 | 164.8 µs | 210.8 µs | 0.78× | — |
+{#tab-2-1 caption="**表 2-1** 同一个 op，PyTorch eager 和 Triton 各写一遍" note="RTX 5090，fp32，<code>triton.testing.do_bench</code> 跑 5 次取中位数，kernel 个数用 <code>torch.profiler</code> 数。最后一列是 <code>F.gelu(x, approximate=\"tanh\")</code> 和 <code>torch.softmax</code>，作参照。matmul 关掉了 tf32。换一张卡数字会变，几行之间的对比关系一般不变。"}
+
+差别主要来自 kernel 的个数。GELU 的公式按张量运算写，eager 要跑 8 个 kernel，softmax 要 5 个，每个 kernel 都把中间结果完整写一遍显存、下一个再读回来；Triton 把它们合成一个 kernel，中间结果留在 register 里，显存只读写一次，所以快 4.1 倍和 2.7 倍，和 PyTorch 自带的融合 kernel 一样快。row sum 的 `x.sum(1)` 本来就是一个 kernel，没有中间结果可省，两边差不多。matmul + ReLU 的 eager 版走 cuBLAS，Triton 版反而慢 28%，原因是 block 大小没调、最后一批只剩 2 个 program，[第 3 节](#tune)会讲到。
+
+Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的 tiling。CUDA 要写清楚每个 thread 做什么，shared memory 和同步都要自己管；Triton 只写一个 block 做什么：把它负责的数据读进来，在片上算完，再写回显存，block 内怎么分给 thread、要不要经过 shared memory 由编译器决定。Triton 把一个 block 叫作一个 program（[表 2-2](#tab-2-2)）。
 
 | CUDA | Triton | 写法 | 能否直接控制 |
 |:--|:--|:--|:--|
@@ -114,7 +126,7 @@ Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的 tiling。C
 | block（CTA） | program | `triton.jit` 函数体就是一个 program 的代码；`tl.program_id(axis)` ≈ `blockIdx`，`tl.num_programs(axis)` ≈ `gridDim` | 主要的编程层 |
 | grid | grid | `kernel[grid](...)`，例如 `grid = (triton.cdiv(n, BLOCK),)` | 自己定 |
 | shared memory | 由编译器分配 | 没有对应语句 | 不能 |
-{#tab-2-1 caption="**表 2-1** CUDA 概念在 Triton 里的对应"}
+{#tab-2-2 caption="**表 2-2** CUDA 概念在 Triton 里的对应"}
 
 下文 program 就是 CUDA 的 block；单说 block 时指一块数据，比如 A 的 block、C 的 block；代码里的 `BLOCK`、`TILE` 是一段数据的长度。
 
@@ -128,7 +140,7 @@ Triton 按 block 写 kernel，正好对应 [1.3 节](#hw-model)说的 tiling。C
 | softmax | 按行归约 | 整行（max 和 sum） | 一行一个 program | 不循环，整行一次读进来 |
 | row sum | 按行归约 | 整行（sum） | 一行一个 program | 沿行循环，累加器存部分和 |
 | matmul | block 乘加 | A 的一行、B 的一列 | 二维，C 的一个 block 一个 program | 沿 K 循环，累加器存 C 的一个 block |
-{#tab-2-2 caption="**表 2-2** 四个例子的 op 类型"}
+{#tab-2-3 caption="**表 2-3** 四个例子的 op 类型"}
 
 代码都在 RTX 5090 上和 PyTorch 对照过。每个例子配一张数据流图：左边是 grid，右边从上到下是计算单元、register、shared memory 和显存（芯片外的 GDDR7）。`tl.load` 和 `tl.store` 在显存和 register 或 shared memory 之间直接搬数据，计算单元只读写 register。中间经过的 L2 和 L1 cache 由硬件自动管理，图里不画。计算单元那一行从左往右是执行顺序；register 和 shared memory 里的一块存储只画一次，横向跨过它存在的那段时间，每一步在自己那一列读写它，块上标的是它的大小。
 
@@ -281,7 +293,7 @@ grid 是二维的：
 
 ## 3 调度和调参 {#tune}
 
-[表 2-1](#tab-2-1) 之后说过，program 内部从 thread 到 shared memory 都交给编译器，能直接调的只有启动参数 `num_warps`、`num_stages` 和 block 的大小。这一节先说两个参数是什么（[3.1](#knobs)），再看 `num_stages` 怎么用预取藏住 load（[3.2](#stages)）、一个 SM 能放几个 program（[3.3](#sched-limits)）、驻留的 warp 怎么藏住访存延迟（[3.4](#sched-warp)）、program 放不下时怎么分批（[3.5](#sched-wave)），最后用 matmul 扫一遍 block 大小（[3.6](#tile)）。
+[表 2-2](#tab-2-2) 之后说过，program 内部从 thread 到 shared memory 都交给编译器，能直接调的只有启动参数 `num_warps`、`num_stages` 和 block 的大小。这一节先说两个参数是什么（[3.1](#knobs)），再看 `num_stages` 怎么用预取藏住 load（[3.2](#stages)）、一个 SM 能放几个 program（[3.3](#sched-limits)）、驻留的 warp 怎么藏住访存延迟（[3.4](#sched-warp)）、program 放不下时怎么分批（[3.5](#sched-wave)），最后用 matmul 扫一遍 block 大小（[3.6](#tile)）。
 
 ### 3.1 num_warps 和 num_stages {#knobs}
 
