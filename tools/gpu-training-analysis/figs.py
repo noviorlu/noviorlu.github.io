@@ -1703,6 +1703,81 @@ def mm_pipe_ncu():
         f.w(f'<rect x="{x}" y="{y - 9}" width="22" height="11" rx="2" {st}/><text class="s" x="{x + 30}" y="{y}">{lab}</text>')
     return f
 
+# ── 图 1-4 asynchronous barrier vs asynchronous transaction barrier（示意，画法参考 H100 白皮书 Figure 20） ──
+def tx_barrier():
+    f = F("fig-b-1", 420, "两种 barrier 的甘特图。上：asynchronous barrier 只数 thread 的 arrive，4 个 thread 产出数据后 arrive，接着做不依赖这批数据的活，最后一个 thread arrive 时放行。下：asynchronous transaction barrier 还数字节，thread 0 发起 TMA 并登记 16 KB，TMA 分 4 段写进 shared memory，字节数到 16 KB 时放行")
+    X0, X1 = 92, 628
+    px = lambda u: X0 + u / 100 * (X1 - X0)
+    RH = 20
+    def bar(u0, u1, y, var, pct=None, dash=False, lab=""):
+        if u1 <= u0: return
+        st = (f'style="fill: none; stroke: var({var})" stroke-dasharray="3 2"' if dash
+              else f'style="fill: var({var})" fill-opacity="{pct}"')
+        f.w(f'<rect x="{px(u0):.1f}" y="{y + 3}" width="{px(u1) - px(u0):.1f}" height="{RH - 6}" rx="2" {st}/>')
+        if lab and px(u1) - px(u0) > sum(11 if ord(c) > 0x2E80 else 6 for c in lab) + 16:
+            f.w(f'<text class="s" x="{(px(u0) + px(u1)) / 2:.1f}" y="{y + RH / 2 + 4}" text-anchor="middle">{lab}</text>')
+    def arrive(u, y):
+        x = px(u)
+        f.w(f'<path d="M{x:.1f} {y + 2} L{x + 5:.1f} {y + RH / 2} L{x:.1f} {y + RH - 2} L{x - 5:.1f} {y + RH / 2} Z" style="fill: var(--fig-1)"/>')
+    def release(u, y0, y1, lab):
+        x = px(u)
+        f.w(f'<line x1="{x:.1f}" y1="{y0}" x2="{x:.1f}" y2="{y1}" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="4 3"/>')
+        f.w(f'<text class="s" x="{x + 6:.1f}" y="{y1 + 2}">{lab}</text>')
+    # 上：asynchronous barrier
+    Y = 40
+    f.w(f'<text class="tb" x="8" y="{Y - 12}">asynchronous barrier（Ampere 起）：只数 thread 的 arrive</text>')
+    prod, work = [22, 36, 16, 28], [8, 10, 6, 4]
+    R = max(prod)
+    for k in range(4):
+        y = Y + k * RH
+        f.w(f'<text class="lab" x="8" y="{y + 14}">thread {k}</text>')
+        bar(0, prod[k], y, "--fig-2", .55, lab="产出数据")
+        bar(prod[k], prod[k] + work[k], y, "--fig-3", .9, lab="别的活")
+        bar(prod[k] + work[k], R, y, "--fig-hi", dash=True)
+        s = max(R, prod[k] + work[k])
+        bar(s, s + 22, y, "--fig-1", .6, lab="用数据")
+        arrive(prod[k], y)
+    release(R, Y - 2, Y + 4 * RH + 10, "最后一个 thread arrive，放行")
+    # 下：asynchronous transaction barrier
+    Y2 = Y + 4 * RH + 60
+    f.w(f'<text class="tb" x="8" y="{Y2 - 12}">asynchronous transaction barrier（Hopper 起，TMA 用的就是它）：还要数字节</text>')
+    chunks = [(6, 18), (18, 30), (30, 44), (44, 58)]
+    R2 = chunks[-1][1]
+    work2 = [30, 22, 34, 16]
+    for k in range(4):
+        y = Y2 + k * RH
+        f.w(f'<text class="lab" x="8" y="{y + 14}">thread {k}</text>')
+        a = 6 if k == 0 else 2
+        if k == 0:
+            bar(0, 6, y, "--fig-hi", .7)
+        bar(a, work2[k], y, "--fig-3", .9, lab="别的活")
+        bar(work2[k], R2, y, "--fig-hi", dash=True)
+        bar(R2, R2 + 22, y, "--fig-1", .6, lab="用数据")
+        arrive(a, y)
+    yt = Y2 + 4 * RH
+    f.w(f'<text class="lab" x="8" y="{yt + 14}">TMA</text>')
+    for i, (u0, u1) in enumerate(chunks):
+        bar(u0, u1, yt, "--fig-hi", .35, lab="写 4 KB")
+    yb = yt + RH
+    f.w(f'<text class="lab" x="8" y="{yb + 14}">字节计数</text>')
+    for i, (u0, u1) in enumerate(chunks):
+        f.w(f'<text class="s" x="{px(u1) - 3:.1f}" y="{yb + 14}" text-anchor="end">{4 * (i + 1)} KB</text>')
+    f.w(f'<text class="s" x="{px(0) + 2:.1f}" y="{yb + 14}">0 / 16 KB</text>')
+    release(R2, Y2 - 2, yb + RH + 10, "thread 都 arrive 过、字节到齐，放行")
+    f.w(f'<text class="s" x="{px(0) + 2:.1f}" y="{Y2 + 2 - 4}"></text>')
+    # 图例
+    ly = yb + RH + 38
+    items = [("--fig-2", .55, False, "产出数据"), ("--fig-3", .9, False, "不依赖这批数据的活"), ("--fig-hi", None, True, "等（A100 空转，H100 可以睡眠）"),
+             ("--fig-1", .6, False, "用数据"), ("--fig-hi", .7, False, "发 TMA、登记 16 KB")]
+    x = 8
+    for var, op, dash, lab in items:
+        st = f'style="fill: none; stroke: var({var})" stroke-dasharray="3 2"' if dash else f'style="fill: var({var})" fill-opacity="{op}"'
+        f.w(f'<rect x="{x}" y="{ly - 9}" width="18" height="11" rx="2" {st}/><text class="s" x="{x + 24}" y="{ly}">{lab}</text>')
+        x += 32 + sum(10.5 if ord(c) > 0x2E80 else 5.8 for c in lab) + 10
+    xa = 8
+    f.w(f'<path d="M{xa + 5} {ly + 9} L{xa + 10} {ly + 15} L{xa + 5} {ly + 21} L{xa} {ly + 15} Z" style="fill: var(--fig-1)"/><text class="s" x="{xa + 24}" y="{ly + 19}">arrive：告诉 barrier 自己这份做完了，不阻塞</text>')
+    return f
+
 def _ncu_rounds():
     d = json.load(open(os.path.join(HERE, "ncu_matmul.json")))
     run = {r["num_stages"]: r for r in d["runs"] if r["M"] == 4032}
@@ -1781,14 +1856,15 @@ CAPS = {
  "tile_res": '<strong>图 3-7</strong> 正文形状（A 4096 × 2048，B 2048 × 512，fp32）下最快的配置和正文用的配置，在一个 SM 上各用了多少，画法同<a href="#fig-t-8">图 3-1</a>。条长是这条上限的总量，深色一格是一个 program 占的量，红框是先用完的那条。',
  "tile_rules": '<strong>图 3-8</strong> 两个形状各扫 198 组配置（RTX 5090，fp32，<code>input_precision="ieee"</code>）。左：按每个 thread 存的 acc 个数（BM × BN / (32 × num_warps)）分组；右：按每个 SM 驻留的 warp 数分组。每组取最快的一个，纵轴是它比这个形状下整体最快的配置慢几倍；有 spill 的配置不算在内。悬停可看时间。',
  "warp_slots": '<strong>图 3-2</strong> 一个 SM 上驻留 3 个 program（P0、P1、P2）时的某一拍。格子里写的是这个 warp 属于哪个 program，每个 SMSP 有 12 个格子，整个 SM 共 48 个。每个调度器每拍最多发射一个 warp；SMSP 2 的 3 个 warp 都在等数据，这一拍空转。',
- "hw_smsp": '<strong>图 1-4</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。',
- "cuda_model": '<strong>图 1-5</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。',
+ "hw_smsp": '<strong>图 1-5</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。',
+ "cuda_model": '<strong>图 1-6</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。',
  "tri_gelu": '<strong>图 2-1</strong> GELU kernel（n = 8388608，fp32）。左边是 grid，数组按 BLOCK = 1024 切段，一段一个 program。右边是 program 1 的数据流，泳道和箭头的含义见正文。显存泳道里的整条是整个 x、y（各 8388608 个 fp32，32 MB），深色一段是 program 1 读写的 1024 个（4 KB）；按比例只有整条的 1/8192，图里放大了。',
  "wave_trace": '<strong>图 3-5</strong> GELU 的 8192 个 program 实际怎么分批跑（RTX 5090，n = 8388608，fp32，每个 program 4 个 warp）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，store 发出后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 编号所在的批次，一批 2040 个。浅红色是 bubble：名额上没有 program 在执行指令；最后一个 program 开始以后是 tail。下面的名额是按开始、结束时间排出来的，红框是这个 SM 上最长的一段空档。悬停可看 program 编号和时间。',
  "tri_softmax": '<strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。显存泳道里的方块是整个 x、y（各 64 MB），深色一条是 program 1 读写的那一行（4096 个 fp32，16 KB），按比例只有 1/4096，图里放大了。',
  "tri_rowsum": '<strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 个 block，代码里 TILE = 1024。颜色由淡到浓是 for 循环读 block 的顺序：第 0 轮后 acc 只有 block 0 的数，最后的 acc 是 4 个 block 逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。',
  "tri_matmul": '<strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 个 row block 和 B 的第 1 个 column block，颜色由淡到浓是沿 K 读 block 的顺序。acc 就是 C 的 block (1, 1)，64 轮 dot 在它上面一轮轮累加，ReLU 之后就是要写回的值，图里 ReLU 后的那段叫 C block。A、B 的 block 由 cp.async 从显存经 L2 搬进 shared memory，不经过 register。shared memory 里 A、B 各有 2 个 slot，因为默认 <code>num_stages=3</code>：第 T 轮的 block 在第 T − 2 轮算完时开始搬，第 T − 1 轮期间在路上，第 T 轮被读出来算；算完 slot 就空出来，接着搬第 T + 2 轮。所以偶数轮用 slot 0、奇数轮用 slot 1，算第 T 轮时另一个 slot 里是第 T + 1 轮，见 <a href="#stages">3.2 节</a>。',
  "mm_wave": '<strong>图 3-6</strong> matmul kernel 的 512 个 program 实际怎么分批跑（RTX 5090，fp32，A 4096 × 2048，B 2048 × 512，每个 SM 3 个 program），画法同<a href="#fig-t-5">图 3-5</a>。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，写回 C 之后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 的发射顺序所在的批次，一批 510 个。第 2 批只有 2 个，按比例只有 1 像素高，图里画成底边上的一条粗线并用红框圈出。悬停可看 program 编号和时间。',
+ "tx_barrier": '<strong>图 1-4</strong> 两种 barrier 怎么等数据（示意，横轴是时间，长度不按比例；画法参考 <a href="https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper">H100 白皮书</a> Figure 20）。上：asynchronous barrier 只数 thread 的 arrive。arrive 不阻塞，先到的 thread 可以先做不依赖这批数据的活，最后一个 thread arrive 时放行。下：asynchronous transaction barrier 还数字节。发起 TMA 的 thread 先登记这次要等 16 KB，TMA 每写进 shared memory 一段就把字节数加到 barrier 上，thread 都 arrive 过、字节数也到齐才放行。白皮书说 A100 上等着的 thread 在 barrier 上空转，H100 上可以睡眠。',
  "pipe_slots": '<strong>图 3-3</strong> matmul 的循环按 shared memory slot 看（RTX 5090，fp32，A 4032 × 2048，B 2048 × 512，BM = BN = 64，BK = 32，4 个 warp），条长和<a href="#fig-t-6">图 3-4</a>一样按 Nsight Compute 测的每轮平均拍数画。num_stages = 3 时，第 k 轮的数据从发出 load 到被用完跨三轮：第 k − 2 轮算完后发出，第 k − 1 轮期间在路上，第 k 轮被读出来算，所以叫 3 级。它从发出到第 k 轮算完一直占着一个 slot，任何时刻都有两轮的数据占着 slot，所以 2 个 slot 就够。只画前 5 轮。',
  "mm_pipe_ncu": '<strong>图 3-4</strong> matmul kernel 一个 warp 的流水线（RTX 5090，fp32，A 4032 × 2048，504 个 program 一批跑完；Nsight Compute 实测，<code>--clock-control none</code>）。每轮的拍数 = 每条指令平均隔几拍 × 每轮的指令数，等数据的拍数 = 每条指令平均等 L2 / 显存几拍 × 每轮的指令数，都是 64 轮的平均值。load 的延迟没法直接测，按不预取时每轮等数据的拍数画。只画前 5 轮。',
  "occ_sweep": '<strong>图 2-5</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。',
@@ -1814,7 +1890,7 @@ CAPS = {
  "ckpt": '<strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。',
  "sweep": '<strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。',
 }
-OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("residency", residency), ("tile_res", tile_res), ("tile_rules", tile_rules), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("wave_trace", wave_trace), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("mm_wave", mm_wave), ("mm_pipe_ncu", mm_pipe_ncu), ("pipe_slots", pipe_slots), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
+OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("residency", residency), ("tile_res", tile_res), ("tile_rules", tile_rules), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("wave_trace", wave_trace), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("mm_wave", mm_wave), ("mm_pipe_ncu", mm_pipe_ncu), ("pipe_slots", pipe_slots), ("tx_barrier", tx_barrier), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
        ("flops_vs_time", flops_vs_time), ("share_vs_seq", share_vs_seq), ("peak_memory", peak_memory), ("peak_moment", peak_moment),
        ("rms_eager", rms_eager), ("rms_fused", rms_fused), ("attn_flow", attn_flow), ("layer_donut", layer_donut), ("timelines", timelines),
        ("bf16", bf16), ("ckpt", ckpt), ("sweep", sweep))}

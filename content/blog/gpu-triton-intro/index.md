@@ -266,7 +266,123 @@ ld.global 和 cp.async 的区别是数据进不进 register；cp.async 和 TMA �
 
 打个比方，shared memory 是 SM 里的公共货架，显存是远处的仓库。ld.global 是每个人自己去仓库搬箱子，先揣在身上（register），回来再放上货架。cp.async 是每个人各自下单，让仓库直接送到货架，自己不用揣着，之后等自己的单都到了。TMA 是只派一个人，把一张清单交给叉车，清单上写着要的是仓库里哪一块矩形（tensor descriptor），叉车自己算位置、整块搬到货架，搬完按一下铃（mbarrier）。TMA 省下的是 thread 的指令和 register：算地址、算 mask、发几百条小请求的活都不用 thread 做，于是可以只让一个 warp 发 TMA，其余的 warp 专心算。
 
-[图 1-4](#fig-h-9) 是一个 SMSP 的结构，放在这里作参考。后文要用到其中两件事。
+叉车按的那个铃，是 shared memory 里的一个 barrier（mbarrier）。普通的同步 bar.sync 要所有 thread 都走到这一行才一起往下走，先到的只能干等。Ampere 加的 asynchronous barrier 把它拆成两步：thread 干完自己那份先 arrive，arrive 不会停，接着做不依赖这批数据的活；真要用数据时再 wait，等所有 thread 都 arrive 过（[图 1-4](#fig-b-1) 上）。cp.async 用这种办法就够了，每个 thread 搬的是自己发出的那几条，搬完自己知道。TMA 不一样：数据是硬件搬的，没有哪个 thread 能说「我的那份到了」。所以 Hopper 加了 asynchronous transaction barrier，它除了数 thread 的 arrive，还数字节：发起 TMA 的 thread 先登记这次要等多少字节，TMA 每写进 shared memory 一段就把字节数加到 barrier 上，wait 要等 thread 都 arrive 过、字节数也到齐才放行（图 1-4 下）。5090 上用 TMA 编出来的 PTX 就是这一套：`mbarrier.init` 建 barrier，`mbarrier.arrive.expect_tx` 登记字节数，`cp.async.bulk.tensor ... mbarrier::complete_tx::bytes` 搬完时把字节数报给 barrier，`mbarrier.try_wait.parity` 等。
+
+<figure id="fig-b-1" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 420" width="100%" role="img" aria-label="两种 barrier 的甘特图。上：asynchronous barrier 只数 thread 的 arrive，4 个 thread 产出数据后 arrive，接着做不依赖这批数据的活，最后一个 thread arrive 时放行。下：asynchronous transaction barrier 还数字节，thread 0 发起 TMA 并登记 16 KB，TMA 分 4 段写进 shared memory，字节数到 16 KB 时放行">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <text class="tb" x="8" y="28">asynchronous barrier（Ampere 起）：只数 thread 的 arrive</text>
+  <text class="lab" x="8" y="54">thread 0</text>
+  <rect x="92.0" y="43" width="117.9" height="14" rx="2" style="fill: var(--fig-2)" fill-opacity="0.55"/>
+  <text class="s" x="151.0" y="54.0" text-anchor="middle">产出数据</text>
+  <rect x="209.9" y="43" width="42.9" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
+  <rect x="252.8" y="43" width="32.2" height="14" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
+  <rect x="285.0" y="43" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
+  <text class="s" x="343.9" y="54.0" text-anchor="middle">用数据</text>
+  <path d="M209.9 42 L214.9 50.0 L209.9 58 L204.9 50.0 Z" style="fill: var(--fig-1)"/>
+  <text class="lab" x="8" y="74">thread 1</text>
+  <rect x="92.0" y="63" width="193.0" height="14" rx="2" style="fill: var(--fig-2)" fill-opacity="0.55"/>
+  <text class="s" x="188.5" y="74.0" text-anchor="middle">产出数据</text>
+  <rect x="285.0" y="63" width="53.6" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
+  <text class="s" x="311.8" y="74.0" text-anchor="middle">别的活</text>
+  <rect x="338.6" y="63" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
+  <text class="s" x="397.5" y="74.0" text-anchor="middle">用数据</text>
+  <path d="M285.0 62 L290.0 70.0 L285.0 78 L280.0 70.0 Z" style="fill: var(--fig-1)"/>
+  <text class="lab" x="8" y="94">thread 2</text>
+  <rect x="92.0" y="83" width="85.8" height="14" rx="2" style="fill: var(--fig-2)" fill-opacity="0.55"/>
+  <text class="s" x="134.9" y="94.0" text-anchor="middle">产出数据</text>
+  <rect x="177.8" y="83" width="32.2" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
+  <rect x="209.9" y="83" width="75.0" height="14" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
+  <rect x="285.0" y="83" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
+  <text class="s" x="343.9" y="94.0" text-anchor="middle">用数据</text>
+  <path d="M177.8 82 L182.8 90.0 L177.8 98 L172.8 90.0 Z" style="fill: var(--fig-1)"/>
+  <text class="lab" x="8" y="114">thread 3</text>
+  <rect x="92.0" y="103" width="150.1" height="14" rx="2" style="fill: var(--fig-2)" fill-opacity="0.55"/>
+  <text class="s" x="167.0" y="114.0" text-anchor="middle">产出数据</text>
+  <rect x="242.1" y="103" width="21.4" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
+  <rect x="263.5" y="103" width="21.4" height="14" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
+  <rect x="285.0" y="103" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
+  <text class="s" x="343.9" y="114.0" text-anchor="middle">用数据</text>
+  <path d="M242.1 102 L247.1 110.0 L242.1 118 L237.1 110.0 Z" style="fill: var(--fig-1)"/>
+  <line x1="285.0" y1="38" x2="285.0" y2="130" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="4 3"/>
+  <text class="s" x="291.0" y="132">最后一个 thread arrive，放行</text>
+  <text class="tb" x="8" y="168">asynchronous transaction barrier（Hopper 起，TMA 用的就是它）：还要数字节</text>
+  <text class="lab" x="8" y="194">thread 0</text>
+  <rect x="92.0" y="183" width="32.2" height="14" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.7"/>
+  <rect x="124.2" y="183" width="128.6" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
+  <text class="s" x="188.5" y="194.0" text-anchor="middle">别的活</text>
+  <rect x="252.8" y="183" width="150.1" height="14" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
+  <rect x="402.9" y="183" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
+  <text class="s" x="461.8" y="194.0" text-anchor="middle">用数据</text>
+  <path d="M124.2 182 L129.2 190.0 L124.2 198 L119.2 190.0 Z" style="fill: var(--fig-1)"/>
+  <text class="lab" x="8" y="214">thread 1</text>
+  <rect x="102.7" y="203" width="107.2" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
+  <text class="s" x="156.3" y="214.0" text-anchor="middle">别的活</text>
+  <rect x="209.9" y="203" width="193.0" height="14" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
+  <rect x="402.9" y="203" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
+  <text class="s" x="461.8" y="214.0" text-anchor="middle">用数据</text>
+  <path d="M102.7 202 L107.7 210.0 L102.7 218 L97.7 210.0 Z" style="fill: var(--fig-1)"/>
+  <text class="lab" x="8" y="234">thread 2</text>
+  <rect x="102.7" y="223" width="171.5" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
+  <text class="s" x="188.5" y="234.0" text-anchor="middle">别的活</text>
+  <rect x="274.2" y="223" width="128.6" height="14" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
+  <rect x="402.9" y="223" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
+  <text class="s" x="461.8" y="234.0" text-anchor="middle">用数据</text>
+  <path d="M102.7 222 L107.7 230.0 L102.7 238 L97.7 230.0 Z" style="fill: var(--fig-1)"/>
+  <text class="lab" x="8" y="254">thread 3</text>
+  <rect x="102.7" y="243" width="75.0" height="14" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
+  <text class="s" x="140.2" y="254.0" text-anchor="middle">别的活</text>
+  <rect x="177.8" y="243" width="225.1" height="14" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
+  <rect x="402.9" y="243" width="117.9" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
+  <text class="s" x="461.8" y="254.0" text-anchor="middle">用数据</text>
+  <path d="M102.7 242 L107.7 250.0 L102.7 258 L97.7 250.0 Z" style="fill: var(--fig-1)"/>
+  <text class="lab" x="8" y="274">TMA</text>
+  <rect x="124.2" y="263" width="64.3" height="14" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.35"/>
+  <text class="s" x="156.3" y="274.0" text-anchor="middle">写 4 KB</text>
+  <rect x="188.5" y="263" width="64.3" height="14" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.35"/>
+  <text class="s" x="220.6" y="274.0" text-anchor="middle">写 4 KB</text>
+  <rect x="252.8" y="263" width="75.0" height="14" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.35"/>
+  <text class="s" x="290.3" y="274.0" text-anchor="middle">写 4 KB</text>
+  <rect x="327.8" y="263" width="75.0" height="14" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.35"/>
+  <text class="s" x="365.4" y="274.0" text-anchor="middle">写 4 KB</text>
+  <text class="lab" x="8" y="294">字节计数</text>
+  <text class="s" x="185.5" y="294" text-anchor="end">4 KB</text>
+  <text class="s" x="249.8" y="294" text-anchor="end">8 KB</text>
+  <text class="s" x="324.8" y="294" text-anchor="end">12 KB</text>
+  <text class="s" x="399.9" y="294" text-anchor="end">16 KB</text>
+  <text class="s" x="94.0" y="294">0 / 16 KB</text>
+  <line x1="402.9" y1="178" x2="402.9" y2="310" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="4 3"/>
+  <text class="s" x="408.9" y="312">thread 都 arrive 过、字节到齐，放行</text>
+  <text class="s" x="94.0" y="178"></text>
+  <rect x="8" y="329" width="18" height="11" rx="2" style="fill: var(--fig-2)" fill-opacity="0.55"/><text class="s" x="32" y="338">产出数据</text>
+  <rect x="92.0" y="329" width="18" height="11" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/><text class="s" x="116.0" y="338">不依赖这批数据的活</text>
+  <rect x="228.5" y="329" width="18" height="11" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/><text class="s" x="252.5" y="338">等（A100 空转，H100 可以睡眠）</text>
+  <rect x="433.5" y="329" width="18" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/><text class="s" x="457.5" y="338">用数据</text>
+  <rect x="507.0" y="329" width="18" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.7"/><text class="s" x="531.0" y="338">发 TMA、登记 16 KB</text>
+  <path d="M13 347 L18 353 L13 359 L8 353 Z" style="fill: var(--fig-1)"/><text class="s" x="32" y="357">arrive：告诉 barrier 自己这份做完了，不阻塞</text>
+</svg>
+<figcaption><strong>图 1-4</strong> 两种 barrier 怎么等数据（示意，横轴是时间，长度不按比例；画法参考 <a href="https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper">H100 白皮书</a> Figure 20）。上：asynchronous barrier 只数 thread 的 arrive。arrive 不阻塞，先到的 thread 可以先做不依赖这批数据的活，最后一个 thread arrive 时放行。下：asynchronous transaction barrier 还数字节。发起 TMA 的 thread 先登记这次要等 16 KB，TMA 每写进 shared memory 一段就把字节数加到 barrier 上，thread 都 arrive 过、字节数也到齐才放行。白皮书说 A100 上等着的 thread 在 barrier 上空转，H100 上可以睡眠。</figcaption>
+</figure>
+
+[图 1-5](#fig-h-9) 是一个 SMSP 的结构，放在这里作参考。后文要用到其中两件事。
 
 第一件是 CUDA core 和 Tensor core 的分工。CUDA core 一次算一个数：一条 FMA 指令里 warp 的 32 个 thread 各用一个 CUDA core，各做一次乘加（2 FLOPs）。5090 一共 170 × 128 个 CUDA core，fp32 峰值 1.05e14 FLOPS。Tensor core 一次算一个小矩阵乘：一条指令由整个 warp 一起发出，算一小块 A × B 再加到累加器上。它只吃 bf16、fp16、tf32、fp8 这类低精度输入，bf16 的峰值是 2.1e14 FLOPS（fp32 累加），fp8 更高。第 2 节的 `tl.dot` 默认走 Tensor core，加减乘除在 CUDA core 上算，exp 这类函数在 SFU 上算。
 
@@ -372,7 +488,7 @@ ld.global 和 cp.async 的区别是数据进不进 register；cp.async 和 TMA �
   <text class="s" x="384" y="269" text-anchor="start" style="fill: var(--fig-hi)">⑥</text>
   <text class="lab2" x="400" y="269">SFU：exp、rsqrt、sin 这类特殊函数</text>
 </svg>
-<figcaption><strong>图 1-4</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。</figcaption>
+<figcaption><strong>图 1-5</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。</figcaption>
 </figure>
 
 [第 2 节](#triton) kernel 图里的「register」就是这块 register file，「计算单元」指其中的 CUDA core 和 Tensor core。几代 GPU 的规格对比见 [Appendix A](#specs)。
@@ -381,7 +497,7 @@ ld.global 和 cp.async 的区别是数据进不进 register；cp.async 和 TMA �
 
 ### 1.3 编程模型 {#hw-model}
 
-CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 warp 的 32 个 thread 同一时刻执行同一条指令。thread 往上分四层：thread、warp（32 个 thread）、block（也叫 CTA，若干个 warp）、grid（一次 kernel 启动的全部 block），每层跑在哪个硬件上见[图 1-5](#fig-h-5)。
+CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 warp 的 32 个 thread 同一时刻执行同一条指令。thread 往上分四层：thread、warp（32 个 thread）、block（也叫 CTA，若干个 warp）、grid（一次 kernel 启动的全部 block），每层跑在哪个硬件上见[图 1-6](#fig-h-5)。
 
 <figure id="fig-h-5" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 352" width="100%" role="img" aria-label="CUDA 的执行层级：grid 由 block 组成，block 由 warp 组成，warp 由 32 个 thread 组成；分别跑在整张 GPU、一个 SM、一个 SMSP 和一条 lane 上">
@@ -487,7 +603,7 @@ CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 
   <path d="M32 264 L20 302 M40 264 L370 302" stroke="currentColor" stroke-opacity=".3" stroke-dasharray="3 3" fill="none"/>
   <text class="lab" x="32" y="328">thread：自己的 register，按编号算出读哪个数</text>
 </svg>
-<figcaption><strong>图 1-5</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。</figcaption>
+<figcaption><strong>图 1-6</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；右边是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>。</figcaption>
 </figure>
 
 block 放到 SM 上以后一直驻留到跑完，一个 SM 可以同时驻留多个 block。一个 SM 能放几个 block、驻留的 warp 怎么轮流执行、block 多于全卡的名额时怎么分批跑，[第 3 节](#tune)再讲。
@@ -1976,7 +2092,7 @@ softmax 在 `num_warps=1` 时每个 SM 只驻留 12 个 warp，也没怎么变�
 
 ### 3.2 warp 调度：藏住访存延迟 {#sched-warp}
 
-一个 program 的 warp 按编号轮流分到 4 个 SMSP，每个 SMSP 有自己的 warp scheduler、register file 和 32 个 CUDA core（[图 1-4](#fig-h-9)）。调度器每拍从驻留的 warp 里挑一个就绪的，发出它的一条指令。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp。所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态，所以同时驻留的 warp 越多，访存延迟越容易藏住（[图 3-2](#fig-h-6)）。
+一个 program 的 warp 按编号轮流分到 4 个 SMSP，每个 SMSP 有自己的 warp scheduler、register file 和 32 个 CUDA core（[图 1-5](#fig-h-9)）。调度器每拍从驻留的 warp 里挑一个就绪的，发出它的一条指令。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp。所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态，所以同时驻留的 warp 越多，访存延迟越容易藏住（[图 3-2](#fig-h-6)）。
 
 <figure id="fig-h-6" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="一个 SM 上驻留 3 个 program、每个 4 个 warp 时的某一拍：每个 SMSP 有 3 个 warp，分别来自 3 个 program；每个调度器这一拍最多发射一个，SMSP 2 的 3 个都在等数据，调度器空转">
@@ -3018,7 +3134,7 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 B-2](#fig-h-
 2. NVIDIA. [NVIDIA RTX Blackwell GPU Architecture](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)（白皮书）。RTX 5090 的存储层级和 SM 结构，图 1-2、图 1-3。
 3. NVIDIA. [NVIDIA Ampere GA102 GPU Architecture](https://www.nvidia.com/content/PDF/nvidia-ampere-ga-102-gpu-architecture-whitepaper-v2.pdf)（白皮书）。compute 模式下 L1 和 shared memory 的几种切法（28 KB L1 + 100 KB shared memory 等），第 1.2 节。
 4. NVIDIA. [NVIDIA A100 Tensor Core GPU Architecture](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)、[NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)、[NVIDIA Blackwell Architecture](https://resources.nvidia.com/en-us-blackwell-architecture)。表 A-1 的 A100、H100、B200 一列；峰值另参考 [A100](https://www.nvidia.com/en-us/data-center/a100/)、[H100](https://www.nvidia.com/en-us/data-center/h100/) 产品页和 [HGX](https://www.nvidia.com/en-us/data-center/hgx/) 平台页（B200 的单卡数按 8 卡的 dense 值除以 8）。
-5. NVIDIA. [NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)（白皮书）。第 1.2 节的 TMA：SM 结构图（Figure 7）里每个 SM 一个，由一个 thread 发起，地址生成和数据搬运由硬件完成（Figure 18、19）。
+5. NVIDIA. [NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)（白皮书）。第 1.2 节的 TMA：SM 结构图（Figure 7）里每个 SM 一个，由一个 thread 发起，地址生成和数据搬运由硬件完成（Figure 18、19）；图 1-4 的两种 barrier（Figure 20）。
 6. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、block、register 和 shared memory 上限，表 3-1、表 A-1，CUDA 执行层级。
 7. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 停顿原因的定义，图 3-4。
 8. Austin et al. [How to Scale Your Model](https://jax-ml.github.io/scaling-book/gpus/), Google DeepMind, 2025. Appendix B 的 TPU v5p 规格、systolic array 的数据流和表 B-1。

@@ -107,7 +107,11 @@ ld.global 和 cp.async 的区别是数据进不进 register；cp.async 和 TMA �
 
 打个比方，shared memory 是 SM 里的公共货架，显存是远处的仓库。ld.global 是每个人自己去仓库搬箱子，先揣在身上（register），回来再放上货架。cp.async 是每个人各自下单，让仓库直接送到货架，自己不用揣着，之后等自己的单都到了。TMA 是只派一个人，把一张清单交给叉车，清单上写着要的是仓库里哪一块矩形（tensor descriptor），叉车自己算位置、整块搬到货架，搬完按一下铃（mbarrier）。TMA 省下的是 thread 的指令和 register：算地址、算 mask、发几百条小请求的活都不用 thread 做，于是可以只让一个 warp 发 TMA，其余的 warp 专心算。
 
-[图 1-4](#fig-h-9) 是一个 SMSP 的结构，放在这里作参考。后文要用到其中两件事。
+叉车按的那个铃，是 shared memory 里的一个 barrier（mbarrier）。普通的同步 bar.sync 要所有 thread 都走到这一行才一起往下走，先到的只能干等。Ampere 加的 asynchronous barrier 把它拆成两步：thread 干完自己那份先 arrive，arrive 不会停，接着做不依赖这批数据的活；真要用数据时再 wait，等所有 thread 都 arrive 过（[图 1-4](#fig-b-1) 上）。cp.async 用这种办法就够了，每个 thread 搬的是自己发出的那几条，搬完自己知道。TMA 不一样：数据是硬件搬的，没有哪个 thread 能说「我的那份到了」。所以 Hopper 加了 asynchronous transaction barrier，它除了数 thread 的 arrive，还数字节：发起 TMA 的 thread 先登记这次要等多少字节，TMA 每写进 shared memory 一段就把字节数加到 barrier 上，wait 要等 thread 都 arrive 过、字节数也到齐才放行（图 1-4 下）。5090 上用 TMA 编出来的 PTX 就是这一套：`mbarrier.init` 建 barrier，`mbarrier.arrive.expect_tx` 登记字节数，`cp.async.bulk.tensor ... mbarrier::complete_tx::bytes` 搬完时把字节数报给 barrier，`mbarrier.try_wait.parity` 等。
+
+{{fig-b-1}}
+
+[图 1-5](#fig-h-9) 是一个 SMSP 的结构，放在这里作参考。后文要用到其中两件事。
 
 第一件是 CUDA core 和 Tensor core 的分工。CUDA core 一次算一个数：一条 FMA 指令里 warp 的 32 个 thread 各用一个 CUDA core，各做一次乘加（2 FLOPs）。5090 一共 170 × 128 个 CUDA core，fp32 峰值 1.05e14 FLOPS。Tensor core 一次算一个小矩阵乘：一条指令由整个 warp 一起发出，算一小块 A × B 再加到累加器上。它只吃 bf16、fp16、tf32、fp8 这类低精度输入，bf16 的峰值是 2.1e14 FLOPS（fp32 累加），fp8 更高。第 2 节的 `tl.dot` 默认走 Tensor core，加减乘除在 CUDA core 上算，exp 这类函数在 SFU 上算。
 
@@ -121,7 +125,7 @@ ld.global 和 cp.async 的区别是数据进不进 register；cp.async 和 TMA �
 
 ### 1.3 编程模型 {#hw-model}
 
-CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 warp 的 32 个 thread 同一时刻执行同一条指令。thread 往上分四层：thread、warp（32 个 thread）、block（也叫 CTA，若干个 warp）、grid（一次 kernel 启动的全部 block），每层跑在哪个硬件上见[图 1-5](#fig-h-5)。
+CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 warp 的 32 个 thread 同一时刻执行同一条指令。thread 往上分四层：thread、warp（32 个 thread）、block（也叫 CTA，若干个 warp）、grid（一次 kernel 启动的全部 block），每层跑在哪个硬件上见[图 1-6](#fig-h-5)。
 
 {{fig-h-5}}
 
@@ -372,7 +376,7 @@ softmax 在 `num_warps=1` 时每个 SM 只驻留 12 个 warp，也没怎么变�
 
 ### 3.2 warp 调度：藏住访存延迟 {#sched-warp}
 
-一个 program 的 warp 按编号轮流分到 4 个 SMSP，每个 SMSP 有自己的 warp scheduler、register file 和 32 个 CUDA core（[图 1-4](#fig-h-9)）。调度器每拍从驻留的 warp 里挑一个就绪的，发出它的一条指令。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp。所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态，所以同时驻留的 warp 越多，访存延迟越容易藏住（[图 3-2](#fig-h-6)）。
+一个 program 的 warp 按编号轮流分到 4 个 SMSP，每个 SMSP 有自己的 warp scheduler、register file 和 32 个 CUDA core（[图 1-5](#fig-h-9)）。调度器每拍从驻留的 warp 里挑一个就绪的，发出它的一条指令。一个 warp 等显存数据要几百个周期，这段时间里调度器改发另一个就绪的 warp。所有驻留 warp 的 register 一直留在 register file 里，换 warp 不用保存或恢复状态，所以同时驻留的 warp 越多，访存延迟越容易藏住（[图 3-2](#fig-h-6)）。
 
 {{fig-h-6}}
 
@@ -544,7 +548,7 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 B-2](#fig-h-
 2. NVIDIA. [NVIDIA RTX Blackwell GPU Architecture](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)（白皮书）。RTX 5090 的存储层级和 SM 结构，图 1-2、图 1-3。
 3. NVIDIA. [NVIDIA Ampere GA102 GPU Architecture](https://www.nvidia.com/content/PDF/nvidia-ampere-ga-102-gpu-architecture-whitepaper-v2.pdf)（白皮书）。compute 模式下 L1 和 shared memory 的几种切法（28 KB L1 + 100 KB shared memory 等），第 1.2 节。
 4. NVIDIA. [NVIDIA A100 Tensor Core GPU Architecture](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)、[NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)、[NVIDIA Blackwell Architecture](https://resources.nvidia.com/en-us-blackwell-architecture)。表 A-1 的 A100、H100、B200 一列；峰值另参考 [A100](https://www.nvidia.com/en-us/data-center/a100/)、[H100](https://www.nvidia.com/en-us/data-center/h100/) 产品页和 [HGX](https://www.nvidia.com/en-us/data-center/hgx/) 平台页（B200 的单卡数按 8 卡的 dense 值除以 8）。
-5. NVIDIA. [NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)（白皮书）。第 1.2 节的 TMA：SM 结构图（Figure 7）里每个 SM 一个，由一个 thread 发起，地址生成和数据搬运由硬件完成（Figure 18、19）。
+5. NVIDIA. [NVIDIA H100 Tensor Core GPU Architecture](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)（白皮书）。第 1.2 节的 TMA：SM 结构图（Figure 7）里每个 SM 一个，由一个 thread 发起，地址生成和数据搬运由硬件完成（Figure 18、19）；图 1-4 的两种 barrier（Figure 20）。
 6. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、block、register 和 shared memory 上限，表 3-1、表 A-1，CUDA 执行层级。
 7. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 停顿原因的定义，图 3-4。
 8. Austin et al. [How to Scale Your Model](https://jax-ml.github.io/scaling-book/gpus/), Google DeepMind, 2025. Appendix B 的 TPU v5p 规格、systolic array 的数据流和表 B-1。
