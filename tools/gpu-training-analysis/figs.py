@@ -993,7 +993,7 @@ def warp_slots():
         f.w(f'<rect x="{x + 10}" y="70" width="121" height="22" rx="4" {tint("--fig-1", 10)}/>')
         f.w(f'<text class="s" x="{x + 70}" y="85" text-anchor="middle">warp 调度器</text>')
         f.w(f'<text class="s" x="{x + 70}" y="110" text-anchor="middle">最多驻留 12 个 warp</text>')
-        state = ["IRW", "IWW", "WWW", "IRR"][k]   # 这一拍：I 正在发射，R 就绪但没被选中，W 在等数据，其余空槽
+        state = ["IRW", "IWW", "WWW", "IRR"][k]   # 这一拍：I 正在发射，R 就绪但没被选中，W 在等数据，其余是空名额
         for q in range(12):
             sx, sy = x + 7 + (q % 4) * 33, 118 + (q // 4) * 28
             c = state[q] if q < len(state) else "-"
@@ -1003,7 +1003,7 @@ def warp_slots():
     f.w(f'<rect x="24" y="218" width="594" height="28" rx="6" {tint("--fig-2", 22)}/>')
     f.w('<text class="s" x="321" y="236" text-anchor="middle">P0、P1、P2 各有 4 个 warp：warp 0 到 3 依次分到 SMSP 0 到 3</text>')
     lx = 96
-    for c, lab in (("I", "正在发射"), ("R", "就绪，没被选中"), ("W", "等数据"), ("-", "空槽")):
+    for c, lab in (("I", "正在发射"), ("R", "就绪，没被选中"), ("W", "等数据"), ("-", "空名额")):
         f.w(f'<rect x="{lx}" y="272" width="17" height="10" rx="2" {ST[c]}/><text class="lab2" x="{lx + 24}" y="281">{lab}</text>')
         lx += 24 + 13 * len(lab) + 28
     return f
@@ -1487,7 +1487,7 @@ def tri_matmul():
         ["grid = (M / BM, N / BN)", "64 × 8 = 512 个 program"],
         [("@", "cp.async"), ("dot", "tl.dot"), "⋯", ("@", "cp.async"), ("dot", "tl.dot"), ("relu", "tl.maximum"), ("@", "tl.store")], "matmul",
         ["cp.async 把 A、B 的 block 从显存直接搬进 shared memory，tl.dot 从中读 a、b 到 register 做 FMA；",
-         "K 按 BK = 32 切成 64 轮，只画 T = 0 和 63；两个槽轮流用，算第 T 轮时第 T + 1 轮在搬；",
+         "K 按 BK = 32 切成 64 轮，只画 T = 0 和 63；两个 slot 轮流用，算第 T 轮时第 T + 1 轮在搬；",
          "tl.store 先把 C block 经 shared memory 换一次排布（A、B 已用完，复用同一块），再写回显存。"], mem_y1=384, smem="matmul")
     RAMP = [.12 + .66 * k / 7 for k in range(8)]     # 沿 K 的 for 循环顺序：越晚读越深
     TX = lambda o: 'style="fill: var(--fig-on-1)"' if o > .5 else ''
@@ -1510,11 +1510,11 @@ def tri_matmul():
     f.arrow(cx[5] - 14, AY0 - 2, cx[5] - 14, 86, "--fig-2", width=1.4); f.arrow(cx[5] + 14, 86, cx[5] + 14, AY0 - 2, "--fig-2", width=1.4)   # ReLU：读 acc，写 C block
     p.carry(cx[1], cx[4], "acc 带到下一轮")
     f.w(f'<text class="s" x="{cx[1] - 8:.1f}" y="34" text-anchor="end" style="fill: var(--fig-hi)">T = 0</text><text class="s" x="{cx[4] + 10:.1f}" y="34" style="fill: var(--fig-hi)">T = 63</text>')
-    # shared memory 一块 32 KB，分两个槽轮流用：槽 0 放偶数轮、槽 1 放奇数轮；循环结束后 C block 换排布也用这一块
+    # shared memory 一块 32 KB，分两个 slot 轮流用：slot 0 放偶数轮、slot 1 放奇数轮；循环结束后 C block 换排布也用这一块
     SY0, SY1, CW = 166, 232, 34
-    S1, S0 = (SY0 + 4, SY0 + 30), (SY0 + 36, SY0 + 62)               # 槽 1 在上、槽 0 在下
+    S1, S0 = (SY0 + 4, SY0 + 30), (SY0 + 36, SY0 + 62)               # slot 1 在上、slot 0 在下
     membar(f, cx[0] - 22, cx[6] - 2, SY0, SY1 - SY0)
-    def ab(x0, row, o, dash=False):                                  # 一个槽里的 A、B block，各 8 KB
+    def ab(x0, row, o, dash=False):                                  # 一个 slot 里的 A、B block，各 8 KB
         y0, y1 = row
         for k, nm in enumerate("AB"):
             x = x0 + k * CW
@@ -1525,11 +1525,11 @@ def tri_matmul():
             f.w(f'<text class="s" x="{x + CW / 2:.1f}" y="{y0 + 11}" text-anchor="middle" {tx}>{nm}</text><text class="s" x="{x + CW / 2:.1f}" y="{y0 + 22}" text-anchor="middle" style="font-size: 9.5px" {tx}>8 KB</text>')
     T0X, T1X, T63X = cx[0] - 16, cx[0] + 62, cx[3] - 22
     ab(T0X, S0, RAMP[0]); ab(T63X, S1, RAMP[-1])
-    f.w(f'<rect x="{T1X:.1f}" y="{S1[0]}" width="{2 * CW}" height="{S1[1] - S1[0]}" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7" stroke-dasharray="3 2"/>')   # 第 1 轮的 A、B 正在搬进槽 1
+    f.w(f'<rect x="{T1X:.1f}" y="{S1[0]}" width="{2 * CW}" height="{S1[1] - S1[0]}" rx="3" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".7" stroke-dasharray="3 2"/>')   # 第 1 轮的 A、B 正在搬进 slot 1
     f.w(f'<text class="s" x="{T1X + CW:.1f}" y="{S1[0] + 11}" text-anchor="middle" style="font-size: 9.5px">T = 1，16 KB</text><text class="s" x="{T1X + CW:.1f}" y="{S1[0] + 22}" text-anchor="middle" style="font-size: 9.5px">正在搬</text>')
-    f.w(f'<text class="s" x="{cx[4] + 4:.1f}" y="{S1[0] + 16}">槽 1</text><text class="s" x="{cx[4] + 4:.1f}" y="{S0[0] + 16}">槽 0</text>')
-    over(f, T0X + CW, S0[0] - 2, T0X + CW, BY0 + RH_ + 2)               # 第 0 轮：槽 0 → a、b，从槽 1 上面穿过
-    f.arrow(T63X + CW, S1[0] - 2, T63X + CW, BY0 + RH_ + 2, "--fig-2", width=1.4)   # 最后一轮：槽 1 → a、b
+    f.w(f'<text class="s" x="{cx[4] + 4:.1f}" y="{S1[0] + 16}">slot 1</text><text class="s" x="{cx[4] + 4:.1f}" y="{S0[0] + 16}">slot 0</text>')
+    over(f, T0X + CW, S0[0] - 2, T0X + CW, BY0 + RH_ + 2)               # 第 0 轮：slot 0 → a、b，从 slot 1 上面穿过
+    f.arrow(T63X + CW, S1[0] - 2, T63X + CW, BY0 + RH_ + 2, "--fig-2", width=1.4)   # 最后一轮：slot 1 → a、b
     CR = (cx[5] - 4, cx[6] - 30)                                       # tl.store 先给 C block 换排布（TTGIR 的 convert_layout 记在 tl.store 那一行）：用的还是这一块
     f.w(f'<rect x="{CR[0]:.1f}" y="{S1[0]}" width="{CR[1] - CR[0]:.1f}" height="{S0[1] - S1[0]}" rx="3" style="fill: var(--fig-1)" fill-opacity="{RAMP[-1]:.2f}"/>')
     f.w(f'<text class="s" x="{(CR[0] + CR[1]) / 2:.1f}" y="{S1[0] + 24}" text-anchor="middle" {TX(RAMP[-1])}>tl.store</text><text class="s" x="{(CR[0] + CR[1]) / 2:.1f}" y="{S1[0] + 38}" text-anchor="middle" {TX(RAMP[-1])}>换排布</text>')
@@ -1697,12 +1697,12 @@ def _ncu_rounds():
     return (run[1]["cycles_per_inst"] * run[1]["inst_per_round"], wait(run[1]),
             run[3]["cycles_per_inst"] * run[3]["inst_per_round"], wait(run[3]))
 
-# ── 图 3-1 num_stages：按 shared memory 槽看 matmul 的循环（ncu_matmul.json） ───────────
+# ── 图 3-1 num_stages：按 shared memory slot 看 matmul 的循环（ncu_matmul.json） ───────────
 def pipe_slots():
     P1, W1, P3, W3 = _ncu_rounds()
     L = W1                                                                           # load 的延迟，按不预取时每轮等数据的拍数画
-    f = F("fig-t-9", 300, f"matmul 循环按 shared memory 槽画的甘特图。num_stages = 1 只有 1 个槽：每轮先搬数据、等 {W1:.0f} 拍，再从槽里读出来算，一轮接一轮。num_stages = 3 有 2 个槽：第 k 轮的 load 在第 k − 2 轮算完后发出，第 k − 1 轮期间在路上，第 k 轮被读出来算，偶数轮用槽 0、奇数轮用槽 1；算第 k 轮时，第 k + 1 轮已经在另一个槽里")
-    X0, X1, TMAX = 96, 630, 23000
+    f = F("fig-t-9", 300, f"matmul 循环按 shared memory slot 画的甘特图。num_stages = 1 只有 1 个 slot：每轮先搬数据、等 {W1:.0f} 拍，再从 slot 里读出来算，一轮接一轮。num_stages = 3 有 2 个 slot：第 k 轮的 load 在第 k − 2 轮算完后发出，第 k − 1 轮期间在路上，第 k 轮被读出来算，偶数轮用 slot 0、奇数轮用 slot 1；算第 k 轮时，第 k + 1 轮已经在另一个 slot 里")
+    X0, X1, TMAX = 120, 630, 23000
     px = lambda t: X0 + min(t, TMAX) / TMAX * (X1 - X0)
     RH = 22
     def bar(t0, t1, y, var, op=1, dash=False, tip="", lab=""):
@@ -1720,25 +1720,25 @@ def pipe_slots():
             f.w(f'<line class="grid" x1="{px(t):.1f}" y1="{y0}" x2="{px(t):.1f}" y2="{y0 + len(names) * RH}"/>')
     # num_stages = 1
     Y1 = 40
-    f.w(f'<text class="tb" x="8" y="{Y1 - 10}">num_stages = 1</text><text class="lab2" x="{X0 + 64}" y="{Y1 - 10}">1 个槽，不预取：每轮 {P1:.0f} 拍</text>')
-    rows(Y1, ["槽", "warp"])
+    f.w(f'<text class="tb" x="8" y="{Y1 - 10}">num_stages = 1</text><text class="lab2" x="{X0 + 64}" y="{Y1 - 10}">1 个 slot，不预取：每轮 {P1:.0f} 拍</text>')
+    rows(Y1, ["slot (shmem)", "warp"])
     for k in range(5):
         t = k * P1
         bar(t, t + W1, Y1, "--fig-1", dash=True, tip=f"第 {k} 轮：load 在路上，{W1:.0f} 拍")
-        bar(t + W1, t + P1, Y1, "--fig-1", .22, tip=f"第 {k} 轮：在槽里被读", lab=f"第 {k} 轮")
+        bar(t + W1, t + P1, Y1, "--fig-1", .22, tip=f"第 {k} 轮：在 slot 里被读", lab=f"第 {k} 轮")
         bar(t, t + W1, Y1 + RH, "--fig-hi", tip=f"第 {k} 轮：等数据 {W1:.0f} 拍")
         bar(t + W1, t + P1, Y1 + RH, "--fig-1", .6, tip=f"第 {k} 轮：ld.shared 和乘加 {P1 - W1:.0f} 拍", lab=f"算第 {k} 轮")
     # num_stages = 3
     Y3 = Y1 + 2 * RH + 50
-    f.w(f'<text class="tb" x="8" y="{Y3 - 10}">num_stages = 3</text><text class="lab2" x="{X0 + 64}" y="{Y3 - 10}">2 个槽，提前一整轮发 load：每轮 {P3:.0f} 拍</text>')
-    rows(Y3, ["槽 0", "槽 1", "warp"])
+    f.w(f'<text class="tb" x="8" y="{Y3 - 10}">num_stages = 3</text><text class="lab2" x="{X0 + 64}" y="{Y3 - 10}">2 个 slot，提前一整轮发 load：每轮 {P3:.0f} 拍</text>')
+    rows(Y3, ["slot 0 (shmem)", "slot 1 (shmem)", "warp"])
     s = lambda k: L + k * P3                                                         # 第 k 轮开始算
     for k in range(6):
         y = Y3 + (k % 2) * RH
         issue = 0 if k < 2 else s(k - 1)                                             # 第 k − 2 轮算完（= 第 k − 1 轮开始）时发出
         bar(issue, issue + L, y, "--fig-1", dash=True, tip=f"第 {k} 轮：load 在路上，约 {L:.0f} 拍")
-        bar(issue + L, s(k), y, "--fig-2", .28, tip=f"第 {k} 轮：已到槽里，等着被读")
-        bar(s(k), s(k) + P3, y, "--fig-1", .22, tip=f"第 {k} 轮：在槽里被读", lab=f"第 {k} 轮")
+        bar(issue + L, s(k), y, "--fig-2", .28, tip=f"第 {k} 轮：已到 slot 里，等着被读")
+        bar(s(k), s(k) + P3, y, "--fig-1", .22, tip=f"第 {k} 轮：在 slot 里被读", lab=f"第 {k} 轮")
     yw = Y3 + 2 * RH
     bar(0, L, yw, "--fig-hi", tip=f"第 0 轮：等数据 {L:.0f} 拍")
     for k in range(5):
@@ -1750,10 +1750,10 @@ def pipe_slots():
     for t in range(0, TMAX + 1, 5000):
         f.w(f'<text class="tick" x="{px(t):.1f}" y="{yb + 14}" text-anchor="middle">{t}</text>')
     f.w(f'<text class="lab2" x="{X0 - 8}" y="{yb + 14}" text-anchor="end">拍</text>')
-    f.w(f'<text class="s" x="{X0}" y="{yb + 32}">竖虚线这一刻：第 2 轮在槽 0 里被读、在算；第 3 轮已经到了槽 1；第 4 轮要等第 2 轮算完才发</text>')
+    f.w(f'<text class="s" x="{X0}" y="{yb + 32}">竖虚线这一刻：第 2 轮在 slot 0 里被读、在算；第 3 轮已经到了 slot 1；第 4 轮要等第 2 轮算完才发</text>')
     ly = yb + 54
-    items = [("--fig-1", 1, True, "load 在路上"), ("--fig-2", .28, False, "已到槽里，等着被读"),
-             ("--fig-1", .22, False, "在槽里被读"), ("--fig-1", .6, False, "ld.shared 和乘加"), ("--fig-hi", 1, False, "等数据")]
+    items = [("--fig-1", 1, True, "load 在路上"), ("--fig-2", .28, False, "已到 slot 里，等着被读"),
+             ("--fig-1", .22, False, "在 slot 里被读"), ("--fig-1", .6, False, "ld.shared 和乘加"), ("--fig-hi", 1, False, "等数据")]
     x = 8
     for var, op, dash, lab in items:
         st = f'style="fill: none; stroke: var({var})" stroke-dasharray="3 2"' if dash else f'style="fill: var({var})" fill-opacity="{op}"'
@@ -1774,9 +1774,9 @@ CAPS = {
  "wave_trace": '<strong>图 3-5</strong> GELU 的 8192 个 program 实际怎么分批跑（RTX 5090，n = 8388608，fp32，每个 program 4 个 warp）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，store 发出后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 编号所在的批次，一批 2040 个。浅红色是 bubble：名额上没有 program 在执行指令；最后一个 program 开始以后是 tail。下面的名额是按开始、结束时间排出来的，红框是这个 SM 上最长的一段空档。悬停可看 program 编号和时间。',
  "tri_softmax": '<strong>图 2-2</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。显存泳道里的方块是整个 x、y（各 64 MB），深色一条是 program 1 读写的那一行（4096 个 fp32，16 KB），按比例只有 1/4096，图里放大了。',
  "tri_rowsum": '<strong>图 2-3</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-1</a>。图里 TILE = 4，一行 16 个数分 4 个 block，代码里 TILE = 1024。颜色由淡到浓是 for 循环读 block 的顺序：第 0 轮后 acc 只有 block 0 的数，最后的 acc 是 4 个 block 逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。',
- "tri_matmul": '<strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 个 row block 和 B 的第 1 个 column block，颜色由淡到浓是沿 K 读 block 的顺序。acc 就是 C 的 block (1, 1)，64 轮 dot 在它上面一轮轮累加，ReLU 之后就是要写回的值，图里 ReLU 后的那段叫 C block。shared memory 里 A、B 各有两个槽：循环开始前先把第 0 轮搬进槽 0、第 1 轮搬进槽 1；算第 T 轮时用槽 T % 2，另一个槽在搬第 T + 1 轮，算完空出来的槽接着搬第 T + 2 轮，所以偶数轮在槽 0、奇数轮在槽 1，T = 63 在槽 1。',
+ "tri_matmul": '<strong>图 2-4</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-1</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 个 row block 和 B 的第 1 个 column block，颜色由淡到浓是沿 K 读 block 的顺序。acc 就是 C 的 block (1, 1)，64 轮 dot 在它上面一轮轮累加，ReLU 之后就是要写回的值，图里 ReLU 后的那段叫 C block。shared memory 里 A、B 各有两个 slot：循环开始前先把第 0 轮搬进 slot 0、第 1 轮搬进 slot 1；算第 T 轮时用 slot T % 2，另一个 slot 在搬第 T + 1 轮，算完空出来的 slot 接着搬第 T + 2 轮，所以偶数轮在 slot 0、奇数轮在 slot 1，T = 63 在 slot 1。',
  "mm_wave": '<strong>图 3-6</strong> matmul kernel 的 512 个 program 实际怎么分批跑（RTX 5090，fp32，A 4096 × 2048，B 2048 × 512，每个 SM 3 个 program），画法同<a href="#fig-t-5">图 3-5</a>。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，写回 C 之后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 的发射顺序所在的批次，一批 510 个。第 2 批只有 2 个，按比例只有 1 像素高，图里画成底边上的一条粗线并用红框圈出。悬停可看 program 编号和时间。',
- "pipe_slots": '<strong>图 3-1</strong> matmul 的循环按 shared memory 槽看（RTX 5090，fp32，A 4032 × 2048，B 2048 × 512，BM = BN = 64，BK = 32，4 个 warp），条长和<a href="#fig-t-6">图 3-2</a>一样按 Nsight Compute 测的每轮平均拍数画。num_stages = 3 时，第 k 轮的数据从发出 load 到被用完跨三轮：第 k − 2 轮算完后发出，第 k − 1 轮期间在路上，第 k 轮被读出来算，所以叫 3 级。它从发出到第 k 轮算完一直占着一个槽，任何时刻都有两轮的数据占着槽，所以 2 个槽就够。只画前 5 轮。',
+ "pipe_slots": '<strong>图 3-1</strong> matmul 的循环按 shared memory slot 看（RTX 5090，fp32，A 4032 × 2048，B 2048 × 512，BM = BN = 64，BK = 32，4 个 warp），条长和<a href="#fig-t-6">图 3-2</a>一样按 Nsight Compute 测的每轮平均拍数画。num_stages = 3 时，第 k 轮的数据从发出 load 到被用完跨三轮：第 k − 2 轮算完后发出，第 k − 1 轮期间在路上，第 k 轮被读出来算，所以叫 3 级。它从发出到第 k 轮算完一直占着一个 slot，任何时刻都有两轮的数据占着 slot，所以 2 个 slot 就够。只画前 5 轮。',
  "mm_pipe_ncu": '<strong>图 3-2</strong> matmul kernel 一个 warp 的流水线（RTX 5090，fp32，A 4032 × 2048，504 个 program 一批跑完；Nsight Compute 实测，<code>--clock-control none</code>）。每轮的拍数 = 每条指令平均隔几拍 × 每轮的指令数，等数据的拍数 = 每条指令平均等 L2 / 显存几拍 × 每轮的指令数，都是 64 轮的平均值。load 的延迟没法直接测，按不预取时每轮等数据的拍数画。只画前 5 轮。',
  "occ_sweep": '<strong>图 2-5</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。',
  "tile_sweep": '<strong>图 2-6</strong> row sum 的 TILE 和带宽（RTX 5090，fp32，两种形状都是 340 MiB，<code>num_warps=4</code>，每点取 8 次计时的最快值）。悬停可看耗时和每线程的 register 数。',
