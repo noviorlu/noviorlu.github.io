@@ -1354,13 +1354,13 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
 
 和 row sum 一样，分段加完再相加等于一次加完，所以每轮只读 $A_{IT}$、$B_{TJ}$ 两个 block，乘完累加，最后就是完整的 $C_{IJ}$。ReLU 逐元素作用在累加完的结果上，放在最后做。
 
-切 block 的好处在显存读写量。算一个 $C_{ij}$ 要用 A 的一行和 B 的一列，一共 2K 个数，区别在这些数从哪读（[表 2-2](#tab-2-2)）：
+切 block 的好处在显存读写量。算一个 $C_{ij}$ 要用 A 的一行和 B 的一列，一共 2K 个数，naive 和 tiling 的区别在这些数从哪读（[表 2-2](#tab-2-2)）：
 
 | | 每个输出从显存读 | 其余从片上读 | K = 2048、T = 64 时从显存读 | 整个 kernel 从显存读 |
 |:--|--:|--:|--:|--:|
-| 不切 | 2K 个数 | 0 | 4096 个数 | 32 GB |
-| 切成 T × T 的 block | 2K / T 个数 | 2K − 2K / T | 64 个数 | 512 MB |
-{#tab-2-2 caption="**表 2-2** 切不切 block，每个输出的 2K 个数从哪读" note="形状是这一节的 A 4096 × 2048、B 2048 × 512，fp32。片上指 shared memory，以及 thread 自己 register 里留着的数。512 MB 和「matmul 编译出来什么样」notes 里数出来的一致。"}
+| naive（不切 block） | 2K 个数 | 0 | 4096 个数 | 32 GB |
+| tiling（切成 T × T 的 block） | 2K / T 个数 | 2K − 2K / T | 64 个数 | 512 MB |
+{#tab-2-2 caption="**表 2-2** naive 和 tiling：每个输出的 2K 个数从哪读" note="形状是这一节的 A 4096 × 2048、B 2048 × 512，fp32。片上指 shared memory，以及 thread 自己 register 里留着的数。512 MB 和「matmul 编译出来什么样」notes 里数出来的一致。"}
 
 1/T 是这样来的：一个 program 从显存读进 A 的 T × K 个数和 B 的 K × T 个数，算出 C 的 T × T 个输出，平均每个输出读 2TK / T² = 2K / T 个（[图 2-5](#fig-o-2)）。一个数从显存读进来一次，在片上被 T 个输出用到。BM、BN 不相等时是 K / BN + K / BM。
 
