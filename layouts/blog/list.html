@@ -45,7 +45,6 @@
             </ul>
             <p class="nv-panel__links">
               <a href="{{ "blog/ai-daily-reports/index.xml" | relLangURL }}">RSS</a>
-              {{ with site.GetPage "/blog/ai-daily-reports/subscribe" }}<a href="{{ .RelPermalink }}">邮件订阅</a>{{ end }}
             </p>
           </div>
         {{ end }}
@@ -88,8 +87,7 @@
       <h1 class="nv-pagehead__title">{{ .Title }}</h1>
       {{ with .Description }}<p class="nv-pagehead__lead">{{ . }}</p>{{ end }}
       <p class="nv-pagehead__actions">
-        {{ with site.GetPage "/blog/ai-daily-reports/subscribe" }}<a class="nv-btn nv-btn--primary" href="{{ .RelPermalink }}">邮件订阅</a>{{ end }}
-        <a class="nv-btn" href="{{ "blog/ai-daily-reports/index.xml" | relLangURL }}">RSS</a>
+        <a class="nv-btn nv-btn--primary" href="{{ "blog/ai-daily-reports/index.xml" | relLangURL }}">RSS 订阅</a>
       </p>
     </header>
 

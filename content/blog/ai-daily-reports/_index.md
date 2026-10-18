@@ -2,6 +2,7 @@
 title: "AI Daily Reports"
 description: "每天早上由定时任务自动整理的 AI 日报：最新论文、行业新闻和公司博客，每条附原文链接"
 date: 2026-03-07
+aliases: ["/blog/ai-daily-reports/subscribe/"]
 draft: false
 ---
 
@@ -20,7 +21,6 @@ draft: false
 
 ## 📋 订阅
 
-- 📧 **邮件订阅** - [立即订阅](/blog/ai-daily-reports/subscribe/)
 - 🌐 **RSS 订阅** - [AI Daily Reports RSS](/blog/ai-daily-reports/index.xml)
 
 ## 📖 历史日报
