@@ -444,13 +444,13 @@ block 之间不能直接共享数据，只能通过显存交换，而这正是�
 
 先看用 Triton 写能换来什么。[表 2-1](#tab-2-1) 把这一节的四个例子各写两遍：一遍用 PyTorch 的张量运算直接写（eager），一遍用 Triton 写成一个 kernel。
 
-| op | 形状 | eager 写法 | eager 的 kernel 数 | eager | Triton | 加速 | PyTorch 自带的融合 kernel |
-|:--|:--|:--|--:|--:|--:|--:|--:|
-| [GELU](#triton-gelu) | n = 8388608 | 按公式逐个运算 | 8 | 198.4 µs | 48.4 µs | 4.1× | 50.6 µs |
-| [softmax](#triton-softmax) | 4096 × 4096 | `softmax_naive` | 5 | 260.6 µs | 95.2 µs | 2.7× | 95.7 µs |
-| [row sum](#triton-rowsum) | 4096 × 4096 | `x.sum(1)` | 1 | 54.5 µs | 56.2 µs | 0.97× | — |
-| [matmul + ReLU](#triton-matmul) | 4096 × 2048 × 512 | `torch.relu(A @ B)` | 3 | 164.8 µs | 210.8 µs | 0.78× | — |
-{#tab-2-1 caption="**表 2-1** 同一个 op，PyTorch eager 和 Triton 各写一遍" note="RTX 5090，fp32，<code>triton.testing.do_bench</code> 跑 5 次取中位数，kernel 个数用 <code>torch.profiler</code> 数。最后一列是 <code>F.gelu(x, approximate=\"tanh\")</code> 和 <code>torch.softmax</code>，作参照。matmul 关掉了 tf32。换一张卡数字会变，几行之间的对比关系一般不变。"}
+| op | eager 写法 | kernel 数 | eager（µs） | Triton（µs） | 加速 | PyTorch 融合 kernel（µs） |
+|:--|:--|--:|--:|--:|--:|--:|
+| [GELU](#triton-gelu) | 按公式逐个运算 | 8 | 198.4 | 48.4 | 4.1× | 50.6 |
+| [softmax](#triton-softmax) | `softmax_naive` | 5 | 260.6 | 95.2 | 2.7× | 95.7 |
+| [row sum](#triton-rowsum) | `x.sum(1)` | 1 | 54.5 | 56.2 | 0.97× | — |
+| [matmul + ReLU](#triton-matmul) | `torch.relu(A @ B)` | 3 | 164.8 | 210.8 | 0.78× | — |
+{#tab-2-1 caption="**表 2-1** 同一个 op，PyTorch eager 和 Triton 各写一遍" note="RTX 5090，fp32，形状和各小节一样：GELU n = 8388608，softmax 和 row sum 4096 × 4096，matmul A 4096 × 2048、B 2048 × 512。<code>triton.testing.do_bench</code> 跑 5 次取中位数，kernel 个数用 <code>torch.profiler</code> 数。最后一列是 <code>F.gelu(x, approximate=\"tanh\")</code> 和 <code>torch.softmax</code>，作参照。matmul 关掉了 tf32。换一张卡数字会变，几行之间的对比关系一般不变。"}
 
 差别主要来自 kernel 的个数。GELU 的公式按张量运算写，eager 要跑 8 个 kernel，softmax 要 5 个，每个 kernel 都把中间结果完整写一遍显存、下一个再读回来；Triton 把它们合成一个 kernel，中间结果留在 register 里，显存只读写一次，所以快 4.1 倍和 2.7 倍，和 PyTorch 自带的融合 kernel 一样快。row sum 的 `x.sum(1)` 本来就是一个 kernel，没有中间结果可省，两边差不多。matmul + ReLU 的 eager 版走 cuBLAS，Triton 版反而慢 28%，原因是 block 大小没调、最后一批只剩 2 个 program，[第 3 节](#tune)会讲到。
 
