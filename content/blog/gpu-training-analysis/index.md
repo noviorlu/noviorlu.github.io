@@ -257,7 +257,7 @@ fp32 + AdamW 训练时，每个参数要占 16 B：权重 4 B、梯度 4 B、Ada
 实测 full step 的峰值里只有权重、Adam 状态和 A，没有梯度（[图 2-3](#fig-2-3)）。
 
 <figure id="fig-2-3" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="三档模型 full step 的实测峰值显存，由权重、Adam 状态和 activation 组成，里面没有梯度">
+<svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="三档模型 full step 的实测峰值显存，由权重、Adam 状态和 A、G 共用的一块组成：这块前向结束时装 activation，反向结束时装梯度，高度是两者中较大的 A">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -277,14 +277,15 @@ fp32 + AdamW 训练时，每个参数要占 16 B：权重 4 B、梯度 4 B、Ada
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
   </style>
+  <defs><pattern id="fig-2-3-ag" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="4" height="8" style="fill: var(--fig-2)"/><rect x="4" width="4" height="8" style="fill: var(--fig-hi)"/></pattern></defs>
   <rect x="70" y="11" width="10" height="10" rx="2" style="fill: var(--fig-1)"/>
   <text class="lab" x="86" y="20">W 权重</text>
   <rect x="139.2" y="11" width="10" height="10" rx="2" style="fill: var(--fig-mute)"/>
   <text class="lab" x="155.2" y="20">Adam m、v</text>
-  <rect x="229.39999999999998" y="11" width="10" height="10" rx="2" style="fill: var(--fig-2)"/>
-  <text class="lab" x="245.39999999999998" y="20">A activation</text>
-  <rect x="340.59999999999997" y="11" width="10" height="10" rx="2" style="fill: var(--fig-3); stroke: var(--fig-2)"/>
-  <text class="lab" x="356.59999999999997" y="20">T 临时量</text>
+  <rect x="229.39999999999998" y="11" width="10" height="10" rx="2" fill="url(#fig-2-3-ag)"/>
+  <text class="lab" x="245.39999999999998" y="20">A / G 共用</text>
+  <rect x="325.0" y="11" width="10" height="10" rx="2" style="fill: var(--fig-3); stroke: var(--fig-2)"/>
+  <text class="lab" x="341.0" y="20">T 临时量</text>
   <line class="grid" x1="70" y1="262.0" x2="630" y2="262.0"/><text class="tick" x="62" y="266.0" text-anchor="end">0</text>
   <line class="grid" x1="70" y1="196.0" x2="630" y2="196.0"/><text class="tick" x="62" y="200.0" text-anchor="end">10</text>
   <line class="grid" x1="70" y1="130.0" x2="630" y2="130.0"/><text class="tick" x="62" y="134.0" text-anchor="end">20</text>
@@ -292,16 +293,18 @@ fp32 + AdamW 训练时，每个参数要占 16 B：权重 4 B、梯度 4 B、Ada
   <text class="lab2" x="70" y="40">GiB</text>
   <g class="m"><title>small：W 0.48 GiB</title><rect x="135.0" y="259.8" width="70.0" height="1.2" rx="2" style="fill: var(--fig-1)"/></g>
   <g class="m"><title>small：Adam 0.96 GiB</title><rect x="135.0" y="253.5" width="70.0" height="4.3" rx="2" style="fill: var(--fig-mute)"/></g>
-  <g class="m"><title>small：A 3.50 GiB</title><rect x="135.0" y="230.4" width="70.0" height="21.1" rx="2" style="fill: var(--fig-2)"/></g>
-  <text x="170" y="244.9" text-anchor="middle" font-size="11" style="fill: var(--fig-on-2)">A 3.5</text>
+  <g class="m"><title>small：A、G 共用的一块 3.50 GiB。前向结束时装 A（3.50 GiB），反向结束时 A 已释放、装 G（= W，0.48 GiB）</title><rect x="135.0" y="230.4" width="70" height="21.1" rx="2" fill="url(#fig-2-3-ag)"/></g>
+  <text class="val" x="211.0" y="238.9">A 3.5</text>
+  <text class="val" x="211.0" y="252.9">G 0.5</text>
   <g class="m"><title>small：T 0.10 GiB</title><rect x="135.0" y="229.7" width="70.0" height="0.7" rx="2" style="fill: var(--fig-3); stroke: var(--fig-2)"/></g>
   <text class="val" x="170" y="222.7" text-anchor="middle">5.04 GiB</text>
   <text class="lab" x="170" y="280" text-anchor="middle">small 0.13B</text>
   <g class="m"><title>medium：W 1.58 GiB</title><rect x="305.0" y="252.6" width="70.0" height="8.4" rx="2" style="fill: var(--fig-1)"/></g>
   <g class="m"><title>medium：Adam 3.16 GiB</title><rect x="305.0" y="231.7" width="70.0" height="18.9" rx="2" style="fill: var(--fig-mute)"/></g>
   <text x="340" y="245.1" text-anchor="middle" font-size="11" style="fill: var(--fig-on-mute)">Adam 3.2</text>
-  <g class="m"><title>medium：A 8.91 GiB</title><rect x="305.0" y="172.9" width="70.0" height="56.8" rx="2" style="fill: var(--fig-2)"/></g>
-  <text x="340" y="205.3" text-anchor="middle" font-size="11" style="fill: var(--fig-on-2)">A 8.9</text>
+  <g class="m"><title>medium：A、G 共用的一块 8.91 GiB。前向结束时装 A（8.91 GiB），反向结束时 A 已释放、装 G（= W，1.58 GiB）</title><rect x="305.0" y="172.9" width="70" height="56.8" rx="2" fill="url(#fig-2-3-ag)"/></g>
+  <text class="val" x="381.0" y="199.3">A 8.9</text>
+  <text class="val" x="381.0" y="213.3">G 1.6</text>
   <g class="m"><title>medium：T 0.09 GiB</title><rect x="305.0" y="172.3" width="70.0" height="0.6" rx="2" style="fill: var(--fig-3); stroke: var(--fig-2)"/></g>
   <text class="val" x="340" y="165.3" text-anchor="middle">13.74 GiB</text>
   <text class="lab" x="340" y="280" text-anchor="middle">medium 0.42B</text>
@@ -309,14 +312,15 @@ fp32 + AdamW 训练时，每个参数要占 16 B：权重 4 B、梯度 4 B、Ada
   <text x="510" y="254.1" text-anchor="middle" font-size="11" style="fill: var(--fig-on-1)">W 3.6</text>
   <g class="m"><title>large：Adam 7.22 GiB</title><rect x="475.0" y="191.5" width="70.0" height="45.7" rx="2" style="fill: var(--fig-mute)"/></g>
   <text x="510" y="218.3" text-anchor="middle" font-size="11" style="fill: var(--fig-on-mute)">Adam 7.2</text>
-  <g class="m"><title>large：A 16.58 GiB</title><rect x="475.0" y="82.1" width="70.0" height="107.4" rx="2" style="fill: var(--fig-2)"/></g>
-  <text x="510" y="139.8" text-anchor="middle" font-size="11" style="fill: var(--fig-on-2)">A 16.6</text>
+  <g class="m"><title>large：A、G 共用的一块 16.58 GiB。前向结束时装 A（16.58 GiB），反向结束时 A 已释放、装 G（= W，3.61 GiB）</title><rect x="475.0" y="82.1" width="70" height="107.4" rx="2" fill="url(#fig-2-3-ag)"/></g>
+  <text class="val" x="551.0" y="133.8">A 16.6</text>
+  <text class="val" x="551.0" y="147.8">G 3.6</text>
   <g class="m"><title>large：T 0.10 GiB</title><rect x="475.0" y="81.4" width="70.0" height="0.7" rx="2" style="fill: var(--fig-3); stroke: var(--fig-2)"/></g>
   <text class="val" x="510" y="74.4" text-anchor="middle">27.51 GiB</text>
   <text class="lab" x="510" y="280" text-anchor="middle">large 0.97B</text>
   <line class="axis" x1="70" y1="262" x2="630" y2="262"/>
 </svg>
-<figcaption><strong>图 2-3</strong> full step 的实测峰值显存（batch 4，seq 512）。A = 带梯度的前向峰值 − W，顶上 ~0.1 GiB 是 T。</figcaption>
+<figcaption><strong>图 2-3</strong> full step 的实测峰值显存（batch 4，seq 512）。斜纹块是 A 和 G 轮流用的同一块显存：前向结束时装 A，反向时 A 一层层释放、G 一层层分配；G 和 W 一样大，比 A 小，所以这块的高度是 A。A = 带梯度的前向峰值 − W，顶上 ~0.1 GiB 是 T。</figcaption>
 </figure>
 
 梯度不在峰值里，是因为 G 和 A 此消彼长。反向走完 j 层（共 L 层）时，显存里是：

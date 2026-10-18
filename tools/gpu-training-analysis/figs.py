@@ -73,6 +73,8 @@ def legend(f, items, x, y, gap=22):
         if kind == "box":
             extra = '; stroke: var(--fig-2)' if var == "--fig-3" else ''
             f.w(f'<rect x="{x}" y="{y - 9}" width="10" height="10" rx="2" style="fill: var({var}){extra}"/>')
+        elif kind == "fill":
+            f.w(f'<rect x="{x}" y="{y - 9}" width="10" height="10" rx="2" fill="{var}"/>')
         elif kind == "line":
             f.w(f'<line x1="{x}" y1="{y - 4}" x2="{x + 12}" y2="{y - 4}" style="stroke: var({var})" stroke-width="2"/>')
         elif kind == "dash":
@@ -357,8 +359,11 @@ def share_vs_seq():
 # ── 图 3-1 纸面 vs 实测峰值显存 ───────────────────────────────────────────────
 def peak_memory():
     data = [("small", "0.13B", 0.48, 3.50, 5.04), ("medium", "0.42B", 1.58, 8.91, 13.74), ("large", "0.97B", 3.61, 16.58, 27.51)]
-    f = F("fig-2-3", 300, "三档模型 full step 的实测峰值显存，由权重、Adam 状态和 activation 组成，里面没有梯度")
-    legend(f, [("W 权重", "--fig-1", "box"), ("Adam m、v", "--fig-mute", "box"), ("A activation", "--fig-2", "box"), ("T 临时量", "--fig-3", "box")], 70, 20, gap=16)
+    f = F("fig-2-3", 300, "三档模型 full step 的实测峰值显存，由权重、Adam 状态和 A、G 共用的一块组成：这块前向结束时装 activation，反向结束时装梯度，高度是两者中较大的 A")
+    # A and G take turns in the same memory: diagonal stripes alternating the two colours
+    f.w('<defs><pattern id="fig-2-3-ag" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
+        '<rect width="4" height="8" style="fill: var(--fig-2)"/><rect x="4" width="4" height="8" style="fill: var(--fig-hi)"/></pattern></defs>')
+    legend(f, [("W 权重", "--fig-1", "box"), ("Adam m、v", "--fig-mute", "box"), ("A / G 共用", "url(#fig-2-3-ag)", "fill"), ("T 临时量", "--fig-3", "box")], 70, 20, gap=16)
     Y0, PY = 262, 6.6
     for v in range(0, 31, 10):
         y = Y0 - v * PY
@@ -372,6 +377,14 @@ def peak_memory():
         x, y = cx - BW / 2, Y0
         for lab, v, var in segs:
             h = v * PY
+            if lab == "A":
+                f.w(f'<g class="m"><title>{name}：A、G 共用的一块 {v:.2f} GiB。前向结束时装 A（{A:.2f} GiB），'
+                    f'反向结束时 A 已释放、装 G（= W，{W:.2f} GiB）</title><rect x="{x:.1f}" y="{y - h + 1:.1f}" width="{BW}" '
+                    f'height="{h - 2:.1f}" rx="2" fill="url(#fig-2-3-ag)"/></g>')
+                for k, t in enumerate((f"A {A:.1f}", f"G {W:.1f}")):  # beside the bar: text on stripes is unreadable
+                    f.w(f'<text class="val" x="{x + BW + 6:.1f}" y="{y - h / 2 - 2 + 14 * k:.1f}">{t}</text>')
+                y -= h
+                continue
             rect(f, x, y - h + 1, BW, h - 2 if h > 3 else h, var, f"{name}：{lab} {v:.2f} GiB", rx=2, stroke="--fig-2" if var == "--fig-3" else None)
             if h >= 16 and lab != "T":
                 f.w(f'<text x="{cx}" y="{y - h / 2 + 4:.1f}" text-anchor="middle" font-size="11" style="fill: var({on[var]})">{lab} {v:.1f}</text>')
@@ -1706,7 +1719,7 @@ CAPS = {
  "softmax": '<strong>图 3-5</strong> eager softmax 的显存读写：每条编号箭头是一次完整的读或写，共 8 次；融合后只剩 2 次。',
  "flops_vs_time": '<strong>图 3-6</strong> 一层 attention 里各 op 的 FLOPs 与实测 GPU 时间（medium，seq 1024）。',
  "share_vs_seq": '<strong>图 3-7</strong> attention 三段占 forward GPU 时间的比例随 seq 变化（medium）。',
- "peak_memory": '<strong>图 2-3</strong> full step 的实测峰值显存（batch 4，seq 512）。A = 带梯度的前向峰值 − W，顶上 ~0.1 GiB 是 T。',
+ "peak_memory": '<strong>图 2-3</strong> full step 的实测峰值显存（batch 4，seq 512）。斜纹块是 A 和 G 轮流用的同一块显存：前向结束时装 A，反向时 A 一层层释放、G 一层层分配；G 和 W 一样大，比 A 小，所以这块的高度是 A。A = 带梯度的前向峰值 − W，顶上 ~0.1 GiB 是 T。',
  "peak_moment": '<strong>图 2-4</strong> 一步前向 + 反向的显存（fp32）：色带按 M(j) 用实测的 W、A、G、T 堆叠，× 是逐层实测值。',
  "rms_eager": '<strong>图 3-1</strong> RMSNorm（eager，x 是 20 MiB）：中间一排是显存里的张量，框宽按实际字节数线性画（KiB 级的只剩一条细线），每块只画一次，同色是同一块内存（ptr 相同）；粗实线框新占显存，细实线框本来就在、只被引用（x 是上一层的输出，w 是参数，都会一直留着），灰色虚线框是用完即释放的临时量。每个 kernel 画成两层框：外框是它的 register，里面是计算单元；实线箭头是数据流，从显存指向 register 是 load，从 register 指向显存是 store；反向沿虚线箭头把存下的张量读回 register。',
  "rms_fused": '<strong>图 3-2</strong> 融合后的 RMSNorm（画法同<a href="#fig-3-1">图 3-1</a>）：前向只读 x、w，写 r 和 y，x²、v、x̂ 都不进显存；反向读回 x、w、r，现场重算 x̂。',
