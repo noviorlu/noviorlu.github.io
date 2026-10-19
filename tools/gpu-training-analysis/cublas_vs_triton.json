@@ -1,0 +1,104 @@
+{
+ "cublas": {
+  "kernel": "void cutlass::Kernel2<cutlass_80_simt_sgemm_256x128_8x4_nn_align1>(T1::Params)",
+  "us": 161.952,
+  "cycles": 393042.20000080223,
+  "grid": [
+   64,
+   1,
+   2
+  ],
+  "block": 256,
+  "regs": 210,
+  "smem": 49152.0,
+  "warps_per_sm": 7.98,
+  "inst": 150981639.0,
+  "ffma": 4297064448.0,
+  "lds_inst": 6428672.0,
+  "lds_bytes": 554172416.0,
+  "cycles_per_inst": 2.56,
+  "issue_pct": 77.91,
+  "fma_pipe_pct": 73.74,
+  "stall": {
+   "selected": 1.0,
+   "not_selected": 0.84,
+   "dispatch_stall": 0.22,
+   "short_scoreboard": 0.11,
+   "mio_throttle": 0.06,
+   "long_scoreboard": 0.03,
+   "lg_throttle": 0.04,
+   "barrier": 0.09,
+   "wait": 0.05,
+   "math_pipe_throttle": 0.01,
+   "no_instruction": 0.09
+  }
+ },
+ "triton_64": {
+  "kernel": "matmul_relu_kernel",
+  "us": 208.992,
+  "cycles": 470954.1764705434,
+  "grid": [
+   64,
+   8,
+   1
+  ],
+  "block": 128,
+  "regs": 96,
+  "smem": 32768.0,
+  "warps_per_sm": 11.01,
+  "inst": 160995328.0,
+  "ffma": 4294967296.0,
+  "lds_inst": 12599296.0,
+  "lds_bytes": 1350565888.0,
+  "cycles_per_inst": 4.0,
+  "issue_pct": 68.84,
+  "fma_pipe_pct": 66.47,
+  "stall": {
+   "selected": 1.0,
+   "not_selected": 1.22,
+   "dispatch_stall": 0.7,
+   "short_scoreboard": 0.57,
+   "mio_throttle": 0.04,
+   "long_scoreboard": 0.06,
+   "lg_throttle": 0.0,
+   "barrier": 0.22,
+   "wait": 0.1,
+   "math_pipe_throttle": 0.05,
+   "no_instruction": 0.04
+  }
+ },
+ "triton_128": {
+  "kernel": "matmul_relu_kernel",
+  "us": 171.488,
+  "cycles": 457751.81176392775,
+  "grid": [
+   32,
+   4,
+   1
+  ],
+  "block": 256,
+  "regs": 220,
+  "smem": 65536.0,
+  "warps_per_sm": 8.0,
+  "inst": 152105984.0,
+  "ffma": 4294967296.0,
+  "lds_inst": 10502144.0,
+  "lds_bytes": 1216348160.0,
+  "cycles_per_inst": 3.03,
+  "issue_pct": 66.04,
+  "fma_pipe_pct": 68.41,
+  "stall": {
+   "selected": 1.0,
+   "not_selected": 0.81,
+   "dispatch_stall": 0.6,
+   "short_scoreboard": 0.27,
+   "mio_throttle": 0.15,
+   "long_scoreboard": 0.03,
+   "lg_throttle": 0.01,
+   "barrier": 0.06,
+   "wait": 0.06,
+   "math_pipe_throttle": 0.02,
+   "no_instruction": 0.02
+  }
+ }
+}

@@ -1433,7 +1433,7 @@ matmul $C = A B$ 里，A 是 M × K，B 是 K × N。A 的每个数要和 B 的 
 
 tile 越大，显存读得越少，但一个 program 要占更多 register 和 shared memory，怎么取见入门篇 [3.4 节](/blog/gpu-triton-intro/#tile)。在 Triton 里 BM、BN、BK 都得是 2 的幂，这是 `tl.arange` 的要求；`tl.dot` 还要求 BK 至少 16。tile 的大小还带来两种 quantization。一是矩阵的维度不是 tile 的整数倍时，边上的 tile 只有一部分是有用的数，叫 tile quantization；行长不是 burst 的整数倍时，一个 tile 的一行还会跨过两个 burst，读起来也慢。二是 tile 的个数不是全卡一批能放下的整数倍时，最后一批只有几个 tile 在跑，叫 wave quantization。CS336 lecture 5 引的例子是 A100 上的方阵乘：tile 取 256 × 128，N = 1792 时有 (1792 / 256) × (1792 / 128) = 7 × 14 = 98 个 tile，A100 的 108 个 SM 一批放得下；N = 1793 时变成 8 × 15 = 120 个，要分两批，FLOPS 突然掉下去（[thonking.ai](https://www.thonking.ai/p/what-shapes-do-matrix-multiplications)）。入门篇 3.2 节的 matmul 也是这样：A 从 4032 行变成 4096 行，计算量只多 1.6%，耗时多 28%，因为 512 个 program 比全卡一批能放的 510 个多了 2 个（[入门篇 3.2 节](/blog/gpu-triton-intro/#sched-wave)）。
 
-tiling 不只在 shared memory 这一层。每个 thread 从 shared memory 读进 A、B 的一小段，再和自己 register 里的一小块累加器一起算，一个数在 register 里也被用好几次；入门篇 [3.4 节](/blog/gpu-triton-intro/#tile)扫 matmul 的 block 大小时，最快的配置每个 thread 存 64 个累加器，就是这一层的 tiling。
+tiling 不只在 shared memory 这一层。每个 thread 从 shared memory 读进 A、B 的一小段，再和自己 register 里的一小块累加器一起算，一个数在 register 里也被用好几次；入门篇 [3.4 节](/blog/gpu-triton-intro/#tile)扫 matmul 的 block 大小时，最快的配置每个 thread 存 64 个累加器，就是这一层的 tiling。cuBLAS 的 fp32 SGEMM 每个 thread 存 128 个，从 shared memory 读的字节只有 Triton 的一半不到，这是 Triton 版比 cuBLAS 慢的主要原因（入门篇[表 3-5](/blog/gpu-triton-intro/#tab-3-5)）。
 
 ---
 

@@ -124,7 +124,7 @@ block 之间不能直接共享数据，只能通过显存交换，而这正是�
 | Triton | 46.6（4.2×） | 95.4（2.6×） | 48.9（1.0×） | 173.0（0.9×） |
 {#tab-2-1 caption="**表 2-1** 同一个 op 的三种写法（µs，括号里是相对 eager 的加速）" note="RTX 5090，fp32，形状和各小节一样：GELU n = 8388608，softmax 和 row sum 4096 × 4096，matmul A 4096 × 2048、B 2048 × 512。eager 分别是按 tanh 公式逐个运算、<code>softmax_naive</code>、<code>x.sum(1)</code>、<code>torch.relu(A @ B)</code>，matmul 关掉了 tf32。Triton 一行是各小节的 kernel 套上 <code>triton.autotune</code> 以后的结果，候选和选中的配置见 3.4 节，其中 softmax 选中的配置比第 2 节的固定参数（90.8 µs）慢 5%；<code>torch.compile</code> 也会自己挑 block 大小和 <code>num_warps</code>，matmul 的另外两行直接调 cuBLAS。<code>triton.testing.do_bench</code> 跑 5 次取中位数。换一张卡数字会变，三行之间的对比关系一般不变。"}
 
-GELU 和 softmax 的 eager 写法里，每个运算都单独跑一遍，中间结果要写回显存、下一个运算再读回来；`torch.compile` 和 Triton 都把它们合成一个 kernel，中间结果留在 register 里，所以 GELU 快了 4 倍多，softmax 快了 2.6 倍左右。两者差不多快，因为 `torch.compile` 在 GPU 上生成的也是 Triton kernel。row sum 本来只有一步求和，三种写法差不多。matmul + ReLU 的另外两行都调 cuBLAS，Triton 版慢 9%，原因在 [3.2 节](#sched-wave)和 [3.4 节](#tile)。
+GELU 和 softmax 的 eager 写法里，每个运算都单独跑一遍，中间结果要写回显存、下一个运算再读回来；`torch.compile` 和 Triton 都把它们合成一个 kernel，中间结果留在 register 里，所以 GELU 快了 4 倍多，softmax 快了 2.6 倍左右。两者差不多快，因为 `torch.compile` 在 GPU 上生成的也是 Triton kernel。row sum 本来只有一步求和，三种写法差不多。matmul + ReLU 的另外两行都调 cuBLAS，Triton 版慢 9%，原因在 [3.4 节](#tile)最后。
 
 下文 program 就是 CUDA 的 block；单说 block 时指一块数据，比如 A 的 block、C 的 block；代码里的 `BLOCK`、`TILE` 是一段数据的长度。四个例子由浅入深（[图 2-1](#fig-o-1)）：grid 怎么切，看一个输出依赖哪些输入；program 里要不要循环，看这些输入能不能一次装进 register，装不下就一个 block 一个 block 地读，用累加器（accumulator）存中间结果。
 
@@ -283,7 +283,7 @@ grid 是二维的：
 
 ## 3 调度和调参 {#tune}
 
-[表 2-1](#tab-2-1) 里 matmul + ReLU 的 Triton 版比 cuBLAS 慢 9%，原因不在 kernel 的代码，而在 program 怎么排到 SM 上。这一节先看一个 SM 放几个 program（[3.1](#sched-warp)）、放不下时怎么分批（[3.2](#sched-wave)），再看能调的三个参数：`num_warps`、`num_stages`（[3.3](#stages)）和 block 的大小（[3.4](#tile)）。
+[表 2-1](#tab-2-1) 里 matmul + ReLU 的 Triton 版比 cuBLAS 慢，调参能补回一部分，剩下的差距在 kernel 内部（[3.4 节](#tile)最后）。这一节先看一个 SM 放几个 program（[3.1](#sched-warp)）、放不下时怎么分批（[3.2](#sched-wave)），再看能调的三个参数：`num_warps`、`num_stages`（[3.3](#stages)）和 block 的大小（[3.4](#tile)）。
 
 > 注：同一个配置在不同次测量之间最多差 8%，所以下面只在同一张表或同一张图里比较。
 
@@ -365,7 +365,35 @@ block 的大小同时决定 program 的个数、每个 program 占的资源和�
 | matmul + ReLU | 48 | 79.5 s | BM = BN = 128，BK = 32，8 个 warp，3 级 | 197.5 | 173.0 |
 {#tab-3-3 caption="**表 3-3** 四个 kernel autotune 前后（µs）" note="RTX 5090，fp32，形状同<a href=\"#tab-2-1\">表 2-1</a>，和表 2-1 是同一次测量。第一次调用从空的编译缓存开始算，包含编译所有候选和试跑。耗时是 <code>do_bench</code> 跑 5 次的中位数。softmax 的候选之间只差几个百分点，选中的反而慢了。"}
 
-matmul 选中的就是扫出来最快的那组，但仍比 cuBLAS 慢 9%。BM、BN 都是 2 的幂，program 的个数也是 2 的幂，不会是 170 的倍数，总有 SM 多跑或者闲着。要让闲着的 SM 也有活干，得把 K 方向也切开，比如 split-K 和 [Stream-K](https://arxiv.org/abs/2301.03598)。这一节的数都是 fp32 走 CUDA core 量的，换成 Tensor core 要重新量。
+block 一变，`num_stages` 的最优值也跟着变（[表 3-4](#tab-3-4)），看的还是 [3.3 节](#stages)那两件事：多一级会不会多出一批，每个 SM 本来有多少个 warp。16 × 16 × 16 时一个 SM 有 40 到 48 个 warp，等数据时总有别的 warp 顶上，1 级最快；2 级起每个 thread 多用 2 到 4 个 register，按 8 个一组分配后一个 SM 从 12 个 program 降到 10 个。128 × 128 × 32 时一个 SM 只有 1 个 program、8 个 warp，只能靠预取，3 级比 1 级少用 19% 的时间；4 级要 96 KB 也还放得下这 1 个，和 3 级一样快。32 × 32 × 16 的 4 级每个 SM 从 10 个降到 7 个，但还是 2 批，所以不吃亏。
+
+| block | num_stages = 1 | 2 | 3 | 4 |
+|:--|--:|--:|--:|--:|
+| 16 × 16 × 16，4 个 warp | **510.4（12 个 / 5 批）** | 567.1（10 个 / 5 批） | 546.9（10 个 / 5 批） | 564.1（10 个 / 5 批） |
+| 32 × 32 × 16，4 个 warp | 272.5（10 个 / 2 批） | 260.0（10 个 / 2 批） | 243.2（10 个 / 2 批） | **242.9（7 个 / 2 批）** |
+| 64 × 64 × 32，4 个 warp | 207.5（5 个 / 1 批） | **202.6（5 个 / 1 批）** | 206.3（3 个 / 2 批） | 213.3（2 个 / 2 批） |
+| 128 × 128 × 32，8 个 warp | 220.6（1 个 / 1 批） | 200.9（1 个 / 1 批） | 179.4（1 个 / 1 批） | **179.3（1 个 / 1 批）** |
+{#tab-3-4 caption="**表 3-4** 换 block 大小以后，num_stages 的影响（µs，括号里是每个 SM 放几个 program、整个 kernel 跑几批）" note="RTX 5090，fp32，A 4096 × 2048，B 2048 × 512，每行最快的加粗。耗时是 <code>do_bench</code> 跑 5 次的中位数。"}
+
+调到最好的 128 × 128 × 32 仍比 cuBLAS 慢，慢的原因不在 program 怎么排（[表 3-5](#tab-3-5)）。cuBLAS 调到的 CUTLASS kernel 也是 128 个 block、每个 SM 8 个 warp：它的 block 算 256 × 128 的 C，只有 64 个，grid 的第三维是 2，看起来是把 K 也切成了两半。两边的乘加次数一样，指令数只差 1%，Triton 的拍数却多 16%，差在同样的指令发得更慢：每条指令平均隔 3.03 拍，cuBLAS 是 2.56 拍，多出来的主要在两项：等 shared memory，和 dispatch_stall（指令选中了却没能发到执行单元）。根源在 register 这一层的 tiling（[单卡优化篇第 7 节](/blog/gpu-single-gpu-optimization/#tiling)）：cuBLAS 每个 thread 存 128 个 acc，只用 210 个 register；Triton 存 64 个就用了 220 个，每次乘加要从 shared memory 读的数多，读的字节是 cuBLAS 的 2.2 倍。在 Triton 里让每个 thread 存 128 个 acc，扫描里这样的配置 register 都顶到 255 个，大多有 spill，最快的也要 185.0 µs。这是编译器怎么生成代码的问题，block 大小、warp 数、级数这些参数调不到。
+
+| | cuBLAS | Triton 128 × 128 × 32 | Triton 64 × 64 × 32 |
+|:--|--:|--:|--:|
+| 拍数（耗时 × SM 频率） | 3.93e5 | 4.58e5 | 4.71e5 |
+| block 数 × 每个 block 的 thread | 128 × 256 | 128 × 256 | 512 × 128 |
+| 每个 SM 驻留的 warp | 8.0 | 8.0 | 11.0 |
+| FFMA 次数 | 4.297e9 | 4.295e9 | 4.295e9 |
+| 指令数（warp 级） | 1.510e8 | 1.521e8 | 1.610e8 |
+| 每个 thread 存几个 acc | 128 | 64 | 32 |
+| 每个 thread 的 register | 210 | 220 | 96 |
+| 从 shared memory 读的字节 | 5.54e8 | 1.22e9 | 1.35e9 |
+| 每条指令平均隔几拍 | 2.56 | 3.03 | 4.00 |
+| 其中等 shared memory（short_scoreboard + mio_throttle） | 0.17 | 0.42 | 0.61 |
+| 其中 dispatch_stall（选中了没发出去） | 0.22 | 0.60 | 0.70 |
+| 其中等显存（long_scoreboard） | 0.03 | 0.03 | 0.06 |
+{#tab-3-5 caption="**表 3-5** cuBLAS 和 Triton 的 fp32 matmul 在 Nsight Compute 里的对比" note="RTX 5090，A 4096 × 2048，B 2048 × 512，<code>--clock-control none</code>。cuBLAS 关掉 tf32，调到的 kernel 是 CUTLASS 的 <code>cutlass_80_simt_sgemm_256x128_8x4</code>，也走 CUDA core。每个 thread 的 acc 数按一个 block 算的 C 除以 thread 数：cuBLAS 的 block 是 256 × 128、256 个 thread。等待的各项是每发一条指令平均有几个 warp 在等这一项，和「每条指令平均隔几拍」同一个单位。"}
+
+这一节的数都是 fp32 走 CUDA core 量的，换成 Tensor core 要重新量。
 
 [下一篇](/blog/gpu-single-gpu-optimization/)把这些写法背后的优化方法放在一起讲；[训练分析那篇](/blog/gpu-training-analysis/)用第 2 节的模式把 RMSNorm 的几个 kernel 融合成一个。
 
@@ -478,4 +506,3 @@ ld.global 和 cp.async 的区别是数据进不进 register；cp.async 和 TMA �
 14. Milakov, Gimelshein. [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867). arXiv:1805.02867, 2018. 第 2.3 节提到的 online softmax。
 15. [triton.autotune](https://triton-lang.org/main/python-api/generated/triton.autotune.html) 和 [triton.Config](https://triton-lang.org/main/python-api/generated/triton.Config.html)（Triton API 文档）。3.4 节的参数。
 16. NVIDIA. [PTX ISA: cp.async](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async) 和 [cp.async.bulk.tensor](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async-bulk-tensor)。1.1 节和 Appendix C 里 cp.async、commit_group、wait_group 和 TMA、mbarrier 指令的语义。
-17. Osama, Merrill, Cecka, Garland, Owens. [Stream-K: Work-centric Parallel Decomposition for Dense Matrix-Matrix Multiplication on the GPU](https://arxiv.org/abs/2301.03598). arXiv:2301.03598, 2023。3.4 节提到的把 K 方向也切开的做法。
