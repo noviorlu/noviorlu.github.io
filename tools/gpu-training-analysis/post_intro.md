@@ -200,7 +200,7 @@ $y_{ij}$ 要用到第 $i$ 行全部 N 个数。eager 下 softmax 要 5 个 kerne
 {{code:triton_tutorial.py:softmax_launch}}
 ```
 
-[图 2-3](#fig-t-2) 里的 warp max、warp sum 是 shared memory 在这个 kernel 里唯一的用处：`tl.max`、`tl.sum` 先在每个 warp 内用 shuffle 归约，4 个 warp 的部分结果再经 shared memory 交换，一共 16 B。把一整个 block 的数据放进 shared memory 什么时候值得，[2.4 节](#triton-matmul)再讲。
+[图 2-3](#fig-t-2) 里的 warp max、warp sum 是 shared memory 在这个 kernel 里唯一的用处：`tl.max`、`tl.sum` 分三步归约。每个 thread 先把自己手里的 32 个数归约成一个。再在 warp 内用 shuffle 归约：shuffle 是 warp 内交换数据的指令（PTX 的 `shfl.sync`），每个 thread 直接读同一个 warp 里另一个 thread 的一个 register，不经过 shared memory（[表 1-1](#tab-1-1)）。编出来的 PTX 用的是 `shfl.sync.bfly`：每一步 thread $i$ 读 thread $i \oplus d$（按位异或）的值并和自己的合并，$d$ 依次取 16、8、4、2、1，5 步以后 warp 里每个 thread 都拿到这个 warp 的最大值或和。最后 4 个 warp 的部分结果经 shared memory 交换（一共 16 B），再用 $d$ 取 2、1 的两步 shuffle 合并成整行的结果。把一整个 block 的数据放进 shared memory 什么时候值得，[2.4 节](#triton-matmul)再讲。
 
 这个写法要求 BLOCK ≥ N，也就是一行能一次装进一个 program。行再长，program 就只能沿行一个 block 一个 block 地读，读过的 block 要留下一个中间结果。下一节先看最简单的按行归约：求和。
 
