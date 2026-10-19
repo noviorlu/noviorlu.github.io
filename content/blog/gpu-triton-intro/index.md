@@ -2728,6 +2728,11 @@ def matmul_relu_auto(a, b):
 | matmul + ReLU | 48 | 79.5 s | BM = BN = 128，BK = 32，8 个 warp，3 级 | 197.5 | 173.0 |
 {#tab-3-3 caption="**表 3-3** 四个 kernel autotune 前后（µs）" note="RTX 5090，fp32，形状同<a href=\"#tab-2-1\">表 2-1</a>，和表 2-1 是同一次测量。第一次调用从空的编译缓存开始算，包含编译所有候选和试跑。耗时是 <code>do_bench</code> 跑 5 次的中位数。softmax 的候选之间只差几个百分点，选中的反而慢了。"}
 
+matmul 调到最好仍比 cuBLAS 慢 9%，差在 register 这一层的 tiling：cuBLAS 每个 thread 存 128 个 acc，Triton 只存得下 64 个；`num_stages` 的最优值也随 block 大小变。
+
+<details class="fold doc aside">
+<summary>num_stages 随 block 怎么变，Triton 比 cuBLAS 慢在哪</summary>
+
 block 一变，`num_stages` 的最优值也跟着变（[表 3-4](#tab-3-4)），看的还是 [3.3 节](#stages)那两件事：多一级会不会多出一批，每个 SM 本来有多少个 warp。16 × 16 × 16 时一个 SM 有 40 到 48 个 warp，等数据时总有别的 warp 顶上，1 级最快；2 级起每个 thread 多用 2 到 4 个 register，按 8 个一组分配后一个 SM 从 12 个 program 降到 10 个。128 × 128 × 32 时一个 SM 只有 1 个 program、8 个 warp，只能靠预取，3 级比 1 级少用 19% 的时间；4 级要 96 KB 也还放得下这 1 个，和 3 级一样快。32 × 32 × 16 的 4 级每个 SM 从 10 个降到 7 个，但还是 2 批，所以不吃亏。
 
 | block | num_stages = 1 | 2 | 3 | 4 |
@@ -2755,6 +2760,8 @@ block 一变，`num_stages` 的最优值也跟着变（[表 3-4](#tab-3-4)），
 | 其中 dispatch_stall（选中了没发出去） | 0.22 | 0.60 | 0.70 |
 | 其中等显存（long_scoreboard） | 0.03 | 0.03 | 0.06 |
 {#tab-3-5 caption="**表 3-5** cuBLAS 和 Triton 的 fp32 matmul 在 Nsight Compute 里的对比" note="RTX 5090，A 4096 × 2048，B 2048 × 512，<code>--clock-control none</code>。cuBLAS 关掉 tf32，调到的 kernel 是 CUTLASS 的 <code>cutlass_80_simt_sgemm_256x128_8x4</code>，也走 CUDA core。每个 thread 的 acc 数按一个 block 算的 C 除以 thread 数：cuBLAS 的 block 是 256 × 128、256 个 thread。等待的各项是每发一条指令平均有几个 warp 在等这一项，和「每条指令平均隔几拍」同一个单位。"}
+
+</details>
 
 这一节的数都是 fp32 走 CUDA core 量的，换成 Tensor core 要重新量。
 
