@@ -335,15 +335,17 @@ matmul 一批 510 个，512 个 program 多出 2 个，最后 168 个 SM 空等�
 | 4 | 3 | 2 | 48 KB | 2 | 210.0 µs |
 {#tab-3-2 caption="**表 3-2** matmul 的 num_stages 改了什么（A 4032 × 2048，B 2048 × 512，BM = BN = 64，BK = 32，4 个 warp）" note="slot 数读自编译出的 TTGIR，提前几轮读自 PTX 里 cp.async 的发出位置，shared memory 读自编译结果的 metadata。用 4032 行是为了让 504 个 program 正好一批跑完，避开 3.2 节的 tail effect。耗时是 <code>do_bench</code> 跑 5 次的中位数，四档是同一次测量。"}
 
-默认的 3 级已经把每轮等数据的时间从 852 拍压到 74 拍，再加一级也没有多少等待可藏。`num_stages=4` 反而慢了 24%。它每一轮其实更短（[图 3-4](#fig-t-9) 最下面一栏），慢在 shared memory：每多一级多一个 16 KB 的 slot，一个 program 占 48 KB，加上保留的 1 KB 是 49 KB，100 KB 只放得下 2 个（3 级时 33 KB，放得下 3 个）。全卡一批从 510 个降到 340 个，504 个 program 要分两批，第 2 批 164 个（[3.2 节](#sched-wave)）。四个例子里只有 matmul 的循环用得上 `num_stages`。它也改不了 program 的个数：4096 行时取 1 到 4，耗时都在 209 到 214 µs。
+默认的 3 级已经把每轮等数据的时间从 852 拍压到 74 拍，再加一级也没有多少等待可藏。`num_stages=4` 反而慢了 24%。它每一轮其实更短（[图 3-4](#fig-t-9) 最下面一栏），慢在 shared memory：每多一级多一个 16 KB 的 slot，一个 program 占 48 KB，加上保留的 1 KB 是 49 KB，100 KB 只放得下 2 个（3 级时 33 KB，放得下 3 个）。全卡一批从 510 个降到 340 个，504 个 program 要分两批，第 2 批 164 个（[3.2 节](#sched-wave)，[图 3-5](#fig-s-1)）。四个例子里只有 matmul 的循环用得上 `num_stages`。它也改不了 program 的个数：4096 行时取 1 到 4，耗时都在 209 到 214 µs。
+
+{{fig-s-1}}
 
 ### 3.4 block 大小和 autotune {#tile}
 
-block 的大小同时决定 program 的个数、每个 program 占的资源和每个 thread 存几个 acc。我们在正文形状和 4096 × 4096 × 4096 上各扫了 198 组 BM、BN、BK、`num_warps` 和 `num_stages`。正文形状下最快的是 BM = BN = 128、BK = 32、8 个 warp，176.9 µs，比 64 × 64 的 203.0 µs 少用 13% 的时间（[图 3-5](#fig-d-1)）。它只有 128 个 program，空着 42 个 SM，但没有哪个 SM 要多跑一个 program，每个 thread 存的 acc 也多一倍。
+block 的大小同时决定 program 的个数、每个 program 占的资源和每个 thread 存几个 acc。我们在正文形状和 4096 × 4096 × 4096 上各扫了 198 组 BM、BN、BK、`num_warps` 和 `num_stages`。正文形状下最快的是 BM = BN = 128、BK = 32、8 个 warp，176.9 µs，比 64 × 64 的 203.0 µs 少用 13% 的时间（[图 3-6](#fig-d-1)）。它只有 128 个 program，空着 42 个 SM，但没有哪个 SM 要多跑一个 program，每个 thread 存的 acc 也多一倍。
 
 {{fig-d-1}}
 
-两个形状的规律一样（[图 3-6](#fig-d-2)）：每个 thread 存 32 到 64 个 acc、每个 SM 只驻留 8 到 16 个 warp 时最快。acc 越多，每从 shared memory 读一个数能做的乘加越多（[单卡优化篇第 7 节](/blog/gpu-single-gpu-optimization/#tiling)）；驻留的 warp 一多，每个 thread 分到的 register 就放不下这么多 acc。所以 matmul 靠第二、三种办法藏延迟，不靠多驻留 warp。
+两个形状的规律一样（[图 3-7](#fig-d-2)）：每个 thread 存 32 到 64 个 acc、每个 SM 只驻留 8 到 16 个 warp 时最快。acc 越多，每从 shared memory 读一个数能做的乘加越多（[单卡优化篇第 7 节](/blog/gpu-single-gpu-optimization/#tiling)）；驻留的 warp 一多，每个 thread 分到的 register 就放不下这么多 acc。所以 matmul 靠第二、三种办法藏延迟，不靠多驻留 warp。
 
 {{fig-d-2}}
 

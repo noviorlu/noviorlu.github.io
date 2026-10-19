@@ -2274,34 +2274,38 @@ matmul 一批 510 个，512 个 program 多出 2 个，最后 168 个 SM 空等�
     .fg g.m:hover > :not(title) { opacity: .85; }
     @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
   </style>
-  <text class="tb" x="8" y="30">num_stages = 1</text><text class="lab2" x="184" y="30">1 个 slot，不预取：每轮 5601 拍，其中等数据 852 拍</text>
+  <text class="tb" x="8" y="30">num_stages = 1</text><text class="lab2" x="184" y="30">1 个 slot，不预取：每轮 5601 拍，其中等显存 852、让给别的 warp 1145</text>
   <text class="lab" x="8" y="55.0">slot (shmem)</text>
   <text class="lab" x="8" y="77.0">warp</text>
   <g class="m"><title>第 0 轮：load 在路上，852 拍</title><rect x="120.0" y="43" width="17.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
   <g class="m"><title>第 0 轮：在 slot 里被读</title><rect x="137.8" y="43" width="99.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
   <text class="s" x="187.3" y="55.0" text-anchor="middle">第 0 轮</text>
   <g class="m"><title>第 0 轮：等数据 852 拍</title><rect x="120.0" y="65" width="17.8" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 0 轮：ld.shared 和乘加 4749 拍</title><rect x="137.8" y="65" width="99.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="187.3" y="77.0" text-anchor="middle">算第 0 轮</text>
+  <g class="m"><title>第 0 轮：自己在跑 3604 拍（发射、等 shared memory、barrier 等）</title><rect x="137.8" y="65" width="75.2" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="175.4" y="77.0" text-anchor="middle">算第 0 轮</text>
+  <g class="m"><title>第 0 轮：让给别的 warp 1145 拍</title><rect x="213.0" y="65" width="23.9" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.75"/></g>
   <g class="m"><title>第 1 轮：load 在路上，852 拍</title><rect x="236.9" y="43" width="17.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
   <g class="m"><title>第 1 轮：在 slot 里被读</title><rect x="254.7" y="43" width="99.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
   <text class="s" x="304.2" y="55.0" text-anchor="middle">第 1 轮</text>
   <g class="m"><title>第 1 轮：等数据 852 拍</title><rect x="236.9" y="65" width="17.8" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 1 轮：ld.shared 和乘加 4749 拍</title><rect x="254.7" y="65" width="99.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="304.2" y="77.0" text-anchor="middle">算第 1 轮</text>
+  <g class="m"><title>第 1 轮：自己在跑 3604 拍（发射、等 shared memory、barrier 等）</title><rect x="254.7" y="65" width="75.2" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="292.3" y="77.0" text-anchor="middle">算第 1 轮</text>
+  <g class="m"><title>第 1 轮：让给别的 warp 1145 拍</title><rect x="329.9" y="65" width="23.9" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.75"/></g>
   <g class="m"><title>第 2 轮：load 在路上，852 拍</title><rect x="353.8" y="43" width="17.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
   <g class="m"><title>第 2 轮：在 slot 里被读</title><rect x="371.6" y="43" width="99.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
   <text class="s" x="421.1" y="55.0" text-anchor="middle">第 2 轮</text>
   <g class="m"><title>第 2 轮：等数据 852 拍</title><rect x="353.8" y="65" width="17.8" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 2 轮：ld.shared 和乘加 4749 拍</title><rect x="371.6" y="65" width="99.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="421.1" y="77.0" text-anchor="middle">算第 2 轮</text>
+  <g class="m"><title>第 2 轮：自己在跑 3604 拍（发射、等 shared memory、barrier 等）</title><rect x="371.6" y="65" width="75.2" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="409.2" y="77.0" text-anchor="middle">算第 2 轮</text>
+  <g class="m"><title>第 2 轮：让给别的 warp 1145 拍</title><rect x="446.8" y="65" width="23.9" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.75"/></g>
   <g class="m"><title>第 3 轮：load 在路上，852 拍</title><rect x="470.7" y="43" width="17.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
   <g class="m"><title>第 3 轮：在 slot 里被读</title><rect x="488.5" y="43" width="99.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
   <text class="s" x="538.0" y="55.0" text-anchor="middle">第 3 轮</text>
   <g class="m"><title>第 3 轮：等数据 852 拍</title><rect x="470.7" y="65" width="17.8" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 3 轮：ld.shared 和乘加 4749 拍</title><rect x="488.5" y="65" width="99.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="538.0" y="77.0" text-anchor="middle">算第 3 轮</text>
-  <text class="tb" x="8" y="124">num_stages = 3</text><text class="lab2" x="184" y="124">2 个 slot，提前一整轮发 load：每轮 4901 拍，其中等数据 74 拍</text>
+  <g class="m"><title>第 3 轮：自己在跑 3604 拍（发射、等 shared memory、barrier 等）</title><rect x="488.5" y="65" width="75.2" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="526.1" y="77.0" text-anchor="middle">算第 3 轮</text>
+  <g class="m"><title>第 3 轮：让给别的 warp 1145 拍</title><rect x="563.7" y="65" width="23.9" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.75"/></g>
+  <text class="tb" x="8" y="124">num_stages = 3</text><text class="lab2" x="184" y="124">2 个 slot，提前一轮发 load：每轮 4901 拍，其中等显存 74、让给别的 warp 1486</text>
   <text class="lab" x="8" y="149.0">slot 0 (shmem)</text>
   <text class="lab" x="8" y="171.0">slot 1 (shmem)</text>
   <text class="lab" x="8" y="193.0">warp</text>
@@ -2323,20 +2327,24 @@ matmul 一批 510 个，512 个 program 多出 2 个，最后 168 个 SM 空等�
   <text class="s" x="495.8" y="171.0" text-anchor="middle">第 3 轮</text>
   <g class="m"><title>第 0 轮：等数据 852 拍</title><rect x="120.0" y="181" width="17.8" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
   <g class="m"><title>第 0 轮：等数据 74 拍</title><rect x="137.8" y="181" width="1.5" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 0 轮：ld.shared 和乘加 4827 拍</title><rect x="139.3" y="181" width="100.7" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="189.7" y="193.0" text-anchor="middle">算第 0 轮</text>
+  <g class="m"><title>第 0 轮：自己在跑 3341 拍（发射、等 shared memory、barrier 等）</title><rect x="139.3" y="181" width="69.7" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="174.2" y="193.0" text-anchor="middle">算第 0 轮</text>
+  <g class="m"><title>第 0 轮：让给别的 warp 1486 拍</title><rect x="209.1" y="181" width="31.0" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.75"/></g>
   <g class="m"><title>第 1 轮：等数据 74 拍</title><rect x="240.1" y="181" width="1.5" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 1 轮：ld.shared 和乘加 4827 拍</title><rect x="241.6" y="181" width="100.7" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="292.0" y="193.0" text-anchor="middle">算第 1 轮</text>
+  <g class="m"><title>第 1 轮：自己在跑 3341 拍（发射、等 shared memory、barrier 等）</title><rect x="241.6" y="181" width="69.7" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="276.5" y="193.0" text-anchor="middle">算第 1 轮</text>
+  <g class="m"><title>第 1 轮：让给别的 warp 1486 拍</title><rect x="311.3" y="181" width="31.0" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.75"/></g>
   <g class="m"><title>第 2 轮：等数据 74 拍</title><rect x="342.3" y="181" width="1.5" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 2 轮：ld.shared 和乘加 4827 拍</title><rect x="343.9" y="181" width="100.7" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="394.3" y="193.0" text-anchor="middle">算第 2 轮</text>
+  <g class="m"><title>第 2 轮：自己在跑 3341 拍（发射、等 shared memory、barrier 等）</title><rect x="343.9" y="181" width="69.7" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="378.7" y="193.0" text-anchor="middle">算第 2 轮</text>
+  <g class="m"><title>第 2 轮：让给别的 warp 1486 拍</title><rect x="413.6" y="181" width="31.0" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.75"/></g>
   <g class="m"><title>第 3 轮：等数据 74 拍</title><rect x="444.6" y="181" width="1.5" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 3 轮：ld.shared 和乘加 4827 拍</title><rect x="446.2" y="181" width="100.7" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="496.5" y="193.0" text-anchor="middle">算第 3 轮</text>
-  <line x1="424.2" y1="130" x2="424.2" y2="204" stroke="currentColor" stroke-opacity=".55" stroke-dasharray="4 3"/>
+  <g class="m"><title>第 3 轮：自己在跑 3341 拍（发射、等 shared memory、barrier 等）</title><rect x="446.2" y="181" width="69.7" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="481.0" y="193.0" text-anchor="middle">算第 3 轮</text>
+  <g class="m"><title>第 3 轮：让给别的 warp 1486 拍</title><rect x="515.9" y="181" width="31.0" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.75"/></g>
+  <line x1="383.3" y1="130" x2="383.3" y2="204" stroke="currentColor" stroke-opacity=".55" stroke-dasharray="4 3"/>
   <text class="s" x="120" y="218">竖虚线这一刻：第 2 轮在 slot 0 里被读、在算；第 3 轮已经到了 slot 1</text>
-  <text class="tb" x="8" y="252">num_stages = 4</text><text class="lab2" x="184" y="252">3 个 slot，提前两整轮发 load：每轮 3770 拍，其中等数据 111 拍</text>
+  <text class="tb" x="8" y="252">num_stages = 4</text><text class="lab2" x="184" y="252">3 个 slot，提前两轮发 load：每轮 3770 拍，其中等显存 111、让给别的 warp 776</text>
   <text class="lab" x="8" y="277.0">slot 0 (shmem)</text>
   <text class="lab" x="8" y="299.0">slot 1 (shmem)</text>
   <text class="lab" x="8" y="321.0">slot 2 (shmem)</text>
@@ -2359,30 +2367,33 @@ matmul 一批 510 个，512 个 program 多出 2 个，最后 168 个 SM 空等�
   <text class="s" x="413.2" y="277.0" text-anchor="middle">第 3 轮</text>
   <g class="m"><title>第 0 轮：等数据 852 拍</title><rect x="120.0" y="331" width="17.8" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
   <g class="m"><title>第 0 轮：等数据 111 拍</title><rect x="137.8" y="331" width="2.3" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 0 轮：ld.shared 和乘加 3659 拍</title><rect x="140.1" y="331" width="76.4" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="178.3" y="343.0" text-anchor="middle">算第 0 轮</text>
+  <g class="m"><title>第 0 轮：自己在跑 2883 拍（发射、等 shared memory、barrier 等）</title><rect x="140.1" y="331" width="60.2" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="170.2" y="343.0" text-anchor="middle">算第 0 轮</text>
+  <g class="m"><title>第 0 轮：让给别的 warp 776 拍</title><rect x="200.3" y="331" width="16.2" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.75"/></g>
   <g class="m"><title>第 1 轮：等数据 111 拍</title><rect x="216.5" y="331" width="2.3" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 1 轮：ld.shared 和乘加 3659 拍</title><rect x="218.8" y="331" width="76.4" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="257.0" y="343.0" text-anchor="middle">算第 1 轮</text>
+  <g class="m"><title>第 1 轮：自己在跑 2883 拍（发射、等 shared memory、barrier 等）</title><rect x="218.8" y="331" width="60.2" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="248.9" y="343.0" text-anchor="middle">算第 1 轮</text>
+  <g class="m"><title>第 1 轮：让给别的 warp 776 拍</title><rect x="279.0" y="331" width="16.2" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.75"/></g>
   <g class="m"><title>第 2 轮：等数据 111 拍</title><rect x="295.2" y="331" width="2.3" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 2 轮：ld.shared 和乘加 3659 拍</title><rect x="297.5" y="331" width="76.4" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="335.7" y="343.0" text-anchor="middle">算第 2 轮</text>
+  <g class="m"><title>第 2 轮：自己在跑 2883 拍（发射、等 shared memory、barrier 等）</title><rect x="297.5" y="331" width="60.2" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="327.6" y="343.0" text-anchor="middle">算第 2 轮</text>
+  <g class="m"><title>第 2 轮：让给别的 warp 776 拍</title><rect x="357.6" y="331" width="16.2" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.75"/></g>
   <g class="m"><title>第 3 轮：等数据 111 拍</title><rect x="373.8" y="331" width="2.3" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 3 轮：ld.shared 和乘加 3659 拍</title><rect x="376.2" y="331" width="76.4" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="414.3" y="343.0" text-anchor="middle">算第 3 轮</text>
-  <text class="s" x="120" y="368">每轮更短，因为每个 SM 只剩 2 个 program、8 个 warp 抢发射；</text>
-  <text class="s" x="120" y="384">但一个 program 占 49 KB，每个 SM 只放得下 2 个，504 个要分两批跑</text>
-  <line class="grid" x1="120.0" y1="40" x2="120.0" y2="390"/>
-  <text class="tick" x="120.0" y="404" text-anchor="middle">0</text>
-  <line class="grid" x1="224.3" y1="40" x2="224.3" y2="390"/>
-  <text class="tick" x="224.3" y="404" text-anchor="middle">5000</text>
-  <line class="grid" x1="328.7" y1="40" x2="328.7" y2="390"/>
-  <text class="tick" x="328.7" y="404" text-anchor="middle">10000</text>
-  <line class="grid" x1="433.0" y1="40" x2="433.0" y2="390"/>
-  <text class="tick" x="433.0" y="404" text-anchor="middle">15000</text>
-  <line class="grid" x1="537.4" y1="40" x2="537.4" y2="390"/>
-  <text class="tick" x="537.4" y="404" text-anchor="middle">20000</text>
-  <text class="lab2" x="112" y="404" text-anchor="end">拍</text>
+  <g class="m"><title>第 3 轮：自己在跑 2883 拍（发射、等 shared memory、barrier 等）</title><rect x="376.2" y="331" width="60.2" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="406.2" y="343.0" text-anchor="middle">算第 3 轮</text>
+  <g class="m"><title>第 3 轮：让给别的 warp 776 拍</title><rect x="436.3" y="331" width="16.2" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.75"/></g>
+  <text class="s" x="120" y="368">每轮更短，主要短在让给别的 warp：每个 SM 只剩 2 个 program、8 个 warp</text>
+  <line class="grid" x1="120.0" y1="40" x2="120.0" y2="374"/>
+  <text class="tick" x="120.0" y="388" text-anchor="middle">0</text>
+  <line class="grid" x1="224.3" y1="40" x2="224.3" y2="374"/>
+  <text class="tick" x="224.3" y="388" text-anchor="middle">5000</text>
+  <line class="grid" x1="328.7" y1="40" x2="328.7" y2="374"/>
+  <text class="tick" x="328.7" y="388" text-anchor="middle">10000</text>
+  <line class="grid" x1="433.0" y1="40" x2="433.0" y2="374"/>
+  <text class="tick" x="433.0" y="388" text-anchor="middle">15000</text>
+  <line class="grid" x1="537.4" y1="40" x2="537.4" y2="374"/>
+  <text class="tick" x="537.4" y="388" text-anchor="middle">20000</text>
+  <text class="lab2" x="112" y="388" text-anchor="end">拍</text>
   <line x1="587.6" y1="38" x2="587.6" y2="86" style="stroke: var(--fig-hi)" stroke-width="1.6"/>
   <text class="s" x="592.6" y="78" style="fill: var(--fig-hi)">4 轮算完</text>
   <text class="s" x="592.6" y="92" style="fill: var(--fig-hi)">22406 拍</text>
@@ -2392,13 +2403,14 @@ matmul 一批 510 个，512 个 program 多出 2 个，最后 168 个 SM 空等�
   <line x1="452.5" y1="260" x2="452.5" y2="352" style="stroke: var(--fig-hi)" stroke-width="1.6"/>
   <text class="s" x="457.5" y="344" style="fill: var(--fig-hi)">4 轮算完</text>
   <text class="s" x="457.5" y="358" style="fill: var(--fig-hi)">15933 拍</text>
-  <rect x="8" y="417" width="20" height="11" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-dasharray="3 2"/><text class="s" x="34" y="426">load 在路上</text>
-  <rect x="119" y="417" width="20" height="11" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/><text class="s" x="145" y="426">已到 slot 里，等着被读</text>
-  <rect x="291" y="417" width="20" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/><text class="s" x="317" y="426">在 slot 里被读</text>
-  <rect x="419" y="417" width="20" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/><text class="s" x="445" y="426">ld.shared 和乘加</text>
-  <rect x="560" y="417" width="20" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/><text class="s" x="586" y="426">等数据</text>
+  <rect x="8" y="401" width="20" height="11" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-dasharray="3 2"/><text class="s" x="34" y="410">load 在路上</text>
+  <rect x="119" y="401" width="20" height="11" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/><text class="s" x="145" y="410">已到 slot 里，等着被读</text>
+  <rect x="291" y="401" width="20" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/><text class="s" x="317" y="410">在 slot 里被读</text>
+  <rect x="8" y="421" width="20" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/><text class="s" x="34" y="430">自己在跑</text>
+  <rect x="100" y="421" width="20" height="11" rx="2" style="fill: var(--fig-2)" fill-opacity="0.75"/><text class="s" x="126" y="430">让给别的 warp</text>
+  <rect x="222" y="421" width="20" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/><text class="s" x="248" y="430">等显存</text>
 </svg>
-<figcaption><strong>图 3-4</strong> matmul 的循环按 shared memory slot 看（RTX 5090，fp32，A 4032 × 2048，B 2048 × 512，BM = BN = 64，BK = 32，4 个 warp）。1 级和 3 级时 504 个 program 一批跑完，4 级时每个 SM 只放得下 2 个，要分两批，这里画的是第一批里的一个 program。条长按 Nsight Compute 实测（<code>--clock-control none</code>）画：每轮的拍数 = 每条指令平均隔几拍 × 每轮的指令数，等数据的拍数 = 每条指令平均等 L2 / 显存几拍 × 每轮的指令数，都是 64 轮的平均值。load 的延迟没法直接测，按不预取时每轮等数据的拍数画。三栏共用一根时间轴，都只画前 4 轮，红线是 4 轮算完的时刻。</figcaption>
+<figcaption><strong>图 3-4</strong> matmul 的循环按 shared memory slot 看（RTX 5090，fp32，A 4032 × 2048，B 2048 × 512，BM = BN = 64，BK = 32，4 个 warp）。1 级和 3 级时 504 个 program 一批跑完，4 级时每个 SM 只放得下 2 个，要分两批，这里画的是第一批里的一个 program。条长按 Nsight Compute 实测（<code>--clock-control none</code>）画，都是 64 轮的平均值：每轮的拍数 = 一个 warp 每条指令平均隔几拍 × 每轮的指令数；把这几拍按 warp 当时的状态拆开，等 L2 / 显存的记作「等显存」，自己已经就绪、但调度器这一拍发了别的 warp 的记作「让给别的 warp」，其余（发射、等 shared memory、barrier 等）记作「自己在跑」。三种状态在一轮里是穿插的，这里按比例拼在一起画。load 的延迟没法直接测，按不预取时每轮等数据的拍数画。三栏共用一根时间轴，都只画前 4 轮，红线是 4 轮算完的时刻。</figcaption>
 </figure>
 
 | num_stages | A、B 各几个 slot (shmem) | load 提前几整轮 | shared memory | 每个 SM 放几个 program | 耗时 |
@@ -2409,11 +2421,112 @@ matmul 一批 510 个，512 个 program 多出 2 个，最后 168 个 SM 空等�
 | 4 | 3 | 2 | 48 KB | 2 | 210.0 µs |
 {#tab-3-2 caption="**表 3-2** matmul 的 num_stages 改了什么（A 4032 × 2048，B 2048 × 512，BM = BN = 64，BK = 32，4 个 warp）" note="slot 数读自编译出的 TTGIR，提前几轮读自 PTX 里 cp.async 的发出位置，shared memory 读自编译结果的 metadata。用 4032 行是为了让 504 个 program 正好一批跑完，避开 3.2 节的 tail effect。耗时是 <code>do_bench</code> 跑 5 次的中位数，四档是同一次测量。"}
 
-默认的 3 级已经把每轮等数据的时间从 852 拍压到 74 拍，再加一级也没有多少等待可藏。`num_stages=4` 反而慢了 24%。它每一轮其实更短（[图 3-4](#fig-t-9) 最下面一栏），慢在 shared memory：每多一级多一个 16 KB 的 slot，一个 program 占 48 KB，加上保留的 1 KB 是 49 KB，100 KB 只放得下 2 个（3 级时 33 KB，放得下 3 个）。全卡一批从 510 个降到 340 个，504 个 program 要分两批，第 2 批 164 个（[3.2 节](#sched-wave)）。四个例子里只有 matmul 的循环用得上 `num_stages`。它也改不了 program 的个数：4096 行时取 1 到 4，耗时都在 209 到 214 µs。
+默认的 3 级已经把每轮等数据的时间从 852 拍压到 74 拍，再加一级也没有多少等待可藏。`num_stages=4` 反而慢了 24%。它每一轮其实更短（[图 3-4](#fig-t-9) 最下面一栏），慢在 shared memory：每多一级多一个 16 KB 的 slot，一个 program 占 48 KB，加上保留的 1 KB 是 49 KB，100 KB 只放得下 2 个（3 级时 33 KB，放得下 3 个）。全卡一批从 510 个降到 340 个，504 个 program 要分两批，第 2 批 164 个（[3.2 节](#sched-wave)，[图 3-5](#fig-s-1)）。四个例子里只有 matmul 的循环用得上 `num_stages`。它也改不了 program 的个数：4096 行时取 1 到 4，耗时都在 209 到 214 µs。
+
+<figure id="fig-s-1" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 350" width="100%" role="img" aria-label="num_stages = 3 和 4 时一个 SM 的 shared memory 和整个 kernel 的时间。3 级每个 program 占 33 KB，100 KB 放得下 3 个，504 个 program 一批跑完；4 级每个 program 占 49 KB，只放得下 2 个，要分两批，第二批每个 SM 最多 1 个">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <text class="tb" x="8" y="20">一个 SM 的 shared memory（100 KB）</text>
+  <text class="lab" x="8" y="61">num_stages = 3</text>
+  <rect x="130.0" y="46" width="470.0" height="22" rx="2" fill="none" stroke="currentColor" stroke-opacity=".35"/>
+  <g class="m"><title>P0 的 slot 0：A、B 各 8 KB</title><rect x="130.5" y="47" width="74.2" height="20" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <text class="s" x="167.6" y="61" text-anchor="middle" style="fill: #fff; opacity: 1">slot 0</text>
+  <g class="m"><title>P0 的 slot 1：A、B 各 8 KB</title><rect x="205.7" y="47" width="74.2" height="20" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <text class="s" x="242.8" y="61" text-anchor="middle" style="fill: #fff; opacity: 1">slot 1</text>
+  <rect x="280.4" y="47" width="4.7" height="20" style="fill: var(--fig-mute)"/>
+  <text class="s" x="207.6" y="43" text-anchor="middle">P0：33 KB</text>
+  <g class="m"><title>P1 的 slot 0：A、B 各 8 KB</title><rect x="285.6" y="47" width="74.2" height="20" rx="2" style="fill: var(--fig-1)" fill-opacity="0.35"/></g>
+  <text class="s" x="322.7" y="61" text-anchor="middle" style="fill: #fff; opacity: 1">slot 0</text>
+  <g class="m"><title>P1 的 slot 1：A、B 各 8 KB</title><rect x="360.8" y="47" width="74.2" height="20" rx="2" style="fill: var(--fig-1)" fill-opacity="0.35"/></g>
+  <text class="s" x="397.9" y="61" text-anchor="middle" style="fill: #fff; opacity: 1">slot 1</text>
+  <rect x="435.5" y="47" width="4.7" height="20" style="fill: var(--fig-mute)"/>
+  <text class="s" x="362.7" y="43" text-anchor="middle">P1：33 KB</text>
+  <g class="m"><title>P2 的 slot 0：A、B 各 8 KB</title><rect x="440.7" y="47" width="74.2" height="20" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <text class="s" x="477.8" y="61" text-anchor="middle" style="fill: #fff; opacity: 1">slot 0</text>
+  <g class="m"><title>P2 的 slot 1：A、B 各 8 KB</title><rect x="515.9" y="47" width="74.2" height="20" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <text class="s" x="553.0" y="61" text-anchor="middle" style="fill: #fff; opacity: 1">slot 1</text>
+  <rect x="590.6" y="47" width="4.7" height="20" style="fill: var(--fig-mute)"/>
+  <text class="s" x="517.8" y="43" text-anchor="middle">P2：33 KB</text>
+  <text class="s" x="606" y="55">放 3 个</text><text class="s" x="606" y="68">剩 1 KB</text>
+  <text class="lab" x="8" y="105">num_stages = 4</text>
+  <rect x="130.0" y="90" width="470.0" height="22" rx="2" fill="none" stroke="currentColor" stroke-opacity=".35"/>
+  <g class="m"><title>P0 的 slot 0：A、B 各 8 KB</title><rect x="130.5" y="91" width="74.2" height="20" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <text class="s" x="167.6" y="105" text-anchor="middle" style="fill: #fff; opacity: 1">slot 0</text>
+  <g class="m"><title>P0 的 slot 1：A、B 各 8 KB</title><rect x="205.7" y="91" width="74.2" height="20" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <text class="s" x="242.8" y="105" text-anchor="middle" style="fill: #fff; opacity: 1">slot 1</text>
+  <g class="m"><title>P0 的 slot 2：A、B 各 8 KB</title><rect x="280.9" y="91" width="74.2" height="20" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <text class="s" x="318.0" y="105" text-anchor="middle" style="fill: #fff; opacity: 1">slot 2</text>
+  <rect x="355.6" y="91" width="4.7" height="20" style="fill: var(--fig-mute)"/>
+  <text class="s" x="245.1" y="87" text-anchor="middle">P0：49 KB</text>
+  <g class="m"><title>P1 的 slot 0：A、B 各 8 KB</title><rect x="360.8" y="91" width="74.2" height="20" rx="2" style="fill: var(--fig-1)" fill-opacity="0.35"/></g>
+  <text class="s" x="397.9" y="105" text-anchor="middle" style="fill: #fff; opacity: 1">slot 0</text>
+  <g class="m"><title>P1 的 slot 1：A、B 各 8 KB</title><rect x="436.0" y="91" width="74.2" height="20" rx="2" style="fill: var(--fig-1)" fill-opacity="0.35"/></g>
+  <text class="s" x="473.1" y="105" text-anchor="middle" style="fill: #fff; opacity: 1">slot 1</text>
+  <g class="m"><title>P1 的 slot 2：A、B 各 8 KB</title><rect x="511.2" y="91" width="74.2" height="20" rx="2" style="fill: var(--fig-1)" fill-opacity="0.35"/></g>
+  <text class="s" x="548.3" y="105" text-anchor="middle" style="fill: #fff; opacity: 1">slot 2</text>
+  <rect x="585.9" y="91" width="4.7" height="20" style="fill: var(--fig-mute)"/>
+  <text class="s" x="475.4" y="87" text-anchor="middle">P1：49 KB</text>
+  <text class="s" x="606" y="99">放 2 个</text><text class="s" x="606" y="112">剩 2 KB</text>
+  <line class="grid" x1="130" y1="296" x2="600" y2="296"/>
+  <line class="grid" x1="130.0" y1="154" x2="130.0" y2="296"/>
+  <line class="grid" x1="220.4" y1="154" x2="220.4" y2="296"/>
+  <line class="grid" x1="310.8" y1="154" x2="310.8" y2="296"/>
+  <line class="grid" x1="401.2" y1="154" x2="401.2" y2="296"/>
+  <line class="grid" x1="491.5" y1="154" x2="491.5" y2="296"/>
+  <line class="grid" x1="581.9" y1="154" x2="581.9" y2="296"/>
+  <text class="tb" x="8" y="146">整个 kernel：一个 SM 上同时跑的 program（504 个 program，170 个 SM）</text>
+  <text class="lab" x="8" y="189.0">num_stages = 3</text>
+  <g class="m"><title>每个 SM 3 个 program，504 个一批跑完</title><rect x="130.0" y="160" width="320.4" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <text class="s" x="136.0" y="171.0" style="fill: #fff; opacity: 1">第 1 批 P0：64 轮 × 4901 拍</text>
+  <g class="m"><title>每个 SM 3 个 program，504 个一批跑完</title><rect x="130.0" y="178" width="320.4" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <text class="s" x="136.0" y="189.0" style="fill: #fff; opacity: 1">第 1 批 P1：64 轮 × 4901 拍</text>
+  <g class="m"><title>每个 SM 3 个 program，504 个一批跑完</title><rect x="130.0" y="196" width="320.4" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <text class="s" x="136.0" y="207.0" style="fill: #fff; opacity: 1">第 1 批 P2：64 轮 × 4901 拍</text>
+  <text class="lab" x="8" y="256">num_stages = 4</text>
+  <g class="m"><title>第 1 批 340 个 program，每个 SM 2 个</title><rect x="130.0" y="236" width="218.1" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <text class="s" x="136.0" y="247.0" style="fill: #fff; opacity: 1">第 1 批 P0：64 轮 × 3770 拍</text>
+  <g class="m"><title>第 1 批 340 个 program，每个 SM 2 个</title><rect x="130.0" y="254" width="218.1" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.55"/></g>
+  <text class="s" x="136.0" y="265.0" style="fill: #fff; opacity: 1">第 1 批 P1：64 轮 × 3770 拍</text>
+  <g class="m"><title>第 2 批 164 个 program，每个 SM 最多 1 个</title><rect x="348.1" y="236" width="227.6" height="14" rx="2" style="fill: var(--fig-1)" fill-opacity="0.35"/></g>
+  <text class="s" x="354.1" y="247.0" style="fill: #fff; opacity: 1">第 2 批：64 轮</text>
+  <rect x="348.1" y="254" width="227.6" height="14" rx="2" fill="none" stroke="currentColor" stroke-opacity=".45" stroke-dasharray="3 2"/>
+  <text class="s" x="354.1" y="265.0">空着</text>
+  <line x1="450.4" y1="154" x2="450.4" y2="278" style="stroke: var(--fig-hi)" stroke-width="1.4" stroke-dasharray="4 3"/>
+  <line x1="575.7" y1="154" x2="575.7" y2="278" style="stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <text class="s" x="454.4" y="224" style="fill: var(--fig-hi); opacity: 1">3 级结束：354432 拍</text>
+  <text class="s" x="571.7" y="290" text-anchor="end" style="fill: var(--fig-hi); opacity: 1">4 级结束：493138 拍（1.39 倍）</text>
+  <text class="tick" x="130.0" y="310" text-anchor="middle">0</text>
+  <text class="tick" x="220.4" y="310" text-anchor="middle">1e5</text>
+  <text class="tick" x="310.8" y="310" text-anchor="middle">2e5</text>
+  <text class="tick" x="401.2" y="310" text-anchor="middle">3e5</text>
+  <text class="tick" x="491.5" y="310" text-anchor="middle">4e5</text>
+  <text class="tick" x="581.9" y="310" text-anchor="middle">5e5</text>
+  <text class="lab2" x="122" y="310" text-anchor="end">拍</text>
+</svg>
+<figcaption><strong>图 3-5</strong> num_stages = 3 和 4 时，一个 SM 放几个 program、整个 kernel 跑几批（RTX 5090，形状同<a href="#tab-3-2">表 3-2</a>）。上：一个 slot 存一轮的 A、B block，各 8 KB，共 16 KB；灰色是每个 program 保留的 1 KB。下：每轮的拍数和整个 kernel 的拍数都按 Nsight Compute 实测（<code>--clock-control none</code>），整个 kernel 的拍数 = kernel 耗时 × SM 时钟频率；4 级第 1 批按 64 轮 × 每轮拍数画，第 2 批画到 kernel 结束。</figcaption>
+</figure>
 
 ### 3.4 block 大小和 autotune {#tile}
 
-block 的大小同时决定 program 的个数、每个 program 占的资源和每个 thread 存几个 acc。我们在正文形状和 4096 × 4096 × 4096 上各扫了 198 组 BM、BN、BK、`num_warps` 和 `num_stages`。正文形状下最快的是 BM = BN = 128、BK = 32、8 个 warp，176.9 µs，比 64 × 64 的 203.0 µs 少用 13% 的时间（[图 3-5](#fig-d-1)）。它只有 128 个 program，空着 42 个 SM，但没有哪个 SM 要多跑一个 program，每个 thread 存的 acc 也多一倍。
+block 的大小同时决定 program 的个数、每个 program 占的资源和每个 thread 存几个 acc。我们在正文形状和 4096 × 4096 × 4096 上各扫了 198 组 BM、BN、BK、`num_warps` 和 `num_stages`。正文形状下最快的是 BM = BN = 128、BK = 32、8 个 warp，176.9 µs，比 64 × 64 的 203.0 µs 少用 13% 的时间（[图 3-6](#fig-d-1)）。它只有 128 个 program，空着 42 个 SM，但没有哪个 SM 要多跑一个 program，每个 thread 存的 acc 也多一倍。
 
 <figure id="fig-d-1" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 262" width="100%" role="img" aria-label="正文形状下最快的配置（BM = BN = 128，8 个 warp）和正文用的 64 × 64、4 个 warp，在一个 SM 上各用了多少：最快的只驻留 8 个 warp，register 用掉 88%">
@@ -2489,10 +2602,10 @@ block 的大小同时决定 program 的个数、每个 program 占的资源和�
   <rect x="22" y="240" width="22" height="10" style="fill: var(--fig-1)"/><text class="lab" x="52" y="249">一格是一个 program 占的量</text>
   <rect x="230" y="239" width="22" height="12" rx="2" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/><text class="lab" x="260" y="249">先用完的那条</text>
 </svg>
-<figcaption><strong>图 3-5</strong> 正文形状（A 4096 × 2048，B 2048 × 512，fp32）下最快的配置和正文用的配置，在一个 SM 上各用了多少。四根条对应<a href="#tab-3-1">表 3-1</a> 的四条上限，条长是这条上限的总量。</figcaption>
+<figcaption><strong>图 3-6</strong> 正文形状（A 4096 × 2048，B 2048 × 512，fp32）下最快的配置和正文用的配置，在一个 SM 上各用了多少。四根条对应<a href="#tab-3-1">表 3-1</a> 的四条上限，条长是这条上限的总量。</figcaption>
 </figure>
 
-两个形状的规律一样（[图 3-6](#fig-d-2)）：每个 thread 存 32 到 64 个 acc、每个 SM 只驻留 8 到 16 个 warp 时最快。acc 越多，每从 shared memory 读一个数能做的乘加越多（[单卡优化篇第 7 节](/blog/gpu-single-gpu-optimization/#tiling)）；驻留的 warp 一多，每个 thread 分到的 register 就放不下这么多 acc。所以 matmul 靠第二、三种办法藏延迟，不靠多驻留 warp。
+两个形状的规律一样（[图 3-7](#fig-d-2)）：每个 thread 存 32 到 64 个 acc、每个 SM 只驻留 8 到 16 个 warp 时最快。acc 越多，每从 shared memory 读一个数能做的乘加越多（[单卡优化篇第 7 节](/blog/gpu-single-gpu-optimization/#tiling)）；驻留的 warp 一多，每个 thread 分到的 register 就放不下这么多 acc。所以 matmul 靠第二、三种办法藏延迟，不靠多驻留 warp。
 
 <figure id="fig-d-2" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="按每个 thread 的 acc 个数、每个 SM 驻留的 warp 数分组，每组最快的配置比整体最快慢多少：acc 在 32 到 64 个、warp 在 8 到 16 个时最快，warp 驻留满 48 个反而慢一倍">
@@ -2584,7 +2697,7 @@ block 的大小同时决定 program 的个数、每个 program 占的资源和�
   <line x1="60" y1="286" x2="82" y2="286" style="stroke: var(--fig-1)" stroke-width="2"/><text class="lab" x="90" y="290">正文形状 4096 × 2048 × 512</text>
   <line x1="310" y1="286" x2="332" y2="286" style="stroke: var(--fig-hi)" stroke-width="2"/><text class="lab" x="340" y="290">4096 × 4096 × 4096</text>
 </svg>
-<figcaption><strong>图 3-6</strong> 两个形状各扫 198 组配置（RTX 5090，fp32，<code>input_precision="ieee"</code>）。左：按每个 thread 存的 acc 个数（BM × BN / (32 × num_warps)）分组；右：按每个 SM 驻留的 warp 数分组。每组取最快的一个，纵轴是它比这个形状下整体最快的配置慢几倍；有 spill 的配置不算在内。悬停可看时间。</figcaption>
+<figcaption><strong>图 3-7</strong> 两个形状各扫 198 组配置（RTX 5090，fp32，<code>input_precision="ieee"</code>）。左：按每个 thread 存的 acc 个数（BM × BN / (32 × num_warps)）分组；右：按每个 SM 驻留的 warp 数分组。每组取最快的一个，纵轴是它比这个形状下整体最快的配置慢几倍；有 spill 的配置不算在内。悬停可看时间。</figcaption>
 </figure>
 
 形状一变，最快的配置就变，Triton 用 autotune 自动挑：
