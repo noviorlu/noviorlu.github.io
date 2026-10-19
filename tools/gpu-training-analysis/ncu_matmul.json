@@ -88,6 +88,35 @@
     "drain": 0.0,
     "misc": 0.0
    }
+  },
+  {
+   "M": 4032,
+   "num_stages": 4,
+   "us": 208.27309920666238,
+   "us_ncu": 196.128,
+   "cycles_per_inst": 3.06,
+   "fma_pipe_pct": 60.88,
+   "shared_ld_pipe_pct": 39.68,
+   "l2_hit_pct": 91.52,
+   "warps_per_sm": 7.86,
+   "inst_per_round": 1232.09375,
+   "sm_hz": 2514369307.44,
+   "stall": {
+    "selected": 1.0,
+    "not_selected": 0.63,
+    "dispatch_stall": 0.46,
+    "short_scoreboard": 0.6,
+    "mio_throttle": 0.06,
+    "long_scoreboard": 0.08,
+    "lg_throttle": 0.01,
+    "barrier": 0.07,
+    "wait": 0.09,
+    "math_pipe_throttle": 0.02,
+    "no_instruction": 0.02,
+    "branch_resolving": 0.0,
+    "drain": 0.0,
+    "misc": 0.0
+   }
   }
  ],
  "cublas_4096_us": 160.49392801111853

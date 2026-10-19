@@ -9,7 +9,10 @@ import csv, io, json, os, subprocess, sys
 import torch
 
 K, N = 2048, 512
-RUNS = [(4032, 1), (4032, 3), (4096, 3)]                # (M, num_stages)
+RUNS = [(4032, 1), (4032, 3), (4096, 3), (4032, 4)]    # (M, num_stages)
+# ONLY="4032,4" 只测列出的几组，结果按 (M, num_stages) 并进已有的 ncu_matmul.json，其余不动
+if os.environ.get("ONLY"):
+    RUNS = [tuple(map(int, s.split(","))) for s in os.environ["ONLY"].split(";")]
 METRICS = ["gpu__time_duration.sum", "smsp__average_warp_latency_per_inst_issued.ratio",
            "sm__pipe_fma_cycles_active.avg.pct_of_peak_sustained_active",
            "l1tex__data_pipe_lsu_wavefronts_mem_shared_op_ld.sum.pct_of_peak_sustained_elapsed",
@@ -54,7 +57,13 @@ def main():
     torch.backends.cuda.matmul.allow_tf32 = False                     # cuBLAS 对照：fp32，不走 tf32
     a, b = torch.randn(4096, K, device="cuda"), torch.randn(K, N, device="cuda")
     cublas_us = triton.testing.do_bench(lambda: torch.relu(a @ b), warmup=100, rep=2000) * 1e3
-    json.dump({"K": K, "N": N, "runs": res, "cublas_4096_us": cublas_us}, open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ncu_matmul.json"), "w"), indent=1)
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ncu_matmul.json")
+    if os.environ.get("ONLY") and os.path.exists(path):
+        old = json.load(open(path))
+        new = {(r["M"], r["num_stages"]) for r in res}
+        res = [r for r in old["runs"] if (r["M"], r["num_stages"]) not in new] + res
+        cublas_us = old["cublas_4096_us"]
+    json.dump({"K": K, "N": N, "runs": res, "cublas_4096_us": cublas_us}, open(path, "w"), indent=1)
     print("cublas 4096", round(cublas_us, 1))
     for r in res: print(r["M"], r["num_stages"], round(r["us"], 1), round(r["cycles_per_inst"], 2), {k: round(x, 2) for k, x in r["stall"].items() if x > .03})
 
