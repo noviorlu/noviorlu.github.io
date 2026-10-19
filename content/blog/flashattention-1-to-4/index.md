@@ -252,9 +252,9 @@ Dao、Fu、Ermon、Rudra、Ré 2022 年的论文把这当成 IO 问题来处理�
 
 softmax 的分母要用一整行的 score，tiling 以后一个 tile 只看得到一段：
 
-<p align="center">$p_k = \dfrac{e^{x_k}}{\sum_j e^{x_j}}$</p>
+<p align="center">$p_k = \dfrac{e^{x_k-m}}{\sum_j e^{x_j-m}}, \qquad m = \max_j x_j$</p>
 
-$e^{x}$ 容易溢出，实际实现都先减掉整行的最大值 $m = \max_k x_k$，分子分母同乘 $e^{-m}$，结果不变。FlashAttention 用 online softmax 处理分母要整行的问题，对 K/V 只扫一遍。
+减掉整行的最大值 $m$ 是为了 $e^{x}$ 不溢出，分子分母同乘 $e^{-m}$，结果不变。$m$ 和分母都要扫完整行才知道，FlashAttention 用 online softmax 解决这个问题，对 K/V 只扫一遍。
 
 attention 一行的输出是 $\text{out} = \sum_k p_k v_k$。每一项的分母 $\ell$ 都一样，可以提到求和外面，输出变成分子 $O$ 乘 $1/\ell$（[图 2-3](#fig-2-3)）。
 
