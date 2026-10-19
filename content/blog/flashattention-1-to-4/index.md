@@ -42,13 +42,7 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 
 ## 1 attention 受限于访存，而不是算力 {#memory-bound}
 
-四代 FlashAttention 都建立在同一个判断上：标准 attention 慢在搬数据，不在计算。这一节先说明这个判断从哪来。
-
-<div class="fa-intuit"><b>思路：</b>HBM 容量大但慢；片上的 SRAM（即 shared memory）就在计算单元旁边，带宽约是 HBM 的 10 倍，容量约小 2000 倍。标准 attention 每做一步，都要把整个 N×N 的 score 矩阵从片上写到 HBM 再读回来。FlashAttention 让这个矩阵始终不离开片上。</div>
-
-标准 self-attention 对 $Q, K, V \in \mathbb{R}^{N\times d}$ 计算 $S = QK^\top/\sqrt{d}$、$P = \mathrm{softmax}(S)$、$O = PV$。计算量是 $\Theta(N^2 d)$ FLOPs，本文讲的每一代都还是 $\Theta(N^2 d)$；反向传播还多出一次重算的 $QK^\top$，在标准反向约 $8N^2d$ FLOPs 之外再加约 $2N^2d$。**FlashAttention 没有降低 attention 所需计算量的量级。** 它减少的是 HBM 的读写量，而在现代 GPU 上，真正耗时的几乎总是这一部分。
-
-原因在存储层级。A100 有 40–80 GB 的 HBM（通常说的「显存」），带宽约 1.5e12–2.0e12 B/s；每个 streaming multiprocessor（SM）有 192 KB 的片上 shared memory，108 个 SM 合计约 20 MB，总带宽估计约 1.9e13 B/s（[图 1-1](#fig-1-1)）。朴素实现把 $S$ 和 $P$ 这两个 $N\times N$ 的矩阵都放在 HBM 里：先写进去，softmax 时读回来，再写一次，最后做 matmul 时再读一次。序列长的时候，这些来回读写占了大部分墙钟时间。对 $N\times N$ 矩阵的逐元素 pass（softmax，训练时还有 mask 和 dropout）每搬一个元素只做 $O(1)$ 次运算，完全受带宽限制。在常见的 head 维度下，连两个 matmul 也受访存限制：用 $2N^2d$ FLOPs 产出一个 FP16 的 $N\times N$ 矩阵，算术强度只有约 $d$ FLOPs/byte（64–128），低于 A100 roofline 的拐点（约 150–200 FLOPs/byte）。整个计算都落在拐点左侧，速度由显存带宽决定，而不是峰值算力。
+四代 FlashAttention 都建立在同一个判断上：标准 attention 慢在搬数据，不在计算。前面的[谁偷走了 5090 的算力和显存](/blog/gpu-training-analysis/)已经在 RTX 5090 上用 roofline 和实测讲过这一点，这里只补 A100 上的两层存储（[图 1-1](#fig-1-1)）和 FlashAttention 论文给的时间拆分。
 
 <figure id="fig-1-1">
 <svg viewBox="0 0 640 230" width="100%" role="img" aria-label="A100 的存储层级：上层是合计约 20 MB、速度快的片上 shared memory，下层是 40 到 80 GB、速度慢的 HBM">
