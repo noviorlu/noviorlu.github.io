@@ -305,7 +305,7 @@ Online softmax（Milakov 和 Gimelshein 2018）不等整行的最大值：先按
 attention 要的不是 softmax 本身，而是用它对 $V$ 加权求和。$O$ 按同样的办法累加还没归一化的 $e^{x-m} v$，最大值变大时和 $\ell$ 乘同一个修正因子。扫完所有 block 以后 $\ell$ 才是完整的分母，$O$ 除以它一次就是结果，三遍变成了一遍。
 
 <figure id="fig-2-4">
-<svg viewBox="0 0 680 316" width="100%" role="img" aria-label="online softmax 在 6 个 score、3 个 block 上的计算。每个 block 只扫一遍，先更新最大值 m，再把之前的分母 ℓ 和累加的 O 乘修正因子 e 的 m_old 减 m_new 次方，再加上这个 block 的项。block 2 把最大值从 0 变成 1，修正因子是 e 的 −1 次方。最后 O 除以 ℓ 等于 2，和一次算完的结果相同">
+<svg viewBox="0 0 680 352" width="100%" role="img" aria-label="online softmax 按元素展开：每一行是读完一个 block 以后，每个 score 按当时的最大值 m 算的权重 e 的 x 减 m 次方，ℓ 是这一行权重之和，O 是权重乘 v 之和。读完 block 2 时最大值从 0 变成 1，之前两个元素的权重从 1 变成 e 的 −1 次方，ℓ 和 O 也跟着乘 e 的 −1 次方。最后 O 除以 ℓ 等于 2">
   <style>
     .os2 { font-size: 11px; fill: currentColor; }
     .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
@@ -313,59 +313,76 @@ attention 要的不是 softmax 本身，而是用它对 $V$ 加权求和。$O$ �
     .os2-c { font-size: 12px; font-weight: 600; text-anchor: middle; fill: currentColor; }
     .os2-hi { fill: var(--fig-hi); font-weight: 600; }
   </style>
-  <defs><marker id="osB-m" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker></defs>
-<text class="os2-b" x="8" y="18">online softmax：每个 block 只扫一遍，m、ℓ、O 一路带下去</text>
-<rect x="4" y="30" width="200" height="224" rx="8" style="fill: var(--fig-3)" fill-opacity=".12" stroke="currentColor" stroke-opacity=".18"/>
-<text class="os2-b" x="14" y="50">block 1</text>
-<rect x="84" y="36" width="46" height="24" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="107.0" y="52.0">0</text>
-<text class="os2-s" x="107" y="74" text-anchor="middle">v = 1</text>
-<rect x="136" y="36" width="46" height="24" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="159.0" y="52.0">0</text>
-<text class="os2-s" x="159" y="74" text-anchor="middle">v = 3</text>
-<text class="os2" x="14" y="96" xml:space="preserve">m = max(−∞, 0, 0) = 0</text>
-<text class="os2" x="14" y="114" xml:space="preserve">ℓ = e^(0−0) + e^(0−0)</text>
-<text class="os2" x="14" y="132" xml:space="preserve">  = 2</text>
-<text class="os2" x="14" y="156" xml:space="preserve">O = 1×1 + 1×3</text>
-<text class="os2" x="14" y="174" xml:space="preserve">  = 4</text>
-<text class="os2" x="14" y="192" xml:space="preserve"></text>
-<rect x="12" y="208" width="184" height="38" rx="4" style="fill: var(--fig-1)" fill-opacity=".14"/>
-<text class="os2" x="104.0" y="223" text-anchor="middle">m = 0，ℓ = 2</text>
-<text class="os2" x="104.0" y="239" text-anchor="middle">O = 4</text>
-<line x1="206" y1="227" x2="236" y2="227" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#osB-m)"/>
-<rect x="240" y="30" width="200" height="224" rx="8" style="fill: var(--fig-3)" fill-opacity=".12" stroke="currentColor" stroke-opacity=".18"/>
-<text class="os2-b" x="250" y="50">block 2</text>
-<rect x="320" y="36" width="46" height="24" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="343.0" y="52.0">1</text>
-<text class="os2-s" x="343" y="74" text-anchor="middle">v = 2</text>
-<rect x="372" y="36" width="46" height="24" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="395.0" y="52.0">1</text>
-<text class="os2-s" x="395" y="74" text-anchor="middle">v = 2</text>
-<text class="os2" x="250" y="96" xml:space="preserve">m = max(0, 1, 1) = 1</text>
-<text class="os2" x="250" y="114" xml:space="preserve">ℓ = 2 <tspan class="os2-hi">× e^(0−1)</tspan> + e^0 + e^0</text>
-<text class="os2" x="250" y="132" xml:space="preserve">  = 2 + 2e^(−1)</text>
-<text class="os2" x="250" y="156" xml:space="preserve">O = 4 <tspan class="os2-hi">× e^(0−1)</tspan> + 1×2 + 1×2</text>
-<text class="os2" x="250" y="174" xml:space="preserve">  = 4 + 4e^(−1)</text>
-<text class="os2" x="250" y="192" xml:space="preserve"></text>
-<rect x="248" y="208" width="184" height="38" rx="4" style="fill: var(--fig-1)" fill-opacity=".14"/>
-<text class="os2" x="340.0" y="223" text-anchor="middle">m = 1，ℓ = 2 + 2e^(−1)</text>
-<text class="os2" x="340.0" y="239" text-anchor="middle">O = 4 + 4e^(−1)</text>
-<line x1="442" y1="227" x2="472" y2="227" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#osB-m)"/>
-<rect x="476" y="30" width="200" height="224" rx="8" style="fill: var(--fig-3)" fill-opacity=".12" stroke="currentColor" stroke-opacity=".18"/>
-<text class="os2-b" x="486" y="50">block 3</text>
-<rect x="556" y="36" width="46" height="24" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="579.0" y="52.0">0</text>
-<text class="os2-s" x="579" y="74" text-anchor="middle">v = 1</text>
-<rect x="608" y="36" width="46" height="24" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="631.0" y="52.0">0</text>
-<text class="os2-s" x="631" y="74" text-anchor="middle">v = 3</text>
-<text class="os2" x="486" y="96" xml:space="preserve">m = max(1, 0, 0) = 1</text>
-<text class="os2" x="486" y="114" xml:space="preserve">ℓ = (2 + 2e^(−1)) <tspan class="os2-hi">× e^(1−1)</tspan></text>
-<text class="os2" x="486" y="132" xml:space="preserve">  + e^(−1) + e^(−1) = 2 + 4e^(−1)</text>
-<text class="os2" x="486" y="156" xml:space="preserve">O = (4 + 4e^(−1)) <tspan class="os2-hi">× e^(1−1)</tspan></text>
-<text class="os2" x="486" y="174" xml:space="preserve">  + e^(−1)×1 + e^(−1)×3</text>
-<text class="os2" x="486" y="192" xml:space="preserve">  = 4 + 8e^(−1)</text>
-<rect x="484" y="208" width="184" height="38" rx="4" style="fill: var(--fig-1)" fill-opacity=".14"/>
-<text class="os2" x="576.0" y="223" text-anchor="middle">m = 1，ℓ = 2 + 4e^(−1)</text>
-<text class="os2" x="576.0" y="239" text-anchor="middle">O = 4 + 8e^(−1)</text>
-<text class="os2" x="340.0" y="280" text-anchor="middle">最后只除一次：O / ℓ = (4 + 8e^(−1)) / (2 + 4e^(−1)) = 2，和 6 个 score 一次算出来的 softmax 加权和相同</text>
-<text class="os2-s" x="340.0" y="304" text-anchor="middle"><tspan class="os2-hi">红色</tspan>是修正因子 e^(m_old − m_new)：最大值变大时，之前累加的 ℓ 和 O 都要乘它；最大值不变时它等于 1</text>
+  <defs><marker id="osC-m" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker></defs>
+<text class="os2-b" x="8" y="18">online softmax 按元素展开：每个格子是这个 score 按当时的 m 算的 e^(x − m)</text>
+<rect x="150" y="46" width="50" height="30" rx="3" style="fill: var(--fig-3)" fill-opacity=".6"/><text class="os2-b" x="175.0" y="66.0" text-anchor="middle">0</text>
+<text class="os2-s" x="175.0" y="90" text-anchor="middle">v = 1</text>
+<rect x="204" y="46" width="50" height="30" rx="3" style="fill: var(--fig-3)" fill-opacity=".6"/><text class="os2-b" x="229.0" y="66.0" text-anchor="middle">0</text>
+<text class="os2-s" x="229.0" y="90" text-anchor="middle">v = 3</text>
+<rect x="268" y="46" width="50" height="30" rx="3" style="fill: var(--fig-3)" fill-opacity=".6"/><text class="os2-b" x="293.0" y="66.0" text-anchor="middle">1</text>
+<text class="os2-s" x="293.0" y="90" text-anchor="middle">v = 2</text>
+<rect x="322" y="46" width="50" height="30" rx="3" style="fill: var(--fig-3)" fill-opacity=".6"/><text class="os2-b" x="347.0" y="66.0" text-anchor="middle">1</text>
+<text class="os2-s" x="347.0" y="90" text-anchor="middle">v = 2</text>
+<rect x="386" y="46" width="50" height="30" rx="3" style="fill: var(--fig-3)" fill-opacity=".6"/><text class="os2-b" x="411.0" y="66.0" text-anchor="middle">0</text>
+<text class="os2-s" x="411.0" y="90" text-anchor="middle">v = 1</text>
+<rect x="440" y="46" width="50" height="30" rx="3" style="fill: var(--fig-3)" fill-opacity=".6"/><text class="os2-b" x="465.0" y="66.0" text-anchor="middle">0</text>
+<text class="os2-s" x="465.0" y="90" text-anchor="middle">v = 3</text>
+<text class="os2-s" x="202.0" y="40" text-anchor="middle">block 1</text>
+<text class="os2-s" x="320.0" y="40" text-anchor="middle">block 2</text>
+<text class="os2-s" x="438.0" y="40" text-anchor="middle">block 3</text>
+<text class="os2" x="8" y="65.0">score x</text>
+<text class="os2-b" x="532" y="65.0" text-anchor="middle">ℓ = Σ 格子</text>
+<text class="os2-b" x="618" y="65.0" text-anchor="middle">O = Σ 格子 × v</text>
+<line x1="8" y1="104" x2="672" y2="104" stroke="currentColor" stroke-opacity=".12"/>
+<text class="os2-b" x="8" y="128">读完 block 1</text>
+<text class="os2-s" x="8" y="144">m = 0</text>
+<rect x="150" y="116" width="50" height="30" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.55" stroke-opacity=".35"/><text class="os2" x="175.0" y="135.0" text-anchor="middle">1</text>
+<rect x="148" y="114" width="54" height="34" rx="4" fill="none" style="stroke: var(--fig-1)" stroke-width="1.6"/>
+<rect x="204" y="116" width="50" height="30" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.55" stroke-opacity=".35"/><text class="os2" x="229.0" y="135.0" text-anchor="middle">1</text>
+<rect x="202" y="114" width="54" height="34" rx="4" fill="none" style="stroke: var(--fig-1)" stroke-width="1.6"/>
+<rect x="268" y="116" width="50" height="30" rx="3" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/><text class="os2" x="293.0" y="135.0" text-anchor="middle">未读</text>
+<rect x="322" y="116" width="50" height="30" rx="3" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/><text class="os2" x="347.0" y="135.0" text-anchor="middle">未读</text>
+<rect x="386" y="116" width="50" height="30" rx="3" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/><text class="os2" x="411.0" y="135.0" text-anchor="middle">未读</text>
+<rect x="440" y="116" width="50" height="30" rx="3" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/><text class="os2" x="465.0" y="135.0" text-anchor="middle">未读</text>
+<text class="os2" x="532" y="135.0" text-anchor="middle">2</text>
+<text class="os2" x="618" y="135.0" text-anchor="middle">4</text>
+<line x1="8" y1="166" x2="672" y2="166" stroke="currentColor" stroke-opacity=".12"/>
+<text class="os2-b" x="8" y="190">读完 block 2</text>
+<text class="os2-s" x="8" y="206" style="fill: var(--fig-hi); opacity: 1">m = 0 → 1</text>
+<rect x="150" y="178" width="50" height="30" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="175.0" y="197.0" text-anchor="middle" style="fill: var(--fig-hi); font-weight: 600">e^(−1)</text>
+<rect x="204" y="178" width="50" height="30" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="229.0" y="197.0" text-anchor="middle" style="fill: var(--fig-hi); font-weight: 600">e^(−1)</text>
+<rect x="268" y="178" width="50" height="30" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.55" stroke-opacity=".35"/><text class="os2" x="293.0" y="197.0" text-anchor="middle">1</text>
+<rect x="266" y="176" width="54" height="34" rx="4" fill="none" style="stroke: var(--fig-1)" stroke-width="1.6"/>
+<rect x="322" y="178" width="50" height="30" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.55" stroke-opacity=".35"/><text class="os2" x="347.0" y="197.0" text-anchor="middle">1</text>
+<rect x="320" y="176" width="54" height="34" rx="4" fill="none" style="stroke: var(--fig-1)" stroke-width="1.6"/>
+<rect x="386" y="178" width="50" height="30" rx="3" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/><text class="os2" x="411.0" y="197.0" text-anchor="middle">未读</text>
+<rect x="440" y="178" width="50" height="30" rx="3" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/><text class="os2" x="465.0" y="197.0" text-anchor="middle">未读</text>
+<text class="os2" x="532" y="197.0" text-anchor="middle">2 + 2e^(−1)</text>
+<text class="os2" x="618" y="197.0" text-anchor="middle">4 + 4e^(−1)</text>
+<line x1="8" y1="228" x2="672" y2="228" stroke="currentColor" stroke-opacity=".12"/>
+<text class="os2-b" x="8" y="252">读完 block 3</text>
+<text class="os2-s" x="8" y="268">m = 1，不变</text>
+<rect x="150" y="240" width="50" height="30" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="175.0" y="259.0" text-anchor="middle">e^(−1)</text>
+<rect x="204" y="240" width="50" height="30" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="229.0" y="259.0" text-anchor="middle">e^(−1)</text>
+<rect x="268" y="240" width="50" height="30" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.55" stroke-opacity=".35"/><text class="os2" x="293.0" y="259.0" text-anchor="middle">1</text>
+<rect x="322" y="240" width="50" height="30" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.55" stroke-opacity=".35"/><text class="os2" x="347.0" y="259.0" text-anchor="middle">1</text>
+<rect x="386" y="240" width="50" height="30" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="411.0" y="259.0" text-anchor="middle">e^(−1)</text>
+<rect x="384" y="238" width="54" height="34" rx="4" fill="none" style="stroke: var(--fig-1)" stroke-width="1.6"/>
+<rect x="440" y="240" width="50" height="30" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="465.0" y="259.0" text-anchor="middle">e^(−1)</text>
+<rect x="438" y="238" width="54" height="34" rx="4" fill="none" style="stroke: var(--fig-1)" stroke-width="1.6"/>
+<text class="os2" x="532" y="259.0" text-anchor="middle">2 + 4e^(−1)</text>
+<text class="os2" x="618" y="259.0" text-anchor="middle">4 + 8e^(−1)</text>
+<line x1="175.0" y1="149" x2="175.0" y2="174" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#osC-m)"/>
+<line x1="229.0" y1="149" x2="229.0" y2="174" style="stroke: var(--fig-hi)" stroke-width="1.5" marker-end="url(#osC-m)"/>
+<text class="os2" x="262" y="166" style="fill: var(--fig-hi); font-weight: 600">× e^(0−1)：之前的格子按新的 m 重算，ℓ、O 也整体乘它</text>
+<line x1="8" y1="290" x2="672" y2="290" stroke="currentColor" stroke-opacity=".12"/>
+<text class="os2" x="340.0" y="310" text-anchor="middle">最后只除一次：O / ℓ = (4 + 8e^(−1)) / (2 + 4e^(−1)) = 2，和一次算完的 softmax 加权和相同</text>
+<rect x="8" y="324" width="18" height="12" rx="2" style="fill: var(--fig-1)" fill-opacity=".55"/><text class="os2-s" x="32" y="334">权重 1（score 等于当时的 m）</text>
+<rect x="208.5" y="324" width="18" height="12" rx="2" style="fill: var(--fig-1)" fill-opacity=".2"/><text class="os2-s" x="232.5" y="334">权重 e^(−1)</text>
+<rect x="317.5" y="324" width="18" height="12" rx="2" fill="none" style="stroke: var(--fig-1)" stroke-width="1.6"/><text class="os2-s" x="341.5" y="334">这一轮新读进来的</text>
+<rect x="447.5" y="324" width="18" height="12" rx="2" style="fill: none; stroke: currentColor" stroke-opacity=".3" stroke-dasharray="3 2"/><text class="os2-s" x="471.5" y="334">还没读到</text>
 </svg>
-<figcaption><strong>图 2-4</strong> 同一行 6 个 score 分 3 个 block 做 online softmax，每个 score 配一个 $v$（相当于 $d = 1$ 的 $V$）。每个 block 先更新 $m$，再把之前的 $\ell$、$O$ 乘修正因子，加上这个 block 的 $e^{x-m}$ 和 $e^{x-m}v$；块底的深色框是带到下一个 block 的状态。</figcaption>
+<figcaption><strong>图 2-4</strong> 把图 2-3 那一行的 online softmax 按元素展开，每个 score 配一个 $v$（相当于 $d = 1$ 的 $V$）。一行是读完一个 block 以后的状态，格子是按当时的 $m$ 算的 $e^{x-m}$，$\ell$ 是这一行格子之和，$O$ 是格子乘 $v$ 之和。kernel 里只存每行的 $m$、$\ell$、$O$，不存这些格子；$m$ 变大时所有旧格子乘的是同一个数，所以直接给 $\ell$、$O$ 乘它就行。</figcaption>
 </figure>
 
 两段各自算好的 $(m_1, \ell_1)$、$(m_2, \ell_2)$ 也能直接合并：$m = \max(m_1, m_2)$，$\ell = e^{m_1 - m}\,\ell_1 + e^{m_2 - m}\,\ell_2$。这个合并和加法一样满足结合律，所以既可以一段接一段地扫，也可以各段并行算完再归约；FlashAttention 在一个 thread block 里沿 K/V 一段接一段地扫。写成伪代码，一次处理一个 query block，最后归一化一次：
