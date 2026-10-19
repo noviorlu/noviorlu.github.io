@@ -534,7 +534,7 @@ $j = N$ 时就是 safe softmax 的分母。
 **第 6 步：并行。** 能合并任意两段，一行就可以切成几段，交给不同的 thread 同时按第 3 步扫，最后再合并（[图 2-3](#fig-2-3)）。合并的顺序不影响结果（$\oplus$ 满足结合律和交换律），所以先合并哪两段都行。
 
 <figure id="fig-2-3">
-<svg viewBox="0 0 680 300" width="100%" role="img" aria-label="顺序扫：一个 thread 依次读 x_1 到 x_8，每读一个更新 m 和 ℓ，共 8 步。并行：thread 0 扫 x_1 到 x_4 得到 m_A、ℓ_A，thread 1 同时扫 x_5 到 x_8 得到 m_B、ℓ_B，4 步以后合并一次，共 5 步">
+<svg viewBox="0 0 680 318" width="100%" role="img" aria-label="顺序扫：一个 thread 依次读 x_1 到 x_8，每读一个更新 m 和 ℓ，共 8 步。并行：thread 0 扫 x_1 到 x_4 得到 m_A、ℓ_A，thread 1 同时扫 x_5 到 x_8 得到 m_B、ℓ_B，4 步以后合并一次，共 5 步">
   <style>
     .os2 { font-size: 11px; fill: currentColor; }
     .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
@@ -552,7 +552,7 @@ $j = N$ 时就是 safe softmax 的分母。
 <line x1="524" y1="26" x2="524" y2="204" stroke="currentColor" stroke-opacity=".08"/>
 <line x1="576" y1="26" x2="576" y2="204" stroke="currentColor" stroke-opacity=".08"/>
 <text class="os2-s" x="368" y="20" text-anchor="middle">时间（一格 = 更新一次 m、ℓ）→</text>
-<text class="os2-b" x="8" y="36" text-anchor="start">顺序（第 3 步）</text>
+<text class="os2-b" x="8" y="36" text-anchor="start">顺序：第 3 步的第 1 个循环（算 m、ℓ）</text>
 <text class="os2" x="8" y="63.0" text-anchor="start">thread 0</text>
 <rect x="161" y="44" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="186.0" y="63.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">1</tspan></text>
 <rect x="213" y="44" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="238.0" y="63.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">2</tspan></text>
@@ -564,7 +564,7 @@ $j = N$ 时就是 safe softmax 的分母。
 <rect x="525" y="44" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="550.0" y="63.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">8</tspan></text>
 <line x1="576" y1="40" x2="576" y2="78" style="stroke: var(--fig-hi)" stroke-width="2"/>
 <text class="os2 os2-hi" x="582" y="63.0" text-anchor="start">8 步</text>
-<text class="os2-b" x="8" y="124" text-anchor="start">切成两段，同时扫（第 6 步）</text>
+<text class="os2-b" x="8" y="124" text-anchor="start">切成两段同时扫（第 6 步）</text>
 <text class="os2" x="8" y="151.0" text-anchor="start">thread 0：A 段</text>
 <text class="os2" x="8" y="187.0" text-anchor="start">thread 1：B 段</text>
 <rect x="161" y="132" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="186.0" y="151.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">1</tspan></text>
@@ -585,8 +585,9 @@ $j = N$ 时就是 safe softmax 的分母。
 <text class="os2" x="160" y="242" text-anchor="start">合并（第 5 步）：m = max(m<tspan dy="3.5" font-size="72%">A</tspan><tspan dy="-3.5">, m</tspan><tspan dy="3.5" font-size="72%">B</tspan><tspan dy="-3.5">)，ℓ = ℓ</tspan><tspan dy="3.5" font-size="72%">A</tspan><tspan dy="-3.5"> · e</tspan><tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">A</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> + ℓ</tspan><tspan dy="3.5" font-size="72%">B</tspan><tspan dy="-3.5"> · e</tspan><tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">B</tspan><tspan dy="-3" font-size="72%">−m</tspan></text>
 <text class="os2-s" x="160" y="262" text-anchor="start">两个 thread 互不等待；段越多，每段越短，最后多几次合并</text>
 <text class="os2-s" x="160" y="280" text-anchor="start">第 3 步每读一个元素，也是一次合并：B 段只有 x<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> 一个元素，m</tspan><tspan dy="3.5" font-size="72%">B</tspan><tspan dy="-3.5"> = x</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">，ℓ</tspan><tspan dy="3.5" font-size="72%">B</tspan><tspan dy="-3.5"> = 1</tspan></text>
+<text class="os2-s" x="160" y="298" text-anchor="start">写 y<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 的第 2 个循环不在图里：每个 y</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 只用自己的 x</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 和最终的 m、ℓ，本来就能并行</tspan></text>
 </svg>
-<figcaption><strong>图 2-3</strong> 一行 8 个元素：一个 thread 顺序扫要 8 步；切成两段由两个 thread 同时扫，4 步以后合并一次。</figcaption>
+<figcaption><strong>图 2-3</strong> 一行 8 个元素，只画第 3 步算 $m$、$\ell$ 的那一遍：一个 thread 顺序扫要 8 步；切成两段由两个 thread 同时扫，4 步以后合并一次。</figcaption>
 </figure>
 
 **第 7 步：推广到 attention。** 论文只算 softmax，attention 还要乘 $V$，一行的输出是 $\text{out} = \sum_k p_k v_k$。分母 $\ell$ 对每一项都一样，提出来以后输出是分子 $O$ 除以 $\ell$，$O$ 也是按同一个最大值加起来的求和（[图 2-4](#fig-2-4)）。
