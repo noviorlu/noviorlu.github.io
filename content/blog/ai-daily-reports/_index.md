@@ -8,11 +8,11 @@ draft: false
 
 # 📰 AI Daily Reports
 
-每天早上由定时任务自动整理的 AI 日报：最新论文、行业新闻和公司博客。每期末尾还有「推荐读的论文」，从发表满一年的论文里随机抽样、判断相关性后推荐一两篇。
+每天早上由定时任务自动整理的 AI 日报：最新论文、行业新闻和公司博客。每期末尾还有「推荐读的论文」，推荐一两篇发表满一年的论文。
 
 ## 📚 数据源
 
-- **arXiv**：最近几天的新论文；推荐读的论文来自随机检索和参考文献的随机游走
+- **arXiv**：最近几天的新论文
 - **Hugging Face Daily Papers**
 - **Hacker News**
 - **公司博客**：OpenAI、Google DeepMind、Anthropic，以及 TechCrunch AI
