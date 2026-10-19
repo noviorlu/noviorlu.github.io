@@ -1834,29 +1834,32 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
 <figcaption><strong>图 2-5</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-2</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 个 row block 和 B 的第 1 个 column block，颜色由淡到浓是沿 K 读 block 的顺序。acc 就是 C 的 block (1, 1)，64 轮 dot 在它上面一轮轮累加，ReLU 之后就是要写回的值，图里 ReLU 后的那段叫 C block。A、B 的 block 由 cp.async 从显存经 L2 搬进 shared memory，不经过 register。shared memory 里 A、B 各有 2 个 slot，因为默认 <code>num_stages=3</code>：第 T 轮的 block 在第 T − 2 轮算完时开始搬，第 T − 1 轮期间在路上，第 T 轮被读出来算；算完 slot 就空出来，接着搬第 T + 2 轮。所以偶数轮用 slot 0、奇数轮用 slot 1，算第 T 轮时另一个 slot 里是第 T + 1 轮，见 <a href="#stages">3.3 节</a>。</figcaption>
 </figure>
 
-一个 program 负责一个 $C_{IJ}$（[图 2-5](#fig-t-4)），沿 K 循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上；写回前在 register 里做 ReLU，激活函数不用再单独一个 kernel 读写一遍 C：
+一个 program 负责一个 $C_{IJ}$（[图 2-5](#fig-t-4)），沿 K 循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上；写回前在 register 里做 ReLU，激活函数不用再单独一个 kernel 读写一遍 C。参数分三组：三个矩阵的指针和 M、N、K；每个矩阵的 stride，即沿行、沿列走一格时地址要加多少，用它从下标算出地址；block 的大小 BM、BN、BK：
 
 ```python {role="program" tag="算 C 的第 (pid_m, pid_n) 个 block"}
 @triton.jit
-def matmul_relu_kernel(a_ptr, b_ptr, c_ptr, M, N, K,
-                       sam, sak, sbk, sbn, scm, scn,
-                       BM: tl.constexpr, BN: tl.constexpr, BK: tl.constexpr):
-    pid_m, pid_n = tl.program_id(0), tl.program_id(1)   # 负责 C 的第 (pid_m, pid_n) 个 block
-    rm = pid_m * BM + tl.arange(0, BM)
-    rn = pid_n * BN + tl.arange(0, BN)
-    rk = tl.arange(0, BK)
-    a_ptrs = a_ptr + rm[:, None] * sam + rk[None, :] * sak  # [BM, BK] 的指针
-    b_ptrs = b_ptr + rk[:, None] * sbk + rn[None, :] * sbn  # [BK, BN] 的指针
-    acc = tl.zeros([BM, BN], dtype=tl.float32)
-    for k in range(0, K, BK):                 # 沿 K 一个 block 一个 block 乘加
-        a = tl.load(a_ptrs, mask=(rm[:, None] < M) & (rk[None, :] + k < K), other=0.0)
-        b = tl.load(b_ptrs, mask=(rk[:, None] + k < K) & (rn[None, :] < N), other=0.0)
+def matmul_relu_kernel(a_ptr, b_ptr, c_ptr, M, N, K,  # A [M, K]，B [K, N]，C [M, N]
+                       stride_am, stride_ak,          # A[i, k] 的地址 = a_ptr + i·stride_am + k·stride_ak
+                       stride_bk, stride_bn,          # B、C 同理；按行连续存时 stride_am = K、stride_ak = 1
+                       stride_cm, stride_cn,
+                       BM: tl.constexpr, BN: tl.constexpr, BK: tl.constexpr):  # C 的 block 是 BM × BN，K 每轮走 BK
+    pid_m, pid_n = tl.program_id(0), tl.program_id(1)  # 这个 program 负责 C 的第 (pid_m, pid_n) 个 block
+    offs_m = pid_m * BM + tl.arange(0, BM)    # 这个 block 的 BM 个行号
+    offs_n = pid_n * BN + tl.arange(0, BN)    # 这个 block 的 BN 个列号
+    offs_k = tl.arange(0, BK)                 # 一轮里 K 方向的 BK 个下标
+    # [:, None] 变成列、[None, :] 变成行，相加广播成二维：A 的 [BM, BK] 个地址、B 的 [BK, BN] 个地址
+    a_ptrs = a_ptr + offs_m[:, None] * stride_am + offs_k[None, :] * stride_ak
+    b_ptrs = b_ptr + offs_k[:, None] * stride_bk + offs_n[None, :] * stride_bn
+    acc = tl.zeros([BM, BN], dtype=tl.float32)  # C 的这个 block，累加在 register 里
+    for k in range(0, K, BK):                 # 第 k // BK 轮：读 A、B 各一个 block，乘加
+        a = tl.load(a_ptrs, mask=(offs_m[:, None] < M) & (offs_k[None, :] + k < K), other=0.0)
+        b = tl.load(b_ptrs, mask=(offs_k[:, None] + k < K) & (offs_n[None, :] < N), other=0.0)
         acc += tl.dot(a, b, input_precision="ieee")  # fp32 默认会走 tf32，这里要求精确的 fp32
-        a_ptrs += BK * sak
-        b_ptrs += BK * sbk
+        a_ptrs += BK * stride_ak              # A 的 block 往右挪 BK 列
+        b_ptrs += BK * stride_bk              # B 的 block 往下挪 BK 行
     acc = tl.maximum(acc, 0.0)                # ReLU 在 register 里做完，不多一次读写
-    c_ptrs = c_ptr + rm[:, None] * scm + rn[None, :] * scn
-    tl.store(c_ptrs, acc, mask=(rm[:, None] < M) & (rn[None, :] < N))
+    c_ptrs = c_ptr + offs_m[:, None] * stride_cm + offs_n[None, :] * stride_cn
+    tl.store(c_ptrs, acc, mask=(offs_m[:, None] < M) & (offs_n[None, :] < N))
 ```
 
 grid 是二维的：

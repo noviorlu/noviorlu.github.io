@@ -89,25 +89,28 @@ def row_sum(x, TILE=1024):
 
 # post:matmul_kernel
 @triton.jit
-def matmul_relu_kernel(a_ptr, b_ptr, c_ptr, M, N, K,
-                       sam, sak, sbk, sbn, scm, scn,
-                       BM: tl.constexpr, BN: tl.constexpr, BK: tl.constexpr):
-    pid_m, pid_n = tl.program_id(0), tl.program_id(1)   # 负责 C 的第 (pid_m, pid_n) 个 block
-    rm = pid_m * BM + tl.arange(0, BM)
-    rn = pid_n * BN + tl.arange(0, BN)
-    rk = tl.arange(0, BK)
-    a_ptrs = a_ptr + rm[:, None] * sam + rk[None, :] * sak  # [BM, BK] 的指针
-    b_ptrs = b_ptr + rk[:, None] * sbk + rn[None, :] * sbn  # [BK, BN] 的指针
-    acc = tl.zeros([BM, BN], dtype=tl.float32)
-    for k in range(0, K, BK):                 # 沿 K 一个 block 一个 block 乘加
-        a = tl.load(a_ptrs, mask=(rm[:, None] < M) & (rk[None, :] + k < K), other=0.0)
-        b = tl.load(b_ptrs, mask=(rk[:, None] + k < K) & (rn[None, :] < N), other=0.0)
+def matmul_relu_kernel(a_ptr, b_ptr, c_ptr, M, N, K,  # A [M, K]，B [K, N]，C [M, N]
+                       stride_am, stride_ak,          # A[i, k] 的地址 = a_ptr + i·stride_am + k·stride_ak
+                       stride_bk, stride_bn,          # B、C 同理；按行连续存时 stride_am = K、stride_ak = 1
+                       stride_cm, stride_cn,
+                       BM: tl.constexpr, BN: tl.constexpr, BK: tl.constexpr):  # C 的 block 是 BM × BN，K 每轮走 BK
+    pid_m, pid_n = tl.program_id(0), tl.program_id(1)  # 这个 program 负责 C 的第 (pid_m, pid_n) 个 block
+    offs_m = pid_m * BM + tl.arange(0, BM)    # 这个 block 的 BM 个行号
+    offs_n = pid_n * BN + tl.arange(0, BN)    # 这个 block 的 BN 个列号
+    offs_k = tl.arange(0, BK)                 # 一轮里 K 方向的 BK 个下标
+    # [:, None] 变成列、[None, :] 变成行，相加广播成二维：A 的 [BM, BK] 个地址、B 的 [BK, BN] 个地址
+    a_ptrs = a_ptr + offs_m[:, None] * stride_am + offs_k[None, :] * stride_ak
+    b_ptrs = b_ptr + offs_k[:, None] * stride_bk + offs_n[None, :] * stride_bn
+    acc = tl.zeros([BM, BN], dtype=tl.float32)  # C 的这个 block，累加在 register 里
+    for k in range(0, K, BK):                 # 第 k // BK 轮：读 A、B 各一个 block，乘加
+        a = tl.load(a_ptrs, mask=(offs_m[:, None] < M) & (offs_k[None, :] + k < K), other=0.0)
+        b = tl.load(b_ptrs, mask=(offs_k[:, None] + k < K) & (offs_n[None, :] < N), other=0.0)
         acc += tl.dot(a, b, input_precision="ieee")  # fp32 默认会走 tf32，这里要求精确的 fp32
-        a_ptrs += BK * sak
-        b_ptrs += BK * sbk
+        a_ptrs += BK * stride_ak              # A 的 block 往右挪 BK 列
+        b_ptrs += BK * stride_bk              # B 的 block 往下挪 BK 行
     acc = tl.maximum(acc, 0.0)                # ReLU 在 register 里做完，不多一次读写
-    c_ptrs = c_ptr + rm[:, None] * scm + rn[None, :] * scn
-    tl.store(c_ptrs, acc, mask=(rm[:, None] < M) & (rn[None, :] < N))
+    c_ptrs = c_ptr + offs_m[:, None] * stride_cm + offs_n[None, :] * stride_cn
+    tl.store(c_ptrs, acc, mask=(offs_m[:, None] < M) & (offs_n[None, :] < N))
 # post:end
 
 
