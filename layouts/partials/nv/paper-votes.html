@@ -1,0 +1,80 @@
+{{- /* Daily reports: under every paper (an h3 that links to arXiv or its Hugging Face page) a button that opens
+       that paper's own giscus thread, term "paper/<arXiv id>". A vote is a comment that starts with 👍 or 👎;
+       the daily report task reads the owner's comments from these threads. One thread is open at a time:
+       giscus's client.js fills the first .giscus on the page and resizes every frame it made on any message. */ -}}
+{{ with site.Params.giscus }}
+  {{ if and .repoId .categoryId }}
+    <script>
+      (() => {
+        const content = document.querySelector(".nv-article.is-daily .article-content");
+        if (!content) return;
+        const ID = /arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/\d{7})|huggingface\.co\/papers\/(\d{4}\.\d{4,5})/;
+        const theme = () => document.documentElement.classList.contains("dark") ? "dark_dimmed" : "light";
+        let open = null;
+
+        const close = (box) => {
+          box.querySelector(".nv-vote__panel").hidden = true;
+          box.querySelector(".nv-vote__btn").setAttribute("aria-expanded", "false");
+          box.querySelectorAll(".giscus, script").forEach((n) => n.remove());
+          if (open === box) open = null;
+        };
+        const show = (box, id, slotId) => {
+          if (open) close(open);
+          const panel = box.querySelector(".nv-vote__panel");
+          panel.hidden = false;
+          box.querySelector(".nv-vote__btn").setAttribute("aria-expanded", "true");
+          const slot = document.createElement("div");
+          slot.className = "giscus";
+          slot.id = slotId;  // giscus sends a signed-in visitor back to this anchor
+          panel.append(slot);
+          const s = document.createElement("script");
+          s.src = "https://giscus.app/client.js";
+          s.async = true;
+          s.crossOrigin = "anonymous";
+          Object.entries({
+            repo: {{ .repo }},
+            repoId: {{ .repoId }},
+            category: {{ .category }},
+            categoryId: {{ .categoryId }},
+            mapping: "specific",
+            term: "paper/" + id,
+            strict: "1",
+            reactionsEnabled: "0",
+            emitMetadata: "0",
+            inputPosition: "top",
+            theme: theme(),
+            lang: "zh-CN",
+          }).forEach(([k, v]) => s.setAttribute("data-" + k.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase()), v));
+          slot.after(s);
+          open = box;
+        };
+
+        content.querySelectorAll("h3").forEach((h) => {
+          const m = (h.querySelector("a[href]")?.href || "").match(ID);
+          if (!m) return;
+          const id = m[1] || m[2];
+          const slotId = "vote-" + id.replace(/[^\w]/g, "-");
+          let end = h;  // the paper's block runs until the next h2 / h3
+          while (end.nextElementSibling && !/^H[23]$/.test(end.nextElementSibling.tagName)) end = end.nextElementSibling;
+          const box = document.createElement("div");
+          box.className = "nv-vote";
+          box.innerHTML =
+            '<button type="button" class="nv-vote__btn" aria-expanded="false">👍 / 👎 反馈</button>' +
+            '<div class="nv-vote__panel" hidden><p class="nv-vote__hint">留言 👍 或 👎，可以再加一句为什么。用 GitHub 账号登录后可以留言。</p></div>';
+          end.after(box);
+          box.querySelector(".nv-vote__btn").addEventListener("click", () => (open === box ? close(box) : show(box, id, slotId)));
+          if (location.hash === "#" + slotId) {  // back from GitHub sign-in
+            show(box, id, slotId);
+            box.scrollIntoView();
+          }
+        });
+
+        // Follow the site's light/dark toggle.
+        new MutationObserver(() => {
+          document.querySelectorAll("iframe.giscus-frame").forEach((f) =>
+            f.contentWindow.postMessage({ giscus: { setConfig: { theme: theme() } } }, "https://giscus.app"));
+        }).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+      })();
+    </script>
+  {{ end }}
+{{ end }}

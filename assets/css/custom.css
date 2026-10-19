@@ -755,6 +755,14 @@ img.nv-author__avatar { object-fit: cover; border: 1px solid var(--nv-border); b
 .nv-comments__title { margin: 0 0 4px; font-size: 20px; font-weight: 650; color: var(--nv-text); }
 .nv-comments__hint { margin: 0 0 16px; font-size: 13.5px; color: var(--nv-text-3); }
 
+/* per-paper feedback threads in daily reports (layouts/partials/nv/paper-votes.html) */
+.nv-vote { margin: 6px 0 22px; scroll-margin-top: 80px; }
+.nv-vote__btn { font: inherit; font-size: 13px; line-height: 1.5; padding: 3px 12px; border-radius: 999px; border: 1px solid var(--nv-border); background: var(--nv-surface); color: var(--nv-text-2); cursor: pointer; }
+.nv-vote__btn:hover, .nv-vote__btn[aria-expanded="true"] { border-color: var(--nv-accent-line); color: var(--nv-accent); background: var(--nv-accent-soft); }
+.nv-vote__btn:focus-visible { outline: 2px solid var(--nv-accent); outline-offset: 2px; }
+.nv-vote__panel { margin-top: 10px; padding: 12px 14px 4px; border: 1px solid var(--nv-border); border-radius: var(--nv-radius-sm); background: var(--nv-surface); }
+.nv-vote__hint { margin: 0 0 8px !important; font-size: 13px; color: var(--nv-text-3); }
+
 /* ── 8. Projects ───────────────────────────────────────────── */
 .nv-group__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 18px; }
 .nv-group__title { margin: 0 0 18px; font-size: 20px; line-height: 1.3; font-weight: 700; letter-spacing: -0.015em; color: var(--nv-text); }

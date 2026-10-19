@@ -4,11 +4,14 @@ description: "每天早上由定时任务自动整理的 AI 日报：最新论�
 date: 2026-03-07
 aliases: ["/blog/ai-daily-reports/subscribe/"]
 draft: false
+# each paper has its own feedback thread (layouts/partials/nv/paper-votes.html) instead of one per page
+cascade:
+  showComments: false
 ---
 
 # 📰 AI Daily Reports
 
-每天早上由定时任务自动整理的 AI 日报：最新论文、行业新闻和公司博客。每期末尾还有「推荐读的论文」，推荐一两篇发表满一年的论文。
+每天早上由定时任务自动整理的 AI 日报：最新论文、行业新闻和公司博客。每期末尾还有「推荐读的论文」，推荐一两篇发表满一年的论文。每篇论文下面都有「👍 / 👎 反馈」，用 GitHub 账号登录后留言 👍 或 👎，可以再加一句为什么。
 
 ## 📚 数据源
 
