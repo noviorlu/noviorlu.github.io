@@ -296,117 +296,25 @@ softmax 的分母要用一整行的 score，tiling 以后一个 tile 只看得�
 <figcaption><strong>图 2-3</strong> 一行 6 个 score 上的普通 softmax。第 2、3 遍都要用第 1 遍扫完整行才得到的 $m$。</figcaption>
 </figure>
 
-attention 要的是用 softmax 加权的 $v$，一行的输出可以写成分子 $O$ 除以分母 $\ell$，两者都是一个元素一项加起来的（[图 2-4](#fig-2-4)）。
+attention 一行的输出是 softmax 加权的 $v$，可以拆成分子 $O$ 除以分母 $\ell$：
 
-<figure id="fig-2-4">
-<svg viewBox="0 0 680 214" width="100%" role="img" aria-label="一行 attention 的输出等于 O 除以 ℓ：分子 O 是每个元素的 e 的 x 减 m 次方乘 v 之和，等于 4 加 8 倍 e 的 −1 次方；分母 ℓ 是每个元素的 e 的 x 减 m 次方之和，等于 2 加 4 倍 e 的 −1 次方；相除等于 2">
-  <style>
-    .os2 { font-size: 11px; fill: currentColor; }
-    .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
-    .os2-s { font-size: 10.5px; fill: currentColor; opacity: .72; }
-    .os2-c { font-size: 12px; font-weight: 600; text-anchor: middle; fill: currentColor; }
-    .os2-hi { fill: var(--fig-hi); font-weight: 600; }
-  </style>
-<rect x="150" y="8" width="50" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".3"/><text class="os2-b" x="175.0" y="26.0" text-anchor="middle">0</text>
-<text class="os2-s" x="175.0" y="50" text-anchor="middle">v = 1</text>
-<rect x="204" y="8" width="50" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".3"/><text class="os2-b" x="229.0" y="26.0" text-anchor="middle">0</text>
-<text class="os2-s" x="229.0" y="50" text-anchor="middle">v = 3</text>
-<rect x="268" y="8" width="50" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".3"/><text class="os2-b" x="293.0" y="26.0" text-anchor="middle">1</text>
-<text class="os2-s" x="293.0" y="50" text-anchor="middle">v = 2</text>
-<rect x="322" y="8" width="50" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".3"/><text class="os2-b" x="347.0" y="26.0" text-anchor="middle">1</text>
-<text class="os2-s" x="347.0" y="50" text-anchor="middle">v = 2</text>
-<rect x="386" y="8" width="50" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".3"/><text class="os2-b" x="411.0" y="26.0" text-anchor="middle">0</text>
-<text class="os2-s" x="411.0" y="50" text-anchor="middle">v = 1</text>
-<rect x="440" y="8" width="50" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".3"/><text class="os2-b" x="465.0" y="26.0" text-anchor="middle">0</text>
-<text class="os2-s" x="465.0" y="50" text-anchor="middle">v = 3</text>
-<text class="os2" x="8" y="26.0">score x（m = 1）</text>
-<text class="os2-b" x="8" y="94.0">分子 O</text><text class="os2-s" x="8" y="108.0">Σ 每格 e^(x − m) × v</text>
-<text class="os2-b" x="8" y="152.0">分母 ℓ</text><text class="os2-s" x="8" y="166.0">Σ 每格 e^(x − m)</text>
-<rect x="150" y="76" width="50" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".3"/><text class="os2" x="175.0" y="94.0" text-anchor="middle">e^(−1)</text>
-<rect x="150" y="134" width="50" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".3"/><text class="os2" x="175.0" y="152.0" text-anchor="middle">e^(−1)</text>
-<rect x="204" y="76" width="50" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".3"/><text class="os2" x="229.0" y="94.0" text-anchor="middle">3e^(−1)</text>
-<rect x="204" y="134" width="50" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".3"/><text class="os2" x="229.0" y="152.0" text-anchor="middle">e^(−1)</text>
-<rect x="268" y="76" width="50" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.5" stroke-opacity=".3"/><text class="os2" x="293.0" y="94.0" text-anchor="middle">2</text>
-<rect x="268" y="134" width="50" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.5" stroke-opacity=".3"/><text class="os2" x="293.0" y="152.0" text-anchor="middle">1</text>
-<rect x="322" y="76" width="50" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.5" stroke-opacity=".3"/><text class="os2" x="347.0" y="94.0" text-anchor="middle">2</text>
-<rect x="322" y="134" width="50" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.5" stroke-opacity=".3"/><text class="os2" x="347.0" y="152.0" text-anchor="middle">1</text>
-<rect x="386" y="76" width="50" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".3"/><text class="os2" x="411.0" y="94.0" text-anchor="middle">e^(−1)</text>
-<rect x="386" y="134" width="50" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".3"/><text class="os2" x="411.0" y="152.0" text-anchor="middle">e^(−1)</text>
-<rect x="440" y="76" width="50" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".3"/><text class="os2" x="465.0" y="94.0" text-anchor="middle">3e^(−1)</text>
-<rect x="440" y="134" width="50" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".3"/><text class="os2" x="465.0" y="152.0" text-anchor="middle">e^(−1)</text>
-<line x1="150" y1="119.0" x2="610" y2="119.0" stroke="currentColor" stroke-opacity=".7" stroke-width="1.4"/>
-<text class="os2" x="504" y="94.0">= 4 + 8e^(−1)</text>
-<text class="os2" x="504" y="152.0">= 2 + 4e^(−1)</text>
-<text class="os2-b" x="624" y="124.0">= 2</text>
-<text class="os2-s" x="150" y="196">分子、分母都是一格一格加起来的，所以都能分段算</text>
-</svg>
-<figcaption><strong>图 2-4</strong> 一行的输出 = $O / \ell$。每格是一个元素的那一项，$m$ 取整行的最大值 1。</figcaption>
-</figure>
+<p align="center">$\text{out} = \sum_k \dfrac{e^{x_k-m}}{\sum_j e^{x_j-m}}\, v_k = \dfrac{O}{\ell}, \qquad \ell = \sum_k e^{x_k-m}, \qquad O = \sum_k e^{x_k-m}\, v_k$</p>
 
-能分段加，就能按 tile 算。麻烦只在每个 tile 只知道自己的最大值 $m_t$；因为 $e^{x-m} = e^{x-m_t}\cdot e^{m_t-m}$，每个 tile 的 $\ell_t$、$O_t$ 整体乘一次 $e^{m_t-m}$ 就对齐了（[图 2-5](#fig-2-5)）。这就是 online softmax（Milakov 和 Gimelshein 2018）。
+$\ell$ 和 $O$ 都是求和，可以按 tile 拆开：$\sum_k = \sum_t \sum_{k\in t}$。问题只在每一项里的 $m$ 是整行的最大值，tile $t$ 只知道自己的最大值 $m_t$。用 $e^{a+b} = e^a \cdot e^b$ 把指数拆成两段：
 
-<figure id="fig-2-5">
-<svg viewBox="0 0 680 268" width="100%" role="img" aria-label="三个 tile 各自用自己的最大值算出 ℓ_t 和 O_t，再各乘 e 的 m_t 减全局 m 次方，相加得到 ℓ 等于 2 加 4 倍 e 的 −1 次方，O 等于 4 加 8 倍 e 的 −1 次方，和顺序扫的结果相同">
-  <style>
-    .os2 { font-size: 11px; fill: currentColor; }
-    .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
-    .os2-s { font-size: 10.5px; fill: currentColor; opacity: .72; }
-    .os2-c { font-size: 12px; font-weight: 600; text-anchor: middle; fill: currentColor; }
-    .os2-hi { fill: var(--fig-hi); font-weight: 600; }
-  </style>
-<text class="os2-b" x="222" y="16" text-anchor="middle">m_t</text>
-<text class="os2-b" x="278" y="16" text-anchor="middle">ℓ_t</text>
-<text class="os2-b" x="334" y="16" text-anchor="middle">O_t</text>
-<text class="os2-b" x="420" y="16" text-anchor="middle">× e^(m_t − m)</text>
-<text class="os2-b" x="530" y="16" text-anchor="middle">ℓ 的一份</text>
-<text class="os2-b" x="622" y="16" text-anchor="middle">O 的一份</text>
-<text class="os2-b" x="122" y="16" text-anchor="middle">e^(x − m_t)</text>
-<text class="os2" x="8" y="48.0">tile 1</text>
-<rect x="70" y="30" width="48" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity=".5" stroke-opacity=".3"/><text class="os2" x="94" y="48.0" text-anchor="middle">1</text>
-<rect x="122" y="30" width="48" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity=".5" stroke-opacity=".3"/><text class="os2" x="146" y="48.0" text-anchor="middle">1</text>
-<text class="os2-s" x="122" y="69" text-anchor="middle">score 0、0，v 1、3</text>
-<text class="os2" x="222" y="48.0" text-anchor="middle">0</text>
-<text class="os2" x="278" y="48.0" text-anchor="middle">2</text>
-<text class="os2" x="334" y="48.0" text-anchor="middle">4</text>
-<text class="os2" x="420" y="48.0" text-anchor="middle" style="fill: var(--fig-hi); font-weight: 600">× e^(0−1)</text>
-<text class="os2" x="530" y="48.0" text-anchor="middle">2e^(−1)</text>
-<text class="os2" x="622" y="48.0" text-anchor="middle">4e^(−1)</text>
-<text class="os2" x="8" y="100.0">tile 2</text>
-<rect x="70" y="82" width="48" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity=".5" stroke-opacity=".3"/><text class="os2" x="94" y="100.0" text-anchor="middle">1</text>
-<rect x="122" y="82" width="48" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity=".5" stroke-opacity=".3"/><text class="os2" x="146" y="100.0" text-anchor="middle">1</text>
-<text class="os2-s" x="122" y="121" text-anchor="middle">score 1、1，v 2、2</text>
-<text class="os2" x="222" y="100.0" text-anchor="middle">1</text>
-<text class="os2" x="278" y="100.0" text-anchor="middle">2</text>
-<text class="os2" x="334" y="100.0" text-anchor="middle">4</text>
-<text class="os2" x="420" y="100.0" text-anchor="middle">× e^(1−1) = 1</text>
-<text class="os2" x="530" y="100.0" text-anchor="middle">2</text>
-<text class="os2" x="622" y="100.0" text-anchor="middle">4</text>
-<text class="os2" x="8" y="152.0">tile 3</text>
-<rect x="70" y="134" width="48" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity=".5" stroke-opacity=".3"/><text class="os2" x="94" y="152.0" text-anchor="middle">1</text>
-<rect x="122" y="134" width="48" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity=".5" stroke-opacity=".3"/><text class="os2" x="146" y="152.0" text-anchor="middle">1</text>
-<text class="os2-s" x="122" y="173" text-anchor="middle">score 0、0，v 1、3</text>
-<text class="os2" x="222" y="152.0" text-anchor="middle">0</text>
-<text class="os2" x="278" y="152.0" text-anchor="middle">2</text>
-<text class="os2" x="334" y="152.0" text-anchor="middle">4</text>
-<text class="os2" x="420" y="152.0" text-anchor="middle" style="fill: var(--fig-hi); font-weight: 600">× e^(0−1)</text>
-<text class="os2" x="530" y="152.0" text-anchor="middle">2e^(−1)</text>
-<text class="os2" x="622" y="152.0" text-anchor="middle">4e^(−1)</text>
-<line x1="480" y1="180" x2="672" y2="180" stroke="currentColor" stroke-opacity=".7" stroke-width="1.2"/>
-<text class="os2-s" x="474" y="174" text-anchor="end">+</text>
-<text class="os2-b" x="530" y="198" text-anchor="middle">2 + 4e^(−1)</text>
-<text class="os2-b" x="622" y="198" text-anchor="middle">4 + 8e^(−1)</text>
-<text class="os2" x="8" y="198">全局 m = max(0, 1, 0) = 1</text>
-<text class="os2-s" x="340.0" y="230" text-anchor="middle">三个 tile 互不依赖，可以同时算；合并后和图 2-6 一个 block 一个 block 扫的结果相同</text>
-<text class="os2-s" x="340.0" y="248" text-anchor="middle"><tspan class="os2-hi">红色</tspan>：这个 tile 的最大值比全局小，它的 ℓ_t、O_t 整体乘这个数</text>
-</svg>
-<figcaption><strong>图 2-5</strong> 3 个 tile 各用自己的最大值算，再各乘修正因子相加。</figcaption>
-</figure>
+<p align="center">$e^{x_k-m} = e^{(x_k-m_t)+(m_t-m)} = e^{x_k-m_t}\cdot e^{m_t-m}$</p>
 
-FlashAttention 在一个 thread block 里沿 K/V 一个 block 一个 block 地扫，每读一个 block 就和之前的结果合并一次（[图 2-6](#fig-2-6)）：
+第二个因子在同一个 tile 里对每个 $k$ 都一样，可以提到 $\sum_{k\in t}$ 外面：
+
+<p align="center">$\ell = \sum_t e^{m_t-m} \underbrace{\sum_{k\in t} e^{x_k-m_t}}_{\ell_t}, \qquad O = \sum_t e^{m_t-m} \underbrace{\sum_{k\in t} e^{x_k-m_t}\, v_k}_{O_t}, \qquad m = \max_t m_t$</p>
+
+$m_t$、$\ell_t$、$O_t$ 只用到 tile $t$ 自己的元素，各个 tile 可以分开算；合并时每个 tile 乘一个数 $e^{m_t-m}$ 再相加。这就是 online softmax（Milakov 和 Gimelshein 2018）。
+
+FlashAttention 在一个 thread block 里沿 K/V 一个 block 一个 block 地扫：之前扫过的 block 合起来算一个 tile，最大值是 $m_{\text{old}}$；新读的 block 是另一个 tile。代入上式就是每一步的更新（[图 2-4](#fig-2-4)）：
 
 <p align="center">$m_{\text{new}} = \max\big(m_{\text{old}},\ \max_{k} x_k\big), \quad \ell_{\text{new}} = e^{m_{\text{old}} - m_{\text{new}}}\,\ell_{\text{old}} + \sum_{k} e^{x_k - m_{\text{new}}}, \quad O_{\text{new}} = e^{m_{\text{old}} - m_{\text{new}}}\,O_{\text{old}} + \sum_{k} e^{x_k - m_{\text{new}}}\, v_k$</p>
 
-<figure id="fig-2-6">
+<figure id="fig-2-4">
 <svg viewBox="0 0 680 316" width="100%" role="img" aria-label="online softmax 在 6 个 score、3 个 block 上的计算。每个 block 只扫一遍，先更新最大值 m，再把之前的分母 ℓ 和累加的 O 乘修正因子 e 的 m_old 减 m_new 次方，再加上这个 block 的项。block 2 把最大值从 0 变成 1，修正因子是 e 的 −1 次方。最后 O 除以 ℓ 等于 2，和一次算完的结果相同">
   <style>
     .os2 { font-size: 11px; fill: currentColor; }
@@ -467,7 +375,7 @@ FlashAttention 在一个 thread block 里沿 K/V 一个 block 一个 block 地�
 <text class="os2" x="340.0" y="280" text-anchor="middle">最后只除一次：O / ℓ = (4 + 8e^(−1)) / (2 + 4e^(−1)) = 2，和 6 个 score 一次算出来的 softmax 加权和相同</text>
 <text class="os2-s" x="340.0" y="304" text-anchor="middle"><tspan class="os2-hi">红色</tspan>是修正因子 e^(m_old − m_new)：最大值变大时，之前累加的 ℓ 和 O 都要乘它；最大值不变时它等于 1</text>
 </svg>
-<figcaption><strong>图 2-6</strong> 顺序扫：一行是读完一个 block 以后的状态，格子是按当时的 $m$ 算的 $e^{x-m}$。kernel 只存每行的 $m$、$\ell$、$O$，不存格子。</figcaption>
+<figcaption><strong>图 2-4</strong> 顺序扫：一行是读完一个 block 以后的状态，格子是按当时的 $m$ 算的 $e^{x-m}$。kernel 只存每行的 $m$、$\ell$、$O$，不存格子。</figcaption>
 </figure>
 
 写成伪代码，一次处理一个 query block，最后归一化一次：
