@@ -303,7 +303,7 @@ softmax 是按行归一化的：$P_{ij} = \exp(S_{ij})/\sum_k \exp(S_{ik})$，�
 先看普通的 softmax 怎么算（[图 2-3](#fig-2-3)）。直接算 $e^x$ 容易溢出：fp32 在 $x$ 超过 88.7、fp16 在 $x$ 超过 11.1 时就是 inf。所以实际的实现都先减掉这一行的最大值 $m$，分子分母同乘 $e^{-m}$，结果不变。这样一行要扫三遍：求最大值，求分母，归一化。第 2 遍的每一项 $e^{x-m}$ 都要用到第 1 遍的 $m$；分块以后只看到第一个 block 时，最大值可能还在后面的 block 里，第 2 遍没法开始。
 
 <figure id="fig-2-3">
-<svg viewBox="0 0 680 292" width="100%" role="img" aria-label="普通 softmax 一行要扫三遍：第 1 遍求最大值 m = 4，第 2 遍求分母 ℓ，每一项都要用到 m，第 3 遍归一化。分块以后只看到第一个 block 的 2 和 1 时，最大值 4 还在后面的 block 里，第 2 遍没法开始">
+<svg viewBox="0 0 680 292" width="100%" role="img" aria-label="普通 softmax 一行要扫三遍：第 1 遍求最大值 m = 2，第 2 遍求分母 ℓ，每一项都要用到 m，第 3 遍归一化。分块以后只看到第一个 block 的 1 和 0 时，最大值 2 还在后面的 block 里，第 2 遍没法开始">
   <style>
     .os2 { font-size: 11px; fill: currentColor; }
     .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
@@ -314,36 +314,36 @@ softmax 是按行归一化的：$P_{ij} = \exp(S_{ij})/\sum_k \exp(S_{ik})$，�
   <defs><marker id="osA-m" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker></defs>
 <text class="os2-b" x="8" y="20">普通 softmax：一行 score 要扫三遍</text>
 <text class="os2" x="8" y="48">一行 score</text>
-<rect x="200" y="30" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="226.0" y="48.0">2</text>
-<rect x="256" y="30" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="282.0" y="48.0">1</text>
-<rect x="312" y="30" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="338.0" y="48.0">4</text>
-<rect x="368" y="30" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="394.0" y="48.0">3</text>
+<rect x="200" y="30" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="226.0" y="48.0">1</text>
+<rect x="256" y="30" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="282.0" y="48.0">0</text>
+<rect x="312" y="30" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="338.0" y="48.0">2</text>
+<rect x="368" y="30" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="394.0" y="48.0">1</text>
 <rect x="424" y="30" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="450.0" y="48.0">1</text>
 <rect x="480" y="30" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="506.0" y="48.0">0</text>
 <text class="os2" x="8" y="88">第 1 遍：求最大值</text>
 <line x1="200" y1="84" x2="530" y2="84" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#osA-m)"/>
-<text class="os2" x="542" y="88">m = max = 4</text>
+<text class="os2" x="542" y="88">m = max = 2</text>
 <text class="os2" x="8" y="122">第 2 遍：求分母</text>
 <line x1="200" y1="118" x2="530" y2="118" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#osA-m)"/>
-<text class="os2" x="542" y="122">ℓ = Σ e^(x − m) = 1.62</text>
+<text class="os2" x="542" y="122">ℓ = Σ 2^(x − m) = 3</text>
 <text class="os2-s" x="204" y="133">每一项都要用到第 1 遍的 m</text>
 <text class="os2" x="8" y="156">第 3 遍：归一化</text>
 <line x1="200" y1="152" x2="530" y2="152" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#osA-m)"/>
-<text class="os2" x="542" y="156">p = e^(x − m) / ℓ</text>
+<text class="os2" x="542" y="156">p = 2^(x − m) / ℓ</text>
 <line x1="8" y1="190" x2="672" y2="190" stroke="currentColor" stroke-opacity=".15"/>
 <text class="os2-b" x="8" y="212">分块以后：一次只看得到一个 block</text>
-<rect x="200" y="224" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="226.0" y="242.0">2</text>
-<rect x="256" y="224" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="282.0" y="242.0">1</text>
+<rect x="200" y="224" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="226.0" y="242.0">1</text>
+<rect x="256" y="224" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="282.0" y="242.0">0</text>
 <text class="os2-s" x="254" y="266" text-anchor="middle">block 1</text>
-<rect x="322" y="224" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.25" stroke-opacity=".35"/><text class="os2-c" x="348.0" y="242.0">4</text>
-<rect x="378" y="224" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.25" stroke-opacity=".35"/><text class="os2-c" x="404.0" y="242.0">3</text>
+<rect x="322" y="224" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.25" stroke-opacity=".35"/><text class="os2-c" x="348.0" y="242.0">2</text>
+<rect x="378" y="224" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.25" stroke-opacity=".35"/><text class="os2-c" x="404.0" y="242.0">1</text>
 <text class="os2-s" x="376" y="266" text-anchor="middle">block 2</text>
 <rect x="444" y="224" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.25" stroke-opacity=".35"/><text class="os2-c" x="470.0" y="242.0">1</text>
 <rect x="500" y="224" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.25" stroke-opacity=".35"/><text class="os2-c" x="526.0" y="242.0">0</text>
 <text class="os2-s" x="498" y="266" text-anchor="middle">block 3</text>
-<text class="os2" x="200" y="284">只看到 block 1 的 2、1 时，最大值 4 还在 block 2 里，第 2 遍没法开始</text>
+<text class="os2" x="200" y="284">只看到 block 1 的 1、0 时，最大值 2 还在 block 2 里，第 2 遍没法开始</text>
 </svg>
-<figcaption><strong>图 2-3</strong> 一行 6 个 score 上的普通 softmax。第 2、3 遍都依赖第 1 遍扫完整行得到的 $m$，所以按 block 分开以后，没法边读 block 边算分母。</figcaption>
+<figcaption><strong>图 2-3</strong> 一行 6 个 score 上的普通 softmax，用 2 为底。第 2、3 遍都依赖第 1 遍扫完整行得到的 $m$，所以按 block 分开以后，没法边读 block 边算分母。</figcaption>
 </figure>
 
 Online softmax（Milakov 和 Gimelshein 2018）不等整行的最大值：先按到目前为止的最大值算，最大值变了再修正（[图 2-4](#fig-2-4)）。每扫完一个 block 记下两个数，$m$ 是到目前为止的最大值，$\ell$ 是按这个 $m$ 算的分母。下一个 block 里出现更大的值时，$\ell$ 里的每一项都是按旧的 $m$ 算的，比按新最大值算的都大了 $e^{m_{\text{new}} - m_{\text{old}}}$ 倍。所有项差的是同一个倍数，所以整个 $\ell$ 乘一次 $e^{m_{\text{old}} - m_{\text{new}}}$ 就对上了，不用回头重算：
@@ -352,8 +352,10 @@ Online softmax（Milakov 和 Gimelshein 2018）不等整行的最大值：先按
 
 attention 要的不是 softmax 本身，而是用它对 $V$ 加权求和。$O$ 按同样的办法累加还没归一化的 $e^{x-m} v$，最大值变大时和 $\ell$ 乘同一个修正因子。扫完所有 block 以后 $\ell$ 才是完整的分母，$O$ 除以它一次就是结果，三遍变成了一遍。
 
+为了好算，图 2-3 和图 2-4 用 2 为底：$2^x = e^{x \ln 2}$，换底只相当于把 score 乘一个常数，算法一步不变，修正因子相应写成 $2^{m_{\text{old}} - m_{\text{new}}}$。实际的 kernel 也常这样做，先把 score 乘 $\log_2 e$，再用 exp2 算。
+
 <figure id="fig-2-4">
-<svg viewBox="0 0 680 300" width="100%" role="img" aria-label="online softmax 在 6 个 score、3 个 block 上的计算。每个 block 只扫一遍，先更新最大值 m，再把之前的分母 ℓ 和累加的 O 乘修正因子 e 的 m_old 减 m_new 次方，再加上这个 block 的项。block 2 把最大值从 2 变成 4，修正因子是 e 的 −2 次方。最后 O 除以 ℓ 等于 3.12，和一次算完的结果相同">
+<svg viewBox="0 0 680 300" width="100%" role="img" aria-label="online softmax 在 6 个 score、3 个 block 上的计算，用 2 为底。每个 block 只扫一遍，先更新最大值 m，再把之前的分母 ℓ 和累加的 O 乘修正因子 2 的 m_old 减 m_new 次方，再加上这个 block 的项。block 2 把最大值从 1 变成 2，修正因子是 1/2。最后 O 除以 ℓ 等于 6 除以 3 等于 2，和一次算完的结果相同">
   <style>
     .os2 { font-size: 11px; fill: currentColor; }
     .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
@@ -362,55 +364,55 @@ attention 要的不是 softmax 本身，而是用它对 $V$ 加权求和。$O$ �
     .os2-hi { fill: var(--fig-hi); font-weight: 600; }
   </style>
   <defs><marker id="osB-m" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker></defs>
-<text class="os2-b" x="8" y="18">online softmax：每个 block 只扫一遍，m、ℓ、O 一路带下去（v 取 1 到 6）</text>
+<text class="os2-b" x="8" y="18">online softmax：每个 block 只扫一遍，m、ℓ、O 一路带下去（为了好算，用 2 为底）</text>
 <rect x="4" y="30" width="200" height="208" rx="8" style="fill: var(--fig-3)" fill-opacity=".12" stroke="currentColor" stroke-opacity=".18"/>
 <text class="os2-b" x="14" y="50">block 1</text>
-<rect x="84" y="36" width="46" height="24" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="107.0" y="52.0">2</text>
-<text class="os2-s" x="107" y="74" text-anchor="middle">v = 1</text>
-<rect x="136" y="36" width="46" height="24" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="159.0" y="52.0">1</text>
-<text class="os2-s" x="159" y="74" text-anchor="middle">v = 2</text>
-<text class="os2" x="14" y="96" xml:space="preserve">m = max(−∞, 2, 1) = 2</text>
-<text class="os2" x="14" y="114" xml:space="preserve">ℓ = e^(2−2) + e^(1−2)</text>
-<text class="os2" x="14" y="132" xml:space="preserve">  = 1 + 0.37 = 1.37</text>
-<text class="os2" x="14" y="156" xml:space="preserve">O = 1·1 + 0.37·2</text>
-<text class="os2" x="14" y="174" xml:space="preserve">  = 1.74</text>
+<rect x="84" y="36" width="46" height="24" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="107.0" y="52.0">1</text>
+<text class="os2-s" x="107" y="74" text-anchor="middle">v = 2</text>
+<rect x="136" y="36" width="46" height="24" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="159.0" y="52.0">0</text>
+<text class="os2-s" x="159" y="74" text-anchor="middle">v = 4</text>
+<text class="os2" x="14" y="96" xml:space="preserve">m = max(−∞, 1, 0) = 1</text>
+<text class="os2" x="14" y="114" xml:space="preserve">ℓ = 2^(1−1) + 2^(0−1)</text>
+<text class="os2" x="14" y="132" xml:space="preserve">  = 1 + 0.5 = 1.5</text>
+<text class="os2" x="14" y="156" xml:space="preserve">O = 1×2 + 0.5×4</text>
+<text class="os2" x="14" y="174" xml:space="preserve">  = 2 + 2 = 4</text>
 <text class="os2" x="14" y="192" xml:space="preserve"></text>
 <rect x="12" y="208" width="184" height="22" rx="4" style="fill: var(--fig-1)" fill-opacity=".14"/>
-<text class="os2" x="104.0" y="223" text-anchor="middle">m = 2，ℓ = 1.37，O = 1.74</text>
+<text class="os2" x="104.0" y="223" text-anchor="middle">m = 1，ℓ = 1.5，O = 4</text>
 <line x1="206" y1="219" x2="236" y2="219" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#osB-m)"/>
 <rect x="240" y="30" width="200" height="208" rx="8" style="fill: var(--fig-3)" fill-opacity=".12" stroke="currentColor" stroke-opacity=".18"/>
 <text class="os2-b" x="250" y="50">block 2</text>
-<rect x="320" y="36" width="46" height="24" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="343.0" y="52.0">4</text>
-<text class="os2-s" x="343" y="74" text-anchor="middle">v = 3</text>
-<rect x="372" y="36" width="46" height="24" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="395.0" y="52.0">3</text>
-<text class="os2-s" x="395" y="74" text-anchor="middle">v = 4</text>
-<text class="os2" x="250" y="96" xml:space="preserve">m = max(2, 4, 3) = 4</text>
-<text class="os2" x="250" y="114" xml:space="preserve">ℓ = 1.37 <tspan class="os2-hi">× e^(2−4)</tspan> + e^0 + e^(−1)</text>
-<text class="os2" x="250" y="132" xml:space="preserve">  = 0.19 + 1 + 0.37 = 1.55</text>
-<text class="os2" x="250" y="156" xml:space="preserve">O = 1.74 <tspan class="os2-hi">× e^(2−4)</tspan></text>
-<text class="os2" x="250" y="174" xml:space="preserve">  + 1·3 + 0.37·4</text>
-<text class="os2" x="250" y="192" xml:space="preserve">  = 0.23 + 3 + 1.47 = 4.71</text>
+<rect x="320" y="36" width="46" height="24" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="343.0" y="52.0">2</text>
+<text class="os2-s" x="343" y="74" text-anchor="middle">v = 1</text>
+<rect x="372" y="36" width="46" height="24" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="395.0" y="52.0">1</text>
+<text class="os2-s" x="395" y="74" text-anchor="middle">v = 2</text>
+<text class="os2" x="250" y="96" xml:space="preserve">m = max(1, 2, 1) = 2</text>
+<text class="os2" x="250" y="114" xml:space="preserve">ℓ = 1.5 <tspan class="os2-hi">× 2^(1−2)</tspan> + 2^0 + 2^(−1)</text>
+<text class="os2" x="250" y="132" xml:space="preserve">  = 0.75 + 1 + 0.5 = 2.25</text>
+<text class="os2" x="250" y="156" xml:space="preserve">O = 4 <tspan class="os2-hi">× 2^(1−2)</tspan> + 1×1 + 0.5×2</text>
+<text class="os2" x="250" y="174" xml:space="preserve">  = 2 + 1 + 1 = 4</text>
+<text class="os2" x="250" y="192" xml:space="preserve"></text>
 <rect x="248" y="208" width="184" height="22" rx="4" style="fill: var(--fig-1)" fill-opacity=".14"/>
-<text class="os2" x="340.0" y="223" text-anchor="middle">m = 4，ℓ = 1.55，O = 4.71</text>
+<text class="os2" x="340.0" y="223" text-anchor="middle">m = 2，ℓ = 2.25，O = 4</text>
 <line x1="442" y1="219" x2="472" y2="219" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#osB-m)"/>
 <rect x="476" y="30" width="200" height="208" rx="8" style="fill: var(--fig-3)" fill-opacity=".12" stroke="currentColor" stroke-opacity=".18"/>
 <text class="os2-b" x="486" y="50">block 3</text>
 <rect x="556" y="36" width="46" height="24" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="579.0" y="52.0">1</text>
-<text class="os2-s" x="579" y="74" text-anchor="middle">v = 5</text>
+<text class="os2-s" x="579" y="74" text-anchor="middle">v = 2</text>
 <rect x="608" y="36" width="46" height="24" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="631.0" y="52.0">0</text>
-<text class="os2-s" x="631" y="74" text-anchor="middle">v = 6</text>
-<text class="os2" x="486" y="96" xml:space="preserve">m = max(4, 1, 0) = 4</text>
-<text class="os2" x="486" y="114" xml:space="preserve">ℓ = 1.55 <tspan class="os2-hi">× e^(4−4)</tspan> + e^(−3) + e^(−4)</text>
-<text class="os2" x="486" y="132" xml:space="preserve">  = 1.55 + 0.05 + 0.02 = 1.62</text>
-<text class="os2" x="486" y="156" xml:space="preserve">O = 4.71 <tspan class="os2-hi">× e^(4−4)</tspan></text>
-<text class="os2" x="486" y="174" xml:space="preserve">  + 0.05·5 + 0.02·6</text>
-<text class="os2" x="486" y="192" xml:space="preserve">  = 4.71 + 0.25 + 0.11 = 5.07</text>
+<text class="os2-s" x="631" y="74" text-anchor="middle">v = 4</text>
+<text class="os2" x="486" y="96" xml:space="preserve">m = max(2, 1, 0) = 2</text>
+<text class="os2" x="486" y="114" xml:space="preserve">ℓ = 2.25 <tspan class="os2-hi">× 2^(2−2)</tspan> + 2^(−1) + 2^(−2)</text>
+<text class="os2" x="486" y="132" xml:space="preserve">  = 2.25 + 0.5 + 0.25 = 3</text>
+<text class="os2" x="486" y="156" xml:space="preserve">O = 4 <tspan class="os2-hi">× 2^(2−2)</tspan> + 0.5×2 + 0.25×4</text>
+<text class="os2" x="486" y="174" xml:space="preserve">  = 4 + 1 + 1 = 6</text>
+<text class="os2" x="486" y="192" xml:space="preserve"></text>
 <rect x="484" y="208" width="184" height="22" rx="4" style="fill: var(--fig-1)" fill-opacity=".14"/>
-<text class="os2" x="576.0" y="223" text-anchor="middle">m = 4，ℓ = 1.62，O = 5.07</text>
-<text class="os2" x="340.0" y="264" text-anchor="middle">最后只除一次：O / ℓ = 5.07 / 1.62 = 3.12，和 6 个 score 一次算出来的 softmax 加权和相同</text>
-<text class="os2-s" x="340.0" y="288" text-anchor="middle"><tspan class="os2-hi">红色</tspan>是修正因子 e^(m_old − m_new)：最大值变大时，之前累加的 ℓ 和 O 都要乘它；最大值不变时它等于 1</text>
+<text class="os2" x="576.0" y="223" text-anchor="middle">m = 2，ℓ = 3，O = 6</text>
+<text class="os2" x="340.0" y="264" text-anchor="middle">最后只除一次：O / ℓ = 6 / 3 = 2，和 6 个 score 一次算出来的 softmax 加权和相同</text>
+<text class="os2-s" x="340.0" y="288" text-anchor="middle"><tspan class="os2-hi">红色</tspan>是修正因子 2^(m_old − m_new)：最大值变大时，之前累加的 ℓ 和 O 都要乘它；最大值不变时它等于 1</text>
 </svg>
-<figcaption><strong>图 2-4</strong> 同一行 6 个 score 分 3 个 block 做 online softmax，每个 score 配一个 $v$（取 1 到 6，相当于 $d = 1$ 的 $V$）。每个 block 先更新 $m$，再把之前的 $\ell$、$O$ 乘修正因子，加上这个 block 的 $e^{x-m}$ 和 $e^{x-m}v$；块底的深色框是带到下一个 block 的状态。数字保留两位小数。</figcaption>
+<figcaption><strong>图 2-4</strong> 同一行 6 个 score 分 3 个 block 做 online softmax，每个 score 配一个 $v$（相当于 $d = 1$ 的 $V$）。每个 block 先更新 $m$，再把之前的 $\ell$、$O$ 乘修正因子，加上这个 block 的 $2^{x-m}$ 和 $2^{x-m}v$；块底的深色框是带到下一个 block 的状态。</figcaption>
 </figure>
 
 两段各自算好的 $(m_1, \ell_1)$、$(m_2, \ell_2)$ 也能直接合并：$m = \max(m_1, m_2)$，$\ell = e^{m_1 - m}\,\ell_1 + e^{m_2 - m}\,\ell_2$。这个合并和加法一样满足结合律，所以既可以一段接一段地扫，也可以各段并行算完再归约；FlashAttention 在一个 thread block 里沿 K/V 一段接一段地扫。写成伪代码，一次处理一个 query block，最后归一化一次：
