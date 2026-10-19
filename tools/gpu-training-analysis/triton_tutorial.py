@@ -103,12 +103,14 @@ def matmul_relu_kernel(a_ptr, b_ptr, c_ptr, M, N, K,  # A [M, K]，B [K, N]，C 
     b_ptrs = b_ptr + offs_k[:, None] * stride_bk + offs_n[None, :] * stride_bn
     acc = tl.zeros([BM, BN], dtype=tl.float32)  # C 的这个 block，累加在 register 里
     for k in range(0, K, BK):                 # 第 k // BK 轮：读 A、B 各一个 block，乘加
+        # mask 把越界的位置读成 0：M、N 不是 BM、BN 的倍数时边上的 block，K 不是 BK 的倍数时最后一轮
         a = tl.load(a_ptrs, mask=(offs_m[:, None] < M) & (offs_k[None, :] + k < K), other=0.0)
         b = tl.load(b_ptrs, mask=(offs_k[:, None] + k < K) & (offs_n[None, :] < N), other=0.0)
         acc += tl.dot(a, b, input_precision="ieee")  # fp32 默认会走 tf32，这里要求精确的 fp32
         a_ptrs += BK * stride_ak              # A 的 block 往右挪 BK 列
         b_ptrs += BK * stride_bk              # B 的 block 往下挪 BK 行
     acc = tl.maximum(acc, 0.0)                # ReLU 在 register 里做完，不多一次读写
+    # 写回 C 的这个 block，越界的位置不写
     c_ptrs = c_ptr + offs_m[:, None] * stride_cm + offs_n[None, :] * stride_cn
     tl.store(c_ptrs, acc, mask=(offs_m[:, None] < M) & (offs_n[None, :] < N))
 # post:end

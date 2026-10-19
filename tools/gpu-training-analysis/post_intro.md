@@ -246,7 +246,7 @@ softmax 不能直接这样按 block 读。$e^{x_{ij} - m_i}$ 要先知道整行�
 
 {{fig-t-4}}
 
-一个 program 负责一个 $C_{IJ}$（[图 2-5](#fig-t-4)），沿 K 循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上；写回前在 register 里做 ReLU，激活函数不用再单独一个 kernel 读写一遍 C。参数分三组：三个矩阵的指针和 M、N、K；每个矩阵的 stride，即沿行、沿列走一格时地址要加多少，用它从下标算出地址；block 的大小 BM、BN、BK：
+一个 program 负责一个 $C_{IJ}$（[图 2-5](#fig-t-4)），沿 K 循环，第 $T$ 轮读 $A_{IT}$ 和 $B_{TJ}$，用 `tl.dot` 乘加到累加器上；写回前在 register 里做 ReLU，激活函数不用再单独一个 kernel 读写一遍 C：
 
 ```python {role="program" tag="算 C 的第 (pid_m, pid_n) 个 block"}
 {{code:triton_tutorial.py:matmul_kernel}}
