@@ -3,7 +3,7 @@ title: "FlashAttention 1–4：从 IO 出发重写 attention kernel"
 date: 2026-10-05
 draft: false
 math: true
-description: "FlashAttention 四代的技术梳理：A100 上 IO-aware 的 tiling，更好的工作划分，Hopper 的异步执行，再到针对 Blackwell 各硬件单元扩展不对称的协同设计。GPU training optimization 系列的第四篇。"
+description: "FlashAttention 四代的技术梳理：IO-aware 的 tiling，更好的工作划分，Hopper 的异步执行，再到针对 Blackwell 各硬件单元扩展不对称的协同设计。GPU training optimization 系列的第四篇。"
 tags: ["FlashAttention", "Transformer", "Attention", "GPU", "LLM", "AI"]
 categories: ["AI笔记"]
 series: ["GPU training optimization"]
@@ -42,7 +42,7 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 
 ## 1 attention 受限于访存，而不是算力 {#memory-bound}
 
-四代 FlashAttention 都建立在同一个判断上：标准 attention 慢在搬数据，不在计算。前面的[谁偷走了 5090 的算力和显存](/blog/gpu-training-analysis/)已经在 RTX 5090 上用 roofline 和实测讲过这一点，这里只补 A100 上的两层存储（[图 1-1](#fig-1-1)）和 FlashAttention 论文给的时间拆分。
+四代 FlashAttention 都建立在同一个判断上：标准 attention 慢在搬数据，不在计算。前面的[谁偷走了 5090 的算力和显存](/blog/gpu-training-analysis/)已经在 RTX 5090 上用 roofline 和实测讲过这一点，这里只补 FlashAttention 论文用的 A100 上的两层存储（[图 1-1](#fig-1-1)）。
 
 <figure id="fig-1-1">
 <svg viewBox="0 0 640 230" width="100%" role="img" aria-label="A100 的存储层级：上层是合计约 20 MB、速度快的片上 shared memory，下层是 40 到 80 GB、速度慢的 HBM">
@@ -68,55 +68,7 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 <figcaption><strong>图 1-1</strong> A100 的两层存储。HBM 的容量约是全部片上 shared memory 的 2000 倍（40 GB 对约 20 MB），shared memory 的带宽约是 HBM 的 10 倍。每一代 FlashAttention 的核心，都是用不同的办法让 $N\times N$ 的中间结果不落到下层。</figcaption>
 </figure>
 
-FlashAttention 论文实测了 GPT-2 的 attention 层，时间主要花在了计算量很小的那几个操作上（[图 1-2](#fig-1-2)）。
-
-<figure id="fig-1-2">
-<svg viewBox="0 0 640 196" width="100%" role="img" aria-label="GPT-2 的 attention 运行时间，读自 FlashAttention 论文的图 1：PyTorch 在两个矩阵乘上花约 4 ms，在 mask、softmax 和 dropout 上花约 13 ms，共约 17 ms；FlashAttention 的单个融合 kernel 约 2 ms">
-  <style>
-    .tb-lab { font-size: 12.5px; font-weight: 600; fill: currentColor; }
-    .tb-sub { font-size: 11px; fill: currentColor; opacity: .7; }
-    .tb-in  { font-size: 11px; text-anchor: middle; fill: rgb(var(--color-neutral-900)); }
-    .tb-inw { font-size: 11px; text-anchor: middle; fill: #fff; }
-    .tb-val { font-size: 12px; font-weight: 600; fill: currentColor; }
-    .tb-tick { font-size: 11px; fill: currentColor; opacity: .7; text-anchor: middle; }
-    .tb-leg { font-size: 11px; fill: currentColor; }
-  </style>
-  <path d="M178,30 V24 H518 V30" fill="none" stroke="currentColor" stroke-opacity=".45"/>
-  <text x="348" y="16" text-anchor="middle" class="tb-sub">≈ 13 ms：三次逐元素 pass，每次都读写整个 N×N 矩阵</text>
-  <text x="110" y="50" text-anchor="end" class="tb-lab">PyTorch</text>
-  <text x="110" y="64" text-anchor="end" class="tb-sub">5 个独立的 op</text>
-  <rect x="120" y="36" width="54" height="34" fill="rgb(var(--color-primary-500))"/>
-  <text x="147" y="57" class="tb-inw">QK<tspan dy="-4" font-size="8">T</tspan></text>
-  <rect x="176" y="36" width="120.7" height="34" fill="rgb(var(--color-secondary-500))"/>
-  <text x="236.3" y="57" class="tb-in">mask</text>
-  <rect x="298.7" y="36" width="96.7" height="34" fill="rgb(var(--color-secondary-500))"/>
-  <text x="347" y="57" class="tb-in">softmax</text>
-  <rect x="397.3" y="36" width="120.7" height="34" fill="rgb(var(--color-secondary-500))"/>
-  <text x="457.7" y="57" class="tb-in">dropout</text>
-  <rect x="520" y="36" width="50.7" height="34" fill="rgb(var(--color-primary-500))"/>
-  <text x="545.3" y="57" class="tb-inw">×V</text>
-  <text x="578" y="58" class="tb-val">≈ 16.9 ms</text>
-  <text x="110" y="114" text-anchor="end" class="tb-lab">FlashAttention</text>
-  <text x="110" y="128" text-anchor="end" class="tb-sub">1 个融合 kernel</text>
-  <rect x="120" y="100" width="58.7" height="34" fill="rgb(var(--color-primary-500))"/>
-  <text x="149.3" y="121" class="tb-inw">融合</text>
-  <text x="186" y="122" class="tb-val">≈ 2.2 ms（快 7.6×）</text>
-  <line x1="120" y1="150" x2="600" y2="150" stroke="currentColor" stroke-opacity=".4"/>
-  <line x1="120" y1="150" x2="120" y2="154" stroke="currentColor" stroke-opacity=".4"/>
-  <line x1="253.3" y1="150" x2="253.3" y2="154" stroke="currentColor" stroke-opacity=".4"/>
-  <line x1="386.7" y1="150" x2="386.7" y2="154" stroke="currentColor" stroke-opacity=".4"/>
-  <line x1="520" y1="150" x2="520" y2="154" stroke="currentColor" stroke-opacity=".4"/>
-  <text x="120" y="167" class="tb-tick">0</text>
-  <text x="253.3" y="167" class="tb-tick">5</text>
-  <text x="386.7" y="167" class="tb-tick">10</text>
-  <text x="520" y="167" class="tb-tick">15 ms</text>
-  <rect x="120" y="179" width="11" height="11" rx="2" fill="rgb(var(--color-primary-500))"/>
-  <text x="136" y="188" class="tb-leg">矩阵乘（几乎全部的 FLOPs）</text>
-  <rect x="350" y="179" width="11" height="11" rx="2" fill="rgb(var(--color-secondary-500))"/>
-  <text x="366" y="188" class="tb-leg">mask · softmax · dropout（memory-bound）</text>
-</svg>
-<figcaption><strong>图 1-2</strong> 标准 attention 的时间花在哪（GPT-2，A100；数值是从 FlashAttention 论文图 1 读出的近似值）。两个矩阵乘占了几乎全部 FLOPs，却只用了约四分之一的时间；mask、softmax、dropout 几乎不做运算，却各自把整个 $N\times N$ 矩阵从 HBM 读出再写回。论文的 7.6× 加速来自把这些步骤融合成一个从不写出该矩阵的 kernel。</figcaption>
-</figure>
+*RTX 5090 实测待补：标准 attention 各步（两个 matmul、mask、softmax、dropout）的耗时拆分。*
 
 所以要让 attention 变快，关键是减少 $N\times N$ 矩阵进出 HBM 的次数。[第 2 节](#fa1)的 FlashAttention v1 更进一步，让这个矩阵完全不进 HBM。
 
@@ -440,45 +392,13 @@ for 每个 query block i:
 
 attention 的反向一般要再用一次 $P$。为此存下完整的 $N\times N$ 矩阵，就把刚省下的显存又花回去了。FlashAttention 只存 $O$ 和每行的统计量 $(m, \ell)$，反向时在片上把需要的 $S_{ij}$、$P_{ij}$ block 重新算出来。这是用少量额外的 matmul 计算换显存和显存读写的大幅减少，被省掉的存储正好在慢的那一层，这时重算比存下来划算（[单卡 GPU 优化方法第 4 节](/blog/gpu-single-gpu-optimization/#recompute)）。
 
-论文的复杂度结论：标准 attention 要 $\Theta(Nd+N^2)$ 次 HBM 访问，FlashAttention 要 $\Theta(N^2d^2M^{-1})$，$M$ 是 SRAM 的大小。常见的 $d$（64–128）和 $M$（100KB 左右）下，$d^2$ 比 $M$ 小很多倍，所以 FlashAttention 的 HBM 访问也少很多倍；$M=\Theta(d^2)$ 时两者才一样。论文给的下界有意取得很弱：不存在一个精确算法，能对 $[d, Nd]$ 里的**每一个** $M$ 都做到 $o(N^2d^2M^{-1})$ 次访问。论文自己的测量直接给出了这个取舍：算得更多，搬得少得多，耗时短得多（[图 2-5](#fig-2-5)）。
+论文的复杂度结论：标准 attention 要 $\Theta(Nd+N^2)$ 次 HBM 访问，FlashAttention 要 $\Theta(N^2d^2M^{-1})$，$M$ 是 SRAM 的大小。常见的 $d$（64–128）和 $M$（100KB 左右）下，$d^2$ 比 $M$ 小很多倍，所以 FlashAttention 的 HBM 访问也少很多倍；$M=\Theta(d^2)$ 时两者才一样。论文给的下界有意取得很弱：不存在一个精确算法，能对 $[d, Nd]$ 里的**每一个** $M$ 都做到 $o(N^2d^2M^{-1})$ 次访问。实际的效果是算得更多（反向要重算 score tile）、搬得少得多。
 
-<figure id="fig-2-5">
-<svg viewBox="0 0 640 196" width="100%" role="img" aria-label="A100 上 GPT-2 medium 的 attention，前向加反向：标准 attention 计算量 6.66e10 FLOPs，HBM 读写 40.3 GB，耗时 41.7 ms；FlashAttention 计算量 7.52e10 FLOPs，多 13%，但 HBM 读写只有 4.4 GB，是 1/9.2，耗时 7.3 ms，快 5.7 倍">
-  <style>
-    .ft-lab { font-size: 12.5px; font-weight: 600; fill: currentColor; }
-    .ft-sub { font-size: 11px; fill: currentColor; opacity: .7; }
-    .ft-val { font-size: 11.5px; fill: currentColor; }
-    .ft-hl  { font-size: 11.5px; font-weight: 600; fill: currentColor; }
-  </style>
-  <rect x="170" y="5" width="11" height="11" rx="2" fill="rgba(128,128,128,.45)"/>
-  <text x="186" y="14" class="ft-sub">标准 attention</text>
-  <rect x="320" y="5" width="11" height="11" rx="2" fill="rgb(var(--color-primary-500))"/>
-  <text x="336" y="14" class="ft-sub">FlashAttention</text>
-  <text x="160" y="47" text-anchor="end" class="ft-lab">计算量</text>
-  <text x="160" y="61" text-anchor="end" class="ft-sub">FLOPs</text>
-  <rect x="170" y="30" width="318.8" height="14" fill="rgba(128,128,128,.45)"/>
-  <text x="494.8" y="41" class="ft-val">6.66e10</text>
-  <rect x="170" y="48" width="360" height="14" fill="rgb(var(--color-primary-500))"/>
-  <text x="536" y="59" class="ft-hl">7.52e10（+13%）</text>
-  <text x="160" y="107" text-anchor="end" class="ft-lab">HBM 读写量</text>
-  <text x="160" y="121" text-anchor="end" class="ft-sub">读 + 写</text>
-  <rect x="170" y="90" width="360" height="14" fill="rgba(128,128,128,.45)"/>
-  <text x="536" y="101" class="ft-val">40.3 GB</text>
-  <rect x="170" y="108" width="39.3" height="14" fill="rgb(var(--color-primary-500))"/>
-  <text x="215.3" y="119" class="ft-hl">4.4 GB，是 1/9.2</text>
-  <text x="160" y="167" text-anchor="end" class="ft-lab">耗时</text>
-  <text x="160" y="181" text-anchor="end" class="ft-sub">前向 + 反向</text>
-  <rect x="170" y="150" width="360" height="14" fill="rgba(128,128,128,.45)"/>
-  <text x="536" y="161" class="ft-val">41.7 ms</text>
-  <rect x="170" y="168" width="63" height="14" fill="rgb(var(--color-primary-500))"/>
-  <text x="239" y="179" class="ft-hl">7.3 ms，快 5.7 倍</text>
-</svg>
-<figcaption><strong>图 2-5</strong> 按 FlashAttention 论文 Figure 2（左）重画：A100 上 GPT-2 medium 的 attention（序列长度 1024，head dimension 64，16 个 head，batch 64），前向加反向，每一行单独缩放。FlashAttention 因为反向要重算 score tile，计算量更多，但 HBM 读写只有 1/9.2，所以快 5.7 倍。耗时跟着显存读写走，不跟着 FLOPs 走。</figcaption>
-</figure>
+显存随 $N$ 线性增长而不是平方增长，序列越长省得越多，算的仍然是**精确**的 softmax，当时的稀疏 attention 和低秩 attention 都做不到这一点。
 
-实际效果：序列长度 128–4K 时，attention 这个 op 本身（前向加反向）比 PyTorch 的标准实现快 2–4 倍；端到端训练上，BERT-large（序列长度 512，对比 MLPerf 1.1 的纪录）快 15%，GPT-2（序列长度 1K，对比 HuggingFace）快 3 倍，Long-Range Arena 快 2.4 倍。显存随 $N$ 线性增长而不是平方增长，序列越长省得越多，4K token 时显存少约 20 倍，于是可以用长得多的上下文训练，算的仍然是**精确**的 softmax，当时的稀疏 attention 和低秩 attention 都做不到这一点。
+*RTX 5090 实测待补：标准 attention 和 FlashAttention 的计算量、HBM 读写量和耗时（前向加反向），以及不同序列长度下的显存。*
 
-FA1 解决了 HBM 的读写，但在 A100 上前向只用到 Tensor core 峰值的 30–50%（[图 7-1](#fig-7-1)）。剩下的差距出在 kernel 怎么用 GPU 上，这是 FlashAttention-2 要解决的。
+FA1 解决了 HBM 的读写，但 kernel 本身离 Tensor core 的峰值还很远，差距出在 kernel 怎么用 GPU 上，这是 FlashAttention-2 要解决的。
 
 ## 3 FlashAttention-2：让 GPU 忙起来 {#fa2}
 
@@ -486,7 +406,7 @@ FA1 解决了 HBM 的读写，但在 A100 上前向只用到 Tensor core 峰值�
 
 <div class="fa-intuit"><b>思路：</b>v1 搬的数据量已经对了，但 GPU 大部分时候闲着。v2 不改数学，只改调度：分出多得多的互相独立的工作，让每个 SM 都有活干；同时少花指令在 matmul 以外的簿记上。</div>
 
-v1 解决了 IO 的问题，吞吐却还有很大余量：在 A100 上，它的前向只达到 GPU 理论峰值 FLOPS 的 30–50%（反向是 25–35%），远低于调得好的 dense GEMM 能达到的 80–90%。FlashAttention-2（Dao，2023）是一篇讲工作调度的论文：数学不变，改进的是工作怎么切分给 thread block 和 warp。
+v1 解决了 IO 的问题，吞吐却还有很大余量，离调得好的 dense GEMM 差得很远。FlashAttention-2（Dao，2023）是一篇讲工作调度的论文：数学不变，改进的是工作怎么切分给 thread block 和 warp。
 
 最要紧的改动有三处。
 
@@ -590,13 +510,15 @@ v1 解决了 IO 的问题，吞吐却还有很大余量：在 A100 上，它的�
 <figcaption><strong>图 3-2</strong> 同样四个 warp，切法相反。v1 切 $K$/$V$，四份部分和要经 shared memory 合并；v2 切 $Q$，每个 warp 的 matmul 一算完，它那段输出就已经是完整的。</figcaption>
 </figure>
 
-合起来，v2 比 v1 快约 2 倍：在 A100 上，前向最高达到理论峰值 FLOPS 的 73%（约 2.3e14 FLOPS），反向最高 63%，因为反向的数据复用模式本来就差一些。端到端地看，GPT 类模型的训练每张 A100 最高达到 2.25e14 FLOPS（72% 的 model FLOPs utilization）。v2 不需要任何新的硬件特性，就是一篇「把手里已有的 GPU 用得更好」的论文，这也是它在 Hopper 以外的 GPU（以及 AMD 的 ROCm 移植版）上部署最广的原因。
+v2 不需要任何新的硬件特性，就是一篇「把手里已有的 GPU 用得更好」的论文，这也是它在 Hopper 以外的 GPU（以及 AMD 的 ROCm 移植版）上部署最广的原因。
+
+*RTX 5090 实测待补：v1 和 v2 的前向、反向吞吐和占 Tensor core 峰值的比例。*
 
 Hopper 新增了几种异步硬件，v1 和 v2 都不是为它们设计的，[第 4 节](#fa3)的 FlashAttention-3 就是围绕这些硬件写的。
 
 ## 4 FlashAttention-3：用上 Hopper 新加的硬件 {#fa3}
 
-[第 3 节](#fa2)的 FA2 推迟归一化、交换内外层循环的顺序、沿序列长度并行，再用 split-Q 把工作分给 warp，在 A100 上前向做到了峰值的 73%。换到 H100，硬件多了 v1、v2 设计时都没有用到的东西，FA3 就从这里入手。
+[第 3 节](#fa2)的 FA2 推迟归一化、交换内外层循环的顺序、沿序列长度并行，再用 split-Q 把工作分给 warp。换到 H100，硬件多了 v1、v2 设计时都没有用到的东西，FA3 就从这里入手。
 
 <div class="fa-intuit"><b>思路：</b>在 Hopper 上，搬 tile 和做矩阵乘由不同的硬件单元负责，两者可以同时进行。v3 把 kernel 改成一条流水线：一个 warp 只负责取数据，其余的只负责计算，两组负责计算的 warpgroup 轮流工作，Tensor core 不用停下来等 softmax。</div>
 
@@ -648,7 +570,7 @@ H100 新加了两个原语，v1 和 v2 设计时都没有用到。一是 **Tenso
 <figcaption><strong>图 4-1</strong> Warp specialization 的分工。producer warp 只发 TMA，把 tile 搬进 shared memory 的环形 slot；consumer warpgroup 只算已经搬满的 slot。只要环形缓冲一直领先，Tensor core 就不用等 load。</figcaption>
 </figure>
 
-2. **GEMM 和 softmax 重叠。** 在单个 tile 上，softmax 依赖这个 block 的 $QK^\top$，$PV$ 的 GEMM 又依赖 softmax，所以它们只能串行。FA3 从两个互补的方向拆开这条依赖链。第一个是 warpgroup 之间的 ping-pong（[图 4-2](#fig-4-2)）：两个 consumer warpgroup 各自负责一个不同的 query tile，用 barrier 强制它们交替执行，warpgroup A 做 GEMM 时 warpgroup B 做 softmax，反过来也一样。论文报告，在 H100 上 head dim 128、序列长度 8K 时，这一项把 FP16 前向吞吐从约 5.7e14 FLOPS 提到约 6.2e14 FLOPS。第二个是 warpgroup 内部的 pipeline：在同一个 warpgroup 里，下一个 block 的 $QK^\top$ 和当前 block 的 $PV$ 这两组异步 WGMMA 按一定的时机发出，让 softmax 在它们执行期间进行。
+2. **GEMM 和 softmax 重叠。** 在单个 tile 上，softmax 依赖这个 block 的 $QK^\top$，$PV$ 的 GEMM 又依赖 softmax，所以它们只能串行。FA3 从两个互补的方向拆开这条依赖链。第一个是 warpgroup 之间的 ping-pong（[图 4-2](#fig-4-2)）：两个 consumer warpgroup 各自负责一个不同的 query tile，用 barrier 强制它们交替执行，warpgroup A 做 GEMM 时 warpgroup B 做 softmax，反过来也一样。第二个是 warpgroup 内部的 pipeline：在同一个 warpgroup 里，下一个 block 的 $QK^\top$ 和当前 block 的 $PV$ 这两组异步 WGMMA 按一定的时机发出，让 softmax 在它们执行期间进行。
 
 <figure id="fig-4-2">
 <svg viewBox="0 0 640 210" width="100%" role="img" aria-label="Ping-pong 调度：两个 warpgroup 交替做 GEMM 和 softmax，一个做 softmax 的时段和另一个做 matmul 的时段重叠；在 H100 上 softmax 的耗时约为 GEMM 的一半">
@@ -708,7 +630,7 @@ H100 新加了两个原语，v1 和 v2 设计时都没有用到。一是 **Tenso
 <figcaption><strong>图 4-2</strong> 两个 warpgroup 的相位错开一步：一个在做 softmax 的标量运算时，另一个正在 Tensor core 上做 matmul，非 matmul 的开销藏进了 matmul 的时间里，不再和它串行。各段宽度是示意，按 H100、head dim 128 的比例画，exp 的耗时约为与它重叠的 GEMM 的一半。</figcaption>
 </figure>
 
-3. **FP8：block 量化和 incoherent processing。** 在 matmul 之前直接把 $Q$、$K$ 量化成 FP8，吞吐上很划算，但精度不够：少数离群值占满了量化范围，其余数值的分辨率被压得很低（FP8 和 block 量化见[单卡优化篇](/blog/gpu-single-gpu-optimization/#precision)）。FA3 用了两个互补的办法。第一是 block 量化：每个 tile 一个 FP8 scale，而不是整个张量一个，离群值的影响只限于它所在的 block；kernel 本来就按 tile 计算，所以这样做没有额外开销。第二是 incoherent processing：量化前把 $Q$ 和 $K$ 乘上同一个随机正交矩阵 $M$。因为 $M$ 正交，$(QM)(KM)^\top = QMM^\top K^\top = QK^\top$，attention 分数在数学上不变；但 $QM$ 的每个元素现在是许多原始元素的随机混合，任何一个坐标都不会被单个离群值主导（[图 4-3](#fig-4-3)）。实现上用的是带随机符号翻转的 Hadamard 变换，长度为 $d$ 的一行代价是 $O(d\log d)$，稠密的旋转则要 $O(d^2)$。在模拟了离群特征的测试输入上，这条 FP8 路径的 RMSE 比用 per-tensor scale 的 FP8 attention 基线低 2.6 倍。
+3. **FP8：block 量化和 incoherent processing。** 在 matmul 之前直接把 $Q$、$K$ 量化成 FP8，吞吐上很划算，但精度不够：少数离群值占满了量化范围，其余数值的分辨率被压得很低（FP8 和 block 量化见[单卡优化篇](/blog/gpu-single-gpu-optimization/#precision)）。FA3 用了两个互补的办法。第一是 block 量化：每个 tile 一个 FP8 scale，而不是整个张量一个，离群值的影响只限于它所在的 block；kernel 本来就按 tile 计算，所以这样做没有额外开销。第二是 incoherent processing：量化前把 $Q$ 和 $K$ 乘上同一个随机正交矩阵 $M$。因为 $M$ 正交，$(QM)(KM)^\top = QMM^\top K^\top = QK^\top$，attention 分数在数学上不变；但 $QM$ 的每个元素现在是许多原始元素的随机混合，任何一个坐标都不会被单个离群值主导（[图 4-3](#fig-4-3)）。实现上用的是带随机符号翻转的 Hadamard 变换，长度为 $d$ 的一行代价是 $O(d\log d)$，稠密的旋转则要 $O(d^2)$。
 
 <figure id="fig-4-3">
 <svg viewBox="0 0 640 222" width="100%" role="img" aria-label="一个 8 维向量，有一个 8.0 的离群值，其余 7 个元素的绝对值都小于 0.4；随机翻转符号并做 Hadamard 旋转后，每个元素的绝对值都在 2.3 到 3.1 之间，最大值从 8.0 降到 3.1，向量长度保持 8.03">
@@ -749,17 +671,17 @@ H100 新加了两个原语，v1 和 v2 设计时都没有用到。一是 **Tenso
 <figcaption><strong>图 4-3</strong> 在一个 8 维的玩具向量上做 incoherent processing（数值是精确算出来的）。量化的 scale 由 block 里的最大值决定，一个 8.0 的离群值让其余 7 个小值只能挤在可表示范围里很窄的一段；随机翻转符号再做 Hadamard 变换，把离群值的能量分散到每个坐标上。最大值从 8.0 降到 3.1，向量长度不变；$Q$ 和 $K$ 做的是同一个旋转，所以 $QK^\top$ 里的每个点积也不变。</figcaption>
 </figure>
 
-FA3 在 H100 上比 FA2 快 1.5–2.0 倍，BF16 最高到 8.4e14 FLOPS（约为 H100 SXM5 稠密峰值 9.89e14 FLOPS 的 85%），FP8 最高到 1.3e15 FLOPS。2024 年 7 月的 arXiv v1 报的是 7.4e14 FLOPS 和接近 1.2e15 FLOPS，这里的数字来自 [References](#references) 里引用的 NeurIPS 2024 版本。
+*RTX 5090 实测待补：5090 没有 WGMMA，FA3 的 kernel 跑不了；这里改测同样思路在 5090 上能做到的部分，以及 FP8 路径的误差。*
 
 [图 4-2](#fig-4-2) 里 softmax 只用 GEMM 一半左右的时间，到了 Blackwell 的 B200 上两者一样长，[第 5 节](#fa4)的 FA4 就从这里出发。
 
 ## 5 FlashAttention-4：瓶颈随硬件换代而转移 {#fa4}
 
-[第 4 节](#fa3)的 FA3 在 Hopper 上用 warp specialization 搭起异步 pipeline，让 GEMM 和 softmax 重叠，再加上 FP8，在 H100 上做到了峰值的 85%。到了 Blackwell，硬件各部分的提升幅度不一样，瓶颈又换了位置。
+[第 4 节](#fa3)的 FA3 在 Hopper 上用 warp specialization 搭起异步 pipeline，让 GEMM 和 softmax 重叠，再加上 FP8。到了 Blackwell，硬件各部分的提升幅度不一样，瓶颈又换了位置。
 
 <div class="fa-intuit"><b>思路：</b>Blackwell 把矩阵乘的速度提高了一倍，做 exp 的单元和 shared memory 却没变，原来藏在 matmul 后面的 softmax 现在和 matmul 用的时间一样长。FA4 直接削减这部分工作：一部分 exp 改到别的单元上算，跳过不影响结果的 rescale，把更多数据放进新增的 tensor memory。</div>
 
-FlashAttention-4 的作者是 Zadouri、Hoehnerbach、Shah、Liu、Thakkar 和 Dao（Princeton、Meta、Colfax Research、NVIDIA、Georgia Tech 和 Together AI），2026 年 3 月发在 arXiv 上。论文针对 Blackwell 数据中心 GPU（B200/GB200）；开源实现（flash-attention 仓库里的 `flash_attn/cute`，安装包名是 `flash-attn-4`）也带了 Hopper 的 kernel。它是四代里最新的一代，在生产环境里经过的检验也最少，下面的数字都应当看作作者自己的测量结果。
+FlashAttention-4 的作者是 Zadouri、Hoehnerbach、Shah、Liu、Thakkar 和 Dao（Princeton、Meta、Colfax Research、NVIDIA、Georgia Tech 和 Together AI），2026 年 3 月发在 arXiv 上。论文针对 Blackwell 数据中心 GPU（B200/GB200）；开源实现（flash-attention 仓库里的 `flash_attn/cute`，安装包名是 `flash-attn-4`）也带了 Hopper 的 kernel。它是四代里最新的一代，在生产环境里经过的检验也最少。
 
 论文的出发点是**硬件的非对称扩展**（asymmetric hardware scaling）。从 Hopper 到 Blackwell，dense BF16 的 Tensor core 吞吐翻了一倍（每个 SM 每个时钟 8192 和 4096 FLOPs；整卡约 2.25e15 和 1e15 FLOPS），shared memory 的读带宽（每个 SM 每个时钟 128 B）和做 exp 的 MUFU 单元（每个 SM 每个时钟 16 次）完全没变。以 $d=128$ 时一个 $128\times128$ 的 tile 为例（[图 5-1](#fig-5-1)），前向的两个 MMA 在 Hopper 上要 $4\cdot128^3/4096=2048$ 个周期，$128^2$ 个 exp 要 $128^2/16=1024$ 个周期，exp 只占 matmul 的一半，FA3 的 ping-pong 能把它们藏在 matmul 后面。B200 上 MMA 只要 1024 个周期，exp 仍然要 1024 个，只靠重叠已经藏不住了。这和最初的 FlashAttention 解决的是同一个 IO 与计算的平衡问题，只是发生在更高的一层。
 
@@ -869,9 +791,11 @@ FA4 的做法有四条：
 </figure>
 
 3. **tensor memory（TMEM）和 2-CTA MMA 模式，主要用在反向。** Blackwell 给每个 SM 加了 256KB 的 tensor memory，Tensor core 直接把累加结果写进去。2-CTA 模式下，同一个 cluster 里一对 SM 上的两个 thread block（CTA）一起执行一次 $M=256$ 的 MMA；每个 CTA 存 A tile 和累加器的一半，B 操作数也只暂存一半，B 的 shared memory 流量减半。B200 上反向受 shared memory 限制：按论文的模型，shared memory 流量约 3328 个周期，MMA 只有 2560 个周期。把更多中间结果放进 TMEM、再用 2-CTA 模式，可以降到约 2688 个周期，对 $dQ$ 的 atomic add 也减少了。
-4. **用 CuTe-DSL 写，不用原生的 CUDA C++ 模板。** CuTe-DSL 是 CUTLASS 嵌在 Python 里的 kernel 语言。论文报告它的编译速度比大量使用模板的 C++ 快 20–30×，表达能力相当；attention 的变体（ALiBi、sliding window、soft-capping）可以写成普通的 Python 分数修改函数，JIT 编译进 kernel。
+4. **用 CuTe-DSL 写，不用原生的 CUDA C++ 模板。** CuTe-DSL 是 CUTLASS 嵌在 Python 里的 kernel 语言。表达能力和 C++ 模板相当，编译快得多；attention 的变体（ALiBi、sliding window、soft-capping）可以写成普通的 Python 分数修改函数，JIT 编译进 kernel。
 
-论文报告 B200 上 BF16 前向最高 1.613e15 FLOPS，约为这张卡 dense 峰值 2.25e15 FLOPS 的 71%。这个比例低于 FA3 在 H100 上的 85%，但峰值翻了一倍，exp 单元和 shared memory 却没变，要守住约 70% 需要用上前面所有的改动；按绝对吞吐算，它约是 FA3 的 1.9 倍。和基线相比，FA4 最多比 cuDNN 9.13 快 1.3×，比 Triton 快 2.7×。作者还和 cuDNN 团队合作，从 9.13/9.14 起把其中几项技术并进了 cuDNN，所以 FA4 和最新的 cuDNN（9.19）之间的差距要小得多。
+作者还和 cuDNN 团队合作，从 9.13/9.14 起把其中几项技术并进了 cuDNN。
+
+*RTX 5090 实测待补：5090（sm_120）没有 TMEM 和 2-CTA MMA，FA4 的 Blackwell kernel 跑不了；这里改测软件模拟 exp 和有条件 rescale 这两项在 5090 上的效果。*
 
 四代各自改了什么到这里就讲完了，下一节看四代之间始终没有变的部分。
 
@@ -883,58 +807,23 @@ FA4 的做法有四条：
 - **没有一代降低了 FLOP 数的渐近量级。** 每个版本的计算量都是 $\Theta(N^2d)$；重计算会多出一点，有 causal mask 时跳过完全被 mask 掉的 tile，实际执行的计算比算完整矩阵再 mask 少一半左右。整条演进线一直在做同一件事：去掉 FLOP 数本身并不需要的数据搬运和非 matmul 开销。
 - **每一代针对的都是上一代留下的新瓶颈。** v1 去掉了 $N^2$ 大小的矩阵在 HBM 上的往返。v2 解决了 v1 的调度留下的低 occupancy 和 warp 之间的通信开销。v3 用上了 v1、v2 出现时还没有的异步硬件（TMA/WGMMA），另外用 FP8 处理精度和吞吐之间的取舍。v4 应对的是 Blackwell 的非对称扩展：exp 的 FLOP 数很少，在前向里却和 matmul 占一样多的周期，反向里 shared memory 的流量还超过了 matmul。所以「attention 慢」不是一次能解决的问题：每一代解决的只是当时最紧的约束，下一代 GPU 又会带来新的约束。
 
-最后一节用一张图和一张表把四代汇总起来。
+最后一节用一张表把四代汇总起来。
 
 ## 7 总结 {#summary}
 
-[图 7-1](#fig-7-1) 是各代报告的前向峰值利用率，[表 7-1](#tab-7-1) 列出每一代的年份、目标硬件、核心做法和主要结果。
+[表 7-1](#tab-7-1) 列出每一代的年份、目标硬件和核心做法。
 
-<figure id="fig-7-1">
-<svg viewBox="0 0 640 260" width="100%" role="img" aria-label="各代 FlashAttention 报告的前向峰值利用率，按各自 GPU 的 dense Tensor core 峰值计算：FlashAttention 在 A100 上 30% 到 50%；FlashAttention-2 在 A100 上 73%；FlashAttention-3 在 H100 上 85%；FlashAttention-4 在 B200 上 71%。">
-  <style>
-    .bc-val  { font-size: 13px; font-weight: 600; fill: currentColor; text-anchor: middle; }
-    .bc-cat  { font-size: 13px; fill: currentColor; text-anchor: middle; }
-    .bc-sub  { font-size: 11px; fill: currentColor; opacity: .7; text-anchor: middle; }
-    .bc-tick { font-size: 11px; fill: currentColor; opacity: .7; text-anchor: end; }
-  </style>
-  <line x1="60" y1="40" x2="600" y2="40" stroke="currentColor" stroke-opacity=".12" stroke-dasharray="3 3"/>
-  <line x1="60" y1="125" x2="600" y2="125" stroke="currentColor" stroke-opacity=".12" stroke-dasharray="3 3"/>
-  <line x1="60" y1="210" x2="600" y2="210" stroke="currentColor" stroke-opacity=".4"/>
-  <text x="54" y="44" class="bc-tick">100%</text>
-  <text x="54" y="129" class="bc-tick">50%</text>
-  <text x="54" y="214" class="bc-tick">0%</text>
-  <rect x="95" y="159" width="70" height="51" fill="rgb(var(--color-primary-500))"><title>FlashAttention（v1），A100 前向：峰值的 30–50%（FlashAttention-2 论文的测量）</title></rect>
-  <rect x="95" y="125" width="70" height="34" fill="rgba(var(--color-primary-500), .18)" stroke="rgb(var(--color-primary-500))" stroke-dasharray="3 2"/>
-  <text x="130" y="115" class="bc-val">30–50%</text>
-  <text x="130" y="230" class="bc-cat">FA1</text>
-  <text x="130" y="246" class="bc-sub">A100</text>
-  <rect x="230" y="85.9" width="70" height="124.1" fill="rgb(var(--color-primary-500))"><title>FlashAttention-2，A100 前向：最高达峰值的 73%（3.12e14 FLOPS 中的 2.3e14）</title></rect>
-  <text x="265" y="76" class="bc-val">73%</text>
-  <text x="265" y="230" class="bc-cat">FA2</text>
-  <text x="265" y="246" class="bc-sub">A100</text>
-  <rect x="365" y="65.5" width="70" height="144.5" fill="rgb(var(--color-primary-500))"><title>FlashAttention-3，H100 前向，BF16：最高达峰值的 85%（9.89e14 FLOPS 中的 8.4e14）</title></rect>
-  <text x="400" y="56" class="bc-val">85%</text>
-  <text x="400" y="230" class="bc-cat">FA3</text>
-  <text x="400" y="246" class="bc-sub">H100</text>
-  <rect x="500" y="89.3" width="70" height="120.7" fill="rgb(var(--color-primary-500))"><title>FlashAttention-4，B200 前向，BF16：最高达峰值的 71%（2.25e15 FLOPS 中的 1.613e15）</title></rect>
-  <text x="535" y="79" class="bc-val">71%</text>
-  <text x="535" y="230" class="bc-cat">FA4</text>
-  <text x="535" y="246" class="bc-sub">B200</text>
-</svg>
-<figcaption><strong>图 7-1</strong> 各代主力 kernel 报告的前向峰值利用率，按各自 GPU 的 dense FP16/BF16 Tensor core 峰值算（A100 3.12e14、H100 9.89e14、B200 2.25e15 FLOPS）；FA1 的柱子是 FlashAttention-2 论文给它测的 30–50% 区间。不同 GPU 之间不能直接比：Blackwell 的 Tensor core 翻倍，exp 单元和 shared memory 没有变快，同样的峰值比例更难达到，所以 FA4 在 B200 上的 71% 低于 FA3 在 H100 上的 85%。</figcaption>
-</figure>
-
-| 版本 | 年份 | 目标硬件 | 核心做法 | 主要结果 |
-|---|---|---|---|---|
-| FlashAttention | 2022 | Ampere 时代的 GPU | tiling + online softmax + 重计算，N×N 矩阵从不在 HBM 里实体化 | 额外显存 O(N)，结果精确；attention op 快 2–4×；端到端快 15%（BERT）到 3×（GPT-2） |
-| FlashAttention-2 | 2023 | Ampere/Ada/Hopper | 推迟归一化；交换内外层循环，并在序列长度上并行；warp 之间切分 Q（split-Q） | 比 v1 快约 2×，前向最高达 A100 峰值的 73% |
-| FlashAttention-3 | 2024 | Hopper（H100） | warp specialization 的异步 pipeline（TMA + WGMMA）；GEMM 与 softmax 重叠；FP8 加 block 量化和 incoherent processing | 比 v2 快 1.5–2.0×；最高达 H100 峰值的 85%（8.4e14 FLOPS）；FP8 达 1.3e15 FLOPS |
-| FlashAttention-4 | 2026 | Blackwell（B200/GB200），代码也能在 Hopper 上跑 | 异步 MMA + 更大的 tile；软件模拟 exp + 有条件的 rescale；TMEM + 2-CTA MMA；CuTe-DSL | 达 B200 峰值的 71%（1.613e15 FLOPS）；最多比 cuDNN 9.13 快 1.3×，比 Triton 快 2.7× |
-{#tab-7-1 caption="**表 7-1** FlashAttention 四代对比" note="数字都是各代论文报告的结果，FA4 的是作者自己的测量。"}
+| 版本 | 年份 | 目标硬件 | 核心做法 |
+|---|---|---|---|
+| FlashAttention | 2022 | Ampere 时代的 GPU | tiling + online softmax + 重计算，N×N 矩阵从不在 HBM 里实体化 |
+| FlashAttention-2 | 2023 | Ampere/Ada/Hopper | 推迟归一化；交换内外层循环，并在序列长度上并行；warp 之间切分 Q（split-Q） |
+| FlashAttention-3 | 2024 | Hopper（H100） | warp specialization 的异步 pipeline（TMA + WGMMA）；GEMM 与 softmax 重叠；FP8 加 block 量化和 incoherent processing |
+| FlashAttention-4 | 2026 | Blackwell（B200/GB200），代码也能在 Hopper 上跑 | 异步 MMA + 更大的 tile；软件模拟 exp + 有条件的 rescale；TMEM + 2-CTA MMA；CuTe-DSL |
+{#tab-7-1 caption="**表 7-1** FlashAttention 四代对比"}
 
 ## References {#references}
 
-1. Dao, Fu, Ermon, Rudra, Ré. ["FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness"](https://arxiv.org/abs/2205.14135), NeurIPS 2022. 前文的时间拆分图、tiling 示意图和 FLOPs 与访存量的对比图都以这篇论文的 Figure 1、Figure 2 为基础。
+1. Dao, Fu, Ermon, Rudra, Ré. ["FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness"](https://arxiv.org/abs/2205.14135), NeurIPS 2022. 图 2-2 的 tiling 示意图以这篇论文的 Figure 1 为基础。
 2. Dao. ["FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning"](https://arxiv.org/abs/2307.08691), ICLR 2024. 另见 [Stanford Hazy Research 的介绍文章](https://hazyresearch.stanford.edu/blog/2023-07-17-flash2)。
 3. Shah, Bikshandi, Zhang, Thakkar, Ramani, Dao. ["FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision"](https://arxiv.org/abs/2407.08608), NeurIPS 2024. 另见作者的[博客文章](https://tridao.me/blog/2024/flash3/)。
 4. Zadouri, Hoehnerbach, Shah, Liu, Thakkar, Dao. ["FlashAttention-4: Algorithm and Kernel Pipelining Co-Design for Asymmetric Hardware Scaling"](https://arxiv.org/abs/2603.05451), arXiv:2603.05451, 2026 年 3 月。
