@@ -437,56 +437,69 @@ kernel 拿到的只是每个 tensor 的起始地址，tile 在哪要靠 stride �
 
 ### 2.2 Online softmax {#online-softmax}
 
-softmax 的分母要用一整行的 score，tiling 以后一个 tile 只看得到一段：
+online softmax 来自 Milakov 和 Gimelshein 2018 年的论文。下面按论文的顺序，从按定义写的 softmax 一步一步推到 online softmax，最后推广到 attention。一行 score 记作 $x_1, \dots, x_N$，分母记作 $\ell$（论文里记作 $d$）。
 
-<p align="center">$p_k = \dfrac{e^{x_k-m}}{\sum_j e^{x_j-m}}, \qquad m = \max_j x_j$</p>
+**第 1 步：naive softmax。** 按定义
 
-减掉整行的最大值 $m$ 是为了 $e^{x}$ 不溢出，分子分母同乘 $e^{-m}$，结果不变。$m$ 和分母都要扫完整行才知道，FlashAttention 用 online softmax 解决这个问题，对 K/V 只扫一遍。
+<p align="center">$y_i = \dfrac{e^{x_i}}{\sum_{j=1}^{N} e^{x_j}}$</p>
 
-attention 一行的输出是 $\text{out} = \sum_k p_k v_k$。每一项的分母 $\ell$ 都一样，可以提到求和外面，输出变成分子 $O$ 乘 $1/\ell$（[图 2-3](#fig-2-3)）。
+要扫两遍：第 1 遍求分母，第 2 遍算输出。每个元素访存 3 次（读两次、写一次）。
+
+```
+ℓ_0 ← 0
+for j ← 1 … N:                      # 第 1 遍：读 x_j
+    ℓ_j ← ℓ_{j−1} + e^(x_j)
+for i ← 1 … N:                      # 第 2 遍：读 x_i，写 y_i
+    y_i ← e^(x_i) / ℓ_N
+```
+
+问题是 $e^{x_j}$ 会溢出，fp32 里 $x$ 超过 88.7 时 $e^x$ 就是 inf。
+
+**第 2 步：safe softmax。** 分子分母同乘 $e^{-m_N}$，$m_N$ 是整行的最大值。结果不变，指数都不大于 0，不会溢出：
+
+<p align="center">$y_i = \dfrac{e^{x_i - m_N}}{\sum_{j=1}^{N} e^{x_j - m_N}}, \qquad m_N = \max_{k=1}^{N} x_k$</p>
+
+PyTorch 等框架用的就是这个版本，代价是多扫一遍，每个元素访存 4 次：
+
+```
+m_0 ← −∞
+for k ← 1 … N:                      # 第 1 遍：读 x_k
+    m_k ← max(m_{k−1}, x_k)
+ℓ_0 ← 0
+for j ← 1 … N:                      # 第 2 遍：读 x_j
+    ℓ_j ← ℓ_{j−1} + e^(x_j − m_N)
+for i ← 1 … N:                      # 第 3 遍：读 x_i，写 y_i
+    y_i ← e^(x_i − m_N) / ℓ_N
+```
+
+第 2 遍的每一项都要用 $m_N$，必须等第 1 遍扫完整行。
+
+**第 3 步：online softmax。** 把前两遍合成一遍，边扫边维护到目前为止的最大值 $m_j$ 和分母 $\ell_j$。最大值变大时，之前加进 $\ell$ 的项都是按旧的最大值算的，先乘 $e^{m_{j-1}-m_j}$ 换到新的最大值，再加上新的一项：
+
+```
+m_0 ← −∞,  ℓ_0 ← 0
+for j ← 1 … N:                      # 第 1 遍：读 x_j，m 和 ℓ 一起更新
+    m_j ← max(m_{j−1}, x_j)
+    ℓ_j ← ℓ_{j−1} · e^(m_{j−1} − m_j) + e^(x_j − m_j)
+for i ← 1 … N:                      # 第 2 遍：读 x_i，写 y_i
+    y_i ← e^(x_i − m_N) / ℓ_N
+```
+
+每个元素访存回到 3 次，和 naive 一样，但不会溢出。
+
+**第 4 步：为什么对。** 要证的是扫完第 $j$ 个元素后 $\ell_j = \sum_{k=1}^{j} e^{x_k - m_j}$，用归纳法。$j = 1$ 时 $m_1 = x_1$，$\ell_1 = e^{x_1 - m_1}$，成立。假设 $j-1$ 时成立，代入第 $j$ 步的更新，再用 $e^a \cdot e^b = e^{a+b}$：
+
+<p align="center">$\begin{aligned} \ell_j &= \ell_{j-1}\, e^{m_{j-1}-m_j} + e^{x_j-m_j} \\ &= \Big(\sum_{k=1}^{j-1} e^{x_k-m_{j-1}}\Big)\, e^{m_{j-1}-m_j} + e^{x_j-m_j} \\ &= \sum_{k=1}^{j-1} e^{x_k-m_j} + e^{x_j-m_j} \;=\; \sum_{k=1}^{j} e^{x_k-m_j} \end{aligned}$</p>
+
+$j = N$ 时就是 safe softmax 的分母。
+
+**第 5 步：并行。** 第 3 步是一个元素一个元素顺序扫的。论文把状态写成一对 $(m, \ell)$，定义合并操作 $\oplus$：
+
+<p align="center">$\begin{bmatrix} m_a \\ \ell_a \end{bmatrix} \oplus \begin{bmatrix} m_b \\ \ell_b \end{bmatrix} = \begin{bmatrix} \max(m_a, m_b) \\ \ell_a\, e^{m_a - \max(m_a, m_b)} + \ell_b\, e^{m_b - \max(m_a, m_b)} \end{bmatrix}$</p>
+
+一个元素 $x_j$ 的状态是 $(x_j, 1)$，从左到右依次 $\oplus$ 就是第 3 步。$\oplus$ 满足结合律和交换律，所以一行可以切成 tile，每个 tile 各自算出 $(m_t, \ell_t)$，再合并（[图 2-3](#fig-2-3)）。
 
 <figure id="fig-2-3">
-<svg viewBox="0 0 680 316" width="100%" role="img" aria-label="attention 一行的输出是 p_k 乘 v_k 之和。每一项 p_k v_k 等于 e 的 x_k 减 m 次方乘 v_k，再乘整行共用的 1 除以 ℓ。共用的 1/ℓ 提到求和外面，输出等于 O 乘 1/ℓ，O 是 e 的 x_k 减 m 次方乘 v_k 之和">
-  <style>
-    .os2 { font-size: 11px; fill: currentColor; }
-    .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
-    .os2-s { font-size: 10.5px; fill: currentColor; opacity: .72; }
-    .os2-c { font-size: 12px; font-weight: 600; text-anchor: middle; fill: currentColor; }
-    .os2-hi { fill: var(--fig-hi); font-weight: 600; }
-  </style>
-<text class="os2-b" x="338.0" y="16" text-anchor="middle">一行 attention 的输出 out = Σ<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> p</tspan><tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> v</tspan><tspan dy="3.5" font-size="72%">k</tspan></text>
-<text class="os2-b" x="8" y="44.0" text-anchor="start">out 的每一项</text>
-<text class="os2-s" x="8" y="58.0" text-anchor="start">softmax 权重 × v</text>
-<text class="os2-b" x="8" y="100.0" text-anchor="start">每个元素自己的部分</text>
-<text class="os2-b" x="8" y="154.0" text-anchor="start">整行同一个数</text>
-<text class="os2-b" x="8" y="224.0" text-anchor="start">合并</text>
-<text class="os2-s" x="8" y="238.0" text-anchor="start">共用的数提到求和外面</text>
-<rect x="150" y="26" width="88" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="194.0" y="44.0" text-anchor="middle">p<tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5"> v</tspan><tspan dy="3.5" font-size="72%">1</tspan></text>
-<text class="os2-b" x="194.0" y="72" text-anchor="middle">=</text>
-<rect x="150" y="82" width="88" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="194.0" y="100.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">1</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> v</tspan><tspan dy="3.5" font-size="72%">1</tspan></text>
-<rect x="246" y="26" width="88" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="290.0" y="44.0" text-anchor="middle">p<tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5"> v</tspan><tspan dy="3.5" font-size="72%">2</tspan></text>
-<text class="os2-b" x="290.0" y="72" text-anchor="middle">=</text>
-<rect x="246" y="82" width="88" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="290.0" y="100.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">2</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> v</tspan><tspan dy="3.5" font-size="72%">2</tspan></text>
-<text class="os2-b" x="386.0" y="44.0" text-anchor="middle">⋯</text>
-<text class="os2-b" x="386.0" y="100.0" text-anchor="middle">⋯</text>
-<rect x="438" y="26" width="88" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="482.0" y="44.0" text-anchor="middle">p<tspan dy="3.5" font-size="72%">N</tspan><tspan dy="-3.5"> v</tspan><tspan dy="3.5" font-size="72%">N</tspan></text>
-<text class="os2-b" x="482.0" y="72" text-anchor="middle">=</text>
-<rect x="438" y="82" width="88" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="482.0" y="100.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">N</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> v</tspan><tspan dy="3.5" font-size="72%">N</tspan></text>
-<text class="os2-b" x="338.0" y="128" text-anchor="middle">×</text>
-<rect x="150" y="136" width="376" height="28" rx="3" style="fill: var(--fig-hi); stroke: var(--fig-1)" fill-opacity="0.18" stroke-opacity=".35"/>
-<text class="os2 os2-hi" x="338.0" y="154.0" text-anchor="middle">1 / ℓ，ℓ = Σ<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> e</tspan><tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">j</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5">（softmax 的分母）</tspan></text>
-<text class="os2-s" x="338.0" y="186" text-anchor="middle">O = 第二行全部加起来 = Σ<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> e</tspan><tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">k</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> v</tspan><tspan dy="3.5" font-size="72%">k</tspan></text>
-<rect x="150" y="206" width="376" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.35" stroke-opacity=".35"/><text class="os2" x="338.0" y="224.0" text-anchor="middle">O × 1 / ℓ</text>
-<text class="os2-b" x="536" y="224.0" text-anchor="start">= out</text>
-<text class="os2-s" x="150" y="260" text-anchor="start">p<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> = e</tspan><tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">k</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> / ℓ。O 是分子，ℓ 是分母，两个都是一项一项加起来的</tspan></text>
-<text class="os2-s" x="150" y="278" text-anchor="start">所以只要能分段算出 O 和 ℓ，最后除一次就得到 out</text>
-</svg>
-<figcaption><strong>图 2-3</strong> 一行的输出 = 分子 $O$ / 分母 $\ell$。</figcaption>
-</figure>
-
-求和可以按 tile 分段加，只是每个 tile 只知道自己的最大值 $m_t$。把每一项拆成 tile 自己算的部分乘一个整个 tile 共用的数，共用的数就能提到求和外面（[图 2-4](#fig-2-4)）。这就是 online softmax（Milakov 和 Gimelshein 2018）。
-
-<figure id="fig-2-4">
 <svg viewBox="0 0 680 334" width="100%" role="img" aria-label="每个 tile 里，按整行最大值 m 算的每一项 e 的 x_k 减 m 次方，等于 tile 自己算的 e 的 x_k 减 m_t 次方，乘上整个 tile 共用的 e 的 m_t 减 m 次方。共用的数提到求和外面，每个 tile 先算自己的 ℓ_t，再乘这个数，三个 tile 相加得到 ℓ">
   <style>
     .os2 { font-size: 11px; fill: currentColor; }
@@ -546,10 +559,51 @@ attention 一行的输出是 $\text{out} = \sum_k p_k v_k$。每一项的分母 
 <text class="os2-s" x="150" y="304" text-anchor="start">第一行到第二、三行用的是 e<tspan dy="-5" font-size="72%">a+b</tspan><tspan dy="5"> = e</tspan><tspan dy="-5" font-size="72%">a</tspan><tspan dy="5"> · e</tspan><tspan dy="-5" font-size="72%">b</tspan></text>
 <text class="os2-s" x="150" y="322" text-anchor="start">m<tspan dy="3.5" font-size="72%">t</tspan><tspan dy="-3.5">、ℓ</tspan><tspan dy="3.5" font-size="72%">t</tspan><tspan dy="-3.5">、O</tspan><tspan dy="3.5" font-size="72%">t</tspan><tspan dy="-3.5"> 只用到 tile 自己的元素，各个 tile 互不依赖</tspan></text>
 </svg>
-<figcaption><strong>图 2-4</strong> 按 tile 算 $\ell$：每个 tile 先算自己的 $\ell_t$，再乘 $e^{m_t-m}$ 相加。</figcaption>
+<figcaption><strong>图 2-3</strong> 按 tile 算 $\ell$：每个 tile 先算自己的 $\ell_t$，再乘 $e^{m_t-m}$ 相加，就是三个 tile 的状态做 $\oplus$。</figcaption>
 </figure>
 
-FlashAttention 在一个 thread block 里沿 K/V 一个 block 一个 block 地扫，把扫过的 block 合起来当一个 tile，新读的 block 当另一个（[图 2-5](#fig-2-5)）。
+**第 6 步：推广到 attention。** 论文只算 softmax，attention 还要乘 $V$，一行的输出是 $\text{out} = \sum_k p_k v_k$。分母 $\ell$ 对每一项都一样，提出来以后输出是分子 $O$ 除以 $\ell$，$O$ 也是按同一个最大值加起来的求和（[图 2-4](#fig-2-4)）。
+
+<figure id="fig-2-4">
+<svg viewBox="0 0 680 316" width="100%" role="img" aria-label="attention 一行的输出是 p_k 乘 v_k 之和。每一项 p_k v_k 等于 e 的 x_k 减 m 次方乘 v_k，再乘整行共用的 1 除以 ℓ。共用的 1/ℓ 提到求和外面，输出等于 O 乘 1/ℓ，O 是 e 的 x_k 减 m 次方乘 v_k 之和">
+  <style>
+    .os2 { font-size: 11px; fill: currentColor; }
+    .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .os2-s { font-size: 10.5px; fill: currentColor; opacity: .72; }
+    .os2-c { font-size: 12px; font-weight: 600; text-anchor: middle; fill: currentColor; }
+    .os2-hi { fill: var(--fig-hi); font-weight: 600; }
+  </style>
+<text class="os2-b" x="338.0" y="16" text-anchor="middle">一行 attention 的输出 out = Σ<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> p</tspan><tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> v</tspan><tspan dy="3.5" font-size="72%">k</tspan></text>
+<text class="os2-b" x="8" y="44.0" text-anchor="start">out 的每一项</text>
+<text class="os2-s" x="8" y="58.0" text-anchor="start">softmax 权重 × v</text>
+<text class="os2-b" x="8" y="100.0" text-anchor="start">每个元素自己的部分</text>
+<text class="os2-b" x="8" y="154.0" text-anchor="start">整行同一个数</text>
+<text class="os2-b" x="8" y="224.0" text-anchor="start">合并</text>
+<text class="os2-s" x="8" y="238.0" text-anchor="start">共用的数提到求和外面</text>
+<rect x="150" y="26" width="88" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="194.0" y="44.0" text-anchor="middle">p<tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5"> v</tspan><tspan dy="3.5" font-size="72%">1</tspan></text>
+<text class="os2-b" x="194.0" y="72" text-anchor="middle">=</text>
+<rect x="150" y="82" width="88" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="194.0" y="100.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">1</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> v</tspan><tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="246" y="26" width="88" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="290.0" y="44.0" text-anchor="middle">p<tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5"> v</tspan><tspan dy="3.5" font-size="72%">2</tspan></text>
+<text class="os2-b" x="290.0" y="72" text-anchor="middle">=</text>
+<rect x="246" y="82" width="88" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="290.0" y="100.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">2</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> v</tspan><tspan dy="3.5" font-size="72%">2</tspan></text>
+<text class="os2-b" x="386.0" y="44.0" text-anchor="middle">⋯</text>
+<text class="os2-b" x="386.0" y="100.0" text-anchor="middle">⋯</text>
+<rect x="438" y="26" width="88" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="482.0" y="44.0" text-anchor="middle">p<tspan dy="3.5" font-size="72%">N</tspan><tspan dy="-3.5"> v</tspan><tspan dy="3.5" font-size="72%">N</tspan></text>
+<text class="os2-b" x="482.0" y="72" text-anchor="middle">=</text>
+<rect x="438" y="82" width="88" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="482.0" y="100.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">N</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> v</tspan><tspan dy="3.5" font-size="72%">N</tspan></text>
+<text class="os2-b" x="338.0" y="128" text-anchor="middle">×</text>
+<rect x="150" y="136" width="376" height="28" rx="3" style="fill: var(--fig-hi); stroke: var(--fig-1)" fill-opacity="0.18" stroke-opacity=".35"/>
+<text class="os2 os2-hi" x="338.0" y="154.0" text-anchor="middle">1 / ℓ，ℓ = Σ<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> e</tspan><tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">j</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5">（softmax 的分母）</tspan></text>
+<text class="os2-s" x="338.0" y="186" text-anchor="middle">O = 第二行全部加起来 = Σ<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> e</tspan><tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">k</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> v</tspan><tspan dy="3.5" font-size="72%">k</tspan></text>
+<rect x="150" y="206" width="376" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.35" stroke-opacity=".35"/><text class="os2" x="338.0" y="224.0" text-anchor="middle">O × 1 / ℓ</text>
+<text class="os2-b" x="536" y="224.0" text-anchor="start">= out</text>
+<text class="os2-s" x="150" y="260" text-anchor="start">p<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> = e</tspan><tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">k</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> / ℓ。O 是分子，ℓ 是分母，两个都是一项一项加起来的</tspan></text>
+<text class="os2-s" x="150" y="278" text-anchor="start">所以只要能分段算出 O 和 ℓ，最后除一次就得到 out</text>
+</svg>
+<figcaption><strong>图 2-4</strong> 一行的输出 = 分子 $O$ / 分母 $\ell$。</figcaption>
+</figure>
+
+所以 $O$ 和 $\ell$ 用同一个因子修正，状态从 $(m, \ell)$ 变成 $(m, \ell, O)$。FlashAttention 在一个 thread block 里沿 K/V 一个 block 一个 block 地扫，就是第 3 步把一个元素换成一个 block：扫过的 block 合起来是一个状态，新读的 block 是另一个，两者 $\oplus$（[图 2-5](#fig-2-5)）。输出直接是 $O / \ell$，不需要第 3 步的第 2 遍，所以对 K/V 只扫一遍。
 
 <figure id="fig-2-5">
 <svg viewBox="0 0 680 252" width="100%" role="img" aria-label="顺序扫：之前扫过的 block 1 到 j−1 只留下 m_old、ℓ_old、O_old，当成一个 tile；新读的 block j 按 m_new 算每一项。ℓ_old 乘 e 的 m_old 减 m_new 次方，加上 block j 的项，得到 ℓ_new">
