@@ -2254,7 +2254,7 @@ matmul 一批 510 个，512 个 program 多出 2 个，最后 168 个 SM 空等�
 `num_stages` 是第三种办法。matmul 每轮把 A、B 的 block 搬进 shared memory 里的 slot，再读进 register 乘加。`num_stages` 取 S 时，第 $k$ 轮的 load 在第 $k-(S-1)$ 轮算完时就用 cp.async 发出（[1.1 节](#hw-move)），算第 $k$ 轮时，下一轮的数据已经在另一个 slot 里（[图 3-4](#fig-t-9)）。代价是每多一级多一个 slot 的 shared memory（[表 3-2](#tab-3-2)）。
 
 <figure id="fig-t-9" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 452" width="100%" role="img" aria-label="matmul 循环按 shared memory slot 画的甘特图。num_stages = 1 只有 1 个 slot：每轮先搬数据、等 852 拍，再从 slot 里读出来算，一轮接一轮。num_stages = 3 有 2 个 slot：第 k 轮的 load 在第 k − 2 轮算完后发出，算第 k 轮时，第 k + 1 轮已经在另一个 slot 里。num_stages = 4 有 3 个 slot，load 提前两整轮发出，每轮更短，但一个 program 占 49 KB，每个 SM 只放得下 2 个，504 个 program 要分两批">
+<svg class="fg" viewBox="0 0 640 470" width="100%" role="img" aria-label="matmul 循环按 shared memory slot 画的甘特图，三栏共用一根时间轴，都只画前 4 轮。num_stages = 1 只有 1 个 slot：每轮先搬数据、等 852 拍，再从 slot 里读出来算。num_stages = 3 有 2 个 slot：第 k 轮的 load 在第 k − 2 轮算完后发出，算第 k 轮时，第 k + 1 轮已经在另一个 slot 里。num_stages = 4 有 3 个 slot，load 提前两整轮发出，每轮更短，但一个 program 占 49 KB，每个 SM 只放得下 2 个，504 个 program 要分两批">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -2277,157 +2277,128 @@ matmul 一批 510 个，512 个 program 多出 2 个，最后 168 个 SM 空等�
   <text class="tb" x="8" y="30">num_stages = 1</text><text class="lab2" x="184" y="30">1 个 slot，不预取：每轮 5601 拍，其中等数据 852 拍</text>
   <text class="lab" x="8" y="55.0">slot (shmem)</text>
   <text class="lab" x="8" y="77.0">warp</text>
-  <line class="grid" x1="120.0" y1="40" x2="120.0" y2="84"/>
-  <line class="grid" x1="230.9" y1="40" x2="230.9" y2="84"/>
-  <line class="grid" x1="341.7" y1="40" x2="341.7" y2="84"/>
-  <line class="grid" x1="452.6" y1="40" x2="452.6" y2="84"/>
-  <line class="grid" x1="563.5" y1="40" x2="563.5" y2="84"/>
-  <g class="m"><title>第 0 轮：load 在路上，852 拍</title><rect x="120.0" y="43" width="18.9" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
-  <g class="m"><title>第 0 轮：在 slot 里被读</title><rect x="138.9" y="43" width="105.3" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
-  <text class="s" x="191.6" y="55.0" text-anchor="middle">第 0 轮</text>
-  <g class="m"><title>第 0 轮：等数据 852 拍</title><rect x="120.0" y="65" width="18.9" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 0 轮：ld.shared 和乘加 4749 拍</title><rect x="138.9" y="65" width="105.3" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="191.6" y="77.0" text-anchor="middle">算第 0 轮</text>
-  <g class="m"><title>第 1 轮：load 在路上，852 拍</title><rect x="244.2" y="43" width="18.9" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
-  <g class="m"><title>第 1 轮：在 slot 里被读</title><rect x="263.1" y="43" width="105.3" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
-  <text class="s" x="315.8" y="55.0" text-anchor="middle">第 1 轮</text>
-  <g class="m"><title>第 1 轮：等数据 852 拍</title><rect x="244.2" y="65" width="18.9" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 1 轮：ld.shared 和乘加 4749 拍</title><rect x="263.1" y="65" width="105.3" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="315.8" y="77.0" text-anchor="middle">算第 1 轮</text>
-  <g class="m"><title>第 2 轮：load 在路上，852 拍</title><rect x="368.4" y="43" width="18.9" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
-  <g class="m"><title>第 2 轮：在 slot 里被读</title><rect x="387.3" y="43" width="105.3" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
-  <text class="s" x="440.0" y="55.0" text-anchor="middle">第 2 轮</text>
-  <g class="m"><title>第 2 轮：等数据 852 拍</title><rect x="368.4" y="65" width="18.9" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 2 轮：ld.shared 和乘加 4749 拍</title><rect x="387.3" y="65" width="105.3" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="440.0" y="77.0" text-anchor="middle">算第 2 轮</text>
-  <g class="m"><title>第 3 轮：load 在路上，852 拍</title><rect x="492.6" y="43" width="18.9" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
-  <g class="m"><title>第 3 轮：在 slot 里被读</title><rect x="511.5" y="43" width="105.3" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
-  <text class="s" x="564.2" y="55.0" text-anchor="middle">第 3 轮</text>
-  <g class="m"><title>第 3 轮：等数据 852 拍</title><rect x="492.6" y="65" width="18.9" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 3 轮：ld.shared 和乘加 4749 拍</title><rect x="511.5" y="65" width="105.3" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="564.2" y="77.0" text-anchor="middle">算第 3 轮</text>
-  <g class="m"><title>第 4 轮：load 在路上，852 拍</title><rect x="616.8" y="43" width="13.2" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
-  <g class="m"><title>第 4 轮：等数据 852 拍</title><rect x="616.8" y="65" width="13.2" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 0 轮：load 在路上，852 拍</title><rect x="120.0" y="43" width="17.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 0 轮：在 slot 里被读</title><rect x="137.8" y="43" width="99.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="187.3" y="55.0" text-anchor="middle">第 0 轮</text>
+  <g class="m"><title>第 0 轮：等数据 852 拍</title><rect x="120.0" y="65" width="17.8" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 0 轮：ld.shared 和乘加 4749 拍</title><rect x="137.8" y="65" width="99.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="187.3" y="77.0" text-anchor="middle">算第 0 轮</text>
+  <g class="m"><title>第 1 轮：load 在路上，852 拍</title><rect x="236.9" y="43" width="17.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 1 轮：在 slot 里被读</title><rect x="254.7" y="43" width="99.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="304.2" y="55.0" text-anchor="middle">第 1 轮</text>
+  <g class="m"><title>第 1 轮：等数据 852 拍</title><rect x="236.9" y="65" width="17.8" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 1 轮：ld.shared 和乘加 4749 拍</title><rect x="254.7" y="65" width="99.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="304.2" y="77.0" text-anchor="middle">算第 1 轮</text>
+  <g class="m"><title>第 2 轮：load 在路上，852 拍</title><rect x="353.8" y="43" width="17.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 2 轮：在 slot 里被读</title><rect x="371.6" y="43" width="99.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="421.1" y="55.0" text-anchor="middle">第 2 轮</text>
+  <g class="m"><title>第 2 轮：等数据 852 拍</title><rect x="353.8" y="65" width="17.8" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 2 轮：ld.shared 和乘加 4749 拍</title><rect x="371.6" y="65" width="99.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="421.1" y="77.0" text-anchor="middle">算第 2 轮</text>
+  <g class="m"><title>第 3 轮：load 在路上，852 拍</title><rect x="470.7" y="43" width="17.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 3 轮：在 slot 里被读</title><rect x="488.5" y="43" width="99.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="538.0" y="55.0" text-anchor="middle">第 3 轮</text>
+  <g class="m"><title>第 3 轮：等数据 852 拍</title><rect x="470.7" y="65" width="17.8" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 3 轮：ld.shared 和乘加 4749 拍</title><rect x="488.5" y="65" width="99.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="538.0" y="77.0" text-anchor="middle">算第 3 轮</text>
   <text class="tb" x="8" y="124">num_stages = 3</text><text class="lab2" x="184" y="124">2 个 slot，提前一整轮发 load：每轮 4901 拍，其中等数据 74 拍</text>
   <text class="lab" x="8" y="149.0">slot 0 (shmem)</text>
   <text class="lab" x="8" y="171.0">slot 1 (shmem)</text>
   <text class="lab" x="8" y="193.0">warp</text>
-  <line class="grid" x1="120.0" y1="134" x2="120.0" y2="200"/>
-  <line class="grid" x1="230.9" y1="134" x2="230.9" y2="200"/>
-  <line class="grid" x1="341.7" y1="134" x2="341.7" y2="200"/>
-  <line class="grid" x1="452.6" y1="134" x2="452.6" y2="200"/>
-  <line class="grid" x1="563.5" y1="134" x2="563.5" y2="200"/>
-  <g class="m"><title>第 0 轮：load 在路上，约 852 拍</title><rect x="120.0" y="137" width="18.9" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
-  <g class="m"><title>第 0 轮：已到 slot 里，等着被读</title><rect x="138.9" y="137" width="0.8" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
-  <g class="m"><title>第 0 轮：在 slot 里被读</title><rect x="138.9" y="137" width="108.7" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
-  <text class="s" x="193.2" y="149.0" text-anchor="middle">第 0 轮</text>
-  <g class="m"><title>第 1 轮：load 在路上，约 852 拍</title><rect x="120.0" y="159" width="18.9" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
-  <g class="m"><title>第 1 轮：已到 slot 里，等着被读</title><rect x="138.9" y="159" width="108.7" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
-  <g class="m"><title>第 1 轮：在 slot 里被读</title><rect x="247.6" y="159" width="108.7" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
-  <text class="s" x="301.9" y="171.0" text-anchor="middle">第 1 轮</text>
-  <g class="m"><title>第 2 轮：load 在路上，约 852 拍</title><rect x="247.6" y="137" width="18.9" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
-  <g class="m"><title>第 2 轮：已到 slot 里，等着被读</title><rect x="266.5" y="137" width="89.8" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
-  <g class="m"><title>第 2 轮：在 slot 里被读</title><rect x="356.2" y="137" width="108.7" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
-  <text class="s" x="410.6" y="149.0" text-anchor="middle">第 2 轮</text>
-  <g class="m"><title>第 3 轮：load 在路上，约 852 拍</title><rect x="356.2" y="159" width="18.9" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
-  <g class="m"><title>第 3 轮：已到 slot 里，等着被读</title><rect x="375.1" y="159" width="89.8" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
-  <g class="m"><title>第 3 轮：在 slot 里被读</title><rect x="464.9" y="159" width="108.7" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
-  <text class="s" x="519.3" y="171.0" text-anchor="middle">第 3 轮</text>
-  <g class="m"><title>第 4 轮：load 在路上，约 852 拍</title><rect x="464.9" y="137" width="18.9" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
-  <g class="m"><title>第 4 轮：已到 slot 里，等着被读</title><rect x="483.8" y="137" width="89.8" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
-  <g class="m"><title>第 4 轮：在 slot 里被读</title><rect x="573.6" y="137" width="56.4" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
-  <text class="s" x="601.8" y="149.0" text-anchor="middle">第 4 轮</text>
-  <g class="m"><title>第 5 轮：load 在路上，约 852 拍</title><rect x="573.6" y="159" width="18.9" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
-  <g class="m"><title>第 5 轮：已到 slot 里，等着被读</title><rect x="592.5" y="159" width="37.5" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
-  <g class="m"><title>第 0 轮：等数据 852 拍</title><rect x="120.0" y="181" width="18.9" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 0 轮：等数据 74 拍</title><rect x="138.9" y="181" width="1.6" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 0 轮：ld.shared 和乘加 4827 拍</title><rect x="140.5" y="181" width="107.0" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="194.1" y="193.0" text-anchor="middle">算第 0 轮</text>
-  <g class="m"><title>第 1 轮：等数据 74 拍</title><rect x="247.6" y="181" width="1.6" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 1 轮：ld.shared 和乘加 4827 拍</title><rect x="249.2" y="181" width="107.0" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="302.7" y="193.0" text-anchor="middle">算第 1 轮</text>
-  <g class="m"><title>第 2 轮：等数据 74 拍</title><rect x="356.2" y="181" width="1.6" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 2 轮：ld.shared 和乘加 4827 拍</title><rect x="357.9" y="181" width="107.0" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="411.4" y="193.0" text-anchor="middle">算第 2 轮</text>
-  <g class="m"><title>第 3 轮：等数据 74 拍</title><rect x="464.9" y="181" width="1.6" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 3 轮：ld.shared 和乘加 4827 拍</title><rect x="466.6" y="181" width="107.0" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="520.1" y="193.0" text-anchor="middle">算第 3 轮</text>
-  <g class="m"><title>第 4 轮：等数据 74 拍</title><rect x="573.6" y="181" width="1.6" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 4 轮：ld.shared 和乘加 4827 拍</title><rect x="575.2" y="181" width="54.8" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="602.6" y="193.0" text-anchor="middle">算第 4 轮</text>
-  <line x1="443.2" y1="130" x2="443.2" y2="204" stroke="currentColor" stroke-opacity=".55" stroke-dasharray="4 3"/>
-  <text class="s" x="120" y="218">竖虚线这一刻：第 2 轮在 slot 0 里被读、在算；第 3 轮已经到了 slot 1；第 4 轮要等第 2 轮算完才发</text>
+  <g class="m"><title>第 0 轮：load 在路上，约 852 拍</title><rect x="120.0" y="137" width="17.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 0 轮：已到 slot 里，等着被读</title><rect x="137.8" y="137" width="0.8" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
+  <g class="m"><title>第 0 轮：在 slot 里被读</title><rect x="137.8" y="137" width="102.3" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="188.9" y="149.0" text-anchor="middle">第 0 轮</text>
+  <g class="m"><title>第 1 轮：load 在路上，约 852 拍</title><rect x="120.0" y="159" width="17.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 1 轮：已到 slot 里，等着被读</title><rect x="137.8" y="159" width="102.3" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
+  <g class="m"><title>第 1 轮：在 slot 里被读</title><rect x="240.1" y="159" width="102.3" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="291.2" y="171.0" text-anchor="middle">第 1 轮</text>
+  <g class="m"><title>第 2 轮：load 在路上，约 852 拍</title><rect x="240.1" y="137" width="17.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 2 轮：已到 slot 里，等着被读</title><rect x="257.9" y="137" width="84.5" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
+  <g class="m"><title>第 2 轮：在 slot 里被读</title><rect x="342.3" y="137" width="102.3" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="393.5" y="149.0" text-anchor="middle">第 2 轮</text>
+  <g class="m"><title>第 3 轮：load 在路上，约 852 拍</title><rect x="342.3" y="159" width="17.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 3 轮：已到 slot 里，等着被读</title><rect x="360.1" y="159" width="84.5" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
+  <g class="m"><title>第 3 轮：在 slot 里被读</title><rect x="444.6" y="159" width="102.3" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="495.8" y="171.0" text-anchor="middle">第 3 轮</text>
+  <g class="m"><title>第 0 轮：等数据 852 拍</title><rect x="120.0" y="181" width="17.8" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 0 轮：等数据 74 拍</title><rect x="137.8" y="181" width="1.5" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 0 轮：ld.shared 和乘加 4827 拍</title><rect x="139.3" y="181" width="100.7" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="189.7" y="193.0" text-anchor="middle">算第 0 轮</text>
+  <g class="m"><title>第 1 轮：等数据 74 拍</title><rect x="240.1" y="181" width="1.5" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 1 轮：ld.shared 和乘加 4827 拍</title><rect x="241.6" y="181" width="100.7" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="292.0" y="193.0" text-anchor="middle">算第 1 轮</text>
+  <g class="m"><title>第 2 轮：等数据 74 拍</title><rect x="342.3" y="181" width="1.5" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 2 轮：ld.shared 和乘加 4827 拍</title><rect x="343.9" y="181" width="100.7" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="394.3" y="193.0" text-anchor="middle">算第 2 轮</text>
+  <g class="m"><title>第 3 轮：等数据 74 拍</title><rect x="444.6" y="181" width="1.5" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 3 轮：ld.shared 和乘加 4827 拍</title><rect x="446.2" y="181" width="100.7" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="496.5" y="193.0" text-anchor="middle">算第 3 轮</text>
+  <line x1="424.2" y1="130" x2="424.2" y2="204" stroke="currentColor" stroke-opacity=".55" stroke-dasharray="4 3"/>
+  <text class="s" x="120" y="218">竖虚线这一刻：第 2 轮在 slot 0 里被读、在算；第 3 轮已经到了 slot 1</text>
   <text class="tb" x="8" y="252">num_stages = 4</text><text class="lab2" x="184" y="252">3 个 slot，提前两整轮发 load：每轮 3770 拍，其中等数据 111 拍</text>
   <text class="lab" x="8" y="277.0">slot 0 (shmem)</text>
   <text class="lab" x="8" y="299.0">slot 1 (shmem)</text>
   <text class="lab" x="8" y="321.0">slot 2 (shmem)</text>
   <text class="lab" x="8" y="343.0">warp</text>
-  <line class="grid" x1="120.0" y1="262" x2="120.0" y2="350"/>
-  <line class="grid" x1="230.9" y1="262" x2="230.9" y2="350"/>
-  <line class="grid" x1="341.7" y1="262" x2="341.7" y2="350"/>
-  <line class="grid" x1="452.6" y1="262" x2="452.6" y2="350"/>
-  <line class="grid" x1="563.5" y1="262" x2="563.5" y2="350"/>
-  <g class="m"><title>第 0 轮：load 在路上，约 852 拍</title><rect x="120.0" y="265" width="18.9" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
-  <g class="m"><title>第 0 轮：已到 slot 里，等着被读</title><rect x="138.9" y="265" width="0.8" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
-  <g class="m"><title>第 0 轮：在 slot 里被读</title><rect x="138.9" y="265" width="83.6" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
-  <text class="s" x="180.7" y="277.0" text-anchor="middle">第 0 轮</text>
-  <g class="m"><title>第 1 轮：load 在路上，约 852 拍</title><rect x="120.0" y="287" width="18.9" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
-  <g class="m"><title>第 1 轮：已到 slot 里，等着被读</title><rect x="138.9" y="287" width="83.6" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
-  <g class="m"><title>第 1 轮：在 slot 里被读</title><rect x="222.5" y="287" width="83.6" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
-  <text class="s" x="264.3" y="299.0" text-anchor="middle">第 1 轮</text>
-  <g class="m"><title>第 2 轮：load 在路上，约 852 拍</title><rect x="120.0" y="309" width="18.9" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
-  <g class="m"><title>第 2 轮：已到 slot 里，等着被读</title><rect x="138.9" y="309" width="167.2" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
-  <g class="m"><title>第 2 轮：在 slot 里被读</title><rect x="306.1" y="309" width="83.6" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
-  <text class="s" x="347.9" y="321.0" text-anchor="middle">第 2 轮</text>
-  <g class="m"><title>第 3 轮：load 在路上，约 852 拍</title><rect x="222.5" y="265" width="18.9" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
-  <g class="m"><title>第 3 轮：已到 slot 里，等着被读</title><rect x="241.4" y="265" width="148.3" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
-  <g class="m"><title>第 3 轮：在 slot 里被读</title><rect x="389.7" y="265" width="83.6" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
-  <text class="s" x="431.5" y="277.0" text-anchor="middle">第 3 轮</text>
-  <g class="m"><title>第 4 轮：load 在路上，约 852 拍</title><rect x="306.1" y="287" width="18.9" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
-  <g class="m"><title>第 4 轮：已到 slot 里，等着被读</title><rect x="325.0" y="287" width="148.3" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
-  <g class="m"><title>第 4 轮：在 slot 里被读</title><rect x="473.3" y="287" width="83.6" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
-  <text class="s" x="515.1" y="299.0" text-anchor="middle">第 4 轮</text>
-  <g class="m"><title>第 5 轮：load 在路上，约 852 拍</title><rect x="389.7" y="309" width="18.9" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
-  <g class="m"><title>第 5 轮：已到 slot 里，等着被读</title><rect x="408.6" y="309" width="148.3" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
-  <g class="m"><title>第 5 轮：在 slot 里被读</title><rect x="556.9" y="309" width="73.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
-  <text class="s" x="593.5" y="321.0" text-anchor="middle">第 5 轮</text>
-  <g class="m"><title>第 6 轮：load 在路上，约 852 拍</title><rect x="473.3" y="265" width="18.9" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
-  <g class="m"><title>第 6 轮：已到 slot 里，等着被读</title><rect x="492.2" y="265" width="137.8" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
-  <g class="m"><title>第 7 轮：load 在路上，约 852 拍</title><rect x="556.9" y="287" width="18.9" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
-  <g class="m"><title>第 7 轮：已到 slot 里，等着被读</title><rect x="575.8" y="287" width="54.2" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
-  <g class="m"><title>第 0 轮：等数据 852 拍</title><rect x="120.0" y="331" width="18.9" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 0 轮：等数据 111 拍</title><rect x="138.9" y="331" width="2.5" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 0 轮：ld.shared 和乘加 3659 拍</title><rect x="141.4" y="331" width="81.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="181.9" y="343.0" text-anchor="middle">算第 0 轮</text>
-  <g class="m"><title>第 1 轮：等数据 111 拍</title><rect x="222.5" y="331" width="2.5" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 1 轮：ld.shared 和乘加 3659 拍</title><rect x="225.0" y="331" width="81.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="265.5" y="343.0" text-anchor="middle">算第 1 轮</text>
-  <g class="m"><title>第 2 轮：等数据 111 拍</title><rect x="306.1" y="331" width="2.5" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 2 轮：ld.shared 和乘加 3659 拍</title><rect x="308.6" y="331" width="81.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="349.1" y="343.0" text-anchor="middle">算第 2 轮</text>
-  <g class="m"><title>第 3 轮：等数据 111 拍</title><rect x="389.7" y="331" width="2.5" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 3 轮：ld.shared 和乘加 3659 拍</title><rect x="392.2" y="331" width="81.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="432.7" y="343.0" text-anchor="middle">算第 3 轮</text>
-  <g class="m"><title>第 4 轮：等数据 111 拍</title><rect x="473.3" y="331" width="2.5" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 4 轮：ld.shared 和乘加 3659 拍</title><rect x="475.8" y="331" width="81.1" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="516.3" y="343.0" text-anchor="middle">算第 4 轮</text>
-  <g class="m"><title>第 5 轮：等数据 111 拍</title><rect x="556.9" y="331" width="2.5" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
-  <g class="m"><title>第 5 轮：ld.shared 和乘加 3659 拍</title><rect x="559.4" y="331" width="70.6" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
-  <text class="s" x="594.7" y="343.0" text-anchor="middle">算第 5 轮</text>
-  <text class="s" x="120" y="368" style="fill: var(--fig-hi)">每轮更短，因为每个 SM 只剩 2 个 program、8 个 warp 抢发射；但一个 program 占 49 KB，504 个要分两批跑</text>
-  <text class="tick" x="120.0" y="386" text-anchor="middle">0</text>
-  <text class="tick" x="230.9" y="386" text-anchor="middle">5000</text>
-  <text class="tick" x="341.7" y="386" text-anchor="middle">10000</text>
-  <text class="tick" x="452.6" y="386" text-anchor="middle">15000</text>
-  <text class="tick" x="563.5" y="386" text-anchor="middle">20000</text>
-  <text class="lab2" x="112" y="386" text-anchor="end">拍</text>
-  <rect x="8" y="399" width="20" height="11" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-dasharray="3 2"/><text class="s" x="34" y="408">load 在路上</text>
-  <rect x="119" y="399" width="20" height="11" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/><text class="s" x="145" y="408">已到 slot 里，等着被读</text>
-  <rect x="291" y="399" width="20" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/><text class="s" x="317" y="408">在 slot 里被读</text>
-  <rect x="419" y="399" width="20" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/><text class="s" x="445" y="408">ld.shared 和乘加</text>
-  <rect x="560" y="399" width="20" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/><text class="s" x="586" y="408">等数据</text>
+  <g class="m"><title>第 0 轮：load 在路上，约 852 拍</title><rect x="120.0" y="265" width="17.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 0 轮：已到 slot 里，等着被读</title><rect x="137.8" y="265" width="0.8" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
+  <g class="m"><title>第 0 轮：在 slot 里被读</title><rect x="137.8" y="265" width="78.7" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="177.1" y="277.0" text-anchor="middle">第 0 轮</text>
+  <g class="m"><title>第 1 轮：load 在路上，约 852 拍</title><rect x="120.0" y="287" width="17.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 1 轮：已到 slot 里，等着被读</title><rect x="137.8" y="287" width="78.7" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
+  <g class="m"><title>第 1 轮：在 slot 里被读</title><rect x="216.5" y="287" width="78.7" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="255.8" y="299.0" text-anchor="middle">第 1 轮</text>
+  <g class="m"><title>第 2 轮：load 在路上，约 852 拍</title><rect x="120.0" y="309" width="17.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 2 轮：已到 slot 里，等着被读</title><rect x="137.8" y="309" width="157.4" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
+  <g class="m"><title>第 2 轮：在 slot 里被读</title><rect x="295.2" y="309" width="78.7" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="334.5" y="321.0" text-anchor="middle">第 2 轮</text>
+  <g class="m"><title>第 3 轮：load 在路上，约 852 拍</title><rect x="216.5" y="265" width="17.8" height="16" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".85" stroke-dasharray="3 2"/></g>
+  <g class="m"><title>第 3 轮：已到 slot 里，等着被读</title><rect x="234.3" y="265" width="139.6" height="16" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/></g>
+  <g class="m"><title>第 3 轮：在 slot 里被读</title><rect x="373.8" y="265" width="78.7" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/></g>
+  <text class="s" x="413.2" y="277.0" text-anchor="middle">第 3 轮</text>
+  <g class="m"><title>第 0 轮：等数据 852 拍</title><rect x="120.0" y="331" width="17.8" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 0 轮：等数据 111 拍</title><rect x="137.8" y="331" width="2.3" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 0 轮：ld.shared 和乘加 3659 拍</title><rect x="140.1" y="331" width="76.4" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="178.3" y="343.0" text-anchor="middle">算第 0 轮</text>
+  <g class="m"><title>第 1 轮：等数据 111 拍</title><rect x="216.5" y="331" width="2.3" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 1 轮：ld.shared 和乘加 3659 拍</title><rect x="218.8" y="331" width="76.4" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="257.0" y="343.0" text-anchor="middle">算第 1 轮</text>
+  <g class="m"><title>第 2 轮：等数据 111 拍</title><rect x="295.2" y="331" width="2.3" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 2 轮：ld.shared 和乘加 3659 拍</title><rect x="297.5" y="331" width="76.4" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="335.7" y="343.0" text-anchor="middle">算第 2 轮</text>
+  <g class="m"><title>第 3 轮：等数据 111 拍</title><rect x="373.8" y="331" width="2.3" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/></g>
+  <g class="m"><title>第 3 轮：ld.shared 和乘加 3659 拍</title><rect x="376.2" y="331" width="76.4" height="16" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/></g>
+  <text class="s" x="414.3" y="343.0" text-anchor="middle">算第 3 轮</text>
+  <text class="s" x="120" y="368">每轮更短，因为每个 SM 只剩 2 个 program、8 个 warp 抢发射；</text>
+  <text class="s" x="120" y="384">但一个 program 占 49 KB，每个 SM 只放得下 2 个，504 个要分两批跑</text>
+  <line class="grid" x1="120.0" y1="40" x2="120.0" y2="390"/>
+  <text class="tick" x="120.0" y="404" text-anchor="middle">0</text>
+  <line class="grid" x1="224.3" y1="40" x2="224.3" y2="390"/>
+  <text class="tick" x="224.3" y="404" text-anchor="middle">5000</text>
+  <line class="grid" x1="328.7" y1="40" x2="328.7" y2="390"/>
+  <text class="tick" x="328.7" y="404" text-anchor="middle">10000</text>
+  <line class="grid" x1="433.0" y1="40" x2="433.0" y2="390"/>
+  <text class="tick" x="433.0" y="404" text-anchor="middle">15000</text>
+  <line class="grid" x1="537.4" y1="40" x2="537.4" y2="390"/>
+  <text class="tick" x="537.4" y="404" text-anchor="middle">20000</text>
+  <text class="lab2" x="112" y="404" text-anchor="end">拍</text>
+  <line x1="587.6" y1="38" x2="587.6" y2="86" style="stroke: var(--fig-hi)" stroke-width="1.6"/>
+  <text class="s" x="592.6" y="78" style="fill: var(--fig-hi)">4 轮算完</text>
+  <text class="s" x="592.6" y="92" style="fill: var(--fig-hi)">22406 拍</text>
+  <line x1="546.9" y1="132" x2="546.9" y2="202" style="stroke: var(--fig-hi)" stroke-width="1.6"/>
+  <text class="s" x="551.9" y="194" style="fill: var(--fig-hi)">4 轮算完</text>
+  <text class="s" x="551.9" y="208" style="fill: var(--fig-hi)">20456 拍</text>
+  <line x1="452.5" y1="260" x2="452.5" y2="352" style="stroke: var(--fig-hi)" stroke-width="1.6"/>
+  <text class="s" x="457.5" y="344" style="fill: var(--fig-hi)">4 轮算完</text>
+  <text class="s" x="457.5" y="358" style="fill: var(--fig-hi)">15933 拍</text>
+  <rect x="8" y="417" width="20" height="11" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-dasharray="3 2"/><text class="s" x="34" y="426">load 在路上</text>
+  <rect x="119" y="417" width="20" height="11" rx="2" style="fill: var(--fig-2)" fill-opacity="0.28"/><text class="s" x="145" y="426">已到 slot 里，等着被读</text>
+  <rect x="291" y="417" width="20" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.22"/><text class="s" x="317" y="426">在 slot 里被读</text>
+  <rect x="419" y="417" width="20" height="11" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/><text class="s" x="445" y="426">ld.shared 和乘加</text>
+  <rect x="560" y="417" width="20" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/><text class="s" x="586" y="426">等数据</text>
 </svg>
-<figcaption><strong>图 3-4</strong> matmul 的循环按 shared memory slot 看（RTX 5090，fp32，A 4032 × 2048，B 2048 × 512，BM = BN = 64，BK = 32，4 个 warp）。1 级和 3 级时 504 个 program 一批跑完，4 级时每个 SM 只放得下 2 个，要分两批，这里画的是第一批里的一个 program。条长按 Nsight Compute 实测（<code>--clock-control none</code>）画：每轮的拍数 = 每条指令平均隔几拍 × 每轮的指令数，等数据的拍数 = 每条指令平均等 L2 / 显存几拍 × 每轮的指令数，都是 64 轮的平均值。load 的延迟没法直接测，按不预取时每轮等数据的拍数画。只画开头几轮。</figcaption>
+<figcaption><strong>图 3-4</strong> matmul 的循环按 shared memory slot 看（RTX 5090，fp32，A 4032 × 2048，B 2048 × 512，BM = BN = 64，BK = 32，4 个 warp）。1 级和 3 级时 504 个 program 一批跑完，4 级时每个 SM 只放得下 2 个，要分两批，这里画的是第一批里的一个 program。条长按 Nsight Compute 实测（<code>--clock-control none</code>）画：每轮的拍数 = 每条指令平均隔几拍 × 每轮的指令数，等数据的拍数 = 每条指令平均等 L2 / 显存几拍 × 每轮的指令数，都是 64 轮的平均值。load 的延迟没法直接测，按不预取时每轮等数据的拍数画。三栏共用一根时间轴，都只画前 4 轮，红线是 4 轮算完的时刻。</figcaption>
 </figure>
 
 | num_stages | A、B 各几个 slot (shmem) | load 提前几整轮 | shared memory | 每个 SM 放几个 program | 耗时 |
