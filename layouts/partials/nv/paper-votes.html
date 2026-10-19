@@ -1,80 +1,180 @@
-{{- /* Daily reports: under every paper (an h3 that links to arXiv or its Hugging Face page) a button that opens
-       that paper's own giscus thread, term "paper/<arXiv id>". A vote is a comment that starts with 👍 or 👎;
-       the daily report task reads the owner's comments from these threads. One thread is open at a time:
-       giscus's client.js fills the first .giscus on the page and resizes every frame it made on any message. */ -}}
-{{ with site.Params.giscus }}
-  {{ if and .repoId .categoryId }}
-    <script>
-      (() => {
-        const content = document.querySelector(".nv-article.is-daily .article-content");
-        if (!content) return;
-        const ID = /arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/\d{7})|huggingface\.co\/papers\/(\d{4}\.\d{4,5})/;
-        const theme = () => document.documentElement.classList.contains("dark") ? "dark_dimmed" : "light";
-        let open = null;
+{{- /* Daily reports: under every paper (an h3 that links to arXiv or its Hugging Face page) a vote row:
+       👍 / 👎, counted on Abacus like the post reactions, and 💬, which opens the paper's own giscus thread
+       (term "paper/<arXiv id>"). The daily report task reads both.
 
-        const close = (box) => {
-          box.querySelector(".nv-vote__panel").hidden = true;
-          box.querySelector(".nv-vote__btn").setAttribute("aria-expanded", "false");
-          box.querySelectorAll(".giscus, script").forEach((n) => n.remove());
-          if (open === box) open = null;
-        };
-        const show = (box, id, slotId) => {
-          if (open) close(open);
-          const panel = box.querySelector(".nv-vote__panel");
-          panel.hidden = false;
-          box.querySelector(".nv-vote__btn").setAttribute("aria-expanded", "true");
-          const slot = document.createElement("div");
-          slot.className = "giscus";
-          slot.id = slotId;  // giscus sends a signed-in visitor back to this anchor
-          panel.append(slot);
-          const s = document.createElement("script");
-          s.src = "https://giscus.app/client.js";
-          s.async = true;
-          s.crossOrigin = "anonymous";
-          Object.entries({
-            repo: {{ .repo }},
-            repoId: {{ .repoId }},
-            category: {{ .category }},
-            categoryId: {{ .categoryId }},
-            mapping: "specific",
-            term: "paper/" + id,
-            strict: "1",
-            reactionsEnabled: "0",
-            emitMetadata: "0",
-            inputPosition: "top",
-            theme: theme(),
-            lang: "zh-CN",
-          }).forEach(([k, v]) => s.setAttribute("data-" + k.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase()), v));
-          slot.after(s);
-          open = box;
-        };
+       Votes. Abacus counters only go up, so a reader's vote is four public counters per paper,
+       paper.<id>.up / .up.undo / .down / .down.undo, and the count shown is clicks − undos; this browser
+       remembers which way it voted. The blog owner's browser holds a private key (set once by opening any
+       page with #owner=<key>); its votes go to one counter o<key>.<id> instead, whose value mod 3 is the
+       vote (0 none, 1 up, 2 down), so they stay out of the public counts and read the same on every device.
 
-        content.querySelectorAll("h3").forEach((h) => {
-          const m = (h.querySelector("a[href]")?.href || "").match(ID);
-          if (!m) return;
-          const id = m[1] || m[2];
-          const slotId = "vote-" + id.replace(/[^\w]/g, "-");
-          let end = h;  // the paper's block runs until the next h2 / h3
-          while (end.nextElementSibling && !/^H[23]$/.test(end.nextElementSibling.tagName)) end = end.nextElementSibling;
-          const box = document.createElement("div");
-          box.className = "nv-vote";
-          box.innerHTML =
-            '<button type="button" class="nv-vote__btn" aria-expanded="false">👍 / 👎 反馈</button>' +
-            '<div class="nv-vote__panel" hidden><p class="nv-vote__hint">留言 👍 或 👎，可以再加一句为什么。用 GitHub 账号登录后可以留言。</p></div>';
-          end.after(box);
-          box.querySelector(".nv-vote__btn").addEventListener("click", () => (open === box ? close(box) : show(box, id, slotId)));
-          if (location.hash === "#" + slotId) {  // back from GitHub sign-in
-            show(box, id, slotId);
-            box.scrollIntoView();
+       One giscus thread is open at a time: client.js fills the first .giscus on the page and resizes every
+       frame it made on any message. */ -}}
+<script>
+  (() => {
+    const content = document.querySelector(".nv-article.is-daily .article-content");
+    if (!content) return;
+    const unlock = location.hash.match(/^#owner=([0-9a-f]{16}|off)$/);  // the owner opens a page with #owner=<key> once per browser
+    if (unlock) {
+      try { unlock[1] === "off" ? localStorage.removeItem("nv-owner-key") : localStorage.setItem("nv-owner-key", JSON.stringify(unlock[1])); } catch {}
+      history.replaceState(null, "", location.pathname + location.search);
+    }
+    const ID = /arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/\d{7})|huggingface\.co\/papers\/(\d{4}\.\d{4,5})/;
+    const store = (k, v) => { try { v === undefined ? (v = JSON.parse(localStorage.getItem(k) || "null")) : localStorage.setItem(k, JSON.stringify(v)); } catch { v = null; } return v; };
+    const owner = store("nv-owner-key");
+    const mine = store("nv-paper-votes") || {};
+
+    // Abacus allows about 30 requests per 10 s per visitor: send them one at a time, spaced out.
+    const base = "https://abacus.jasoncameron.dev", ns = "noviorlu.github.io";
+    let chain = Promise.resolve();
+    const call = (op, key) => (chain = chain.then(async () => {
+      for (let i = 0; i < 3; i++) {
+        const r = await fetch(`${base}/${op}/${ns}/${key}`).catch(() => null);
+        await new Promise((ok) => setTimeout(ok, 350));
+        if (r && r.status === 404 && op === "get") return 0;
+        if (r && r.ok) return (await r.json()).value;
+        if (!r || r.status !== 429) break;
+        await new Promise((ok) => setTimeout(ok, 3000));
+      }
+      throw new Error("abacus " + key);
+    }));
+
+    const rows = [];
+    content.querySelectorAll("h3").forEach((h) => {
+      const m = (h.querySelector("a[href]")?.href || "").match(ID);
+      if (!m) return;
+      const id = m[1] || m[2], pid = id.replace(/[^\w.]/g, "-");
+      let end = h;  // the paper's block runs until the next h2 / h3
+      while (end.nextElementSibling && !/^H[23]$/.test(end.nextElementSibling.tagName)) end = end.nextElementSibling;
+      const box = document.createElement("div");
+      box.className = "nv-vote";
+      box.innerHTML =
+        '<div class="nv-vote__row" role="group" aria-label="这篇论文的投票">' +
+        '<button type="button" class="nv-vote__btn" data-v="up" aria-pressed="false" title="有意思">👍 <b></b></button>' +
+        '<button type="button" class="nv-vote__btn" data-v="down" aria-pressed="false" title="没意思">👎 <b></b></button>' +
+        '<button type="button" class="nv-vote__btn nv-vote__talk" aria-expanded="false" title="留言讨论">💬 讨论</button>' +
+        (owner ? '<span class="nv-vote__me">博主投票</span>' : "") +
+        "</div>" +
+        '<div class="nv-vote__panel" hidden><p class="nv-vote__hint">用 GitHub 账号登录后可以留言，说说为什么有意思或没意思。</p></div>';
+      end.after(box);
+      rows.push({ box, id, pid, counts: null, own: 0 });
+    });
+    if (!rows.length) return;
+
+    // A click changes what this browser wants (row.want) and repaints at once; sync() then walks the counters
+    // to it one hit at a time, so clicks made while earlier hits are still on their way are never lost.
+    const shown = (row) => (row.want !== undefined ? row.want : owner ? ["", "up", "down"][row.own || 0] : mine[row.pid] || "");
+    const paint = (row) => {
+      const v = shown(row), done = owner ? ["", "up", "down"][row.own || 0] : mine[row.pid] || "", c = row.counts;
+      row.box.querySelectorAll("[data-v]").forEach((b) => {
+        const k = b.dataset.v;
+        const n = c ? Math.max(c[k] - c[k + ".undo"], 0) + (v === k) - (!owner && done === k) : 0;
+        b.setAttribute("aria-pressed", String(v === k));
+        b.querySelector("b").textContent = n > 0 ? n : "";
+      });
+    };
+    const load = async (row) => {
+      if (row.loading) return row.loading;
+      row.loading = (async () => {
+        const c = {};
+        for (const k of ["up", "down"]) {
+          c[k] = await call("get", `paper.${row.pid}.${k}`);
+          c[k + ".undo"] = c[k] ? await call("get", `paper.${row.pid}.${k}.undo`) : 0;
+        }
+        if (owner) row.own = (await call("get", `o${owner}.${row.pid}`)) % 3;
+        row.counts = c;
+      })().catch(() => { row.loading = null; });
+      await row.loading;
+      paint(row);
+    };
+    const seen = new IntersectionObserver((es) => es.forEach((e) => {
+      if (!e.isIntersecting) return;
+      seen.unobserve(e.target);
+      load(rows.find((r) => r.box === e.target));
+    }), { rootMargin: "200px" });
+    rows.forEach((row) => seen.observe(row.box));
+
+    const sync = async (row) => {
+      if (row.syncing) return;
+      row.syncing = true;
+      try {
+        if (owner) {
+          if (row.own === undefined) await load(row);
+          const code = () => ["", "up", "down"].indexOf(row.want);
+          while (row.own !== undefined && row.own !== code()) row.own = (await call("hit", `o${owner}.${row.pid}`)) % 3;
+        } else {
+          for (let done = mine[row.pid] || ""; done !== row.want; done = mine[row.pid] || "") {
+            const step = done ? done + ".undo" : row.want;  // take the old vote back first, then cast the new one
+            await call("hit", `paper.${row.pid}.${step}`);
+            if (row.counts) row.counts[step]++;
+            done ? delete mine[row.pid] : (mine[row.pid] = row.want);
+            store("nv-paper-votes", mine);
           }
-        });
+        }
+      } catch {}
+      row.syncing = false;
+      paint(row);
+    };
+    const vote = (row, k) => {
+      row.want = shown(row) === k ? "" : k;
+      paint(row);
+      sync(row);
+    };
 
-        // Follow the site's light/dark toggle.
-        new MutationObserver(() => {
-          document.querySelectorAll("iframe.giscus-frame").forEach((f) =>
-            f.contentWindow.postMessage({ giscus: { setConfig: { theme: theme() } } }, "https://giscus.app"));
-        }).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-      })();
-    </script>
-  {{ end }}
-{{ end }}
+    {{ with site.Params.giscus }}
+    const theme = () => document.documentElement.classList.contains("dark") ? "dark_dimmed" : "light";
+    let open = null;
+    const close = (row) => {
+      row.box.querySelector(".nv-vote__panel").hidden = true;
+      row.box.querySelector(".nv-vote__talk").setAttribute("aria-expanded", "false");
+      row.box.querySelectorAll(".giscus, script").forEach((n) => n.remove());
+      if (open === row) open = null;
+    };
+    const talk = (row) => {
+      if (open) close(open);
+      const panel = row.box.querySelector(".nv-vote__panel");
+      panel.hidden = false;
+      row.box.querySelector(".nv-vote__talk").setAttribute("aria-expanded", "true");
+      const slot = document.createElement("div");
+      slot.className = "giscus";
+      slot.id = "vote-" + row.pid;  // giscus sends a signed-in visitor back to this anchor
+      panel.append(slot);
+      const s = document.createElement("script");
+      s.src = "https://giscus.app/client.js";
+      s.async = true;
+      s.crossOrigin = "anonymous";
+      Object.entries({
+        repo: {{ .repo }},
+        repoId: {{ .repoId }},
+        category: {{ .category }},
+        categoryId: {{ .categoryId }},
+        mapping: "specific",
+        term: "paper/" + row.id,
+        strict: "1",
+        reactionsEnabled: "0",
+        emitMetadata: "0",
+        inputPosition: "top",
+        theme: theme(),
+        lang: "zh-CN",
+      }).forEach(([k, v]) => s.setAttribute("data-" + k.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase()), v));
+      slot.after(s);
+      open = row;
+    };
+    new MutationObserver(() => {  // follow the site's light/dark toggle
+      document.querySelectorAll("iframe.giscus-frame").forEach((f) =>
+        f.contentWindow.postMessage({ giscus: { setConfig: { theme: theme() } } }, "https://giscus.app"));
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    {{ end }}
+
+    rows.forEach((row) => {
+      row.box.querySelectorAll("[data-v]").forEach((b) => b.addEventListener("click", () => vote(row, b.dataset.v)));
+      const t = row.box.querySelector(".nv-vote__talk");
+      if (typeof talk === "undefined") { t.remove(); return; }
+      t.addEventListener("click", () => (open === row ? close(row) : talk(row)));
+      if (location.hash === "#vote-" + row.pid) {  // back from GitHub sign-in
+        talk(row);
+        row.box.scrollIntoView();
+      }
+    });
+  })();
+</script>
