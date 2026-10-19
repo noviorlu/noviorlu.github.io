@@ -531,10 +531,10 @@ $j = N$ 时就是 safe softmax 的分母。
 
 第 3 步那一行就是 B 段只有一个元素的情况：$m_B = x_j$，$\ell_B = e^{x_j - x_j} = 1$。论文把这个合并记作 $\oplus$。
 
-**第 6 步：并行。** 能合并任意两段，一行就可以切成几段，交给不同的 thread 同时按第 3 步扫，最后再合并（[图 2-3](#fig-2-3)）。合并的顺序不影响结果（$\oplus$ 满足结合律和交换律），所以先合并哪两段都行。
+**第 6 步：并行。** 能合并任意两段，一行就可以切成几段，交给不同的 thread 同时按第 3 步的第 1 个循环扫，再合并。合并以后每个 thread 都拿到整行的 $m_N$、$\ell_N$，写 $y_i$ 的第 2 个循环也各写各的那一段（[图 2-3](#fig-2-3)）。合并的顺序不影响结果（$\oplus$ 满足结合律和交换律），所以先合并哪两段都行。
 
 <figure id="fig-2-3">
-<svg viewBox="0 0 680 318" width="100%" role="img" aria-label="顺序扫：一个 thread 依次读 x_1 到 x_8，每读一个更新 m 和 ℓ，共 8 步。并行：thread 0 扫 x_1 到 x_4 得到 m_A、ℓ_A，thread 1 同时扫 x_5 到 x_8 得到 m_B、ℓ_B，4 步以后合并一次，共 5 步">
+<svg viewBox="0 0 680 346" width="100%" role="img" aria-label="一行 8 个元素。safe softmax 顺序扫三遍：求 m、求 ℓ、写 y，共 24 步。online softmax 顺序扫两遍：同时更新 m 和 ℓ、写 y，共 16 步。两个 thread 并行：各扫 4 个元素更新 m 和 ℓ，合并一次，再各写 4 个 y，共 9 步">
   <style>
     .os2 { font-size: 11px; fill: currentColor; }
     .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
@@ -542,52 +542,105 @@ $j = N$ 时就是 safe softmax 的分母。
     .os2-c { font-size: 12px; font-weight: 600; text-anchor: middle; fill: currentColor; }
     .os2-hi { fill: var(--fig-hi); font-weight: 600; }
   </style>
-<line x1="160" y1="26" x2="160" y2="204" stroke="currentColor" stroke-opacity=".08"/>
-<line x1="212" y1="26" x2="212" y2="204" stroke="currentColor" stroke-opacity=".08"/>
-<line x1="264" y1="26" x2="264" y2="204" stroke="currentColor" stroke-opacity=".08"/>
-<line x1="316" y1="26" x2="316" y2="204" stroke="currentColor" stroke-opacity=".08"/>
-<line x1="368" y1="26" x2="368" y2="204" stroke="currentColor" stroke-opacity=".08"/>
-<line x1="420" y1="26" x2="420" y2="204" stroke="currentColor" stroke-opacity=".08"/>
-<line x1="472" y1="26" x2="472" y2="204" stroke="currentColor" stroke-opacity=".08"/>
-<line x1="524" y1="26" x2="524" y2="204" stroke="currentColor" stroke-opacity=".08"/>
-<line x1="576" y1="26" x2="576" y2="204" stroke="currentColor" stroke-opacity=".08"/>
-<text class="os2-s" x="368" y="20" text-anchor="middle">时间（一格 = 更新一次 m、ℓ）→</text>
-<text class="os2-b" x="8" y="36" text-anchor="start">顺序：第 3 步的第 1 个循环（算 m、ℓ）</text>
-<text class="os2" x="8" y="63.0" text-anchor="start">thread 0</text>
-<rect x="161" y="44" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="186.0" y="63.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">1</tspan></text>
-<rect x="213" y="44" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="238.0" y="63.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">2</tspan></text>
-<rect x="265" y="44" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="290.0" y="63.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">3</tspan></text>
-<rect x="317" y="44" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="342.0" y="63.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">4</tspan></text>
-<rect x="369" y="44" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="394.0" y="63.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">5</tspan></text>
-<rect x="421" y="44" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="446.0" y="63.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">6</tspan></text>
-<rect x="473" y="44" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="498.0" y="63.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">7</tspan></text>
-<rect x="525" y="44" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="550.0" y="63.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">8</tspan></text>
-<line x1="576" y1="40" x2="576" y2="78" style="stroke: var(--fig-hi)" stroke-width="2"/>
-<text class="os2 os2-hi" x="582" y="63.0" text-anchor="start">8 步</text>
-<text class="os2-b" x="8" y="124" text-anchor="start">切成两段同时扫（第 6 步）</text>
-<text class="os2" x="8" y="151.0" text-anchor="start">thread 0：A 段</text>
-<text class="os2" x="8" y="187.0" text-anchor="start">thread 1：B 段</text>
-<rect x="161" y="132" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="186.0" y="151.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">1</tspan></text>
-<rect x="161" y="168" width="50" height="30" rx="3" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity="0.45" stroke-opacity=".35"/><text class="os2" x="186.0" y="187.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">5</tspan></text>
-<rect x="213" y="132" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="238.0" y="151.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">2</tspan></text>
-<rect x="213" y="168" width="50" height="30" rx="3" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity="0.45" stroke-opacity=".35"/><text class="os2" x="238.0" y="187.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">6</tspan></text>
-<rect x="265" y="132" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="290.0" y="151.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">3</tspan></text>
-<rect x="265" y="168" width="50" height="30" rx="3" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity="0.45" stroke-opacity=".35"/><text class="os2" x="290.0" y="187.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">7</tspan></text>
-<rect x="317" y="132" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="342.0" y="151.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">4</tspan></text>
-<rect x="317" y="168" width="50" height="30" rx="3" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity="0.45" stroke-opacity=".35"/><text class="os2" x="342.0" y="187.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">8</tspan></text>
-<text class="os2" x="264" y="124" text-anchor="middle"></text>
-<text class="os2-s" x="364" dy="0" y="126" text-anchor="end">得到 m<tspan dy="3.5" font-size="72%">A</tspan><tspan dy="-3.5">, ℓ</tspan><tspan dy="3.5" font-size="72%">A</tspan></text>
-<text class="os2-s" x="364" y="212" text-anchor="end">得到 m<tspan dy="3.5" font-size="72%">B</tspan><tspan dy="-3.5">, ℓ</tspan><tspan dy="3.5" font-size="72%">B</tspan></text>
-<rect x="369" y="132" width="50" height="66" rx="3" style="fill: var(--fig-hi); stroke: var(--fig-hi)" fill-opacity=".18" stroke-opacity=".6"/>
-<text class="os2 os2-hi" x="394.0" y="169.0" text-anchor="middle">合并</text>
-<line x1="420" y1="128" x2="420" y2="202" style="stroke: var(--fig-hi)" stroke-width="2"/>
-<text class="os2 os2-hi" x="426" y="169.0" text-anchor="start">4 步 + 合并 1 次</text>
-<text class="os2" x="160" y="242" text-anchor="start">合并（第 5 步）：m = max(m<tspan dy="3.5" font-size="72%">A</tspan><tspan dy="-3.5">, m</tspan><tspan dy="3.5" font-size="72%">B</tspan><tspan dy="-3.5">)，ℓ = ℓ</tspan><tspan dy="3.5" font-size="72%">A</tspan><tspan dy="-3.5"> · e</tspan><tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">A</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> + ℓ</tspan><tspan dy="3.5" font-size="72%">B</tspan><tspan dy="-3.5"> · e</tspan><tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">B</tspan><tspan dy="-3" font-size="72%">−m</tspan></text>
-<text class="os2-s" x="160" y="262" text-anchor="start">两个 thread 互不等待；段越多，每段越短，最后多几次合并</text>
-<text class="os2-s" x="160" y="280" text-anchor="start">第 3 步每读一个元素，也是一次合并：B 段只有 x<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> 一个元素，m</tspan><tspan dy="3.5" font-size="72%">B</tspan><tspan dy="-3.5"> = x</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">，ℓ</tspan><tspan dy="3.5" font-size="72%">B</tspan><tspan dy="-3.5"> = 1</tspan></text>
-<text class="os2-s" x="160" y="298" text-anchor="start">写 y<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 的第 2 个循环不在图里：每个 y</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 只用自己的 x</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 和最终的 m、ℓ，本来就能并行</tspan></text>
+<rect x="150" y="8" width="14" height="12" rx="2" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity="0.55" stroke-opacity=".3"/>
+<text class="os2-s" x="169" y="18" text-anchor="start">求 m</text>
+<rect x="225" y="8" width="14" height="12" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/>
+<text class="os2-s" x="244" y="18" text-anchor="start">求 ℓ</text>
+<rect x="300" y="8" width="14" height="12" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.8" stroke-opacity=".3"/>
+<text class="os2-s" x="319" y="18" text-anchor="start">同时更新 m、ℓ</text>
+<rect x="425" y="8" width="14" height="12" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/>
+<text class="os2-s" x="444" y="18" text-anchor="start">写 y<tspan dy="3.5" font-size="72%">i</tspan></text>
+<rect x="520" y="8" width="14" height="12" rx="2" style="fill: var(--fig-hi); stroke: var(--fig-1)" fill-opacity="0.22" stroke-opacity=".3"/>
+<text class="os2-s" x="539" y="18" text-anchor="start">合并</text>
+<line x1="150.0" y1="40" x2="150.0" y2="256" stroke="currentColor" stroke-opacity=".1"/>
+<text class="os2-s" x="150.0" y="270" text-anchor="middle">0</text>
+<line x1="232.0" y1="40" x2="232.0" y2="256" stroke="currentColor" stroke-opacity=".1"/>
+<text class="os2-s" x="232.0" y="270" text-anchor="middle">4</text>
+<line x1="314.0" y1="40" x2="314.0" y2="256" stroke="currentColor" stroke-opacity=".1"/>
+<text class="os2-s" x="314.0" y="270" text-anchor="middle">8</text>
+<line x1="396.0" y1="40" x2="396.0" y2="256" stroke="currentColor" stroke-opacity=".1"/>
+<text class="os2-s" x="396.0" y="270" text-anchor="middle">12</text>
+<line x1="478.0" y1="40" x2="478.0" y2="256" stroke="currentColor" stroke-opacity=".1"/>
+<text class="os2-s" x="478.0" y="270" text-anchor="middle">16</text>
+<line x1="560.0" y1="40" x2="560.0" y2="256" stroke="currentColor" stroke-opacity=".1"/>
+<text class="os2-s" x="560.0" y="270" text-anchor="middle">20</text>
+<line x1="642.0" y1="40" x2="642.0" y2="256" stroke="currentColor" stroke-opacity=".1"/>
+<text class="os2-s" x="642.0" y="270" text-anchor="middle">24</text>
+<text class="os2-s" x="642.0" y="284" text-anchor="end">步 →</text>
+<text class="os2-b" x="8" y="52" text-anchor="start">safe softmax（第 2 步）</text>
+<text class="os2-s" x="8" y="74" text-anchor="start">1 个 thread，3 遍，24 步</text>
+<rect x="150.75" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity="0.55" stroke-opacity=".3"/><text class="os2-s" x="160.25" y="74.0" text-anchor="middle">1</text>
+<rect x="171.25" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity="0.55" stroke-opacity=".3"/><text class="os2-s" x="180.75" y="74.0" text-anchor="middle">2</text>
+<rect x="191.75" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity="0.55" stroke-opacity=".3"/><text class="os2-s" x="201.25" y="74.0" text-anchor="middle">3</text>
+<rect x="212.25" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity="0.55" stroke-opacity=".3"/><text class="os2-s" x="221.75" y="74.0" text-anchor="middle">4</text>
+<rect x="232.75" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity="0.55" stroke-opacity=".3"/><text class="os2-s" x="242.25" y="74.0" text-anchor="middle">5</text>
+<rect x="253.25" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity="0.55" stroke-opacity=".3"/><text class="os2-s" x="262.75" y="74.0" text-anchor="middle">6</text>
+<rect x="273.75" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity="0.55" stroke-opacity=".3"/><text class="os2-s" x="283.25" y="74.0" text-anchor="middle">7</text>
+<rect x="294.25" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity="0.55" stroke-opacity=".3"/><text class="os2-s" x="303.75" y="74.0" text-anchor="middle">8</text>
+<rect x="314.75" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="324.25" y="74.0" text-anchor="middle">1</text>
+<rect x="335.25" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="344.75" y="74.0" text-anchor="middle">2</text>
+<rect x="355.75" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="365.25" y="74.0" text-anchor="middle">3</text>
+<rect x="376.25" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="385.75" y="74.0" text-anchor="middle">4</text>
+<rect x="396.75" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="406.25" y="74.0" text-anchor="middle">5</text>
+<rect x="417.25" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="426.75" y="74.0" text-anchor="middle">6</text>
+<rect x="437.75" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="447.25" y="74.0" text-anchor="middle">7</text>
+<rect x="458.25" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="467.75" y="74.0" text-anchor="middle">8</text>
+<rect x="478.75" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="488.25" y="74.0" text-anchor="middle">1</text>
+<rect x="499.25" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="508.75" y="74.0" text-anchor="middle">2</text>
+<rect x="519.75" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="529.25" y="74.0" text-anchor="middle">3</text>
+<rect x="540.25" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="549.75" y="74.0" text-anchor="middle">4</text>
+<rect x="560.75" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="570.25" y="74.0" text-anchor="middle">5</text>
+<rect x="581.25" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="590.75" y="74.0" text-anchor="middle">6</text>
+<rect x="601.75" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="611.25" y="74.0" text-anchor="middle">7</text>
+<rect x="622.25" y="58" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="631.75" y="74.0" text-anchor="middle">8</text>
+<line x1="642.0" y1="55" x2="642.0" y2="85" style="stroke: var(--fig-hi)" stroke-width="2"/>
+<text class="os2-b" x="8" y="112" text-anchor="start">online softmax（第 3 步）</text>
+<text class="os2-s" x="8" y="134" text-anchor="start">1 个 thread，2 遍，16 步</text>
+<rect x="150.75" y="118" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.8" stroke-opacity=".3"/><text class="os2-s" x="160.25" y="134.0" text-anchor="middle" style="fill: var(--fig-on-3)">1</text>
+<rect x="171.25" y="118" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.8" stroke-opacity=".3"/><text class="os2-s" x="180.75" y="134.0" text-anchor="middle" style="fill: var(--fig-on-3)">2</text>
+<rect x="191.75" y="118" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.8" stroke-opacity=".3"/><text class="os2-s" x="201.25" y="134.0" text-anchor="middle" style="fill: var(--fig-on-3)">3</text>
+<rect x="212.25" y="118" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.8" stroke-opacity=".3"/><text class="os2-s" x="221.75" y="134.0" text-anchor="middle" style="fill: var(--fig-on-3)">4</text>
+<rect x="232.75" y="118" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.8" stroke-opacity=".3"/><text class="os2-s" x="242.25" y="134.0" text-anchor="middle" style="fill: var(--fig-on-3)">5</text>
+<rect x="253.25" y="118" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.8" stroke-opacity=".3"/><text class="os2-s" x="262.75" y="134.0" text-anchor="middle" style="fill: var(--fig-on-3)">6</text>
+<rect x="273.75" y="118" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.8" stroke-opacity=".3"/><text class="os2-s" x="283.25" y="134.0" text-anchor="middle" style="fill: var(--fig-on-3)">7</text>
+<rect x="294.25" y="118" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.8" stroke-opacity=".3"/><text class="os2-s" x="303.75" y="134.0" text-anchor="middle" style="fill: var(--fig-on-3)">8</text>
+<rect x="314.75" y="118" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="324.25" y="134.0" text-anchor="middle">1</text>
+<rect x="335.25" y="118" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="344.75" y="134.0" text-anchor="middle">2</text>
+<rect x="355.75" y="118" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="365.25" y="134.0" text-anchor="middle">3</text>
+<rect x="376.25" y="118" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="385.75" y="134.0" text-anchor="middle">4</text>
+<rect x="396.75" y="118" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="406.25" y="134.0" text-anchor="middle">5</text>
+<rect x="417.25" y="118" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="426.75" y="134.0" text-anchor="middle">6</text>
+<rect x="437.75" y="118" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="447.25" y="134.0" text-anchor="middle">7</text>
+<rect x="458.25" y="118" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="467.75" y="134.0" text-anchor="middle">8</text>
+<line x1="478.0" y1="115" x2="478.0" y2="145" style="stroke: var(--fig-hi)" stroke-width="2"/>
+<text class="os2-b" x="8" y="172" text-anchor="start">online softmax 并行（第 6 步）</text>
+<text class="os2-s" x="8" y="202" text-anchor="start">thread 0：x<tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5"> … x</tspan><tspan dy="3.5" font-size="72%">4</tspan></text>
+<text class="os2-s" x="8" y="230" text-anchor="start">thread 1：x<tspan dy="3.5" font-size="72%">5</tspan><tspan dy="-3.5"> … x</tspan><tspan dy="3.5" font-size="72%">8</tspan></text>
+<rect x="150.75" y="186" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.8" stroke-opacity=".3"/><text class="os2-s" x="160.25" y="202.0" text-anchor="middle" style="fill: var(--fig-on-3)">1</text>
+<rect x="150.75" y="214" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.8" stroke-opacity=".3"/><text class="os2-s" x="160.25" y="230.0" text-anchor="middle" style="fill: var(--fig-on-3)">5</text>
+<rect x="253.25" y="186" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="262.75" y="202.0" text-anchor="middle">1</text>
+<rect x="253.25" y="214" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="262.75" y="230.0" text-anchor="middle">5</text>
+<rect x="171.25" y="186" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.8" stroke-opacity=".3"/><text class="os2-s" x="180.75" y="202.0" text-anchor="middle" style="fill: var(--fig-on-3)">2</text>
+<rect x="171.25" y="214" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.8" stroke-opacity=".3"/><text class="os2-s" x="180.75" y="230.0" text-anchor="middle" style="fill: var(--fig-on-3)">6</text>
+<rect x="273.75" y="186" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="283.25" y="202.0" text-anchor="middle">2</text>
+<rect x="273.75" y="214" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="283.25" y="230.0" text-anchor="middle">6</text>
+<rect x="191.75" y="186" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.8" stroke-opacity=".3"/><text class="os2-s" x="201.25" y="202.0" text-anchor="middle" style="fill: var(--fig-on-3)">3</text>
+<rect x="191.75" y="214" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.8" stroke-opacity=".3"/><text class="os2-s" x="201.25" y="230.0" text-anchor="middle" style="fill: var(--fig-on-3)">7</text>
+<rect x="294.25" y="186" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="303.75" y="202.0" text-anchor="middle">3</text>
+<rect x="294.25" y="214" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="303.75" y="230.0" text-anchor="middle">7</text>
+<rect x="212.25" y="186" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.8" stroke-opacity=".3"/><text class="os2-s" x="221.75" y="202.0" text-anchor="middle" style="fill: var(--fig-on-3)">4</text>
+<rect x="212.25" y="214" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.8" stroke-opacity=".3"/><text class="os2-s" x="221.75" y="230.0" text-anchor="middle" style="fill: var(--fig-on-3)">8</text>
+<rect x="314.75" y="186" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="324.25" y="202.0" text-anchor="middle">4</text>
+<rect x="314.75" y="214" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="324.25" y="230.0" text-anchor="middle">8</text>
+<rect x="232.75" y="186" width="19.0" height="52" rx="2" style="fill: var(--fig-hi); stroke: var(--fig-1)" fill-opacity="0.22" stroke-opacity=".3"/><text class="os2 os2-hi" x="242.25" text-anchor="middle"><tspan x="242.25" y="210.0">合</tspan><tspan x="242.25" y="224.0">并</tspan></text>
+<line x1="334.5" y1="183" x2="334.5" y2="241" style="stroke: var(--fig-hi)" stroke-width="2"/>
+<text class="os2 os2-hi" x="340.5" y="216" text-anchor="start">9 步</text>
+<text class="os2" x="484.0" y="134.0" text-anchor="middle"></text>
+<text class="os2" x="150" y="304" text-anchor="start">合并（第 5 步）：m = max(m<tspan dy="3.5" font-size="72%">A</tspan><tspan dy="-3.5">, m</tspan><tspan dy="3.5" font-size="72%">B</tspan><tspan dy="-3.5">)，ℓ = ℓ</tspan><tspan dy="3.5" font-size="72%">A</tspan><tspan dy="-3.5"> · e</tspan><tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">A</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> + ℓ</tspan><tspan dy="3.5" font-size="72%">B</tspan><tspan dy="-3.5"> · e</tspan><tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">B</tspan><tspan dy="-3" font-size="72%">−m</tspan></text>
+<text class="os2-s" x="150" y="322" text-anchor="start">合并以后两个 thread 都拿到整行的 m、ℓ；每个 y<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 只用自己的 x</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5">，两段 y 各写各的</tspan></text>
+<text class="os2-s" x="150" y="340" text-anchor="start">格子里的数字是元素的下标 k</text>
 </svg>
-<figcaption><strong>图 2-3</strong> 一行 8 个元素，只画第 3 步算 $m$、$\ell$ 的那一遍：一个 thread 顺序扫要 8 步；切成两段由两个 thread 同时扫，4 步以后合并一次。</figcaption>
+<figcaption><strong>图 2-3</strong> 一行 8 个元素，三种算法放在同一条时间轴上，一格是处理一个元素。</figcaption>
 </figure>
 
 **第 7 步：推广到 attention。** 论文只算 softmax，attention 还要乘 $V$，一行的输出是 $\text{out} = \sum_k p_k v_k$。分母 $\ell$ 对每一项都一样，提出来以后输出是分子 $O$ 除以 $\ell$，$O$ 也是按同一个最大值加起来的求和（[图 2-4](#fig-2-4)）。
