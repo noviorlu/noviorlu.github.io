@@ -250,11 +250,11 @@ Dao、Fu、Ermon、Rudra、Ré 2022 年的论文把这当成 IO 问题来处理�
 
 ### 2.2 Online softmax {#online-softmax}
 
-softmax 的分母要用一整行的 score，tiling 以后一个 tile 只看得到一段。普通的 softmax 为了不溢出，先减掉整行的最大值 $m$，一行 $x_1, \dots, x_N$ 要扫三遍：
+softmax 的分母要用一整行的 score，tiling 以后一个 tile 只看得到一段。不分块的时候，PyTorch 这类普通实现为了不溢出，先减掉整行的最大值 $m$，对一行 $x_1, \dots, x_N$ 扫三遍：
 
-<p align="center">第 1 遍 $m = \max_k x_k$，第 2 遍 $\ell = \sum_k e^{x_k-m}$，第 3 遍 $p_k = e^{x_k-m} / \ell$</p>
+<p align="center">普通 softmax：第 1 遍 $m = \max_k x_k$，第 2 遍 $\ell = \sum_k e^{x_k-m}$，第 3 遍 $p_k = e^{x_k-m} / \ell$</p>
 
-第 2、3 遍的每一项都要用到 $m$，而 $m$ 要等第 1 遍扫完整行才知道。
+第 2 遍的每一项都要用到 $m$，而 $m$ 要等第 1 遍扫完整行才知道，所以这种算法没法读一个 block 算一个 block。FlashAttention 换成 online softmax，对 K/V 只扫一遍。
 
 attention 一行的输出是 softmax 加权的 $v$，可以拆成分子 $O$ 除以分母 $\ell$，两个都是求和（[图 2-3](#fig-2-3)）。
 
