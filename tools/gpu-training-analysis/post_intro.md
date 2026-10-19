@@ -37,7 +37,7 @@ series_order: 1
 
 #### 数据怎么在各层之间搬 {#hw-move}
 
-数据能从哪一层搬到哪一层，取决于每一层归谁用：计算单元只读写 register；register 只归一个 thread，shared memory 只归一个 block（thread、block 见 [1.3 节](#hw-model)）；显存和 L2 全卡共享。L1 和 L2 是 cache，没有指令能指定读写它们，数据只是经过。[表 1-1](#tab-1-1) 是各层之间能怎么搬。
+数据能从哪一层搬到哪一层，取决于每一层归谁用：计算单元只读写 register；register 只归一个 thread，shared memory 只归一个 block（thread、block 见 [1.3 节](#hw-model)）；显存和 L2 全卡共享。L1 和 L2 是 cache，没有指令能指定读写它们，数据只是经过。[表 1-1](#tab-1-1) 是各层之间能怎么搬，表里的指令名是 PTX 里的写法。PTX（Parallel Thread Execution）是 NVIDIA 定义的 GPU 虚拟指令集，相当于 GPU 上的汇编：CUDA C++ 和 Triton 写的 kernel 都先编译成 PTX，再由 ptxas 翻译成某一代 GPU 的机器码（SASS）。PTX 按单个 thread 的视角写，一条指令由一个 warp 的 32 个 thread 一起执行。
 
 | 从 | 到 | 怎么搬 |
 |:--|:--|:--|
@@ -47,9 +47,9 @@ series_order: 1
 | shared memory | register | ld.shared |
 | 显存 | shared memory | 没有一步到位的普通 load：ld.global 读进 register 再 st.shared；或者 cp.async（Ampere 起）、TMA（Hopper 起，见 [1.2 节](#hw-sm)），都经过 L2，不经过 register |
 | shared memory | 显存 | ld.shared 读进 register 再 st.global；或者 TMA。cp.async 只能从显存往 shared memory 搬 |
-| 一个 thread 的 register | 同一个 warp 里别的 thread | shuffle（shfl.sync），出了 warp 就不行 |
+| 一个 thread 的 register | 同一个 warp 里别的 thread | shuffle（shfl.sync）：一条指令里，每个 thread 直接读同一个 warp 里另一个 thread 的一个 register；出了 warp 就不行 |
 | 一个 block 的 shared memory | 别的 block | 不行，只能写回显存再读 |
-{#tab-1-1 caption="**表 1-1** 数据在各层之间能怎么搬" note="指令名是 PTX 里的写法。Hopper 起的 thread block cluster 里，几个 block 可以互读 shared memory，这篇用不到。"}
+{#tab-1-1 caption="**表 1-1** 数据在各层之间能怎么搬" note="Hopper 起的 thread block cluster 里，几个 block 可以互读 shared memory，这篇用不到。"}
 
 cp.async 是 Ampere（compute capability 8.0）开始有的 PTX 指令，把显存里的数据复制到 shared memory。数据照样先经过 L2，到了 SM 以后直接写进 shared memory，不落到 register。每个 thread 自己算地址，一条搬 4、8 或 16 B；`cp.async.cg` 只在 L2 缓存，`cp.async.ca` 还会在 L1 留一份。
 
@@ -157,7 +157,7 @@ program 编译后就是 CUDA 的一个 block。8192 个 program 远多于 170 �
 <details class="fold doc aside">
 <summary>GELU 编译成的 PTX</summary>
 
-Triton 把 kernel 编译成 PTX，PTX 描述的是单个 thread 的指令。n = 8388608 时的节选：
+Triton 把 kernel 编译成 PTX（[1.1 节](#hw-move)），PTX 描述的是单个 thread 的指令。n = 8388608 时的节选：
 
 ```
 mov.u32          %r17, %ctaid.x;                                // program 编号，即 blockIdx.x
@@ -200,7 +200,7 @@ $y_{ij}$ 要用到第 $i$ 行全部 N 个数。eager 下 softmax 要 5 个 kerne
 {{code:triton_tutorial.py:softmax_launch}}
 ```
 
-[图 2-3](#fig-t-2) 里的 warp max、warp sum 是 shared memory 在这个 kernel 里唯一的用处：`tl.max`、`tl.sum` 分三步归约。每个 thread 先把自己手里的 32 个数归约成一个。再在 warp 内用 shuffle 归约：shuffle 是 warp 内交换数据的指令（PTX 的 `shfl.sync`），每个 thread 直接读同一个 warp 里另一个 thread 的一个 register，不经过 shared memory（[表 1-1](#tab-1-1)）。编出来的 PTX 用的是 `shfl.sync.bfly`：每一步 thread $i$ 读 thread $i \oplus d$（按位异或）的值并和自己的合并，$d$ 依次取 16、8、4、2、1，5 步以后 warp 里每个 thread 都拿到这个 warp 的最大值或和。最后 4 个 warp 的部分结果经 shared memory 交换（一共 16 B），再用 $d$ 取 2、1 的两步 shuffle 合并成整行的结果。把一整个 block 的数据放进 shared memory 什么时候值得，[2.4 节](#triton-matmul)再讲。
+[图 2-3](#fig-t-2) 里的 warp max、warp sum 是 shared memory 在这个 kernel 里唯一的用处：`tl.max`、`tl.sum` 分三步归约。每个 thread 先把自己手里的 32 个数归约成一个。再在 warp 内用 shuffle 归约，shuffle 让每个 thread 直接读同一个 warp 里另一个 thread 的 register，不经过 shared memory（[表 1-1](#tab-1-1)）。编出来的 PTX 用的是 `shfl.sync.bfly`：每一步 thread $i$ 读 thread $i \oplus d$（按位异或）的值并和自己的合并，$d$ 依次取 16、8、4、2、1，5 步以后 warp 里每个 thread 都拿到这个 warp 的最大值或和。最后 4 个 warp 的部分结果经 shared memory 交换（一共 16 B），再用 $d$ 取 2、1 的两步 shuffle 合并成整行的结果。把一整个 block 的数据放进 shared memory 什么时候值得，[2.4 节](#triton-matmul)再讲。
 
 这个写法要求 BLOCK ≥ N，也就是一行能一次装进一个 program。行再长，program 就只能沿行一个 block 一个 block 地读，读过的 block 要留下一个中间结果。下一节先看最简单的按行归约：求和。
 
