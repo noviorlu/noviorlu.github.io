@@ -250,51 +250,11 @@ Dao、Fu、Ermon、Rudra、Ré 2022 年的论文把这当成 IO 问题来处理�
 
 ### 2.2 Online softmax {#online-softmax}
 
-softmax 的分母要用一整行的 score，tiling 以后一个 tile 只看得到一段。普通的 softmax 为了不溢出，先减掉整行的最大值 $m$，一行要扫三遍（[图 2-3](#fig-2-3)）。
+softmax 的分母要用一整行的 score，tiling 以后一个 tile 只看得到一段。普通的 softmax 为了不溢出，先减掉整行的最大值 $m$，一行 $x_1, \dots, x_N$ 要扫三遍：
 
-<figure id="fig-2-3">
-<svg viewBox="0 0 680 292" width="100%" role="img" aria-label="普通 softmax 一行要扫三遍：第 1 遍求最大值 m = 1，第 2 遍求分母 ℓ，每一项都要用到 m，第 3 遍归一化。分块以后只看到第一个 block 的 0 和 0 时，最大值 1 还在后面的 block 里，第 2 遍没法开始">
-  <style>
-    .os2 { font-size: 11px; fill: currentColor; }
-    .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
-    .os2-s { font-size: 10.5px; fill: currentColor; opacity: .72; }
-    .os2-c { font-size: 12px; font-weight: 600; text-anchor: middle; fill: currentColor; }
-    .os2-hi { fill: var(--fig-hi); font-weight: 600; }
-  </style>
-  <defs><marker id="osA-m" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-1)"/></marker></defs>
-<text class="os2-b" x="8" y="20">普通 softmax：一行 score 要扫三遍</text>
-<text class="os2" x="8" y="48">一行 score</text>
-<rect x="200" y="30" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="226.0" y="48.0">0</text>
-<rect x="256" y="30" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="282.0" y="48.0">0</text>
-<rect x="312" y="30" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="338.0" y="48.0">1</text>
-<rect x="368" y="30" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="394.0" y="48.0">1</text>
-<rect x="424" y="30" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="450.0" y="48.0">0</text>
-<rect x="480" y="30" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="506.0" y="48.0">0</text>
-<text class="os2" x="8" y="88">第 1 遍：求最大值</text>
-<line x1="200" y1="84" x2="530" y2="84" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#osA-m)"/>
-<text class="os2" x="542" y="88">m = max = 1</text>
-<text class="os2" x="8" y="122">第 2 遍：求分母</text>
-<line x1="200" y1="118" x2="530" y2="118" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#osA-m)"/>
-<text class="os2" x="542" y="122">ℓ = 2 + 4e^(−1)</text>
-<text class="os2-s" x="204" y="133">每一项 e^(x − m) 都要用到第 1 遍的 m</text>
-<text class="os2" x="8" y="156">第 3 遍：归一化</text>
-<line x1="200" y1="152" x2="530" y2="152" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#osA-m)"/>
-<text class="os2" x="542" y="156">p = e^(x − m) / ℓ</text>
-<line x1="8" y1="190" x2="672" y2="190" stroke="currentColor" stroke-opacity=".15"/>
-<text class="os2-b" x="8" y="212">分块以后：一次只看得到一个 block</text>
-<rect x="200" y="224" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="226.0" y="242.0">0</text>
-<rect x="256" y="224" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.9" stroke-opacity=".35"/><text class="os2-c" x="282.0" y="242.0">0</text>
-<text class="os2-s" x="254" y="266" text-anchor="middle">block 1</text>
-<rect x="322" y="224" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.25" stroke-opacity=".35"/><text class="os2-c" x="348.0" y="242.0">1</text>
-<rect x="378" y="224" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.25" stroke-opacity=".35"/><text class="os2-c" x="404.0" y="242.0">1</text>
-<text class="os2-s" x="376" y="266" text-anchor="middle">block 2</text>
-<rect x="444" y="224" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.25" stroke-opacity=".35"/><text class="os2-c" x="470.0" y="242.0">0</text>
-<rect x="500" y="224" width="52" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.25" stroke-opacity=".35"/><text class="os2-c" x="526.0" y="242.0">0</text>
-<text class="os2-s" x="498" y="266" text-anchor="middle">block 3</text>
-<text class="os2" x="200" y="284">只看到 block 1 的 0、0 时，最大值 1 还在 block 2 里，第 2 遍没法开始</text>
-</svg>
-<figcaption><strong>图 2-3</strong> 一行 6 个 score 上的普通 softmax。第 2、3 遍都要用第 1 遍扫完整行才得到的 $m$。</figcaption>
-</figure>
+<p align="center">第 1 遍 $m = \max_k x_k$，第 2 遍 $\ell = \sum_k e^{x_k-m}$，第 3 遍 $p_k = e^{x_k-m} / \ell$</p>
+
+第 2、3 遍的每一项都要用到 $m$，而 $m$ 要等第 1 遍扫完整行才知道。
 
 attention 一行的输出是 softmax 加权的 $v$，可以拆成分子 $O$ 除以分母 $\ell$：
 
@@ -310,11 +270,11 @@ $\ell$ 和 $O$ 都是求和，可以按 tile 拆开：$\sum_k = \sum_t \sum_{k\i
 
 $m_t$、$\ell_t$、$O_t$ 只用到 tile $t$ 自己的元素，各个 tile 可以分开算；合并时每个 tile 乘一个数 $e^{m_t-m}$ 再相加。这就是 online softmax（Milakov 和 Gimelshein 2018）。
 
-FlashAttention 在一个 thread block 里沿 K/V 一个 block 一个 block 地扫：之前扫过的 block 合起来算一个 tile，最大值是 $m_{\text{old}}$；新读的 block 是另一个 tile。代入上式就是每一步的更新（[图 2-4](#fig-2-4)）：
+FlashAttention 在一个 thread block 里沿 K/V 一个 block 一个 block 地扫：之前扫过的 block 合起来算一个 tile，最大值是 $m_{\text{old}}$；新读的 block 是另一个 tile。代入上式就是每一步的更新（[图 2-3](#fig-2-3)）：
 
 <p align="center">$m_{\text{new}} = \max\big(m_{\text{old}},\ \max_{k} x_k\big), \quad \ell_{\text{new}} = e^{m_{\text{old}} - m_{\text{new}}}\,\ell_{\text{old}} + \sum_{k} e^{x_k - m_{\text{new}}}, \quad O_{\text{new}} = e^{m_{\text{old}} - m_{\text{new}}}\,O_{\text{old}} + \sum_{k} e^{x_k - m_{\text{new}}}\, v_k$</p>
 
-<figure id="fig-2-4">
+<figure id="fig-2-3">
 <svg viewBox="0 0 680 316" width="100%" role="img" aria-label="online softmax 在 6 个 score、3 个 block 上的计算。每个 block 只扫一遍，先更新最大值 m，再把之前的分母 ℓ 和累加的 O 乘修正因子 e 的 m_old 减 m_new 次方，再加上这个 block 的项。block 2 把最大值从 0 变成 1，修正因子是 e 的 −1 次方。最后 O 除以 ℓ 等于 2，和一次算完的结果相同">
   <style>
     .os2 { font-size: 11px; fill: currentColor; }
@@ -375,7 +335,7 @@ FlashAttention 在一个 thread block 里沿 K/V 一个 block 一个 block 地�
 <text class="os2" x="340.0" y="280" text-anchor="middle">最后只除一次：O / ℓ = (4 + 8e^(−1)) / (2 + 4e^(−1)) = 2，和 6 个 score 一次算出来的 softmax 加权和相同</text>
 <text class="os2-s" x="340.0" y="304" text-anchor="middle"><tspan class="os2-hi">红色</tspan>是修正因子 e^(m_old − m_new)：最大值变大时，之前累加的 ℓ 和 O 都要乘它；最大值不变时它等于 1</text>
 </svg>
-<figcaption><strong>图 2-4</strong> 顺序扫：一行是读完一个 block 以后的状态，格子是按当时的 $m$ 算的 $e^{x-m}$。kernel 只存每行的 $m$、$\ell$、$O$，不存格子。</figcaption>
+<figcaption><strong>图 2-3</strong> 顺序扫：一行是读完一个 block 以后的状态，格子是按当时的 $m$ 算的 $e^{x-m}$。kernel 只存每行的 $m$、$\ell$、$O$，不存格子。</figcaption>
 </figure>
 
 写成伪代码，一次处理一个 query block，最后归一化一次：
