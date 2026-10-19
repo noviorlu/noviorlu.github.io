@@ -396,7 +396,7 @@ attention 的反向一般要再用一次 $P$。为此存下完整的 $N\times N$
 
 显存随 $N$ 线性增长而不是平方增长，序列越长省得越多，算的仍然是**精确**的 softmax，当时的稀疏 attention 和低秩 attention 都做不到这一点。
 
-*RTX 5090 实测待补：标准 attention 和 FlashAttention 的计算量、HBM 读写量和耗时（前向加反向），以及不同序列长度下的显存。*
+*RTX 5090 实测待补：标准 attention 和 FlashAttention 的计算量、显存读写量和耗时（前向加反向），以及不同序列长度下的显存。*
 
 FA1 解决了 HBM 的读写，但 kernel 本身离 Tensor core 的峰值还很远，差距出在 kernel 怎么用 GPU 上，这是 FlashAttention-2 要解决的。
 
