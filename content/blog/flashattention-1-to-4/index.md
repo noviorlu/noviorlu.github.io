@@ -519,19 +519,19 @@ for i ← 1 … N:                      # 第 2 遍：读 x_i，写 y_i
 
 每个元素访存回到 3 次，和 naive 一样，但不会溢出。
 
-**第 4 步：为什么对。** 要证的是扫完第 $j$ 个元素后 $\ell_j = \sum_{k=1}^{j} e^{x_k - m_j}$，用归纳法。$j = 1$ 时 $m_1 = x_1$，$\ell_1 = e^{x_1 - m_1}$，成立。假设 $j-1$ 时成立，代入第 $j$ 步的更新，再用 $e^a \cdot e^b = e^{a+b}$：
+这样算为什么对：要证的是扫完第 $j$ 个元素后 $\ell_j = \sum_{k=1}^{j} e^{x_k - m_j}$，用归纳法。$j = 1$ 时 $m_1 = x_1$，$\ell_1 = e^{x_1 - m_1}$，成立。假设 $j-1$ 时成立，代入第 $j$ 步的更新，再用 $e^a \cdot e^b = e^{a+b}$：
 
 <p align="center">$\begin{aligned} \ell_j &= \ell_{j-1}\, e^{m_{j-1}-m_j} + e^{x_j-m_j} \\ &= \Big(\sum_{k=1}^{j-1} e^{x_k-m_{j-1}}\Big)\, e^{m_{j-1}-m_j} + e^{x_j-m_j} \\ &= \sum_{k=1}^{j-1} e^{x_k-m_j} + e^{x_j-m_j} \;=\; \sum_{k=1}^{j} e^{x_k-m_j} \end{aligned}$</p>
 
 $j = N$ 时就是 safe softmax 的分母。
 
-**第 5 步：两段合并。** 第 3 步每读一个元素，是把「前 $j-1$ 个元素」的结果和「第 $j$ 个元素」合起来。同样的办法能合并任意两段。A 段和 B 段各自按第 3 步扫完，得到 $(m_A, \ell_A)$ 和 $(m_B, \ell_B)$，其中 $\ell_A = \sum_{k\in A} e^{x_k - m_A}$。合并后的最大值是 $m = \max(m_A, m_B)$，分母和第 4 步一样用 $e^a \cdot e^b = e^{a+b}$：
+**第 4 步：两段合并。** 第 3 步每读一个元素，是把「前 $j-1$ 个元素」的结果和「第 $j$ 个元素」合起来。同样的办法能合并任意两段。A 段和 B 段各自按第 3 步扫完，得到 $(m_A, \ell_A)$ 和 $(m_B, \ell_B)$，其中 $\ell_A = \sum_{k\in A} e^{x_k - m_A}$。合并后的最大值是 $m = \max(m_A, m_B)$，分母和第 3 步的证明一样用 $e^a \cdot e^b = e^{a+b}$：
 
 <p align="center">$\begin{aligned} \ell_A\, e^{m_A-m} + \ell_B\, e^{m_B-m} &= \Big(\sum_{k\in A} e^{x_k-m_A}\Big) e^{m_A-m} + \Big(\sum_{k\in B} e^{x_k-m_B}\Big) e^{m_B-m} \\ &= \sum_{k\in A} e^{x_k-m} + \sum_{k\in B} e^{x_k-m} \;=\; \sum_{k\in A\cup B} e^{x_k-m} \end{aligned}$</p>
 
 第 3 步那一行就是 B 段只有一个元素的情况：$m_B = x_j$，$\ell_B = e^{x_j - x_j} = 1$。论文把这个合并记作 $\oplus$。
 
-**第 6 步：并行。** 能合并任意两段，一行就可以切成几段，交给不同的 thread 同时按第 3 步的第 1 个循环扫，再合并。合并以后每个 thread 都拿到整行的 $m_N$、$\ell_N$，写 $y_i$ 的第 2 个循环也各写各的那一段（[图 2-3](#fig-2-3)）。合并的顺序不影响结果（$\oplus$ 满足结合律和交换律），所以先合并哪两段都行。
+**第 5 步：并行。** 能合并任意两段，一行就可以切成几段，交给不同的 thread 同时按第 3 步的第 1 个循环扫，再合并。合并以后每个 thread 都拿到整行的 $m_N$、$\ell_N$，写 $y_i$ 的第 2 个循环也各写各的那一段（[图 2-3](#fig-2-3)）。合并的顺序不影响结果（$\oplus$ 满足结合律和交换律），所以先合并哪两段都行。
 
 <figure id="fig-2-3">
 <svg viewBox="0 0 680 346" width="100%" role="img" aria-label="一行 8 个元素。safe softmax 顺序扫三遍：求 m、求 ℓ、写 y，共 24 步。online softmax 顺序扫两遍：同时更新 m 和 ℓ、写 y，共 16 步。两个 thread 并行：各扫 4 个元素更新 m 和 ℓ，合并一次，再各写 4 个 y，共 9 步">
@@ -613,7 +613,7 @@ $j = N$ 时就是 safe softmax 的分母。
 <rect x="437.75" y="118" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="447.25" y="134.0" text-anchor="middle">7</text>
 <rect x="458.25" y="118" width="19.0" height="24" rx="2" style="fill: var(--fig-mute); stroke: var(--fig-1)" fill-opacity="0.3" stroke-opacity=".3"/><text class="os2-s" x="467.75" y="134.0" text-anchor="middle">8</text>
 <line x1="478.0" y1="115" x2="478.0" y2="145" style="stroke: var(--fig-hi)" stroke-width="2"/>
-<text class="os2-b" x="8" y="172" text-anchor="start">online softmax 并行（第 6 步）</text>
+<text class="os2-b" x="8" y="172" text-anchor="start">online softmax 并行（第 5 步）</text>
 <text class="os2-s" x="8" y="202" text-anchor="start">thread 0：x<tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5"> … x</tspan><tspan dy="3.5" font-size="72%">4</tspan></text>
 <text class="os2-s" x="8" y="230" text-anchor="start">thread 1：x<tspan dy="3.5" font-size="72%">5</tspan><tspan dy="-3.5"> … x</tspan><tspan dy="3.5" font-size="72%">8</tspan></text>
 <rect x="150.75" y="186" width="19.0" height="24" rx="2" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.8" stroke-opacity=".3"/><text class="os2-s" x="160.25" y="202.0" text-anchor="middle" style="fill: var(--fig-on-3)">1</text>
@@ -636,14 +636,14 @@ $j = N$ 时就是 safe softmax 的分母。
 <line x1="334.5" y1="183" x2="334.5" y2="241" style="stroke: var(--fig-hi)" stroke-width="2"/>
 <text class="os2 os2-hi" x="340.5" y="216" text-anchor="start">9 步</text>
 <text class="os2" x="484.0" y="134.0" text-anchor="middle"></text>
-<text class="os2" x="150" y="304" text-anchor="start">合并（第 5 步）：m = max(m<tspan dy="3.5" font-size="72%">A</tspan><tspan dy="-3.5">, m</tspan><tspan dy="3.5" font-size="72%">B</tspan><tspan dy="-3.5">)，ℓ = ℓ</tspan><tspan dy="3.5" font-size="72%">A</tspan><tspan dy="-3.5"> · e</tspan><tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">A</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> + ℓ</tspan><tspan dy="3.5" font-size="72%">B</tspan><tspan dy="-3.5"> · e</tspan><tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">B</tspan><tspan dy="-3" font-size="72%">−m</tspan></text>
+<text class="os2" x="150" y="304" text-anchor="start">合并（第 4 步）：m = max(m<tspan dy="3.5" font-size="72%">A</tspan><tspan dy="-3.5">, m</tspan><tspan dy="3.5" font-size="72%">B</tspan><tspan dy="-3.5">)，ℓ = ℓ</tspan><tspan dy="3.5" font-size="72%">A</tspan><tspan dy="-3.5"> · e</tspan><tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">A</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> + ℓ</tspan><tspan dy="3.5" font-size="72%">B</tspan><tspan dy="-3.5"> · e</tspan><tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">B</tspan><tspan dy="-3" font-size="72%">−m</tspan></text>
 <text class="os2-s" x="150" y="322" text-anchor="start">合并以后两个 thread 都拿到整行的 m、ℓ；每个 y<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 只用自己的 x</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5">，两段 y 各写各的</tspan></text>
 <text class="os2-s" x="150" y="340" text-anchor="start">格子里的数字是元素的下标 k</text>
 </svg>
 <figcaption><strong>图 2-3</strong> 一行 8 个元素，三种算法放在同一条时间轴上，一格是处理一个元素。</figcaption>
 </figure>
 
-**第 7 步：推广到 attention。** 论文只算 softmax，attention 还要乘 $V$，一行的输出是 $\text{out} = \sum_k p_k v_k$。分母 $\ell$ 对每一项都一样，提出来以后输出是分子 $O$ 除以 $\ell$，$O$ 也是按同一个最大值加起来的求和（[图 2-4](#fig-2-4)）。
+**第 6 步：推广到 attention。** 论文只算 softmax，attention 还要乘 $V$，一行的输出是 $\text{out} = \sum_k p_k v_k$。分母 $\ell$ 对每一项都一样，提出来以后输出是分子 $O$ 除以 $\ell$，$O$ 也是按同一个最大值加起来的求和（[图 2-4](#fig-2-4)）。
 
 <figure id="fig-2-4">
 <svg viewBox="0 0 680 316" width="100%" role="img" aria-label="attention 一行的输出是 p_k 乘 v_k 之和。每一项 p_k v_k 等于 e 的 x_k 减 m 次方乘 v_k，再乘整行共用的 1 除以 ℓ。共用的 1/ℓ 提到求和外面，输出等于 O 乘 1/ℓ，O 是 e 的 x_k 减 m 次方乘 v_k 之和">
@@ -684,7 +684,7 @@ $j = N$ 时就是 safe softmax 的分母。
 <figcaption><strong>图 2-4</strong> 一行的输出 = 分子 $O$ / 分母 $\ell$。</figcaption>
 </figure>
 
-所以 $O$ 和 $\ell$ 用同一个因子修正，状态从 $(m, \ell)$ 变成 $(m, \ell, O)$。FlashAttention 在一个 thread block 里沿 K/V 一个 block 一个 block 地扫，就是第 3 步把一个元素换成一个 block：扫过的 block 合起来是 A 段，新读的 block 是 B 段，按第 5 步合并（[图 2-5](#fig-2-5)）。输出直接是 $O / \ell$，不需要第 3 步的第 2 遍，所以对 K/V 只扫一遍。
+所以 $O$ 和 $\ell$ 用同一个因子修正，状态从 $(m, \ell)$ 变成 $(m, \ell, O)$。FlashAttention 在一个 thread block 里沿 K/V 一个 block 一个 block 地扫，就是第 3 步把一个元素换成一个 block：扫过的 block 合起来是 A 段，新读的 block 是 B 段，按第 4 步合并（[图 2-5](#fig-2-5)）。输出直接是 $O / \ell$，不需要第 3 步的第 2 遍，所以对 K/V 只扫一遍。
 
 <figure id="fig-2-5">
 <svg viewBox="0 0 680 252" width="100%" role="img" aria-label="顺序扫：之前扫过的 block 1 到 j−1 只留下 m_old、ℓ_old、O_old，当成一个 tile；新读的 block j 按 m_new 算每一项。ℓ_old 乘 e 的 m_old 减 m_new 次方，加上 block j 的项，得到 ℓ_new">
