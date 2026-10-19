@@ -525,14 +525,16 @@ for i ← 1 … N:                      # 第 2 遍：读 x_i，写 y_i
 
 $j = N$ 时就是 safe softmax 的分母。
 
-**第 5 步：并行。** 第 3 步是一个元素一个元素顺序扫的。论文把状态写成一对 $(m, \ell)$，定义合并操作 $\oplus$：
+**第 5 步：两段合并。** 第 3 步每读一个元素，是把「前 $j-1$ 个元素」的结果和「第 $j$ 个元素」合起来。同样的办法能合并任意两段。A 段和 B 段各自按第 3 步扫完，得到 $(m_A, \ell_A)$ 和 $(m_B, \ell_B)$，其中 $\ell_A = \sum_{k\in A} e^{x_k - m_A}$。合并后的最大值是 $m = \max(m_A, m_B)$，分母和第 4 步一样用 $e^a \cdot e^b = e^{a+b}$：
 
-<p align="center">$\begin{bmatrix} m_a \\ \ell_a \end{bmatrix} \oplus \begin{bmatrix} m_b \\ \ell_b \end{bmatrix} = \begin{bmatrix} \max(m_a, m_b) \\ \ell_a\, e^{m_a - \max(m_a, m_b)} + \ell_b\, e^{m_b - \max(m_a, m_b)} \end{bmatrix}$</p>
+<p align="center">$\begin{aligned} \ell_A\, e^{m_A-m} + \ell_B\, e^{m_B-m} &= \Big(\sum_{k\in A} e^{x_k-m_A}\Big) e^{m_A-m} + \Big(\sum_{k\in B} e^{x_k-m_B}\Big) e^{m_B-m} \\ &= \sum_{k\in A} e^{x_k-m} + \sum_{k\in B} e^{x_k-m} \;=\; \sum_{k\in A\cup B} e^{x_k-m} \end{aligned}$</p>
 
-一个元素 $x_j$ 的状态是 $(x_j, 1)$，从左到右依次 $\oplus$ 就是第 3 步。$\oplus$ 满足结合律和交换律，所以一行可以切成 tile，每个 tile 各自算出 $(m_t, \ell_t)$，再合并（[图 2-3](#fig-2-3)）。
+第 3 步那一行就是 B 段只有一个元素的情况：$m_B = x_j$，$\ell_B = e^{x_j - x_j} = 1$。论文把这个合并记作 $\oplus$。
+
+**第 6 步：并行。** 能合并任意两段，一行就可以切成几段，交给不同的 thread 同时按第 3 步扫，最后再合并（[图 2-3](#fig-2-3)）。合并的顺序不影响结果（$\oplus$ 满足结合律和交换律），所以先合并哪两段都行。
 
 <figure id="fig-2-3">
-<svg viewBox="0 0 680 334" width="100%" role="img" aria-label="每个 tile 里，按整行最大值 m 算的每一项 e 的 x_k 减 m 次方，等于 tile 自己算的 e 的 x_k 减 m_t 次方，乘上整个 tile 共用的 e 的 m_t 减 m 次方。共用的数提到求和外面，每个 tile 先算自己的 ℓ_t，再乘这个数，三个 tile 相加得到 ℓ">
+<svg viewBox="0 0 680 300" width="100%" role="img" aria-label="顺序扫：一个 thread 依次读 x_1 到 x_8，每读一个更新 m 和 ℓ，共 8 步。并行：thread 0 扫 x_1 到 x_4 得到 m_A、ℓ_A，thread 1 同时扫 x_5 到 x_8 得到 m_B、ℓ_B，4 步以后合并一次，共 5 步">
   <style>
     .os2 { font-size: 11px; fill: currentColor; }
     .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
@@ -540,61 +542,54 @@ $j = N$ 时就是 safe softmax 的分母。
     .os2-c { font-size: 12px; font-weight: 600; text-anchor: middle; fill: currentColor; }
     .os2-hi { fill: var(--fig-hi); font-weight: 600; }
   </style>
-<text class="os2-b" x="223.0" y="16" text-anchor="middle">tile 1</text>
-<text class="os2-b" x="393.0" y="16" text-anchor="middle">tile 2</text>
-<text class="os2-b" x="563.0" y="16" text-anchor="middle">tile 3</text>
-<text class="os2-b" x="8" y="44.0" text-anchor="start">要算的每一项</text>
-<text class="os2-s" x="8" y="58.0" text-anchor="start">按整行的 m</text>
-<text class="os2-b" x="8" y="100.0" text-anchor="start">tile 自己算</text>
-<text class="os2-s" x="8" y="114.0" text-anchor="start">按自己的最大值 m<tspan dy="3.5" font-size="72%">t</tspan></text>
-<text class="os2-b" x="8" y="154.0" text-anchor="start">整个 tile 同一个数</text>
-<text class="os2-b" x="8" y="232.0" text-anchor="start">合并</text>
-<text class="os2-s" x="8" y="246.0" text-anchor="start">共用的数提到求和外面</text>
-<rect x="150" y="26" width="70" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="185.0" y="44.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">1</tspan><tspan dy="-3" font-size="72%">−m</tspan></text>
-<text class="os2-b" x="185.0" y="72" text-anchor="middle">=</text>
-<rect x="150" y="82" width="70" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="185.0" y="100.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">1</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="3" font-size="58%">1</tspan></text>
-<rect x="226" y="26" width="70" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="261.0" y="44.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">2</tspan><tspan dy="-3" font-size="72%">−m</tspan></text>
-<text class="os2-b" x="261.0" y="72" text-anchor="middle">=</text>
-<rect x="226" y="82" width="70" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="261.0" y="100.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">2</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="3" font-size="58%">1</tspan></text>
-<rect x="320" y="26" width="70" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="355.0" y="44.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">3</tspan><tspan dy="-3" font-size="72%">−m</tspan></text>
-<text class="os2-b" x="355.0" y="72" text-anchor="middle">=</text>
-<rect x="320" y="82" width="70" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="355.0" y="100.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">3</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="3" font-size="58%">2</tspan></text>
-<rect x="396" y="26" width="70" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="431.0" y="44.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">4</tspan><tspan dy="-3" font-size="72%">−m</tspan></text>
-<text class="os2-b" x="431.0" y="72" text-anchor="middle">=</text>
-<rect x="396" y="82" width="70" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="431.0" y="100.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">4</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="3" font-size="58%">2</tspan></text>
-<rect x="490" y="26" width="70" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="525.0" y="44.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">5</tspan><tspan dy="-3" font-size="72%">−m</tspan></text>
-<text class="os2-b" x="525.0" y="72" text-anchor="middle">=</text>
-<rect x="490" y="82" width="70" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="525.0" y="100.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">5</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="3" font-size="58%">3</tspan></text>
-<rect x="566" y="26" width="70" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="601.0" y="44.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">6</tspan><tspan dy="-3" font-size="72%">−m</tspan></text>
-<text class="os2-b" x="601.0" y="72" text-anchor="middle">=</text>
-<rect x="566" y="82" width="70" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="601.0" y="100.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">6</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="3" font-size="58%">3</tspan></text>
-<text class="os2-b" x="223.0" y="124" text-anchor="middle">×</text>
-<rect x="150" y="136" width="146" height="28" rx="3" style="fill: var(--fig-hi); stroke: var(--fig-1)" fill-opacity="0.18" stroke-opacity=".35"/>
-<text class="os2 os2-hi" x="223.0" y="154.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">1</tspan><tspan dy="-3" font-size="72%">−m</tspan></text>
-<text class="os2-s" x="223.0" y="186" text-anchor="middle">ℓ<tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5"> = 第二行这两格之和</tspan></text>
-<rect x="150" y="214" width="146" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.35" stroke-opacity=".35"/><text class="os2" x="223.0" y="232.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">1</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> · ℓ</tspan><tspan dy="3.5" font-size="72%">1</tspan></text>
-<text class="os2-b" x="308.0" y="232.0" text-anchor="middle">+</text>
-<text class="os2-b" x="393.0" y="124" text-anchor="middle">×</text>
-<rect x="320" y="136" width="146" height="28" rx="3" style="fill: var(--fig-hi); stroke: var(--fig-1)" fill-opacity="0.18" stroke-opacity=".35"/>
-<text class="os2 os2-hi" x="393.0" y="154.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">2</tspan><tspan dy="-3" font-size="72%">−m</tspan></text>
-<text class="os2-s" x="393.0" y="186" text-anchor="middle">ℓ<tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5"> = 第二行这两格之和</tspan></text>
-<rect x="320" y="214" width="146" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.35" stroke-opacity=".35"/><text class="os2" x="393.0" y="232.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">2</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> · ℓ</tspan><tspan dy="3.5" font-size="72%">2</tspan></text>
-<text class="os2-b" x="478.0" y="232.0" text-anchor="middle">+</text>
-<text class="os2-b" x="563.0" y="124" text-anchor="middle">×</text>
-<rect x="490" y="136" width="146" height="28" rx="3" style="fill: var(--fig-hi); stroke: var(--fig-1)" fill-opacity="0.18" stroke-opacity=".35"/>
-<text class="os2 os2-hi" x="563.0" y="154.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">3</tspan><tspan dy="-3" font-size="72%">−m</tspan></text>
-<text class="os2-s" x="563.0" y="186" text-anchor="middle">ℓ<tspan dy="3.5" font-size="72%">3</tspan><tspan dy="-3.5"> = 第二行这两格之和</tspan></text>
-<rect x="490" y="214" width="146" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.35" stroke-opacity=".35"/><text class="os2" x="563.0" y="232.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">3</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> · ℓ</tspan><tspan dy="3.5" font-size="72%">3</tspan></text>
-<text class="os2-b" x="646" y="232.0" text-anchor="start">= ℓ</text>
-<text class="os2-s" x="150" y="268" text-anchor="start">m = max(m<tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5">, m</tspan><tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5">, m</tspan><tspan dy="3.5" font-size="72%">3</tspan><tspan dy="-3.5">)</tspan></text>
-<text class="os2-s" x="150" y="286" text-anchor="start">O 同理：每格多乘一个 v<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5">，tile 自己算出 O</tspan><tspan dy="3.5" font-size="72%">t</tspan><tspan dy="-3.5">，再乘同一个 e</tspan><tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">t</tspan><tspan dy="-3" font-size="72%">−m</tspan></text>
-<text class="os2-s" x="150" y="304" text-anchor="start">第一行到第二、三行用的是 e<tspan dy="-5" font-size="72%">a+b</tspan><tspan dy="5"> = e</tspan><tspan dy="-5" font-size="72%">a</tspan><tspan dy="5"> · e</tspan><tspan dy="-5" font-size="72%">b</tspan></text>
-<text class="os2-s" x="150" y="322" text-anchor="start">m<tspan dy="3.5" font-size="72%">t</tspan><tspan dy="-3.5">、ℓ</tspan><tspan dy="3.5" font-size="72%">t</tspan><tspan dy="-3.5">、O</tspan><tspan dy="3.5" font-size="72%">t</tspan><tspan dy="-3.5"> 只用到 tile 自己的元素，各个 tile 互不依赖</tspan></text>
+<line x1="160" y1="26" x2="160" y2="204" stroke="currentColor" stroke-opacity=".08"/>
+<line x1="212" y1="26" x2="212" y2="204" stroke="currentColor" stroke-opacity=".08"/>
+<line x1="264" y1="26" x2="264" y2="204" stroke="currentColor" stroke-opacity=".08"/>
+<line x1="316" y1="26" x2="316" y2="204" stroke="currentColor" stroke-opacity=".08"/>
+<line x1="368" y1="26" x2="368" y2="204" stroke="currentColor" stroke-opacity=".08"/>
+<line x1="420" y1="26" x2="420" y2="204" stroke="currentColor" stroke-opacity=".08"/>
+<line x1="472" y1="26" x2="472" y2="204" stroke="currentColor" stroke-opacity=".08"/>
+<line x1="524" y1="26" x2="524" y2="204" stroke="currentColor" stroke-opacity=".08"/>
+<line x1="576" y1="26" x2="576" y2="204" stroke="currentColor" stroke-opacity=".08"/>
+<text class="os2-s" x="368" y="20" text-anchor="middle">时间（一格 = 更新一次 m、ℓ）→</text>
+<text class="os2-b" x="8" y="36" text-anchor="start">顺序（第 3 步）</text>
+<text class="os2" x="8" y="63.0" text-anchor="start">thread 0</text>
+<rect x="161" y="44" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="186.0" y="63.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="213" y="44" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="238.0" y="63.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="265" y="44" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="290.0" y="63.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">3</tspan></text>
+<rect x="317" y="44" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="342.0" y="63.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">4</tspan></text>
+<rect x="369" y="44" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="394.0" y="63.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">5</tspan></text>
+<rect x="421" y="44" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="446.0" y="63.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">6</tspan></text>
+<rect x="473" y="44" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="498.0" y="63.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">7</tspan></text>
+<rect x="525" y="44" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="550.0" y="63.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">8</tspan></text>
+<line x1="576" y1="40" x2="576" y2="78" style="stroke: var(--fig-hi)" stroke-width="2"/>
+<text class="os2 os2-hi" x="582" y="63.0" text-anchor="start">8 步</text>
+<text class="os2-b" x="8" y="124" text-anchor="start">切成两段，同时扫（第 6 步）</text>
+<text class="os2" x="8" y="151.0" text-anchor="start">thread 0：A 段</text>
+<text class="os2" x="8" y="187.0" text-anchor="start">thread 1：B 段</text>
+<rect x="161" y="132" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="186.0" y="151.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="161" y="168" width="50" height="30" rx="3" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity="0.45" stroke-opacity=".35"/><text class="os2" x="186.0" y="187.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">5</tspan></text>
+<rect x="213" y="132" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="238.0" y="151.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="213" y="168" width="50" height="30" rx="3" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity="0.45" stroke-opacity=".35"/><text class="os2" x="238.0" y="187.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">6</tspan></text>
+<rect x="265" y="132" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="290.0" y="151.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">3</tspan></text>
+<rect x="265" y="168" width="50" height="30" rx="3" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity="0.45" stroke-opacity=".35"/><text class="os2" x="290.0" y="187.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">7</tspan></text>
+<rect x="317" y="132" width="50" height="30" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="342.0" y="151.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">4</tspan></text>
+<rect x="317" y="168" width="50" height="30" rx="3" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity="0.45" stroke-opacity=".35"/><text class="os2" x="342.0" y="187.0" text-anchor="middle">x<tspan dy="3.5" font-size="72%">8</tspan></text>
+<text class="os2" x="264" y="124" text-anchor="middle"></text>
+<text class="os2-s" x="364" dy="0" y="126" text-anchor="end">得到 m<tspan dy="3.5" font-size="72%">A</tspan><tspan dy="-3.5">, ℓ</tspan><tspan dy="3.5" font-size="72%">A</tspan></text>
+<text class="os2-s" x="364" y="212" text-anchor="end">得到 m<tspan dy="3.5" font-size="72%">B</tspan><tspan dy="-3.5">, ℓ</tspan><tspan dy="3.5" font-size="72%">B</tspan></text>
+<rect x="369" y="132" width="50" height="66" rx="3" style="fill: var(--fig-hi); stroke: var(--fig-hi)" fill-opacity=".18" stroke-opacity=".6"/>
+<text class="os2 os2-hi" x="394.0" y="169.0" text-anchor="middle">合并</text>
+<line x1="420" y1="128" x2="420" y2="202" style="stroke: var(--fig-hi)" stroke-width="2"/>
+<text class="os2 os2-hi" x="426" y="169.0" text-anchor="start">4 步 + 合并 1 次</text>
+<text class="os2" x="160" y="242" text-anchor="start">合并（第 5 步）：m = max(m<tspan dy="3.5" font-size="72%">A</tspan><tspan dy="-3.5">, m</tspan><tspan dy="3.5" font-size="72%">B</tspan><tspan dy="-3.5">)，ℓ = ℓ</tspan><tspan dy="3.5" font-size="72%">A</tspan><tspan dy="-3.5"> · e</tspan><tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">A</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> + ℓ</tspan><tspan dy="3.5" font-size="72%">B</tspan><tspan dy="-3.5"> · e</tspan><tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">B</tspan><tspan dy="-3" font-size="72%">−m</tspan></text>
+<text class="os2-s" x="160" y="262" text-anchor="start">两个 thread 互不等待；段越多，每段越短，最后多几次合并</text>
+<text class="os2-s" x="160" y="280" text-anchor="start">第 3 步每读一个元素，也是一次合并：B 段只有 x<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> 一个元素，m</tspan><tspan dy="3.5" font-size="72%">B</tspan><tspan dy="-3.5"> = x</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">，ℓ</tspan><tspan dy="3.5" font-size="72%">B</tspan><tspan dy="-3.5"> = 1</tspan></text>
 </svg>
-<figcaption><strong>图 2-3</strong> 按 tile 算 $\ell$：每个 tile 先算自己的 $\ell_t$，再乘 $e^{m_t-m}$ 相加，就是三个 tile 的状态做 $\oplus$。</figcaption>
+<figcaption><strong>图 2-3</strong> 一行 8 个元素：一个 thread 顺序扫要 8 步；切成两段由两个 thread 同时扫，4 步以后合并一次。</figcaption>
 </figure>
 
-**第 6 步：推广到 attention。** 论文只算 softmax，attention 还要乘 $V$，一行的输出是 $\text{out} = \sum_k p_k v_k$。分母 $\ell$ 对每一项都一样，提出来以后输出是分子 $O$ 除以 $\ell$，$O$ 也是按同一个最大值加起来的求和（[图 2-4](#fig-2-4)）。
+**第 7 步：推广到 attention。** 论文只算 softmax，attention 还要乘 $V$，一行的输出是 $\text{out} = \sum_k p_k v_k$。分母 $\ell$ 对每一项都一样，提出来以后输出是分子 $O$ 除以 $\ell$，$O$ 也是按同一个最大值加起来的求和（[图 2-4](#fig-2-4)）。
 
 <figure id="fig-2-4">
 <svg viewBox="0 0 680 316" width="100%" role="img" aria-label="attention 一行的输出是 p_k 乘 v_k 之和。每一项 p_k v_k 等于 e 的 x_k 减 m 次方乘 v_k，再乘整行共用的 1 除以 ℓ。共用的 1/ℓ 提到求和外面，输出等于 O 乘 1/ℓ，O 是 e 的 x_k 减 m 次方乘 v_k 之和">
@@ -635,7 +630,7 @@ $j = N$ 时就是 safe softmax 的分母。
 <figcaption><strong>图 2-4</strong> 一行的输出 = 分子 $O$ / 分母 $\ell$。</figcaption>
 </figure>
 
-所以 $O$ 和 $\ell$ 用同一个因子修正，状态从 $(m, \ell)$ 变成 $(m, \ell, O)$。FlashAttention 在一个 thread block 里沿 K/V 一个 block 一个 block 地扫，就是第 3 步把一个元素换成一个 block：扫过的 block 合起来是一个状态，新读的 block 是另一个，两者 $\oplus$（[图 2-5](#fig-2-5)）。输出直接是 $O / \ell$，不需要第 3 步的第 2 遍，所以对 K/V 只扫一遍。
+所以 $O$ 和 $\ell$ 用同一个因子修正，状态从 $(m, \ell)$ 变成 $(m, \ell, O)$。FlashAttention 在一个 thread block 里沿 K/V 一个 block 一个 block 地扫，就是第 3 步把一个元素换成一个 block：扫过的 block 合起来是 A 段，新读的 block 是 B 段，按第 5 步合并（[图 2-5](#fig-2-5)）。输出直接是 $O / \ell$，不需要第 3 步的第 2 遍，所以对 K/V 只扫一遍。
 
 <figure id="fig-2-5">
 <svg viewBox="0 0 680 252" width="100%" role="img" aria-label="顺序扫：之前扫过的 block 1 到 j−1 只留下 m_old、ℓ_old、O_old，当成一个 tile；新读的 block j 按 m_new 算每一项。ℓ_old 乘 e 的 m_old 减 m_new 次方，加上 block j 的项，得到 ℓ_new">
