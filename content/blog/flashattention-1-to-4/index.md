@@ -51,7 +51,7 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
     .mh-sub { font-size: 11px; fill: currentColor; opacity: .7; }
     .mh-box { stroke-width: 1.5; }
   </style>
-  <rect x="165" y="20" width="310" height="56" rx="6" class="mh-box" fill="rgba(var(--color-primary-500), .16)" stroke="rgb(var(--color-primary-500))"/>
+  <rect x="165" y="20" width="310" height="56" rx="6" class="mh-box" fill="var(--fig-1)" fill-opacity=".16" stroke="var(--fig-1)"/>
   <text x="320" y="44" text-anchor="middle" class="mh-label">片上 shared memory（SRAM）</text>
   <text x="320" y="62" text-anchor="middle" class="mh-sub">共约 20 MB（192 KB × 108 SM）· 总带宽约 1.9e13 B/s</text>
   <line x1="320" y1="80" x2="320" y2="106" stroke="currentColor" stroke-opacity=".35" stroke-width="1.5" marker-start="url(#mh-arrow)" marker-end="url(#mh-arrow)"/>
@@ -94,37 +94,37 @@ Dao、Fu、Ermon、Rudra、Ré 2022 年的论文把这当成 IO 问题来处理�
   <text x="166" y="35" text-anchor="middle" class="dm-hs">三个 kernel，每步一个</text>
   <text x="480" y="18" text-anchor="middle" class="dm-h">FlashAttention</text>
   <text x="480" y="35" text-anchor="middle" class="dm-hs">一个融合的 kernel，在片上逐个 tile 循环</text>
-  <rect x="22" y="52" width="84" height="52" rx="6" fill="rgba(var(--color-primary-500), .12)" stroke="rgb(var(--color-primary-500))"/>
+  <rect x="22" y="52" width="84" height="52" rx="6" fill="var(--fig-1)" fill-opacity=".12" stroke="var(--fig-1)"/>
   <text x="64" y="75" class="dm-k">QK<tspan dy="-5" font-size="9">T</tspan></text>
   <text x="64" y="93" class="dm-ks">Q, K → S</text>
-  <rect x="124" y="52" width="84" height="52" rx="6" fill="rgba(var(--color-primary-500), .12)" stroke="rgb(var(--color-primary-500))"/>
+  <rect x="124" y="52" width="84" height="52" rx="6" fill="var(--fig-1)" fill-opacity=".12" stroke="var(--fig-1)"/>
   <text x="166" y="75" class="dm-k">softmax</text>
   <text x="166" y="93" class="dm-ks">S → P</text>
-  <rect x="226" y="52" width="84" height="52" rx="6" fill="rgba(var(--color-primary-500), .12)" stroke="rgb(var(--color-primary-500))"/>
+  <rect x="226" y="52" width="84" height="52" rx="6" fill="var(--fig-1)" fill-opacity=".12" stroke="var(--fig-1)"/>
   <text x="268" y="75" class="dm-k">× V</text>
   <text x="268" y="93" class="dm-ks">P, V → O</text>
   <rect x="20" y="200" width="292" height="58" rx="6" fill="rgba(128,128,128,.10)" stroke="currentColor" stroke-opacity=".4"/>
   <text x="28" y="214" class="dm-a">HBM</text>
-  <rect x="24" y="220" width="46" height="30" rx="4" fill="rgba(var(--color-primary-500), .15)" stroke="rgb(var(--color-primary-500))" stroke-opacity=".6"/>
+  <rect x="24" y="220" width="46" height="30" rx="4" fill="var(--fig-1)" fill-opacity=".15" stroke="var(--fig-1)" stroke-opacity=".6"/>
   <text x="47" y="239" class="dm-m">Q K V</text>
-  <rect x="76" y="220" width="80" height="30" rx="4" fill="rgba(var(--color-secondary-500), .25)" stroke="rgb(var(--color-secondary-500))"/>
+  <rect x="76" y="220" width="80" height="30" rx="4" fill="var(--fig-2)" fill-opacity=".25" stroke="var(--fig-2)"/>
   <text x="116" y="239" class="dm-m">S (N×N)</text>
-  <rect x="180" y="220" width="82" height="30" rx="4" fill="rgba(var(--color-secondary-500), .25)" stroke="rgb(var(--color-secondary-500))"/>
+  <rect x="180" y="220" width="82" height="30" rx="4" fill="var(--fig-2)" fill-opacity=".25" stroke="var(--fig-2)"/>
   <text x="221" y="239" class="dm-m">P (N×N)</text>
-  <rect x="272" y="220" width="36" height="30" rx="4" fill="rgba(var(--color-primary-500), .15)" stroke="rgb(var(--color-primary-500))" stroke-opacity=".6"/>
+  <rect x="272" y="220" width="36" height="30" rx="4" fill="var(--fig-1)" fill-opacity=".15" stroke="var(--fig-1)" stroke-opacity=".6"/>
   <text x="290" y="239" class="dm-m">O</text>
-  <line x1="44" y1="218" x2="44" y2="113" stroke="rgb(var(--color-primary-500))" stroke-width="2"/>
-  <polygon points="44,105 39.5,114 48.5,114" fill="rgb(var(--color-primary-500))"/>
-  <line x1="94" y1="105" x2="94" y2="207" stroke="rgb(var(--color-secondary-500))" stroke-width="7"/>
-  <polygon points="94,219 86,206 102,206" fill="rgb(var(--color-secondary-500))"/>
-  <line x1="140" y1="218" x2="140" y2="117" stroke="rgb(var(--color-secondary-500))" stroke-width="7"/>
-  <polygon points="140,105 132,118 148,118" fill="rgb(var(--color-secondary-500))"/>
-  <line x1="196" y1="105" x2="196" y2="207" stroke="rgb(var(--color-secondary-500))" stroke-width="7"/>
-  <polygon points="196,219 188,206 204,206" fill="rgb(var(--color-secondary-500))"/>
-  <line x1="244" y1="218" x2="244" y2="117" stroke="rgb(var(--color-secondary-500))" stroke-width="7"/>
-  <polygon points="244,105 236,118 252,118" fill="rgb(var(--color-secondary-500))"/>
-  <line x1="290" y1="105" x2="290" y2="211" stroke="rgb(var(--color-primary-500))" stroke-width="2"/>
-  <polygon points="290,219 285.5,210 294.5,210" fill="rgb(var(--color-primary-500))"/>
+  <line x1="44" y1="218" x2="44" y2="113" stroke="var(--fig-1)" stroke-width="2"/>
+  <polygon points="44,105 39.5,114 48.5,114" fill="var(--fig-1)"/>
+  <line x1="94" y1="105" x2="94" y2="207" stroke="var(--fig-2)" stroke-width="7"/>
+  <polygon points="94,219 86,206 102,206" fill="var(--fig-2)"/>
+  <line x1="140" y1="218" x2="140" y2="117" stroke="var(--fig-2)" stroke-width="7"/>
+  <polygon points="140,105 132,118 148,118" fill="var(--fig-2)"/>
+  <line x1="196" y1="105" x2="196" y2="207" stroke="var(--fig-2)" stroke-width="7"/>
+  <polygon points="196,219 188,206 204,206" fill="var(--fig-2)"/>
+  <line x1="244" y1="218" x2="244" y2="117" stroke="var(--fig-2)" stroke-width="7"/>
+  <polygon points="244,105 236,118 252,118" fill="var(--fig-2)"/>
+  <line x1="290" y1="105" x2="290" y2="211" stroke="var(--fig-1)" stroke-width="2"/>
+  <polygon points="290,219 285.5,210 294.5,210" fill="var(--fig-1)"/>
   <text x="50" y="160" class="dm-a">Q, K</text>
   <text x="103" y="160" class="dm-a">S</text>
   <text x="149" y="160" class="dm-a">S</text>
@@ -132,31 +132,31 @@ Dao、Fu、Ermon、Rudra、Ré 2022 年的论文把这当成 IO 问题来处理�
   <text x="253" y="160" class="dm-a">P, V</text>
   <text x="297" y="160" class="dm-a">O</text>
   <text x="166" y="276" text-anchor="middle" class="dm-hs">S、P（都是 N×N）写到 HBM 再读回来</text>
-  <rect x="350" y="52" width="260" height="52" rx="6" fill="rgba(var(--color-primary-500), .12)" stroke="rgb(var(--color-primary-500))"/>
-  <rect x="362" y="64" width="62" height="28" rx="4" fill="rgba(var(--color-primary-500), .18)"/>
+  <rect x="350" y="52" width="260" height="52" rx="6" fill="var(--fig-1)" fill-opacity=".12" stroke="var(--fig-1)"/>
+  <rect x="362" y="64" width="62" height="28" rx="4" fill="var(--fig-1)" fill-opacity=".18"/>
   <text x="393" y="83" class="dm-m">QK<tspan dy="-4" font-size="8">T</tspan></text>
   <text x="433" y="83" class="dm-m">→</text>
-  <rect x="444" y="64" width="78" height="28" rx="4" fill="rgba(var(--color-secondary-500), .25)"/>
+  <rect x="444" y="64" width="78" height="28" rx="4" fill="var(--fig-2)" fill-opacity=".25"/>
   <text x="483" y="83" class="dm-m">softmax</text>
   <text x="532" y="83" class="dm-m">→</text>
-  <rect x="542" y="64" width="56" height="28" rx="4" fill="rgba(var(--color-primary-500), .18)"/>
+  <rect x="542" y="64" width="56" height="28" rx="4" fill="var(--fig-1)" fill-opacity=".18"/>
   <text x="570" y="83" class="dm-m">× V</text>
   <rect x="348" y="200" width="264" height="58" rx="6" fill="rgba(128,128,128,.10)" stroke="currentColor" stroke-opacity=".4"/>
   <text x="356" y="214" class="dm-a">HBM</text>
-  <rect x="366" y="220" width="46" height="30" rx="4" fill="rgba(var(--color-primary-500), .15)" stroke="rgb(var(--color-primary-500))" stroke-opacity=".6"/>
+  <rect x="366" y="220" width="46" height="30" rx="4" fill="var(--fig-1)" fill-opacity=".15" stroke="var(--fig-1)" stroke-opacity=".6"/>
   <text x="389" y="239" class="dm-m">Q K V</text>
-  <rect x="562" y="220" width="36" height="30" rx="4" fill="rgba(var(--color-primary-500), .15)" stroke="rgb(var(--color-primary-500))" stroke-opacity=".6"/>
+  <rect x="562" y="220" width="36" height="30" rx="4" fill="var(--fig-1)" fill-opacity=".15" stroke="var(--fig-1)" stroke-opacity=".6"/>
   <text x="580" y="239" class="dm-m">O</text>
-  <line x1="389" y1="218" x2="389" y2="113" stroke="rgb(var(--color-primary-500))" stroke-width="2"/>
-  <polygon points="389,105 384.5,114 393.5,114" fill="rgb(var(--color-primary-500))"/>
-  <line x1="580" y1="105" x2="580" y2="211" stroke="rgb(var(--color-primary-500))" stroke-width="2"/>
-  <polygon points="580,219 575.5,210 584.5,210" fill="rgb(var(--color-primary-500))"/>
+  <line x1="389" y1="218" x2="389" y2="113" stroke="var(--fig-1)" stroke-width="2"/>
+  <polygon points="389,105 384.5,114 393.5,114" fill="var(--fig-1)"/>
+  <line x1="580" y1="105" x2="580" y2="211" stroke="var(--fig-1)" stroke-width="2"/>
+  <polygon points="580,219 575.5,210 584.5,210" fill="var(--fig-1)"/>
   <text x="395" y="160" class="dm-a">Q, K, V</text>
   <text x="587" y="160" class="dm-a">O</text>
   <text x="480" y="276" text-anchor="middle" class="dm-hs">经过 HBM 的只有 N×d 的张量</text>
-  <line x1="150" y1="290" x2="176" y2="290" stroke="rgb(var(--color-secondary-500))" stroke-width="7"/>
+  <line x1="150" y1="290" x2="176" y2="290" stroke="var(--fig-2)" stroke-width="7"/>
   <text x="184" y="294" class="dm-hs">N×N 矩阵</text>
-  <line x1="350" y1="290" x2="376" y2="290" stroke="rgb(var(--color-primary-500))" stroke-width="2"/>
+  <line x1="350" y1="290" x2="376" y2="290" stroke="var(--fig-1)" stroke-width="2"/>
   <text x="384" y="294" class="dm-hs">N×d 矩阵</text>
 </svg>
 <figcaption><strong>图 2-1</strong> 左边是标准实现（FlashAttention 论文的 Algorithm 0），每步一个 kernel，$N\times N$ 的 $S$ 和 $P$ 各要进出 HBM 一次，训练时 mask 和 dropout 还要再多几次。右边是 FlashAttention，三步合成一个在片上逐 tile 循环的 kernel，HBM 的读写只剩读 $Q$、$K$、$V$ 和写 $O$。</figcaption>
@@ -776,7 +776,7 @@ v1 解决了 IO 的问题，吞吐却还有很大余量，离调得好的 dense 
   </style>
   <defs>
     <pattern id="sm-busy" x="26" y="46" width="15" height="15" patternUnits="userSpaceOnUse">
-      <rect width="12" height="12" rx="2" fill="rgb(var(--color-primary-500))"/>
+      <rect width="12" height="12" rx="2" fill="var(--fig-1)"/>
     </pattern>
     <pattern id="sm-idle" x="26" y="46" width="15" height="15" patternUnits="userSpaceOnUse">
       <rect x=".5" y=".5" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-opacity=".3"/>
@@ -802,7 +802,7 @@ v1 解决了 IO 的问题，吞吐却还有很大余量，离调得好的 dense 
   <style>
     .wp-title { font-size: 13px; font-weight: 600; fill: currentColor; }
     .wp-lab   { font-size: 12px; fill: #fff; text-anchor: middle; }
-    .wp-lab-dk { font-size: 12px; fill: rgb(var(--color-neutral-900)); text-anchor: middle; }
+    .wp-lab-dk { font-size: 12px; fill: var(--fig-on-3); text-anchor: middle; }
     .wp-sub   { font-size: 11px; fill: currentColor; opacity: .7; text-anchor: middle; }
     .wp-box   { font-size: 11px; fill: currentColor; text-anchor: middle; }
   </style>
@@ -810,13 +810,13 @@ v1 解决了 IO 的问题，吞吐却还有很大余量，离调得好的 dense 
   <rect x="30" y="30" width="280" height="30" rx="4" fill="rgba(128,128,128,.12)" stroke="currentColor" stroke-opacity=".35"/>
   <text x="170" y="50" class="wp-box">Q：共享，每个 warp 都能看到</text>
   <g>
-    <rect x="30"  y="78" width="60" height="34" rx="4" fill="rgb(var(--color-secondary-500))"/>
+    <rect x="30"  y="78" width="60" height="34" rx="4" fill="var(--fig-2)"/>
     <text x="60"  y="99" class="wp-lab-dk">K/V 0</text>
-    <rect x="100" y="78" width="60" height="34" rx="4" fill="rgb(var(--color-secondary-500))"/>
+    <rect x="100" y="78" width="60" height="34" rx="4" fill="var(--fig-2)"/>
     <text x="130" y="99" class="wp-lab-dk">K/V 1</text>
-    <rect x="170" y="78" width="60" height="34" rx="4" fill="rgb(var(--color-secondary-500))"/>
+    <rect x="170" y="78" width="60" height="34" rx="4" fill="var(--fig-2)"/>
     <text x="200" y="99" class="wp-lab-dk">K/V 2</text>
-    <rect x="240" y="78" width="60" height="34" rx="4" fill="rgb(var(--color-secondary-500))"/>
+    <rect x="240" y="78" width="60" height="34" rx="4" fill="var(--fig-2)"/>
     <text x="270" y="99" class="wp-lab-dk">K/V 3</text>
   </g>
   <text x="170" y="128" class="wp-sub">warp 0–3：各算一段 K/V 的部分和</text>
@@ -824,7 +824,7 @@ v1 解决了 IO 的问题，吞吐却还有很大余量，离调得好的 dense 
   <path d="M130,134 Q170,170 170,186" fill="none" stroke="currentColor" stroke-opacity=".35" stroke-width="1.5" marker-end="url(#wp-arrow)"/>
   <path d="M210,134 Q170,170 170,186" fill="none" stroke="currentColor" stroke-opacity=".35" stroke-width="1.5" marker-end="url(#wp-arrow)"/>
   <path d="M280,134 Q170,170 170,186" fill="none" stroke="currentColor" stroke-opacity=".35" stroke-width="1.5" marker-end="url(#wp-arrow)"/>
-  <rect x="90" y="190" width="160" height="32" rx="4" fill="rgba(var(--color-primary-500), .16)" stroke="rgb(var(--color-primary-500))"/>
+  <rect x="90" y="190" width="160" height="32" rx="4" fill="var(--fig-1)" fill-opacity=".16" stroke="var(--fig-1)"/>
   <text x="170" y="211" class="wp-box">在 shared memory 里归约</text>
   <text x="170" y="242" class="wp-sub">写部分和 · barrier 同步 · 相加</text>
   <line x1="330" y1="10" x2="330" y2="250" stroke="currentColor" stroke-opacity=".15"/>
@@ -832,13 +832,13 @@ v1 解决了 IO 的问题，吞吐却还有很大余量，离调得好的 dense 
   <rect x="350" y="30" width="280" height="30" rx="4" fill="rgba(128,128,128,.12)" stroke="currentColor" stroke-opacity=".35"/>
   <text x="490" y="50" class="wp-box">K、V：共享，每个 warp 都能看到</text>
   <g>
-    <rect x="350" y="78" width="60" height="34" rx="4" fill="rgb(var(--color-primary-500))"/>
+    <rect x="350" y="78" width="60" height="34" rx="4" fill="var(--fig-1)"/>
     <text x="380" y="99" class="wp-lab">Q 0</text>
-    <rect x="420" y="78" width="60" height="34" rx="4" fill="rgb(var(--color-primary-500))"/>
+    <rect x="420" y="78" width="60" height="34" rx="4" fill="var(--fig-1)"/>
     <text x="450" y="99" class="wp-lab">Q 1</text>
-    <rect x="490" y="78" width="60" height="34" rx="4" fill="rgb(var(--color-primary-500))"/>
+    <rect x="490" y="78" width="60" height="34" rx="4" fill="var(--fig-1)"/>
     <text x="520" y="99" class="wp-lab">Q 2</text>
-    <rect x="560" y="78" width="60" height="34" rx="4" fill="rgb(var(--color-primary-500))"/>
+    <rect x="560" y="78" width="60" height="34" rx="4" fill="var(--fig-1)"/>
     <text x="590" y="99" class="wp-lab">Q 3</text>
   </g>
   <text x="490" y="128" class="wp-sub">warp 0–3：各算出一段 Q 的完整输出</text>
@@ -851,13 +851,13 @@ v1 解决了 IO 的问题，吞吐却还有很大余量，离调得好的 dense 
       <path d="M0,0 L8,4 L0,8 Z" fill="currentColor" opacity=".35"/>
     </marker>
   </defs>
-  <rect x="350" y="190" width="60" height="32" rx="4" fill="rgba(var(--color-primary-500), .14)" stroke="rgb(var(--color-primary-500))" stroke-opacity=".5"/>
+  <rect x="350" y="190" width="60" height="32" rx="4" fill="var(--fig-1)" fill-opacity=".14" stroke="var(--fig-1)" stroke-opacity=".5"/>
   <text x="380" y="211" class="wp-box">O 0</text>
-  <rect x="420" y="190" width="60" height="32" rx="4" fill="rgba(var(--color-primary-500), .14)" stroke="rgb(var(--color-primary-500))" stroke-opacity=".5"/>
+  <rect x="420" y="190" width="60" height="32" rx="4" fill="var(--fig-1)" fill-opacity=".14" stroke="var(--fig-1)" stroke-opacity=".5"/>
   <text x="450" y="211" class="wp-box">O 1</text>
-  <rect x="490" y="190" width="60" height="32" rx="4" fill="rgba(var(--color-primary-500), .14)" stroke="rgb(var(--color-primary-500))" stroke-opacity=".5"/>
+  <rect x="490" y="190" width="60" height="32" rx="4" fill="var(--fig-1)" fill-opacity=".14" stroke="var(--fig-1)" stroke-opacity=".5"/>
   <text x="520" y="211" class="wp-box">O 2</text>
-  <rect x="560" y="190" width="60" height="32" rx="4" fill="rgba(var(--color-primary-500), .14)" stroke="rgb(var(--color-primary-500))" stroke-opacity=".5"/>
+  <rect x="560" y="190" width="60" height="32" rx="4" fill="var(--fig-1)" fill-opacity=".14" stroke="var(--fig-1)" stroke-opacity=".5"/>
   <text x="590" y="211" class="wp-box">O 3</text>
   <text x="490" y="242" class="wp-sub">各段输出互相独立，不需要跨 warp 归约</text>
 </svg>
@@ -892,17 +892,17 @@ H100 新加了两个原语，v1 和 v2 设计时都没有用到。一是 **Tenso
   <text x="56" y="108" class="pc-s">K、V tile</text>
   <line x1="98" y1="95" x2="127" y2="95" stroke="currentColor" stroke-opacity=".5" stroke-width="1.5"/>
   <polygon points="134,95 126,91 126,99" fill="currentColor" fill-opacity=".5"/>
-  <rect x="136" y="66" width="100" height="58" rx="6" fill="rgba(var(--color-secondary-500), .22)" stroke="rgb(var(--color-secondary-500))"/>
+  <rect x="136" y="66" width="100" height="58" rx="6" fill="var(--fig-2)" fill-opacity=".22" stroke="var(--fig-2)"/>
   <text x="186" y="90" class="pc-h">producer warp</text>
   <text x="186" y="107" class="pc-s">只发 TMA load</text>
   <line x1="238" y1="95" x2="261" y2="95" stroke="currentColor" stroke-opacity=".5" stroke-width="1.5"/>
   <polygon points="268,95 260,91 260,99" fill="currentColor" fill-opacity=".5"/>
   <text x="352" y="54" class="pc-s">shared memory 环形缓冲</text>
-  <rect x="270" y="66" width="38" height="58" rx="4" fill="rgba(var(--color-secondary-500), .55)" stroke="rgb(var(--color-secondary-500))"/>
-  <rect x="312" y="66" width="38" height="58" rx="4" fill="rgba(var(--color-secondary-500), .55)" stroke="rgb(var(--color-secondary-500))"/>
-  <rect x="354" y="66" width="38" height="58" rx="4" fill="none" stroke="rgb(var(--color-secondary-500))"/>
-  <rect x="354" y="95" width="38" height="29" fill="rgba(var(--color-secondary-500), .55)"/>
-  <rect x="396" y="66" width="38" height="58" rx="4" fill="none" stroke="rgb(var(--color-secondary-500))" stroke-dasharray="3 2"/>
+  <rect x="270" y="66" width="38" height="58" rx="4" fill="var(--fig-2)" fill-opacity=".55" stroke="var(--fig-2)"/>
+  <rect x="312" y="66" width="38" height="58" rx="4" fill="var(--fig-2)" fill-opacity=".55" stroke="var(--fig-2)"/>
+  <rect x="354" y="66" width="38" height="58" rx="4" fill="none" stroke="var(--fig-2)"/>
+  <rect x="354" y="95" width="38" height="29" fill="var(--fig-2)" fill-opacity=".55"/>
+  <rect x="396" y="66" width="38" height="58" rx="4" fill="none" stroke="var(--fig-2)" stroke-dasharray="3 2"/>
   <text x="289" y="140" class="pc-t">已满</text>
   <text x="331" y="140" class="pc-t">已满</text>
   <text x="373" y="140" class="pc-t">装入中</text>
@@ -911,10 +911,10 @@ H100 新加了两个原语，v1 和 v2 设计时都没有用到。一是 **Tenso
   <polygon points="474,69 465,68 469,76" fill="currentColor" fill-opacity=".5"/>
   <line x1="436" y1="102" x2="467" y2="118" stroke="currentColor" stroke-opacity=".5" stroke-width="1.5"/>
   <polygon points="474,121 469,114 465,122" fill="currentColor" fill-opacity=".5"/>
-  <rect x="476" y="48" width="148" height="42" rx="6" fill="rgba(var(--color-primary-500), .12)" stroke="rgb(var(--color-primary-500))"/>
+  <rect x="476" y="48" width="148" height="42" rx="6" fill="var(--fig-1)" fill-opacity=".12" stroke="var(--fig-1)"/>
   <text x="550" y="66" class="pc-h">consumer warpgroup 1</text>
   <text x="550" y="82" class="pc-s">WGMMA + softmax</text>
-  <rect x="476" y="100" width="148" height="42" rx="6" fill="rgba(var(--color-primary-500), .12)" stroke="rgb(var(--color-primary-500))"/>
+  <rect x="476" y="100" width="148" height="42" rx="6" fill="var(--fig-1)" fill-opacity=".12" stroke="var(--fig-1)"/>
   <text x="550" y="118" class="pc-h">consumer warpgroup 2</text>
   <text x="550" y="134" class="pc-s">WGMMA + softmax</text>
   <path d="M550,144 V168 H186 V133" fill="none" stroke="currentColor" stroke-opacity=".45" stroke-dasharray="4 3"/>
@@ -931,7 +931,7 @@ H100 新加了两个原语，v1 和 v2 设计时都没有用到。一是 **Tenso
   <style>
     .pp-lane { font-size: 12px; fill: currentColor; opacity: .8; }
     .pp-seg  { font-size: 11px; fill: #fff; text-anchor: middle; }
-    .pp-seg-dk { font-size: 11px; fill: rgb(var(--color-neutral-900)); text-anchor: middle; }
+    .pp-seg-dk { font-size: 11px; fill: var(--fig-on-3); text-anchor: middle; }
     .pp-wait { font-size: 11px; fill: currentColor; opacity: .7; text-anchor: middle; }
     .pp-sub  { font-size: 11px; fill: currentColor; opacity: .7; }
     .pp-leg  { font-size: 11px; fill: currentColor; }
@@ -939,31 +939,31 @@ H100 新加了两个原语，v1 和 v2 设计时都没有用到。一是 **Tenso
   <text x="20" y="45" class="pp-lane">Warpgroup A</text>
   <text x="20" y="105" class="pp-lane">Warpgroup B</text>
   <g>
-    <rect x="130" y="24" width="120" height="34" fill="rgb(var(--color-primary-500))"/>
+    <rect x="130" y="24" width="120" height="34" fill="var(--fig-1)"/>
     <text x="190" y="45" class="pp-seg">GEMM</text>
-    <rect x="250" y="24" width="60" height="34" fill="rgb(var(--color-secondary-500))"/>
+    <rect x="250" y="24" width="60" height="34" fill="var(--fig-2)"/>
     <text x="280" y="45" class="pp-seg-dk">softmax</text>
     <rect x="310" y="24" width="60" height="34" fill="rgba(128,128,128,.10)"/>
     <text x="340" y="45" class="pp-wait">等待</text>
-    <rect x="370" y="24" width="120" height="34" fill="rgb(var(--color-primary-500))"/>
+    <rect x="370" y="24" width="120" height="34" fill="var(--fig-1)"/>
     <text x="430" y="45" class="pp-seg">GEMM</text>
-    <rect x="490" y="24" width="60" height="34" fill="rgb(var(--color-secondary-500))"/>
+    <rect x="490" y="24" width="60" height="34" fill="var(--fig-2)"/>
     <text x="520" y="45" class="pp-seg-dk">softmax</text>
     <rect x="550" y="24" width="60" height="34" fill="rgba(128,128,128,.10)"/>
     <text x="580" y="45" class="pp-wait">等待</text>
   </g>
   <g>
-    <rect x="130" y="84" width="60" height="34" fill="rgb(var(--color-secondary-500))"/>
+    <rect x="130" y="84" width="60" height="34" fill="var(--fig-2)"/>
     <text x="160" y="105" class="pp-seg-dk">softmax</text>
     <rect x="190" y="84" width="60" height="34" fill="rgba(128,128,128,.10)"/>
     <text x="220" y="105" class="pp-wait">等待</text>
-    <rect x="250" y="84" width="120" height="34" fill="rgb(var(--color-primary-500))"/>
+    <rect x="250" y="84" width="120" height="34" fill="var(--fig-1)"/>
     <text x="310" y="105" class="pp-seg">GEMM</text>
-    <rect x="370" y="84" width="60" height="34" fill="rgb(var(--color-secondary-500))"/>
+    <rect x="370" y="84" width="60" height="34" fill="var(--fig-2)"/>
     <text x="400" y="105" class="pp-seg-dk">softmax</text>
     <rect x="430" y="84" width="60" height="34" fill="rgba(128,128,128,.10)"/>
     <text x="460" y="105" class="pp-wait">等待</text>
-    <rect x="490" y="84" width="120" height="34" fill="rgb(var(--color-primary-500))"/>
+    <rect x="490" y="84" width="120" height="34" fill="var(--fig-1)"/>
     <text x="550" y="105" class="pp-seg">GEMM</text>
   </g>
   <line x1="130" y1="18" x2="130" y2="124" stroke="currentColor" stroke-opacity=".2" stroke-dasharray="3 3"/>
@@ -975,9 +975,9 @@ H100 新加了两个原语，v1 和 v2 设计时都没有用到。一是 **Tenso
   <path d="M250,122 L250,134 L370,134 L370,122" fill="none" stroke="currentColor" stroke-opacity=".4"/>
   <text x="310" y="160" text-anchor="middle" class="pp-sub">A 做 softmax 时 B 在做 GEMM，两者用的是不同的计算单元</text>
   <g>
-    <rect x="130" y="184" width="14" height="14" fill="rgb(var(--color-primary-500))"/>
+    <rect x="130" y="184" width="14" height="14" fill="var(--fig-1)"/>
     <text x="150" y="195" class="pp-leg">GEMM（Tensor core）</text>
-    <rect x="300" y="184" width="14" height="14" fill="rgb(var(--color-secondary-500))"/>
+    <rect x="300" y="184" width="14" height="14" fill="var(--fig-2)"/>
     <text x="320" y="195" class="pp-leg">softmax（exp/ALU 单元）</text>
   </g>
 </svg>
@@ -999,26 +999,26 @@ H100 新加了两个原语，v1 和 v2 设计时都没有用到。一是 **Tenso
   <line x1="44" y1="190" x2="296" y2="190" stroke="currentColor" stroke-opacity=".4" stroke-dasharray="4 3"/>
   <line x1="44" y1="110" x2="296" y2="110" stroke="currentColor" stroke-opacity=".35"/>
   <text x="46" y="44" class="ic-s">±8.0</text>
-  <rect x="50" y="107" width="20" height="3" fill="rgb(var(--color-primary-500))"/>
-  <rect x="80" y="110" width="20" height="2" fill="rgb(var(--color-primary-500))"/>
-  <rect x="110" y="109" width="20" height="1" fill="rgb(var(--color-primary-500))"/>
-  <rect x="140" y="30" width="20" height="80" fill="rgb(var(--color-secondary-500))"/>
-  <rect x="170" y="110" width="20" height="4" fill="rgb(var(--color-primary-500))"/>
-  <rect x="200" y="108" width="20" height="2" fill="rgb(var(--color-primary-500))"/>
-  <rect x="230" y="109" width="20" height="1" fill="rgb(var(--color-primary-500))"/>
-  <rect x="260" y="110" width="20" height="3" fill="rgb(var(--color-primary-500))"/>
+  <rect x="50" y="107" width="20" height="3" fill="var(--fig-1)"/>
+  <rect x="80" y="110" width="20" height="2" fill="var(--fig-1)"/>
+  <rect x="110" y="109" width="20" height="1" fill="var(--fig-1)"/>
+  <rect x="140" y="30" width="20" height="80" fill="var(--fig-2)"/>
+  <rect x="170" y="110" width="20" height="4" fill="var(--fig-1)"/>
+  <rect x="200" y="108" width="20" height="2" fill="var(--fig-1)"/>
+  <rect x="230" y="109" width="20" height="1" fill="var(--fig-1)"/>
+  <rect x="260" y="110" width="20" height="3" fill="var(--fig-1)"/>
   <line x1="364" y1="78.9" x2="616" y2="78.9" stroke="currentColor" stroke-opacity=".4" stroke-dasharray="4 3"/>
   <line x1="364" y1="141.1" x2="616" y2="141.1" stroke="currentColor" stroke-opacity=".4" stroke-dasharray="4 3"/>
   <line x1="364" y1="110" x2="616" y2="110" stroke="currentColor" stroke-opacity=".35"/>
   <text x="366" y="72" class="ic-s">±3.1</text>
-  <rect x="370" y="78.9" width="20" height="31.1" fill="rgb(var(--color-primary-500))"/>
-  <rect x="400" y="110" width="20" height="26.2" fill="rgb(var(--color-primary-500))"/>
-  <rect x="430" y="110" width="20" height="23.3" fill="rgb(var(--color-primary-500))"/>
-  <rect x="460" y="81.7" width="20" height="28.3" fill="rgb(var(--color-primary-500))"/>
-  <rect x="490" y="80.3" width="20" height="29.7" fill="rgb(var(--color-primary-500))"/>
-  <rect x="520" y="110" width="20" height="29" fill="rgb(var(--color-primary-500))"/>
-  <rect x="550" y="110" width="20" height="30.4" fill="rgb(var(--color-primary-500))"/>
-  <rect x="580" y="81.7" width="20" height="28.3" fill="rgb(var(--color-primary-500))"/>
+  <rect x="370" y="78.9" width="20" height="31.1" fill="var(--fig-1)"/>
+  <rect x="400" y="110" width="20" height="26.2" fill="var(--fig-1)"/>
+  <rect x="430" y="110" width="20" height="23.3" fill="var(--fig-1)"/>
+  <rect x="460" y="81.7" width="20" height="28.3" fill="var(--fig-1)"/>
+  <rect x="490" y="80.3" width="20" height="29.7" fill="var(--fig-1)"/>
+  <rect x="520" y="110" width="20" height="29" fill="var(--fig-1)"/>
+  <rect x="550" y="110" width="20" height="30.4" fill="var(--fig-1)"/>
+  <rect x="580" y="81.7" width="20" height="28.3" fill="var(--fig-1)"/>
   <text x="170" y="212" class="ic-c">最大值 8.0 决定了量化的 scale</text>
   <text x="490" y="212" class="ic-c">最大值 3.1 · 长度不变（8.03）</text>
 </svg>
@@ -1055,18 +1055,18 @@ FlashAttention-4 的作者是 Zadouri、Hoehnerbach、Shah、Liu、Thakkar 和 D
   <line x1="580" y1="14" x2="580" y2="196" stroke="currentColor" stroke-opacity=".12" stroke-dasharray="2 3"/>
   <text x="20" y="26" class="as-grp">H100</text>
   <text x="150" y="46" class="as-lab">MMA（Tensor core）</text>
-  <rect x="160" y="33" width="420" height="18" fill="rgb(var(--color-primary-500))"/>
+  <rect x="160" y="33" width="420" height="18" fill="var(--fig-1)"/>
   <text x="586" y="46" class="as-val">2048</text>
   <text x="150" y="72" class="as-lab">exp（MUFU）</text>
-  <rect x="160" y="59" width="210" height="18" fill="rgba(var(--color-secondary-500), .25)" stroke="rgb(var(--color-secondary-500))" stroke-width="1.5"/>
+  <rect x="160" y="59" width="210" height="18" fill="var(--fig-2)" fill-opacity=".25" stroke="var(--fig-2)" stroke-width="1.5"/>
   <text x="376" y="72" class="as-val">1024</text>
   <text x="420" y="72" class="as-note">MMA 的一半，藏得住</text>
   <text x="20" y="104" class="as-grp">B200</text>
   <text x="150" y="124" class="as-lab">MMA（Tensor core）</text>
-  <rect x="160" y="111" width="210" height="18" fill="rgb(var(--color-primary-500))"/>
+  <rect x="160" y="111" width="210" height="18" fill="var(--fig-1)"/>
   <text x="376" y="124" class="as-val">1024</text>
   <text x="150" y="150" class="as-lab">exp（MUFU）</text>
-  <rect x="160" y="137" width="210" height="18" fill="rgba(var(--color-secondary-500), .25)" stroke="rgb(var(--color-secondary-500))" stroke-width="1.5"/>
+  <rect x="160" y="137" width="210" height="18" fill="var(--fig-2)" fill-opacity=".25" stroke="var(--fig-2)" stroke-width="1.5"/>
   <text x="376" y="150" class="as-val">1024</text>
   <text x="420" y="150" class="as-note">和 MMA 一样长，藏不住</text>
   <text x="150" y="176" class="as-lab">shared memory 读</text>
@@ -1096,15 +1096,15 @@ FA4 的做法有四条：
     .cr-k { font-size: 10.5px; fill: currentColor; opacity: .65; text-anchor: middle; }
     .cr-hl { font-size: 11px; font-weight: 600; fill: currentColor; }
   </style>
-  <line x1="60" y1="12" x2="82" y2="12" stroke="rgb(var(--color-primary-500))" stroke-width="2"/>
+  <line x1="60" y1="12" x2="82" y2="12" stroke="var(--fig-1)" stroke-width="2"/>
   <text x="88" y="16" class="cr-t">分数的当前最大值</text>
-  <line x1="252" y1="12" x2="274" y2="12" stroke="rgb(var(--color-secondary-500))" stroke-width="3.5"/>
+  <line x1="252" y1="12" x2="274" y2="12" stroke="var(--fig-2)" stroke-width="3.5"/>
   <text x="280" y="16" class="cr-t">FA4 实际用的最大值</text>
-  <rect x="424" y="6" width="12" height="12" fill="rgba(var(--color-secondary-500), .15)"/>
+  <rect x="424" y="6" width="12" height="12" fill="var(--fig-2)" fill-opacity=".15"/>
   <text x="442" y="16" class="cr-t">允许的差距：最多 256×</text>
-  <rect x="42" y="138.4" width="280" height="44.8" fill="rgba(var(--color-secondary-500), .15)"/>
-  <rect x="322" y="85.2" width="168" height="44.8" fill="rgba(var(--color-secondary-500), .15)"/>
-  <rect x="490" y="34.8" width="112" height="44.8" fill="rgba(var(--color-secondary-500), .15)"/>
+  <rect x="42" y="138.4" width="280" height="44.8" fill="var(--fig-2)" fill-opacity=".15"/>
+  <rect x="322" y="85.2" width="168" height="44.8" fill="var(--fig-2)" fill-opacity=".15"/>
+  <rect x="490" y="34.8" width="112" height="44.8" fill="var(--fig-2)" fill-opacity=".15"/>
   <line x1="40" y1="30" x2="40" y2="200" stroke="currentColor" stroke-opacity=".4"/>
   <line x1="40" y1="200" x2="604" y2="200" stroke="currentColor" stroke-opacity=".4"/>
   <text x="34" y="203" text-anchor="end" class="cr-k">0</text>
@@ -1112,20 +1112,20 @@ FA4 的做法有四条：
   <text x="34" y="91" text-anchor="end" class="cr-k">20</text>
   <text x="34" y="35" text-anchor="end" class="cr-k">30</text>
   <text transform="translate(12 118) rotate(-90)" text-anchor="middle" class="cr-k">行最大值（log₂ 单位）</text>
-  <polyline points="42,183.2 322,183.2 322,130 490,130 490,79.6 602,79.6" fill="none" stroke="rgb(var(--color-secondary-500))" stroke-width="3.5"/>
-  <polyline points="42,183.2 98,183.2 98,169.2 154,169.2 154,165.3 210,165.3 210,149.6 266,149.6 266,147.4 322,147.4 322,130 378,130 378,128.3 434,128.3 434,127.2 490,127.2 490,79.6 546,79.6 546,78.5 602,78.5" fill="none" stroke="rgb(var(--color-primary-500))" stroke-width="2"/>
-  <circle cx="70" cy="183.2" r="3" fill="rgb(var(--color-primary-500))"/>
-  <circle cx="126" cy="169.2" r="3" fill="rgb(var(--color-primary-500))"/>
-  <circle cx="182" cy="165.3" r="3" fill="rgb(var(--color-primary-500))"/>
-  <circle cx="238" cy="149.6" r="3" fill="rgb(var(--color-primary-500))"/>
-  <circle cx="294" cy="147.4" r="3" fill="rgb(var(--color-primary-500))"/>
-  <circle cx="350" cy="130" r="3" fill="rgb(var(--color-primary-500))"/>
-  <circle cx="406" cy="128.3" r="3" fill="rgb(var(--color-primary-500))"/>
-  <circle cx="462" cy="127.2" r="3" fill="rgb(var(--color-primary-500))"/>
-  <circle cx="518" cy="79.6" r="3" fill="rgb(var(--color-primary-500))"/>
-  <circle cx="574" cy="78.5" r="3" fill="rgb(var(--color-primary-500))"/>
-  <circle cx="322" cy="130" r="6" fill="none" stroke="rgb(var(--color-secondary-500))" stroke-width="2"/>
-  <circle cx="490" cy="79.6" r="6" fill="none" stroke="rgb(var(--color-secondary-500))" stroke-width="2"/>
+  <polyline points="42,183.2 322,183.2 322,130 490,130 490,79.6 602,79.6" fill="none" stroke="var(--fig-2)" stroke-width="3.5"/>
+  <polyline points="42,183.2 98,183.2 98,169.2 154,169.2 154,165.3 210,165.3 210,149.6 266,149.6 266,147.4 322,147.4 322,130 378,130 378,128.3 434,128.3 434,127.2 490,127.2 490,79.6 546,79.6 546,78.5 602,78.5" fill="none" stroke="var(--fig-1)" stroke-width="2"/>
+  <circle cx="70" cy="183.2" r="3" fill="var(--fig-1)"/>
+  <circle cx="126" cy="169.2" r="3" fill="var(--fig-1)"/>
+  <circle cx="182" cy="165.3" r="3" fill="var(--fig-1)"/>
+  <circle cx="238" cy="149.6" r="3" fill="var(--fig-1)"/>
+  <circle cx="294" cy="147.4" r="3" fill="var(--fig-1)"/>
+  <circle cx="350" cy="130" r="3" fill="var(--fig-1)"/>
+  <circle cx="406" cy="128.3" r="3" fill="var(--fig-1)"/>
+  <circle cx="462" cy="127.2" r="3" fill="var(--fig-1)"/>
+  <circle cx="518" cy="79.6" r="3" fill="var(--fig-1)"/>
+  <circle cx="574" cy="78.5" r="3" fill="var(--fig-1)"/>
+  <circle cx="322" cy="130" r="6" fill="none" stroke="var(--fig-2)" stroke-width="2"/>
+  <circle cx="490" cy="79.6" r="6" fill="none" stroke="var(--fig-2)" stroke-width="2"/>
   <text x="314" y="114" text-anchor="end" class="cr-hl">rescale</text>
   <text x="482" y="64" text-anchor="end" class="cr-hl">rescale</text>
   <text x="56" y="50" class="cr-s">标准 online softmax 在 9 次上升时都要 rescale，FA4 只做 2 次。</text>
