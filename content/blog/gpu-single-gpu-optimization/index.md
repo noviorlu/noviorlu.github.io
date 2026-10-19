@@ -660,7 +660,7 @@ fusion 对一个 kernel 本来就受算力限制的 op 帮助不大：matmul 后
 
 前面几节都在少搬数据，后面三节看同样的数据怎么搬更快。
 
-## 5 Memory coalescing（HBM） {#coalescing}
+## 5 Memory coalescing（显存） {#coalescing}
 
 先看显存本身。DRAM 读一个地址时，要先把这个地址所在的一整行搬进 sense amplifier，这一步很慢；搬进来以后，同一行附近的一段数据（burst）可以接着连续送出来，几乎不花额外时间。所以显存总是一段一段地读，GPU 这边对应的单位是 32 B 的 sector 和 128 B 的 cache line。
 
