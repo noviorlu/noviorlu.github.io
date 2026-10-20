@@ -427,7 +427,72 @@ kernel 拿到的只是每个 tensor 的起始地址，tile 在哪要靠 stride �
 
 ### 1.2 Online softmax {#online-softmax}
 
-online softmax 来自 Milakov 和 Gimelshein 2018 年的论文。下面按论文的顺序，从按定义写的 softmax 一步一步推到 online softmax，最后推广到 attention。一行 score 记作 $x_1, \dots, x_N$，分母记作 $\ell$（论文里记作 $d$）。[图 1-3](#fig-1-3) 是下面三种算法在一行 8 个元素上的时间线。
+online softmax 来自 Milakov 和 Gimelshein 2018 年的论文。下面按论文的顺序，从按定义写的 softmax 一步一步推到 online softmax，最后推广到 attention。一行 score 记作 $x_1, \dots, x_N$，分母记作 $\ell$（论文里记作 $d$）。第 1 到第 4 步只讲 softmax 本身，收在下面的折叠里；第 5 步推广到 attention。
+
+<details class="fold doc aside">
+<summary>第 1 到第 4 步：从 naive softmax 到 online softmax 和并行</summary>
+
+**第 1 步：naive softmax。** 按定义
+
+<p align="center">$y_i = \dfrac{e^{x_i}}{\sum_{j=1}^{N} e^{x_j}}$</p>
+
+要扫两遍：第 1 遍求分母，第 2 遍算输出。每个元素访存 3 次（读两次、写一次）。
+
+```
+ℓ_0 ← 0
+for j ← 1 … N:                      # 第 1 遍：读 x_j
+    ℓ_j ← ℓ_{j−1} + e^(x_j)
+for i ← 1 … N:                      # 第 2 遍：读 x_i，写 y_i
+    y_i ← e^(x_i) / ℓ_N
+```
+
+问题是 $e^{x_j}$ 会溢出，fp32 里 $x$ 超过 88.7 时 $e^x$ 就是 inf。
+
+**第 2 步：safe softmax。** 分子分母同乘 $e^{-m_N}$，$m_N$ 是整行的最大值。结果不变，指数都不大于 0，不会溢出：
+
+<p align="center">$y_i = \dfrac{e^{x_i - m_N}}{\sum_{j=1}^{N} e^{x_j - m_N}}, \qquad m_N = \max_{k=1}^{N} x_k$</p>
+
+PyTorch 等框架用的就是这个版本，代价是多扫一遍，每个元素访存 4 次：
+
+```
+m_0 ← −∞
+for k ← 1 … N:                      # 第 1 遍：读 x_k
+    m_k ← max(m_{k−1}, x_k)
+ℓ_0 ← 0
+for j ← 1 … N:                      # 第 2 遍：读 x_j
+    ℓ_j ← ℓ_{j−1} + e^(x_j − m_N)
+for i ← 1 … N:                      # 第 3 遍：读 x_i，写 y_i
+    y_i ← e^(x_i − m_N) / ℓ_N
+```
+
+第 2 遍的每一项都要用 $m_N$，必须等第 1 遍扫完整行。
+
+**第 3 步：online softmax。** 把前两遍合成一遍，边扫边维护到目前为止的最大值 $m_j$ 和分母 $\ell_j$。最大值变大时，之前加进 $\ell$ 的项都是按旧的最大值算的，先乘 $e^{m_{j-1}-m_j}$ 换到新的最大值，再加上新的一项：
+
+```
+m_0 ← −∞,  ℓ_0 ← 0
+for j ← 1 … N:                      # 第 1 遍：读 x_j，m 和 ℓ 一起更新
+    m_j ← max(m_{j−1}, x_j)
+    ℓ_j ← ℓ_{j−1} · e^(m_{j−1} − m_j) + e^(x_j − m_j)
+for i ← 1 … N:                      # 第 2 遍：读 x_i，写 y_i
+    y_i ← e^(x_i − m_N) / ℓ_N
+```
+
+每个元素访存回到 3 次，和 naive 一样，但不会溢出。
+
+这样算为什么对：要证的是扫完第 $j$ 个元素后 $\ell_j = \sum_{k=1}^{j} e^{x_k - m_j}$，用归纳法。$j = 1$ 时 $m_1 = x_1$，$\ell_1 = e^{x_1 - m_1}$，成立。假设 $j-1$ 时成立，代入第 $j$ 步的更新，再用 $e^a \cdot e^b = e^{a+b}$：
+
+<p align="center">$\begin{aligned} \ell_j &= \ell_{j-1}\, e^{m_{j-1}-m_j} + e^{x_j-m_j} \\ &= \Big(\sum_{k=1}^{j-1} e^{x_k-m_{j-1}}\Big)\, e^{m_{j-1}-m_j} + e^{x_j-m_j} \\ &= \sum_{k=1}^{j-1} e^{x_k-m_j} + e^{x_j-m_j} \;=\; \sum_{k=1}^{j} e^{x_k-m_j} \end{aligned}$</p>
+
+$j = N$ 时就是 safe softmax 的分母。
+
+**第 4 步：两段合并，并行。** 第 3 步每读一个元素，是把「前 $j-1$ 个元素」的结果和「第 $j$ 个元素」合起来。同样的办法能合并任意两段。A 段和 B 段各自按第 3 步扫完，得到 $(m_A, \ell_A)$ 和 $(m_B, \ell_B)$，其中 $\ell_A = \sum_{k\in A} e^{x_k - m_A}$。合并后的最大值是 $m = \max(m_A, m_B)$，分母和第 3 步的证明一样用 $e^a \cdot e^b = e^{a+b}$：
+
+<p align="center">$\begin{aligned} \ell_A\, e^{m_A-m} + \ell_B\, e^{m_B-m} &= \Big(\sum_{k\in A} e^{x_k-m_A}\Big) e^{m_A-m} + \Big(\sum_{k\in B} e^{x_k-m_B}\Big) e^{m_B-m} \\ &= \sum_{k\in A} e^{x_k-m} + \sum_{k\in B} e^{x_k-m} \;=\; \sum_{k\in A\cup B} e^{x_k-m} \end{aligned}$</p>
+
+第 3 步那一行就是 B 段只有一个元素的情况：$m_B = x_j$，$\ell_B = e^{x_j - x_j} = 1$。论文把这个合并记作 $\oplus$。
+
+能合并任意两段，一行就可以切成几段，交给不同的 thread 同时按第 3 步的第 1 个循环扫，再合并。合并以后每个 thread 都拿到整行的 $m_N$、$\ell_N$，写 $y_i$ 的第 2 个循环也各写各的那一段（[图 1-3](#fig-1-3) 最下面一栏）。合并的顺序不影响结果（$\oplus$ 满足结合律和交换律），所以先合并哪两段都行。
 
 <figure id="fig-1-3">
 <svg viewBox="0 0 680 346" width="100%" role="img" aria-label="一行 8 个元素。safe softmax 顺序扫三遍：求 m、求 ℓ、写 y，共 24 步。online softmax 顺序扫两遍：同时更新 m 和 ℓ、写 y，共 16 步。两个 thread 并行：各扫 4 个元素更新 m 和 ℓ，合并一次，再各写 4 个 y，共 9 步">
@@ -539,67 +604,7 @@ online softmax 来自 Milakov 和 Gimelshein 2018 年的论文。下面按论文
 <figcaption><strong>图 1-3</strong> 一行 8 个元素，三种算法放在同一条时间轴上，一格是处理一个元素。</figcaption>
 </figure>
 
-**第 1 步：naive softmax。** 按定义
-
-<p align="center">$y_i = \dfrac{e^{x_i}}{\sum_{j=1}^{N} e^{x_j}}$</p>
-
-要扫两遍：第 1 遍求分母，第 2 遍算输出。每个元素访存 3 次（读两次、写一次）。
-
-```
-ℓ_0 ← 0
-for j ← 1 … N:                      # 第 1 遍：读 x_j
-    ℓ_j ← ℓ_{j−1} + e^(x_j)
-for i ← 1 … N:                      # 第 2 遍：读 x_i，写 y_i
-    y_i ← e^(x_i) / ℓ_N
-```
-
-问题是 $e^{x_j}$ 会溢出，fp32 里 $x$ 超过 88.7 时 $e^x$ 就是 inf。
-
-**第 2 步：safe softmax。** 分子分母同乘 $e^{-m_N}$，$m_N$ 是整行的最大值。结果不变，指数都不大于 0，不会溢出：
-
-<p align="center">$y_i = \dfrac{e^{x_i - m_N}}{\sum_{j=1}^{N} e^{x_j - m_N}}, \qquad m_N = \max_{k=1}^{N} x_k$</p>
-
-PyTorch 等框架用的就是这个版本，代价是多扫一遍，每个元素访存 4 次：
-
-```
-m_0 ← −∞
-for k ← 1 … N:                      # 第 1 遍：读 x_k
-    m_k ← max(m_{k−1}, x_k)
-ℓ_0 ← 0
-for j ← 1 … N:                      # 第 2 遍：读 x_j
-    ℓ_j ← ℓ_{j−1} + e^(x_j − m_N)
-for i ← 1 … N:                      # 第 3 遍：读 x_i，写 y_i
-    y_i ← e^(x_i − m_N) / ℓ_N
-```
-
-第 2 遍的每一项都要用 $m_N$，必须等第 1 遍扫完整行。
-
-**第 3 步：online softmax。** 把前两遍合成一遍，边扫边维护到目前为止的最大值 $m_j$ 和分母 $\ell_j$。最大值变大时，之前加进 $\ell$ 的项都是按旧的最大值算的，先乘 $e^{m_{j-1}-m_j}$ 换到新的最大值，再加上新的一项：
-
-```
-m_0 ← −∞,  ℓ_0 ← 0
-for j ← 1 … N:                      # 第 1 遍：读 x_j，m 和 ℓ 一起更新
-    m_j ← max(m_{j−1}, x_j)
-    ℓ_j ← ℓ_{j−1} · e^(m_{j−1} − m_j) + e^(x_j − m_j)
-for i ← 1 … N:                      # 第 2 遍：读 x_i，写 y_i
-    y_i ← e^(x_i − m_N) / ℓ_N
-```
-
-每个元素访存回到 3 次，和 naive 一样，但不会溢出。
-
-这样算为什么对：要证的是扫完第 $j$ 个元素后 $\ell_j = \sum_{k=1}^{j} e^{x_k - m_j}$，用归纳法。$j = 1$ 时 $m_1 = x_1$，$\ell_1 = e^{x_1 - m_1}$，成立。假设 $j-1$ 时成立，代入第 $j$ 步的更新，再用 $e^a \cdot e^b = e^{a+b}$：
-
-<p align="center">$\begin{aligned} \ell_j &= \ell_{j-1}\, e^{m_{j-1}-m_j} + e^{x_j-m_j} \\ &= \Big(\sum_{k=1}^{j-1} e^{x_k-m_{j-1}}\Big)\, e^{m_{j-1}-m_j} + e^{x_j-m_j} \\ &= \sum_{k=1}^{j-1} e^{x_k-m_j} + e^{x_j-m_j} \;=\; \sum_{k=1}^{j} e^{x_k-m_j} \end{aligned}$</p>
-
-$j = N$ 时就是 safe softmax 的分母。
-
-**第 4 步：两段合并，并行。** 第 3 步每读一个元素，是把「前 $j-1$ 个元素」的结果和「第 $j$ 个元素」合起来。同样的办法能合并任意两段。A 段和 B 段各自按第 3 步扫完，得到 $(m_A, \ell_A)$ 和 $(m_B, \ell_B)$，其中 $\ell_A = \sum_{k\in A} e^{x_k - m_A}$。合并后的最大值是 $m = \max(m_A, m_B)$，分母和第 3 步的证明一样用 $e^a \cdot e^b = e^{a+b}$：
-
-<p align="center">$\begin{aligned} \ell_A\, e^{m_A-m} + \ell_B\, e^{m_B-m} &= \Big(\sum_{k\in A} e^{x_k-m_A}\Big) e^{m_A-m} + \Big(\sum_{k\in B} e^{x_k-m_B}\Big) e^{m_B-m} \\ &= \sum_{k\in A} e^{x_k-m} + \sum_{k\in B} e^{x_k-m} \;=\; \sum_{k\in A\cup B} e^{x_k-m} \end{aligned}$</p>
-
-第 3 步那一行就是 B 段只有一个元素的情况：$m_B = x_j$，$\ell_B = e^{x_j - x_j} = 1$。论文把这个合并记作 $\oplus$。
-
-能合并任意两段，一行就可以切成几段，交给不同的 thread 同时按第 3 步的第 1 个循环扫，再合并。合并以后每个 thread 都拿到整行的 $m_N$、$\ell_N$，写 $y_i$ 的第 2 个循环也各写各的那一段（[图 1-3](#fig-1-3) 最下面一栏）。合并的顺序不影响结果（$\oplus$ 满足结合律和交换律），所以先合并哪两段都行。
+</details>
 
 **第 5 步：推广到 attention。** 论文只算 softmax，attention 还要乘 $V$，一行的输出是 $\text{out} = \sum_k p_k v_k$。分母 $\ell$ 对每一项都一样，提出来以后输出是分子 $O$ 除以 $\ell$，$O$ 也是按同一个最大值加起来的求和（[图 1-4](#fig-1-4)）。
 
