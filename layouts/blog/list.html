@@ -1,6 +1,6 @@
-{{- /* Section lists under content/blog/: the blog index (/blog/) and the AI daily reports
-       archive (/blog/ai-daily-reports/, filled by the daily-report automation — each report is
-       content/blog/ai-daily-reports/daily-YYYYMMDD/index.md). Any other sub-section falls back
+{{- /* Section lists under content/blog/: the blog index (/blog/) and the AI reports archive
+       (/blog/ai-daily-reports/, filled by the report automation — each report is
+       content/blog/ai-daily-reports/weekly-YYYYMMDD/index.md, or daily-YYYYMMDD up to 2026-10-20). Any other sub-section falls back
        to the generic layout at the bottom. */ -}}
 {{ define "main" }}
   {{ .Scratch.Set "scope" "list" }}
@@ -34,10 +34,10 @@
           {{ $reports := where .RegularPages "Type" "!=" "page" }}
           <div class="nv-panel">
             <div class="nv-panel__head">
-              <h2 class="nv-panel__title">AI 日报</h2>
+              <h2 class="nv-panel__title">AI 周报</h2>
               <a class="nv-panel__more" href="{{ .RelPermalink }}">全部 {{ len $reports }} 期 →</a>
             </div>
-            <p class="nv-panel__text">Project Luna 每天自动整理的 AI 论文、新闻与工具。</p>
+            <p class="nv-panel__text">Project Luna 每周自动整理的 AI 论文、新闻与工具。</p>
             <ul class="nv-mini">
               {{ range first 4 $reports }}
                 <li><a href="{{ .RelPermalink }}"><time datetime="{{ .Date.Format "2006-01-02" }}">{{ .Date.Format "01/02" }}</time><span>{{ .Title }}</span></a></li>
@@ -83,7 +83,7 @@
       {{ if .Params.showBreadcrumbs | default (site.Params.list.showBreadcrumbs | default false) }}
         <div class="nv-breadcrumbs">{{ partial "breadcrumbs.html" . }}</div>
       {{ end }}
-      <p class="nv-kicker">Daily · Project Luna</p>
+      <p class="nv-kicker">Weekly · Project Luna</p>
       <h1 class="nv-pagehead__title">{{ .Title }}</h1>
       {{ with .Description }}<p class="nv-pagehead__lead">{{ . }}</p>{{ end }}
       <p class="nv-pagehead__actions">

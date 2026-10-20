@@ -70,10 +70,10 @@
           {{ $reports := where .RegularPages "Type" "!=" "page" }}
           <div class="nv-panel">
             <div class="nv-panel__head">
-              <h3 class="nv-panel__title">AI 日报</h3>
+              <h3 class="nv-panel__title">AI 周报</h3>
               <a class="nv-panel__more" href="{{ .RelPermalink }}">全部 →</a>
             </div>
-            <p class="nv-panel__text">Project Luna 每天自动整理的 AI 论文、新闻与工具。</p>
+            <p class="nv-panel__text">Project Luna 每周自动整理的 AI 论文、新闻与工具。</p>
             <ul class="nv-mini">
               {{ range first 5 $reports }}
                 <li><a href="{{ .RelPermalink }}"><time datetime="{{ .Date.Format "2006-01-02" }}">{{ .Date.Format "01/02" }}</time><span>{{ .Title }}</span></a></li>
