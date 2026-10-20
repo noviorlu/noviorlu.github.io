@@ -126,7 +126,9 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 <figcaption><strong>图 1-1</strong> 两种看矩阵乘法的方式。(a) 外积按列看，每一列是 $a$ 乘一个数；(b) 向量乘矩阵按行看，结果是 $B$ 各行的线性组合。</figcaption>
 </figure>
 
-每个 score block 都在片上算，完整的 $S$ 和 $P$ 从不写回 HBM（[图 1-2](#fig-1-2)）。tiling 为什么能少读显存，在[单卡 GPU 优化方法](/blog/gpu-single-gpu-optimization/#tiling)里按 matmul 算过一遍；这里多出来的一步是 softmax。
+如果 attention 只有两次乘法，$O = (QK^\top)V$，tiling 可以直接用。$O_i = \sum_{j=1}^{T_k} S_{ij}V_j$，$S_{ij} = Q_iK_j^\top$：固定 $i$，每从 HBM 读进一对 $K_j$、$V_j$，在片上算出 $S_{ij}$，乘 $V_j$ 加进 $O_i$，$S_{ij}$ 用完就丢。片上始终只有一个 $B_q\times B_k$ 的 score tile，完整的 $S$ 不进 HBM。tiling 为什么能少读显存，在[单卡 GPU 优化方法](/blog/gpu-single-gpu-optimization/#tiling)里按 matmul 算过一遍。
+
+问题出在两次乘法中间的 softmax。实际要算的是 $O = PV$，$P = \mathrm{softmax}(S)$ 按行归一化，$P$ 的每个元素都要除以它所在那一行全部元素的指数和。这一行有 $N_k$ 个元素，分在 $T_k$ 个 block 里。读到第 $j$ 个 block 时后面的 block 还没算，分母不知道，$P_{ij}$ 就算不出来，$P_{ij}V_j$ 也没法加进 $O_i$。最直接的办法是先把所有 $K_j$ 扫一遍，求出每行的最大值和分母，再扫一遍算 $P_{ij}V_j$，$K$ 要多读一遍。FlashAttention 用 online softmax 把 softmax 也拆成一个 block 一个 block 地算，$K_j$、$V_j$ 都只读一遍，完整的 $S$ 和 $P$ 都不写回 HBM（[图 1-2](#fig-1-2)）。图里的 $\exp(S-m_{\text{new}})$ 和每行的 $m$、$\ell$ 是 1.2 要讲的。
 
 <figure id="fig-1-2">
 <svg viewBox="0 0 680 624" width="100%" role="img" aria-label="Tiling：Q 按 B_q 行切成 block，K 和 V 按 B_k 行切成 block。Kᵀ 画在 score 矩阵上面，Vᵀ 画在下面，第 j 个 block 都对着第 j 列。Q_i 乘 K_j 转置得到 score tile S_ij，S_ij 乘 V_j 加进同一行的 O_i。内层循环 j 走过每个 K/V block，外层循环 i 走过每个 Q block">
@@ -298,6 +300,18 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 </figure>
 
 ### 1.2 Online softmax {#online-softmax}
+
+记 $S = QK^\top/\sqrt d$，softmax 对 $S$ 的每一行单独做。取 $S$ 的一行，记作 $x_1, \dots, x_{N_k}$，$x_k$ 是这个 query 和第 $k$ 个 key 的 score：
+
+<p align="center">$p_k = \dfrac{e^{x_k - m}}{\ell}, \qquad m = \max_{k=1}^{N_k} x_k, \qquad \ell = \sum_{k=1}^{N_k} e^{x_k - m}$</p>
+
+减去 $m$ 相当于分子分母同乘 $e^{-m}$，结果不变，作用是让指数都不大于 0：fp32 里 $x$ 超过 88.7 时 $e^{x}$ 就溢出成 inf。$m$ 和 $\ell$ 都要看完整行才知道，1.1 卡住的就是这里。
+
+online softmax（Milakov 和 Gimelshein 2018）的办法是边扫边维护到目前为止的最大值和分母。放到 block 上：固定第 $i$ 个 query block，$S_{ij} = Q_iK_j^\top/\sqrt d$ 是 $B_q\times B_k$ 的 tile。记 $m_j$、$\ell_j$ 为扫完前 $j$ 个 key block 以后每一行的最大值和分母，$j = 1, \dots, T_k$，都是长度 $B_q$ 的向量，一行一个数。每读进一个 $K_j$ 更新一次：
+
+<p align="center">$m_j = \max\big(m_{j-1},\, \mathrm{rowmax}(S_{ij})\big), \qquad \ell_j = \ell_{j-1}\, e^{m_{j-1} - m_j} + \mathrm{rowsum}\big(e^{S_{ij} - m_j}\big)$</p>
+
+$m_0 = -\infty$，$\ell_0 = 0$。$\ell_{j-1}$ 里的每一项都是按旧的最大值算的 $e^{x_k - m_{j-1}}$，乘上 $e^{m_{j-1}-m_j}$ 正好变成 $e^{x_k - m_j}$，和新 block 的项对齐到同一个最大值再相加；最大值没变时这个因子是 1。扫完 $j = T_k$，$m_{T_k}$、$\ell_{T_k}$ 就是整行的 $m$、$\ell$，和一次看完整行算的完全一样。从按定义写的 softmax 一步一步推到这个递推，以及它为什么对，放在下面的折叠里。
 
 <details class="fold doc aside">
 <summary>第 1 到第 4 步：从 naive softmax 到 online softmax 和并行</summary>
@@ -478,17 +492,9 @@ $j = N$ 时就是 safe softmax 的分母。
 
 </details>
 
-放到 attention 里，score 按 block 算：$S_{ij} = Q_iK_j^\top/\sqrt d$ 是 $B_q\times B_k$ 的 tile，softmax 按行做。固定第 $i$ 个 query block，记 $m_j$、$\ell_j$ 为扫完前 $j$ 个 key block 以后每一行的最大值和分母，$j = 1, \dots, T_k$，都是长度 $B_q$ 的向量，一行一个数。按折叠里第 3、4 步的办法（Milakov 和 Gimelshein 2018），一次读进一个 $K_j$ 来更新：
+**推广到 attention。** 到这里每行的分母一遍就能求出来，但 $P_{ij} = e^{S_{ij} - m_{T_k}}/\ell_{T_k}$ 要用最终的 $m_{T_k}$、$\ell_{T_k}$，还是得等扫完，单独算 softmax 要再扫一遍才能写出 $P$。attention 不需要 $P$ 本身，只要 $PV$。一行的输出是 $\text{out} = \sum_k p_k v_k$，$v_k$ 是 $V$ 的第 $k$ 行。$p_k$ 的分母 $\ell$ 对每一项都一样，提到求和外面，输出就是分子 $O$ 除以 $\ell$（[图 1-4](#fig-1-4)）：
 
-<p align="center">$m_j = \max\big(m_{j-1},\, \mathrm{rowmax}(S_{ij})\big), \qquad \ell_j = \ell_{j-1}\, e^{m_{j-1} - m_j} + \mathrm{rowsum}\big(e^{S_{ij} - m_j}\big)$</p>
-
-$m_0 = -\infty$，$\ell_0 = 0$。$j = T_k$ 时就是整行的最大值和分母，softmax 的结果是
-
-<p align="center">$P_{ij} = \dfrac{e^{S_{ij} - m_{T_k}}}{\ell_{T_k}}, \qquad \ell_{T_k} = \sum_{j=1}^{T_k} \mathrm{rowsum}\big(e^{S_{ij} - m_{T_k}}\big)$</p>
-
-和一次看完整行算的完全一样。
-
-**第 5 步：推广到 attention。** 论文只算 softmax，attention 还要乘 $V$，一行的输出是 $\text{out} = \sum_k p_k v_k$。分母 $\ell$ 对每一项都一样，提出来以后输出是分子 $O$ 除以 $\ell$，$O$ 也是按同一个最大值加起来的求和（[图 1-4](#fig-1-4)）。
+<p align="center">$\text{out} = \dfrac{O}{\ell}, \qquad O = \sum_{k=1}^{N_k} e^{x_k - m}\, v_k$</p>
 
 <figure id="fig-1-4">
 <svg viewBox="0 0 680 316" width="100%" role="img" aria-label="attention 一行的输出是 p_k 乘 v_k 之和。每一项 p_k v_k 等于 e 的 x_k 减 m 次方乘 v_k，再乘整行共用的 1 除以 ℓ。共用的 1/ℓ 提到求和外面，输出等于 O 乘 1/ℓ，O 是 e 的 x_k 减 m 次方乘 v_k 之和">
@@ -529,7 +535,11 @@ $m_0 = -\infty$，$\ell_0 = 0$。$j = T_k$ 时就是整行的最大值和分母�
 <figcaption><strong>图 1-4</strong> 一行的输出 = 分子 $O$ / 分母 $\ell$。</figcaption>
 </figure>
 
-所以 $O$ 和 $\ell$ 用同一个因子修正，状态从 $(m, \ell)$ 变成 $(m, \ell, O)$。FlashAttention 在一个 thread block 里让 $j$ 从 1 走到 $T_k$，按上面的递推更新 $m_j$、$\ell_j$，$O_i$ 乘和 $\ell_j$ 一样的因子 $e^{m_{j-1}-m_j}$（[图 1-5](#fig-1-5)）。输出直接是 $O / \ell$。单纯的 softmax 要再扫一遍写出每个 $p_k$，attention 只要加权和，所以对 K/V 只扫一遍。
+$O$ 和 $\ell$ 是同一种求和，只是每一项多乘一个 $v_k$，所以 $O$ 也能边扫边用同一个因子修正。按 [图 1-1](#fig-1-1) (b) 的看法，$O$ 的一行是 $V$ 各行的线性组合，权重全乘 $e^{m_{j-1}-m_j}$，这一行就整体乘 $e^{m_{j-1}-m_j}$。所以 $O_i$ 从 0 开始，每读进一对 $K_j$、$V_j$：
+
+<p align="center">$O_i \leftarrow e^{m_{j-1} - m_j}\, O_i + e^{S_{ij} - m_j}\, V_j$</p>
+
+$e^{m_{j-1}-m_j}$ 每行一个数，乘到 $O_i$ 的对应行上。扫完 $j = T_k$，$O_i$ 每行除以自己的 $\ell_{T_k}$，就是这个 query block 的输出。kernel 的状态只有每行的 $m$、$\ell$ 和 $O_i$，$K_j$、$V_j$ 只读一遍，$P$ 从头到尾不用写出来（[图 1-5](#fig-1-5)，图里的 $m_{\text{old}}$、$m_{\text{new}}$ 就是 $m_{j-1}$、$m_j$）。
 
 <figure id="fig-1-5">
 <svg viewBox="0 0 680 252" width="100%" role="img" aria-label="顺序扫：之前扫过的 block 1 到 j−1 只留下 m_old、ℓ_old、O_old，当成一个 tile；新读的 block j 按 m_new 算每一项。ℓ_old 乘 e 的 m_old 减 m_new 次方，加上 block j 的项，得到 ℓ_new">
@@ -566,19 +576,19 @@ $m_0 = -\infty$，$\ell_0 = 0$。$j = T_k$ 时就是整行的最大值和分母�
 <figcaption><strong>图 1-5</strong> 顺序扫的一步。kernel 只存每行的 $m$、$\ell$、$O$。</figcaption>
 </figure>
 
-写成伪代码，一次处理一个 query block，$m_j$、$\ell_j$ 原地更新，存在 `m_i`、`ℓ_i` 里，最后归一化一次：
+写成伪代码，每行的 $m$、$\ell$ 原地更新，最后归一化一次：
 
 ```
 for i ← 1 … T_q:                           # 每个 query block
-    O_i ← 0,  ℓ_i ← 0,  m_i ← -∞           # 只放在 shared memory / register 里
+    O_i ← 0,  ℓ ← 0,  m ← −∞               # 长度 B_q 的 m、ℓ 和 O_i 只放在 register / shared memory 里
     for j ← 1 … T_k:                       # 每个 key/value block
         S_ij  ← Q_i K_jᵀ / sqrt(d)         # B_q × B_k，只在片上，不进 HBM
-        m_new ← max(m_i, rowmax(S_ij))
-        P_ij  ← exp(S_ij − m_new)
-        ℓ_i   ← exp(m_i − m_new)·ℓ_i + rowsum(P_ij)
-        O_i   ← exp(m_i − m_new)·O_i + P_ij·V_j
-        m_i   ← m_new
-    O_i ← O_i / ℓ_i                        # O_i（和每行的统计量）只写回 HBM 一次
+        m_new ← max(m, rowmax(S_ij))
+        P̃_ij  ← exp(S_ij − m_new)          # 还没除以分母
+        ℓ     ← exp(m − m_new)·ℓ + rowsum(P̃_ij)
+        O_i   ← exp(m − m_new)·O_i + P̃_ij·V_j
+        m     ← m_new
+    O_i ← O_i / ℓ                          # O_i（和每行的统计量）只写回 HBM 一次
 ```
 
 严格说，这是 FlashAttention-2 采用的循环顺序。FA1 论文的 Algorithm 1 是反过来套的：外层循环走 $K$/$V$ block，内层循环走 $Q$ block，所以内层的每一步都要从 HBM 读出 $O_i$、$\ell_i$、$m_i$，更新后再写回去，而且每一步都用 $\mathrm{diag}(\ell_i)^{-1}$ 把 $O_i$ 归一化一次。后面的 IO 复杂度对两种顺序都成立；换循环顺序是 FA2 的改动之一（[第 2 节](#fa2)）。
