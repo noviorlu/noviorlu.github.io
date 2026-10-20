@@ -478,15 +478,15 @@ $j = N$ 时就是 safe softmax 的分母。
 
 </details>
 
-放到 attention 里，score 按 block 算：$S_{ij} = Q_iK_j^\top/\sqrt d$ 是 $B_q\times B_k$ 的 tile，softmax 按行做。对第 $i$ 个 query block，每一行的最大值和分母要看完全部 $T_k$ 个 key block：
+放到 attention 里，score 按 block 算：$S_{ij} = Q_iK_j^\top/\sqrt d$ 是 $B_q\times B_k$ 的 tile，softmax 按行做。固定第 $i$ 个 query block，记 $m_j$、$\ell_j$ 为扫完前 $j$ 个 key block 以后每一行的最大值和分母，$j = 1, \dots, T_k$，都是长度 $B_q$ 的向量，一行一个数。按折叠里第 3、4 步的办法（Milakov 和 Gimelshein 2018），一次读进一个 $K_j$ 来更新：
 
-<p align="center">$P_{ij} = \dfrac{e^{S_{ij} - m_i}}{\ell_i}, \qquad m_i = \max_{j=1}^{T_k} \mathrm{rowmax}(S_{ij}), \qquad \ell_i = \sum_{j=1}^{T_k} \mathrm{rowsum}\big(e^{S_{ij} - m_i}\big)$</p>
+<p align="center">$m_j = \max\big(m_{j-1},\, \mathrm{rowmax}(S_{ij})\big), \qquad \ell_j = \ell_{j-1}\, e^{m_{j-1} - m_j} + \mathrm{rowsum}\big(e^{S_{ij} - m_j}\big)$</p>
 
-$m_i$、$\ell_i$ 是长度 $B_q$ 的向量，一行一个数。上面折叠里第 4 步的两段合并（Milakov 和 Gimelshein 2018）让它们可以按 block 递推：A 段是前 $j-1$ 个 key block，B 段是第 $j$ 个。记扫完前 $j$ 个 block 的结果为 $m_i^{(j)}$、$\ell_i^{(j)}$：
+$m_0 = -\infty$，$\ell_0 = 0$。$j = T_k$ 时就是整行的最大值和分母，softmax 的结果是
 
-<p align="center">$m_i^{(j)} = \max\big(m_i^{(j-1)},\, \mathrm{rowmax}(S_{ij})\big), \qquad \ell_i^{(j)} = \ell_i^{(j-1)}\, e^{m_i^{(j-1)} - m_i^{(j)}} + \mathrm{rowsum}\big(e^{S_{ij} - m_i^{(j)}}\big)$</p>
+<p align="center">$P_{ij} = \dfrac{e^{S_{ij} - m_{T_k}}}{\ell_{T_k}}, \qquad \ell_{T_k} = \sum_{j=1}^{T_k} \mathrm{rowsum}\big(e^{S_{ij} - m_{T_k}}\big)$</p>
 
-$m_i^{(0)} = -\infty$，$\ell_i^{(0)} = 0$；$j = T_k$ 时就是整行的 $m_i$、$\ell_i$，和一次看完整行算的完全一样。
+和一次看完整行算的完全一样。
 
 **第 5 步：推广到 attention。** 论文只算 softmax，attention 还要乘 $V$，一行的输出是 $\text{out} = \sum_k p_k v_k$。分母 $\ell$ 对每一项都一样，提出来以后输出是分子 $O$ 除以 $\ell$，$O$ 也是按同一个最大值加起来的求和（[图 1-4](#fig-1-4)）。
 
@@ -529,7 +529,7 @@ $m_i^{(0)} = -\infty$，$\ell_i^{(0)} = 0$；$j = T_k$ 时就是整行的 $m_i$�
 <figcaption><strong>图 1-4</strong> 一行的输出 = 分子 $O$ / 分母 $\ell$。</figcaption>
 </figure>
 
-所以 $O$ 和 $\ell$ 用同一个因子修正，状态从 $(m, \ell)$ 变成 $(m, \ell, O)$。FlashAttention 在一个 thread block 里让 $j$ 从 1 走到 $T_k$，按上面的递推更新 $m_i$、$\ell_i$，$O_i$ 乘和 $\ell_i$ 一样的因子（[图 1-5](#fig-1-5)）。输出直接是 $O / \ell$。单纯的 softmax 要再扫一遍写出每个 $p_k$，attention 只要加权和，所以对 K/V 只扫一遍。
+所以 $O$ 和 $\ell$ 用同一个因子修正，状态从 $(m, \ell)$ 变成 $(m, \ell, O)$。FlashAttention 在一个 thread block 里让 $j$ 从 1 走到 $T_k$，按上面的递推更新 $m_j$、$\ell_j$，$O_i$ 乘和 $\ell_j$ 一样的因子 $e^{m_{j-1}-m_j}$（[图 1-5](#fig-1-5)）。输出直接是 $O / \ell$。单纯的 softmax 要再扫一遍写出每个 $p_k$，attention 只要加权和，所以对 K/V 只扫一遍。
 
 <figure id="fig-1-5">
 <svg viewBox="0 0 680 252" width="100%" role="img" aria-label="顺序扫：之前扫过的 block 1 到 j−1 只留下 m_old、ℓ_old、O_old，当成一个 tile；新读的 block j 按 m_new 算每一项。ℓ_old 乘 e 的 m_old 减 m_new 次方，加上 block j 的项，得到 ℓ_new">
@@ -566,7 +566,7 @@ $m_i^{(0)} = -\infty$，$\ell_i^{(0)} = 0$；$j = T_k$ 时就是整行的 $m_i$�
 <figcaption><strong>图 1-5</strong> 顺序扫的一步。kernel 只存每行的 $m$、$\ell$、$O$。</figcaption>
 </figure>
 
-写成伪代码，一次处理一个 query block，最后归一化一次：
+写成伪代码，一次处理一个 query block，$m_j$、$\ell_j$ 原地更新，存在 `m_i`、`ℓ_i` 里，最后归一化一次：
 
 ```
 for i ← 1 … T_q:                           # 每个 query block
