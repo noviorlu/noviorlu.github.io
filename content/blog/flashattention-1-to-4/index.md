@@ -292,10 +292,10 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 
 ### 1.2 Online softmax {#online-softmax}
 
-online softmax 来自 Milakov 和 Gimelshein 2018 年的论文。下面按论文的顺序，从按定义写的 softmax 一步一步推到 online softmax，最后推广到 attention。一行 score 记作 $x_1, \dots, x_N$，分母记作 $\ell$（论文里记作 $d$）。第 1 到第 4 步只讲 softmax 本身，收在下面的折叠里；第 5 步推广到 attention。
-
 <details class="fold doc aside">
 <summary>第 1 到第 4 步：从 naive softmax 到 online softmax 和并行</summary>
+
+online softmax 来自 Milakov 和 Gimelshein 2018 年的论文。下面按论文的顺序，从按定义写的 softmax 一步一步推到 online softmax 和并行。一行 score 记作 $x_1, \dots, x_N$，分母记作 $\ell$（论文里记作 $d$）。
 
 **第 1 步：naive softmax。** 按定义
 
@@ -471,6 +471,16 @@ $j = N$ 时就是 safe softmax 的分母。
 
 </details>
 
+attention 里一行 score 来自 $QK^\top$：$q$ 是 $Q$ 的一行，$K[k]$ 是 $K$ 的第 $k$ 行，$x_k = q\,K[k]^\top/\sqrt d$。这一行的 softmax 按最大值 $m$ 写成
+
+<p align="center">$p_k = \dfrac{e^{\,q K[k]^\top/\sqrt d \,-\, m}}{\ell}, \qquad \ell = \sum_{k} e^{\,q K[k]^\top/\sqrt d \,-\, m}, \qquad m = \max_{k} \dfrac{q K[k]^\top}{\sqrt d}$</p>
+
+上面折叠里的推导（Milakov 和 Gimelshein 2018）说明 $m$ 和 $\ell$ 可以分段算。把 key 分成 A、B 两段，每段只用自己的 key 算出 $m_A$、$\ell_A$ 和 $m_B$、$\ell_B$，再合并：
+
+<p align="center">$m = \max(m_A, m_B), \qquad \ell = \ell_A\, e^{m_A-m} + \ell_B\, e^{m_B-m} = \sum_{k\in A\cup B} e^{\,q K[k]^\top/\sqrt d \,-\, m}$</p>
+
+合并的结果和整行一起算完全一样。在 FlashAttention 里，A 段是已经扫过的 K block，B 段是新读进来的 $K_j$。
+
 **第 5 步：推广到 attention。** 论文只算 softmax，attention 还要乘 $V$，一行的输出是 $\text{out} = \sum_k p_k v_k$。分母 $\ell$ 对每一项都一样，提出来以后输出是分子 $O$ 除以 $\ell$，$O$ 也是按同一个最大值加起来的求和（[图 1-4](#fig-1-4)）。
 
 <figure id="fig-1-4">
@@ -512,7 +522,7 @@ $j = N$ 时就是 safe softmax 的分母。
 <figcaption><strong>图 1-4</strong> 一行的输出 = 分子 $O$ / 分母 $\ell$。</figcaption>
 </figure>
 
-所以 $O$ 和 $\ell$ 用同一个因子修正，状态从 $(m, \ell)$ 变成 $(m, \ell, O)$。FlashAttention 在一个 thread block 里沿 K/V 一个 block 一个 block 地扫，就是第 3 步把一个元素换成一个 block：扫过的 block 合起来是 A 段，新读的 block 是 B 段，按第 4 步合并（[图 1-5](#fig-1-5)）。输出直接是 $O / \ell$，不需要第 3 步的第 2 遍，所以对 K/V 只扫一遍。
+所以 $O$ 和 $\ell$ 用同一个因子修正，状态从 $(m, \ell)$ 变成 $(m, \ell, O)$。FlashAttention 在一个 thread block 里沿 K/V 一个 block 一个 block 地扫：扫过的 block 合起来是 A 段，新读的 block 是 B 段，按上面的公式合并，$O$ 乘和 $\ell$ 一样的因子（[图 1-5](#fig-1-5)）。输出直接是 $O / \ell$。单纯的 softmax 要再扫一遍写出每个 $p_k$，attention 只要加权和，所以对 K/V 只扫一遍。
 
 <figure id="fig-1-5">
 <svg viewBox="0 0 680 252" width="100%" role="img" aria-label="顺序扫：之前扫过的 block 1 到 j−1 只留下 m_old、ℓ_old、O_old，当成一个 tile；新读的 block j 按 m_new 算每一项。ℓ_old 乘 e 的 m_old 减 m_new 次方，加上 block j 的项，得到 ℓ_new">
