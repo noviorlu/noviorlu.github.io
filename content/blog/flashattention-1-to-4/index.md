@@ -47,7 +47,7 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 把 $Q$ 按行切成 $B_q$ 行一个的 block $Q_i$，$i = 1, \dots, T_q$，$T_q = N_q/B_q$；$K$、$V$ 按行切成 $B_k$ 行一个的 block $K_j$、$V_j$，$j = 1, \dots, T_k$，$T_k = N_k/B_k$；$d$ 方向不切。block 小到 $Q_i$、$K_j$、$V_j$、$O_i$ 能一起放进片上的 SRAM（即 shared memory）。attention 的两次乘法分别对应 [图 1-1](#fig-1-1) 的两种看法。$S=QK^\top$ 对应 (a)：取 $d=1$，$Q$、$K$ 都只有一列，$S$ 的第 $j$ 列就是 $Q$ 乘 $K$ 的第 $j$ 个数；$d>1$ 时 $S$ 是 $d$ 个这样的外积之和。$O=PV$ 对应 (b)：$a$ 换成 $P$ 的一行，$B$ 换成 $V$，$c$ 就是 $O$ 的那一行，所以 $O$ 的每一行是 $V$ 各行的线性组合，权重是 $P$ 的那一行。$P$ 的第 $j$ 列和 $V$ 的第 $j$ 行对应同一个 key，所以 $V$ 和 $K$ 按同一个下标切。后面 online softmax 修正 $O_i$ 靠的就是这一点：一行的权重全乘同一个数，这一行输出也乘同一个数。
 
 <figure id="fig-1-1">
-<svg viewBox="0 0 680 288" width="100%" role="img" aria-label="(a) 列向量 a 乘行向量 b 转置得到 3 乘 4 的矩阵 C，C 的第 j 列等于 b_j 乘 a。(b) 行向量 a 乘 3 乘 4 的矩阵 B 得到行向量 c，c 等于 a_1 乘 B 第 1 行、a_2 乘第 2 行、a_3 乘第 3 行之和">
+<svg viewBox="0 0 680 278" width="100%" role="img" aria-label="(a) 列向量 a 乘行向量 b 转置等于 3 乘 4 的矩阵 C，箭头从 b 的每个元素 b_j 指向 a，C 的第 j 列等于 b_j 乘 a。(b) 行向量 a 乘 3 乘 4 的矩阵 B 等于行向量 c，箭头从 a 的每个元素 a_i 指向 B 的第 i 行，c 等于 a_1 乘 B 第 1 行、a_2 乘第 2 行、a_3 乘第 3 行之和">
   <style>
     .os2 { font-size: 11px; fill: currentColor; }
     .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
@@ -55,75 +55,80 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
     .os2-c { font-size: 12px; font-weight: 600; text-anchor: middle; fill: currentColor; }
     .os2-hi { fill: var(--fig-hi); font-weight: 600; }
   </style>
-<text class="os2-b" x="8" y="20" text-anchor="start">(a) 向量乘向量 C = a bᵀ：按列看</text>
-<rect x="26" y="96" width="32" height="32" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity=".08" stroke-opacity=".3"/><text class="os2" x="42.0" y="116.0" text-anchor="middle">a<tspan dy="3.5" font-size="72%">1</tspan></text>
-<rect x="26" y="128" width="32" height="32" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity=".08" stroke-opacity=".3"/><text class="os2" x="42.0" y="148.0" text-anchor="middle">a<tspan dy="3.5" font-size="72%">2</tspan></text>
-<rect x="26" y="160" width="32" height="32" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity=".08" stroke-opacity=".3"/><text class="os2" x="42.0" y="180.0" text-anchor="middle">a<tspan dy="3.5" font-size="72%">3</tspan></text>
-<rect x="78" y="54" width="32" height="32" style="fill: var(--fig-1); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="94.0" y="74.0" text-anchor="middle" style="fill: var(--fig-on-1)">b<tspan dy="3.5" font-size="72%">1</tspan></text>
-<rect x="124" y="54" width="32" height="32" style="fill: var(--fig-2); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="140.0" y="74.0" text-anchor="middle" style="fill: var(--fig-on-2)">b<tspan dy="3.5" font-size="72%">2</tspan></text>
-<rect x="170" y="54" width="32" height="32" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="186.0" y="74.0" text-anchor="middle" style="fill: var(--fig-on-3)">b<tspan dy="3.5" font-size="72%">3</tspan></text>
-<rect x="216" y="54" width="32" height="32" style="fill: var(--fig-mute); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="232.0" y="74.0" text-anchor="middle" style="fill: var(--fig-on-mute)">b<tspan dy="3.5" font-size="72%">4</tspan></text>
-<rect x="78" y="96" width="32" height="32" style="fill: var(--fig-1); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="94.0" y="116.0" text-anchor="middle" style="fill: var(--fig-on-1)">c<tspan dy="3.5" font-size="72%">11</tspan></text>
-<rect x="78" y="128" width="32" height="32" style="fill: var(--fig-1); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="94.0" y="148.0" text-anchor="middle" style="fill: var(--fig-on-1)">c<tspan dy="3.5" font-size="72%">21</tspan></text>
-<rect x="78" y="160" width="32" height="32" style="fill: var(--fig-1); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="94.0" y="180.0" text-anchor="middle" style="fill: var(--fig-on-1)">c<tspan dy="3.5" font-size="72%">31</tspan></text>
-<text class="os2" x="94.0" y="208" text-anchor="middle">b<tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5"> · a</tspan></text>
-<rect x="124" y="96" width="32" height="32" style="fill: var(--fig-2); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="140.0" y="116.0" text-anchor="middle" style="fill: var(--fig-on-2)">c<tspan dy="3.5" font-size="72%">12</tspan></text>
-<rect x="124" y="128" width="32" height="32" style="fill: var(--fig-2); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="140.0" y="148.0" text-anchor="middle" style="fill: var(--fig-on-2)">c<tspan dy="3.5" font-size="72%">22</tspan></text>
-<rect x="124" y="160" width="32" height="32" style="fill: var(--fig-2); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="140.0" y="180.0" text-anchor="middle" style="fill: var(--fig-on-2)">c<tspan dy="3.5" font-size="72%">32</tspan></text>
-<text class="os2" x="140.0" y="208" text-anchor="middle">b<tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5"> · a</tspan></text>
-<rect x="170" y="96" width="32" height="32" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="186.0" y="116.0" text-anchor="middle" style="fill: var(--fig-on-3)">c<tspan dy="3.5" font-size="72%">13</tspan></text>
-<rect x="170" y="128" width="32" height="32" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="186.0" y="148.0" text-anchor="middle" style="fill: var(--fig-on-3)">c<tspan dy="3.5" font-size="72%">23</tspan></text>
-<rect x="170" y="160" width="32" height="32" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="186.0" y="180.0" text-anchor="middle" style="fill: var(--fig-on-3)">c<tspan dy="3.5" font-size="72%">33</tspan></text>
-<text class="os2" x="186.0" y="208" text-anchor="middle">b<tspan dy="3.5" font-size="72%">3</tspan><tspan dy="-3.5"> · a</tspan></text>
-<rect x="216" y="96" width="32" height="32" style="fill: var(--fig-mute); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="232.0" y="116.0" text-anchor="middle" style="fill: var(--fig-on-mute)">c<tspan dy="3.5" font-size="72%">14</tspan></text>
-<rect x="216" y="128" width="32" height="32" style="fill: var(--fig-mute); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="232.0" y="148.0" text-anchor="middle" style="fill: var(--fig-on-mute)">c<tspan dy="3.5" font-size="72%">24</tspan></text>
-<rect x="216" y="160" width="32" height="32" style="fill: var(--fig-mute); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="232.0" y="180.0" text-anchor="middle" style="fill: var(--fig-on-mute)">c<tspan dy="3.5" font-size="72%">34</tspan></text>
-<text class="os2" x="232.0" y="208" text-anchor="middle">b<tspan dy="3.5" font-size="72%">4</tspan><tspan dy="-3.5"> · a</tspan></text>
-<text class="os2-b" x="42.0" y="80" text-anchor="middle">a</text>
-<text class="os2-s" x="42.0" y="208" text-anchor="middle">3 × 1</text>
-<text class="os2-b" x="256" y="74.0" text-anchor="start">bᵀ</text>
-<text class="os2-s" x="256" y="88.0" text-anchor="start">1 × 4</text>
-<text class="os2-b" x="256" y="148.0" text-anchor="start">C</text>
-<text class="os2-s" x="256" y="162.0" text-anchor="start">3 × 4</text>
-<text class="os2-b" x="24" y="242" text-anchor="start">C 的第 j 列 = b<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> · a</tspan></text>
-<text class="os2-s" x="24" y="260" text-anchor="start">每一列都是 a 乘一个数，颜色对应 bᵀ 里的那个数；</text>
-<text class="os2-s" x="24" y="275" text-anchor="start">例如第 3 列是 (c<tspan dy="3.5" font-size="72%">13</tspan><tspan dy="-3.5">, c</tspan><tspan dy="3.5" font-size="72%">23</tspan><tspan dy="-3.5">, c</tspan><tspan dy="3.5" font-size="72%">33</tspan><tspan dy="-3.5">) = b</tspan><tspan dy="3.5" font-size="72%">3</tspan><tspan dy="-3.5"> · (a</tspan><tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5">, a</tspan><tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5">, a</tspan><tspan dy="3.5" font-size="72%">3</tspan><tspan dy="-3.5">)</tspan></text>
-<text class="os2-b" x="356" y="20" text-anchor="start">(b) 向量乘矩阵 c = a B：按行看</text>
-<text class="os2-s" x="416.0" y="46" text-anchor="middle">a：1 × 3</text>
-<text class="os2-s" x="522" y="46" text-anchor="middle">B：3 × 4</text>
-<rect x="400" y="54" width="32" height="32" style="fill: var(--fig-1); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="416.0" y="74.0" text-anchor="middle" style="fill: var(--fig-on-1)">a<tspan dy="3.5" font-size="72%">1</tspan></text>
-<text class="os2-b" x="445" y="75.0" text-anchor="middle">·</text>
-<rect x="458" y="54" width="32" height="32" style="fill: var(--fig-1); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="474.0" y="74.0" text-anchor="middle" style="fill: var(--fig-on-1)">b<tspan dy="3.5" font-size="72%">11</tspan></text>
-<rect x="490" y="54" width="32" height="32" style="fill: var(--fig-1); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="506.0" y="74.0" text-anchor="middle" style="fill: var(--fig-on-1)">b<tspan dy="3.5" font-size="72%">12</tspan></text>
-<rect x="522" y="54" width="32" height="32" style="fill: var(--fig-1); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="538.0" y="74.0" text-anchor="middle" style="fill: var(--fig-on-1)">b<tspan dy="3.5" font-size="72%">13</tspan></text>
-<rect x="554" y="54" width="32" height="32" style="fill: var(--fig-1); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="570.0" y="74.0" text-anchor="middle" style="fill: var(--fig-on-1)">b<tspan dy="3.5" font-size="72%">14</tspan></text>
-<rect x="400" y="94" width="32" height="32" style="fill: var(--fig-2); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="416.0" y="114.0" text-anchor="middle" style="fill: var(--fig-on-2)">a<tspan dy="3.5" font-size="72%">2</tspan></text>
-<text class="os2-b" x="445" y="115.0" text-anchor="middle">·</text>
-<rect x="458" y="94" width="32" height="32" style="fill: var(--fig-2); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="474.0" y="114.0" text-anchor="middle" style="fill: var(--fig-on-2)">b<tspan dy="3.5" font-size="72%">21</tspan></text>
-<rect x="490" y="94" width="32" height="32" style="fill: var(--fig-2); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="506.0" y="114.0" text-anchor="middle" style="fill: var(--fig-on-2)">b<tspan dy="3.5" font-size="72%">22</tspan></text>
-<rect x="522" y="94" width="32" height="32" style="fill: var(--fig-2); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="538.0" y="114.0" text-anchor="middle" style="fill: var(--fig-on-2)">b<tspan dy="3.5" font-size="72%">23</tspan></text>
-<rect x="554" y="94" width="32" height="32" style="fill: var(--fig-2); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="570.0" y="114.0" text-anchor="middle" style="fill: var(--fig-on-2)">b<tspan dy="3.5" font-size="72%">24</tspan></text>
-<text class="os2-b" x="386" y="115.0" text-anchor="middle">+</text>
-<rect x="400" y="134" width="32" height="32" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="416.0" y="154.0" text-anchor="middle" style="fill: var(--fig-on-3)">a<tspan dy="3.5" font-size="72%">3</tspan></text>
-<text class="os2-b" x="445" y="155.0" text-anchor="middle">·</text>
-<rect x="458" y="134" width="32" height="32" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="474.0" y="154.0" text-anchor="middle" style="fill: var(--fig-on-3)">b<tspan dy="3.5" font-size="72%">31</tspan></text>
-<rect x="490" y="134" width="32" height="32" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="506.0" y="154.0" text-anchor="middle" style="fill: var(--fig-on-3)">b<tspan dy="3.5" font-size="72%">32</tspan></text>
-<rect x="522" y="134" width="32" height="32" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="538.0" y="154.0" text-anchor="middle" style="fill: var(--fig-on-3)">b<tspan dy="3.5" font-size="72%">33</tspan></text>
-<rect x="554" y="134" width="32" height="32" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="570.0" y="154.0" text-anchor="middle" style="fill: var(--fig-on-3)">b<tspan dy="3.5" font-size="72%">34</tspan></text>
-<text class="os2-b" x="386" y="155.0" text-anchor="middle">+</text>
-<line x1="378" y1="176" x2="586" y2="176" stroke="currentColor" stroke-opacity=".45"/>
-<text class="os2-b" x="386" y="207.0" text-anchor="middle">=</text>
-<text class="os2-b" x="416.0" y="207.0" text-anchor="middle">c</text>
-<rect x="458" y="186" width="32" height="32" style="fill: var(--fig-hi); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="474.0" y="206.0" text-anchor="middle" style="fill: var(--fig-on-hi)">c<tspan dy="3.5" font-size="72%">1</tspan></text>
-<rect x="490" y="186" width="32" height="32" style="fill: var(--fig-hi); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="506.0" y="206.0" text-anchor="middle" style="fill: var(--fig-on-hi)">c<tspan dy="3.5" font-size="72%">2</tspan></text>
-<rect x="522" y="186" width="32" height="32" style="fill: var(--fig-hi); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="538.0" y="206.0" text-anchor="middle" style="fill: var(--fig-on-hi)">c<tspan dy="3.5" font-size="72%">3</tspan></text>
-<rect x="554" y="186" width="32" height="32" style="fill: var(--fig-hi); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="570.0" y="206.0" text-anchor="middle" style="fill: var(--fig-on-hi)">c<tspan dy="3.5" font-size="72%">4</tspan></text>
-<text class="os2-s" x="594" y="206.0" text-anchor="start">1 × 4</text>
-<text class="os2-b" x="356" y="242" text-anchor="start">c = a<tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5"> · B</tspan><tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5"> + a</tspan><tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5"> · B</tspan><tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5"> + a</tspan><tspan dy="3.5" font-size="72%">3</tspan><tspan dy="-3.5"> · B</tspan><tspan dy="3.5" font-size="72%">3</tspan></text>
-<text class="os2-s" x="356" y="260" text-anchor="start">B<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 是 B 的第 i 行。c 是 B 各行的线性组合，a</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 是权重；</tspan></text>
-<text class="os2-s" x="356" y="275" text-anchor="start">例如 c<tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5"> = a</tspan><tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5"> b</tspan><tspan dy="3.5" font-size="72%">12</tspan><tspan dy="-3.5"> + a</tspan><tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5"> b</tspan><tspan dy="3.5" font-size="72%">22</tspan><tspan dy="-3.5"> + a</tspan><tspan dy="3.5" font-size="72%">3</tspan><tspan dy="-3.5"> b</tspan><tspan dy="3.5" font-size="72%">32</tspan></text>
+<defs><marker id="mm-ar0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--fig-1)"/></marker><marker id="mm-ar1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--fig-2)"/></marker><marker id="mm-ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--fig-3)"/></marker><marker id="mm-ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--fig-mute)"/></marker></defs>
+<text class="os2-b" x="8" y="20" text-anchor="start">(a) 向量乘向量 C = a bᵀ：C 的列是 a 的倍数</text>
+<rect x="16" y="96" width="24" height="24" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity=".08" stroke-opacity=".3"/><text class="os2" x="28.0" y="112.0" text-anchor="middle">a<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="16" y="120" width="24" height="24" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity=".08" stroke-opacity=".3"/><text class="os2" x="28.0" y="136.0" text-anchor="middle">a<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="16" y="144" width="24" height="24" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity=".08" stroke-opacity=".3"/><text class="os2" x="28.0" y="160.0" text-anchor="middle">a<tspan dy="3.5" font-size="72%">3</tspan></text>
+<rect x="80" y="120" width="24" height="24" style="fill: var(--fig-1); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="92.0" y="136.0" text-anchor="middle" style="fill: var(--fig-on-1)">b<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="104" y="120" width="24" height="24" style="fill: var(--fig-2); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="116.0" y="136.0" text-anchor="middle" style="fill: var(--fig-on-2)">b<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="128" y="120" width="24" height="24" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="140.0" y="136.0" text-anchor="middle" style="fill: var(--fig-on-3)">b<tspan dy="3.5" font-size="72%">3</tspan></text>
+<rect x="152" y="120" width="24" height="24" style="fill: var(--fig-mute); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="164.0" y="136.0" text-anchor="middle" style="fill: var(--fig-on-mute)">b<tspan dy="3.5" font-size="72%">4</tspan></text>
+<rect x="212" y="96" width="24" height="24" style="fill: var(--fig-1); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="224.0" y="112.0" text-anchor="middle" style="fill: var(--fig-on-1)">c<tspan dy="3.5" font-size="72%">11</tspan></text>
+<rect x="212" y="120" width="24" height="24" style="fill: var(--fig-1); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="224.0" y="136.0" text-anchor="middle" style="fill: var(--fig-on-1)">c<tspan dy="3.5" font-size="72%">21</tspan></text>
+<rect x="212" y="144" width="24" height="24" style="fill: var(--fig-1); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="224.0" y="160.0" text-anchor="middle" style="fill: var(--fig-on-1)">c<tspan dy="3.5" font-size="72%">31</tspan></text>
+<rect x="236" y="96" width="24" height="24" style="fill: var(--fig-2); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="248.0" y="112.0" text-anchor="middle" style="fill: var(--fig-on-2)">c<tspan dy="3.5" font-size="72%">12</tspan></text>
+<rect x="236" y="120" width="24" height="24" style="fill: var(--fig-2); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="248.0" y="136.0" text-anchor="middle" style="fill: var(--fig-on-2)">c<tspan dy="3.5" font-size="72%">22</tspan></text>
+<rect x="236" y="144" width="24" height="24" style="fill: var(--fig-2); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="248.0" y="160.0" text-anchor="middle" style="fill: var(--fig-on-2)">c<tspan dy="3.5" font-size="72%">32</tspan></text>
+<rect x="260" y="96" width="24" height="24" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="272.0" y="112.0" text-anchor="middle" style="fill: var(--fig-on-3)">c<tspan dy="3.5" font-size="72%">13</tspan></text>
+<rect x="260" y="120" width="24" height="24" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="272.0" y="136.0" text-anchor="middle" style="fill: var(--fig-on-3)">c<tspan dy="3.5" font-size="72%">23</tspan></text>
+<rect x="260" y="144" width="24" height="24" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="272.0" y="160.0" text-anchor="middle" style="fill: var(--fig-on-3)">c<tspan dy="3.5" font-size="72%">33</tspan></text>
+<rect x="284" y="96" width="24" height="24" style="fill: var(--fig-mute); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="296.0" y="112.0" text-anchor="middle" style="fill: var(--fig-on-mute)">c<tspan dy="3.5" font-size="72%">14</tspan></text>
+<rect x="284" y="120" width="24" height="24" style="fill: var(--fig-mute); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="296.0" y="136.0" text-anchor="middle" style="fill: var(--fig-on-mute)">c<tspan dy="3.5" font-size="72%">24</tspan></text>
+<rect x="284" y="144" width="24" height="24" style="fill: var(--fig-mute); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="296.0" y="160.0" text-anchor="middle" style="fill: var(--fig-on-mute)">c<tspan dy="3.5" font-size="72%">34</tspan></text>
+<path d="M92.0,120 C92.0,80 19.0,80 19.0,95" fill="none" style="stroke: var(--fig-1)" stroke-width="1.5" marker-end="url(#mm-ar0)"/>
+<path d="M116.0,120 C116.0,69 25.0,69 25.0,95" fill="none" style="stroke: var(--fig-2)" stroke-width="1.5" marker-end="url(#mm-ar1)"/>
+<path d="M140.0,120 C140.0,58 31.0,58 31.0,95" fill="none" style="stroke: var(--fig-3)" stroke-width="1.5" marker-end="url(#mm-ar2)"/>
+<path d="M164.0,120 C164.0,47 37.0,47 37.0,95" fill="none" style="stroke: var(--fig-mute)" stroke-width="1.5" marker-end="url(#mm-ar3)"/>
+<text class="os2-b" x="194" y="137.0" text-anchor="middle">=</text>
+<text class="os2" x="224.0" y="88" text-anchor="middle">b<tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5">a</tspan></text>
+<text class="os2" x="248.0" y="88" text-anchor="middle">b<tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5">a</tspan></text>
+<text class="os2" x="272.0" y="88" text-anchor="middle">b<tspan dy="3.5" font-size="72%">3</tspan><tspan dy="-3.5">a</tspan></text>
+<text class="os2" x="296.0" y="88" text-anchor="middle">b<tspan dy="3.5" font-size="72%">4</tspan><tspan dy="-3.5">a</tspan></text>
+<text class="os2-b" x="28.0" y="184" text-anchor="middle">a</text>
+<text class="os2-s" x="28.0" y="198" text-anchor="middle">3 × 1</text>
+<text class="os2-b" x="128" y="160" text-anchor="middle">bᵀ</text>
+<text class="os2-s" x="128" y="174" text-anchor="middle">1 × 4</text>
+<text class="os2-b" x="260" y="184" text-anchor="middle">C</text>
+<text class="os2-s" x="260" y="198" text-anchor="middle">3 × 4</text>
+<text class="os2-b" x="16" y="232" text-anchor="start">C 的第 j 列 = b<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> · a</tspan></text>
+<text class="os2-s" x="16" y="250" text-anchor="start">b<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> 乘整列 a，放进 C 的第 j 列；颜色对应 bᵀ 里的那个数</tspan></text>
+<text class="os2-s" x="16" y="265" text-anchor="start">例如 (c<tspan dy="3.5" font-size="72%">13</tspan><tspan dy="-3.5">, c</tspan><tspan dy="3.5" font-size="72%">23</tspan><tspan dy="-3.5">, c</tspan><tspan dy="3.5" font-size="72%">33</tspan><tspan dy="-3.5">) = b</tspan><tspan dy="3.5" font-size="72%">3</tspan><tspan dy="-3.5"> · (a</tspan><tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5">, a</tspan><tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5">, a</tspan><tspan dy="3.5" font-size="72%">3</tspan><tspan dy="-3.5">)</tspan></text>
+<text class="os2-b" x="330" y="20" text-anchor="start">(b) 向量乘矩阵 c = a B：c 是 B 各行的组合</text>
+<rect x="330" y="120" width="24" height="24" style="fill: var(--fig-1); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="342.0" y="136.0" text-anchor="middle" style="fill: var(--fig-on-1)">a<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="354" y="120" width="24" height="24" style="fill: var(--fig-2); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="366.0" y="136.0" text-anchor="middle" style="fill: var(--fig-on-2)">a<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="378" y="120" width="24" height="24" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="390.0" y="136.0" text-anchor="middle" style="fill: var(--fig-on-3)">a<tspan dy="3.5" font-size="72%">3</tspan></text>
+<rect x="446" y="96" width="24" height="24" style="fill: var(--fig-1); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="458.0" y="112.0" text-anchor="middle" style="fill: var(--fig-on-1)">b<tspan dy="3.5" font-size="72%">11</tspan></text>
+<rect x="470" y="96" width="24" height="24" style="fill: var(--fig-1); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="482.0" y="112.0" text-anchor="middle" style="fill: var(--fig-on-1)">b<tspan dy="3.5" font-size="72%">12</tspan></text>
+<rect x="494" y="96" width="24" height="24" style="fill: var(--fig-1); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="506.0" y="112.0" text-anchor="middle" style="fill: var(--fig-on-1)">b<tspan dy="3.5" font-size="72%">13</tspan></text>
+<rect x="518" y="96" width="24" height="24" style="fill: var(--fig-1); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="530.0" y="112.0" text-anchor="middle" style="fill: var(--fig-on-1)">b<tspan dy="3.5" font-size="72%">14</tspan></text>
+<rect x="446" y="120" width="24" height="24" style="fill: var(--fig-2); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="458.0" y="136.0" text-anchor="middle" style="fill: var(--fig-on-2)">b<tspan dy="3.5" font-size="72%">21</tspan></text>
+<rect x="470" y="120" width="24" height="24" style="fill: var(--fig-2); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="482.0" y="136.0" text-anchor="middle" style="fill: var(--fig-on-2)">b<tspan dy="3.5" font-size="72%">22</tspan></text>
+<rect x="494" y="120" width="24" height="24" style="fill: var(--fig-2); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="506.0" y="136.0" text-anchor="middle" style="fill: var(--fig-on-2)">b<tspan dy="3.5" font-size="72%">23</tspan></text>
+<rect x="518" y="120" width="24" height="24" style="fill: var(--fig-2); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="530.0" y="136.0" text-anchor="middle" style="fill: var(--fig-on-2)">b<tspan dy="3.5" font-size="72%">24</tspan></text>
+<rect x="446" y="144" width="24" height="24" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="458.0" y="160.0" text-anchor="middle" style="fill: var(--fig-on-3)">b<tspan dy="3.5" font-size="72%">31</tspan></text>
+<rect x="470" y="144" width="24" height="24" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="482.0" y="160.0" text-anchor="middle" style="fill: var(--fig-on-3)">b<tspan dy="3.5" font-size="72%">32</tspan></text>
+<rect x="494" y="144" width="24" height="24" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="506.0" y="160.0" text-anchor="middle" style="fill: var(--fig-on-3)">b<tspan dy="3.5" font-size="72%">33</tspan></text>
+<rect x="518" y="144" width="24" height="24" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="530.0" y="160.0" text-anchor="middle" style="fill: var(--fig-on-3)">b<tspan dy="3.5" font-size="72%">34</tspan></text>
+<rect x="578" y="120" width="24" height="24" style="fill: var(--fig-hi); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="590.0" y="136.0" text-anchor="middle" style="fill: var(--fig-on-hi)">c<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="602" y="120" width="24" height="24" style="fill: var(--fig-hi); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="614.0" y="136.0" text-anchor="middle" style="fill: var(--fig-on-hi)">c<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="626" y="120" width="24" height="24" style="fill: var(--fig-hi); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="638.0" y="136.0" text-anchor="middle" style="fill: var(--fig-on-hi)">c<tspan dy="3.5" font-size="72%">3</tspan></text>
+<rect x="650" y="120" width="24" height="24" style="fill: var(--fig-hi); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2" x="662.0" y="136.0" text-anchor="middle" style="fill: var(--fig-on-hi)">c<tspan dy="3.5" font-size="72%">4</tspan></text>
+<path d="M342.0,120 C342.0,58 424,108.0 444,108.0" fill="none" style="stroke: var(--fig-1)" stroke-width="1.5" marker-end="url(#mm-ar0)"/>
+<path d="M366.0,120 C366.0,69 424,132.0 444,132.0" fill="none" style="stroke: var(--fig-2)" stroke-width="1.5" marker-end="url(#mm-ar1)"/>
+<path d="M390.0,120 C390.0,80 424,156.0 444,156.0" fill="none" style="stroke: var(--fig-3)" stroke-width="1.5" marker-end="url(#mm-ar2)"/>
+<text class="os2-b" x="560" y="137.0" text-anchor="middle">=</text>
+<text class="os2-b" x="366.0" y="184" text-anchor="middle">a</text>
+<text class="os2-s" x="366.0" y="198" text-anchor="middle">1 × 3</text>
+<text class="os2-b" x="494" y="184" text-anchor="middle">B</text>
+<text class="os2-s" x="494" y="198" text-anchor="middle">3 × 4</text>
+<text class="os2-b" x="626" y="160" text-anchor="middle">c</text>
+<text class="os2-s" x="626" y="174" text-anchor="middle">1 × 4</text>
+<text class="os2-b" x="330" y="232" text-anchor="start">c = a<tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5"> · B</tspan><tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5"> + a</tspan><tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5"> · B</tspan><tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5"> + a</tspan><tspan dy="3.5" font-size="72%">3</tspan><tspan dy="-3.5"> · B</tspan><tspan dy="3.5" font-size="72%">3</tspan></text>
+<text class="os2-s" x="330" y="250" text-anchor="start">B<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 是 B 的第 i 行，a</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 乘整行 B</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5">，再把三行加起来</tspan></text>
+<text class="os2-s" x="330" y="265" text-anchor="start">例如 c<tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5"> = a</tspan><tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5"> b</tspan><tspan dy="3.5" font-size="72%">12</tspan><tspan dy="-3.5"> + a</tspan><tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5"> b</tspan><tspan dy="3.5" font-size="72%">22</tspan><tspan dy="-3.5"> + a</tspan><tspan dy="3.5" font-size="72%">3</tspan><tspan dy="-3.5"> b</tspan><tspan dy="3.5" font-size="72%">32</tspan></text>
 </svg>
-<figcaption><strong>图 1-1</strong> 两种看矩阵乘法的方式。(a) 外积按列看，每一列是 $a$ 乘一个数；(b) 向量乘矩阵按行看，结果是 $B$ 各行的线性组合。</figcaption>
+<figcaption><strong>图 1-1</strong> 两种看矩阵乘法的方式，箭头表示一个元素乘到哪里。(a) $b^\top$ 的每个元素 $b_j$ 乘整列 $a$，得到 $C$ 的第 $j$ 列；(b) $a$ 的每个元素 $a_i$ 乘 $B$ 的第 $i$ 行，$c$ 是这几行加起来。</figcaption>
 </figure>
 
 如果 attention 只有两次乘法，$O = (QK^\top)V$，tiling 可以直接用。$O_i = \sum_{j=1}^{T_k} S_{ij}V_j$，$S_{ij} = Q_iK_j^\top$：固定 $i$，每从 HBM 读进一对 $K_j$、$V_j$，在片上算出 $S_{ij}$，乘 $V_j$ 加进 $O_i$，$S_{ij}$ 用完就丢。片上始终只有一个 $B_q\times B_k$ 的 score tile，完整的 $S$ 不进 HBM。tiling 为什么能少读显存，在[单卡 GPU 优化方法](/blog/gpu-single-gpu-optimization/#tiling)里按 matmul 算过一遍。
