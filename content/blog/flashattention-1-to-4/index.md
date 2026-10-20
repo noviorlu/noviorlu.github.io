@@ -139,7 +139,7 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 问题出在两次乘法中间的 softmax。实际要算的是 $O = PV$，$P = \mathrm{softmax}(S)$ 按行归一化，$P$ 的每个元素都要除以它所在那一行全部元素的指数和。这一行有 $N_k$ 个元素，分在 $T_k$ 个 block 里。读到第 $j$ 个 block 时后面的 block 还没算，分母不知道，$P_{ij}$ 就算不出来，$P_{ij}V_j$ 也没法加进 $O_i$。最直接的办法是先把所有 $K_j$ 扫一遍，求出每行的最大值和分母，再扫一遍算 $P_{ij}V_j$，$K$ 要多读一遍。FlashAttention 用 online softmax 把 softmax 也拆成一个 block 一个 block 地算，$K_j$、$V_j$ 都只读一遍，完整的 $S$ 和 $P$ 都不写回 HBM（[图 1-2](#fig-1-2)）。图里的 $\exp(S-m_{\text{new}})$ 和每行的 $m$、$\ell$ 是 1.2 要讲的。
 
 <figure id="fig-1-2">
-<svg viewBox="0 0 680 574" width="100%" role="img" aria-label="Tiling：Q 按 B_q 行切成 block，K 和 V 按 B_k 行切成 block。Kᵀ 画在 score 矩阵上面，第 j 个 block 对着 S 的第 j 列；V 画在 S 右边，O 画在 V 右边。Q_i 乘 K_j 转置得到 score tile S_ij；S 的第 i 个 block 行乘 V 得到 O_i，其中 S_ij 乘 V 的第 j 个 block 行 V_j，加进 O_i。内层循环 j 走过每个 K/V block，外层循环 i 走过每个 Q block">
+<svg viewBox="0 0 680 574" width="100%" role="img" aria-label="Tiling：Q 按 B_q 行切成 block，K 和 V 按 B_k 行切成 block。Kᵀ 画在 score 矩阵上面，第 j 个 block 对着 S 的第 j 列；V 画在 S 右边，O 画在 V 右边。Q_i 乘 K_j 转置得到 score tile S_ij；S 的第 i 个 block 行乘 V 得到 O_i，其中 S_ij 乘 V 的第 j 个 block 行 V_j，加进 O_i。S 右上方被 causal mask 盖住的 block 整块跳过，softmax 沿 S 的每一行做。内层循环 j 走过每个 K/V block，外层循环 i 走过每个 Q block">
   <style>
     .os2 { font-size: 11px; fill: currentColor; }
     .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
@@ -147,7 +147,7 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
     .os2-c { font-size: 12px; font-weight: 600; text-anchor: middle; fill: currentColor; }
     .os2-hi { fill: var(--fig-hi); font-weight: 600; }
   </style>
-<defs><marker id="tl-a" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".6"/></marker></defs>
+<defs><marker id="tl-a" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".6"/></marker><marker id="tl-sm" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-hi)"/></marker></defs>
 <rect x="210" y="112" width="30" height="30" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity=".08" stroke-opacity=".3"/>
 <rect x="240" y="112" width="30" height="30" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity=".08" stroke-opacity=".3"/>
 <rect x="270" y="112" width="30" height="30" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity=".08" stroke-opacity=".3"/>
@@ -195,6 +195,40 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 <rect x="360" y="262" width="30" height="30" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity=".08" stroke-opacity=".3"/>
 <rect x="390" y="262" width="30" height="30" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity=".08" stroke-opacity=".3"/>
 <rect x="420" y="262" width="30" height="30" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity=".08" stroke-opacity=".3"/>
+<rect x="210" y="112" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".14"/>
+<rect x="240" y="112" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".14"/>
+<rect x="270" y="112" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".38"/>
+<rect x="300" y="112" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".38"/>
+<rect x="330" y="112" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".38"/>
+<rect x="360" y="112" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".38"/>
+<rect x="390" y="112" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".38"/>
+<rect x="420" y="112" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".38"/>
+<rect x="240" y="142" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".14"/>
+<rect x="270" y="142" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".14"/>
+<rect x="300" y="142" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".38"/>
+<rect x="330" y="142" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".38"/>
+<rect x="360" y="142" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".38"/>
+<rect x="390" y="142" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".38"/>
+<rect x="420" y="142" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".38"/>
+<rect x="270" y="172" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".14"/>
+<rect x="300" y="172" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".14"/>
+<rect x="330" y="172" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".38"/>
+<rect x="360" y="172" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".38"/>
+<rect x="390" y="172" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".38"/>
+<rect x="420" y="172" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".38"/>
+<rect x="330" y="202" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".14"/>
+<rect x="360" y="202" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".14"/>
+<rect x="390" y="202" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".38"/>
+<rect x="420" y="202" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".38"/>
+<rect x="360" y="232" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".14"/>
+<rect x="390" y="232" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".14"/>
+<rect x="420" y="232" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".38"/>
+<rect x="390" y="262" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".14"/>
+<rect x="420" y="262" width="30" height="30" style="fill: var(--fig-mute)" fill-opacity=".14"/>
+<line x1="210" y1="112" x2="450" y2="292" stroke="currentColor" stroke-opacity=".55" stroke-dasharray="4 3"/>
+<text class="os2-b" x="402" y="128" text-anchor="middle">causal mask</text>
+<text class="os2" x="402" y="143" text-anchor="middle">右上整块跳过</text>
+<text class="os2-s" x="402" y="157" text-anchor="middle">对角线上部分 mask</text>
 <rect x="300" y="172" width="30" height="30" style="fill: var(--fig-hi); stroke: var(--fig-1)" stroke-opacity=".5"/><text class="os2-b" x="315.0" y="191.0" text-anchor="middle" style="fill: var(--fig-on-3)">S<tspan dy="3.5" font-size="72%">ij</tspan></text>
 <rect x="210" y="44" width="30" height="56" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity=".08" stroke-opacity=".3"/>
 <rect x="240" y="44" width="30" height="56" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity=".08" stroke-opacity=".3"/>
@@ -210,7 +244,9 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 <text class="os2-b" x="315.0" y="76.0" text-anchor="middle" style="fill: var(--fig-on-3)">K<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">ᵀ</tspan></text>
 <text class="os2-b" x="200" y="62" text-anchor="end">Kᵀ</text>
 <text class="os2-s" x="200" y="76" text-anchor="end">d × N<tspan dy="3.5" font-size="72%">k</tspan></text>
-<text class="os2-s" x="330.0" y="316" text-anchor="middle">S = QKᵀ 是 N<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> × N</tspan><tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5">，从不完整存下来</tspan></text>
+<line x1="214" y1="302" x2="446" y2="302" style="stroke: var(--fig-hi)" stroke-width="1.4" marker-end="url(#tl-sm)"/>
+<text class="os2 os2-hi" x="330" y="320" text-anchor="middle">softmax 沿这个方向：每一行对所有 key 归一化</text>
+<text class="os2-s" x="330.0" y="336" text-anchor="middle">S = QKᵀ 是 N<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> × N</tspan><tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5">，从不完整存下来</tspan></text>
 <rect x="132" y="112" width="56" height="30" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity=".08" stroke-opacity=".3"/>
 <rect x="132" y="142" width="56" height="30" style="fill: var(--fig-2); stroke: var(--fig-1)" fill-opacity=".08" stroke-opacity=".3"/>
 <rect x="132" y="172" width="56" height="30" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/>
@@ -253,8 +289,8 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 <text class="os2-b" x="628" y="90" text-anchor="middle">O</text>
 <text class="os2-s" x="628" y="104" text-anchor="middle">N<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> × d</tspan></text>
 <text class="os2-b" x="572" y="207" text-anchor="middle">=</text>
-<path d="M330,180 C380,150 440,190.75 486,190.75" fill="none" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#tl-a)"/>
-<text class="os2" x="400" y="150" text-anchor="middle">S<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> 乘 V</tspan><tspan dy="3.5" font-size="72%">j</tspan></text>
+<path d="M332,191.75 H486" fill="none" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#tl-a)"/>
+<text class="os2" x="409" y="184" text-anchor="middle">S<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> 乘 V</tspan><tspan dy="3.5" font-size="72%">j</tspan></text>
 <path d="M546,190.75 C572,190.75 576,187 598,187" fill="none" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#tl-a)"/>
 <text class="os2-s" x="572" y="172" text-anchor="middle">加进 O<tspan dy="3.5" font-size="72%">i</tspan></text>
 <line x1="214" y1="34" x2="446" y2="34" stroke="currentColor" stroke-opacity=".45" stroke-width="1.4" marker-end="url(#tl-a)"/>
@@ -307,7 +343,7 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 <text class="os2-s" x="40" y="534" text-anchor="start">Q<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5">、O</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 和每行的 m、ℓ 在整个内层循环里一直留在片上；K</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">、V</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> 每一轮从 HBM 读一个新的</tspan></text>
 <text class="os2-s" x="40" y="552" text-anchor="start">每个 batch、每个 head 各有一份 Q、K、V，各算一遍；FA2 里每个（Q block，batch × head）是一个 thread block</text>
 </svg>
-<figcaption><strong>图 1-2</strong> FlashAttention 的 tiling，按 FA2 的循环顺序画，和论文的 Figure 1 是同一件事。上半是各个 tile 在整个矩阵里的位置：$S$ 的第 $i$ 个 block 行乘 $V$ 得到 $O_i$，和 [图 1-1](#fig-1-1) (b) 一样，$S_{ij}$ 乘的是 $V$ 的第 $j$ 个 block 行。下半是内层循环一轮里各个 tile 的形状，两次乘法都是 GEMM。</figcaption>
+<figcaption><strong>图 1-2</strong> FlashAttention 的 tiling，按 FA2 的循环顺序画，和论文的 Figure 1 是同一件事。上半是各个 tile 在整个矩阵里的位置：$S$ 的第 $i$ 个 block 行乘 $V$ 得到 $O_i$，和 [图 1-1](#fig-1-1) (b) 一样，$S_{ij}$ 乘的是 $V$ 的第 $j$ 个 block 行。softmax 沿 $S$ 的每一行做，也就是内层循环走的方向；causal attention 里对角线右上方的 block 全被 mask，内层循环直接跳过，对角线穿过的 block 在块内 mask。下半是内层循环一轮里各个 tile 的形状，两次乘法都是 GEMM。</figcaption>
 </figure>
 
 ### 1.2 Online softmax {#online-softmax}
