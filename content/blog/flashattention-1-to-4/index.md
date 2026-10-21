@@ -139,7 +139,7 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 问题出在两次乘法中间的 softmax。实际要算的是 $O = PV$，$P = \mathrm{softmax}(S)$ 按行归一化，$P$ 的每个元素都要除以它所在那一行全部元素的指数和。这一行有 $N_k$ 个元素，分在 $T_k$ 个 block 里。读到第 $j$ 个 block 时后面的 block 还没算，分母不知道，$P_{ij}$ 就算不出来，$P_{ij}V_j$ 也没法加进 $O_i$。最直接的办法是先扫一遍所有 $K_j$ 求每行的最大值，再扫一遍求分母，最后再扫一遍算 $P_{ij}V_j$，$K$ 要多读两遍；即使用 1.2 的递推把最大值和分母合成一遍，也还要多读一遍。FlashAttention 用 online softmax 把 softmax 也拆成一个 block 一个 block 地算，$K_j$、$V_j$ 都只读一遍，完整的 $S$ 和 $P$ 都不写回 HBM（[图 1-2](#fig-1-2)）。图里的 $\exp(S-m_{\text{new}})$ 和每行的 $m$、$\ell$ 是 1.2 要讲的。
 
 <figure id="fig-1-2">
-<svg viewBox="0 0 680 574" width="100%" role="img" aria-label="Tiling：Q 按 B_q 行切成 block，K 和 V 按 B_k 行切成 block。Kᵀ 画在 score 矩阵上面，第 j 个 block 对着 S 的第 j 列；V 画在 S 右边，O 画在 V 右边。Q_i 乘 K_j 转置得到 score tile S_ij；S 的第 i 个 block 行乘 V 得到 O_i，其中 S_ij 乘 V 的第 j 个 block 行 V_j，加进 O_i。S 右上方被 causal mask 盖住的 block 整块跳过，softmax 沿 S 的每一行做。内层循环 j 走过每个 K/V block，外层循环 i 走过每个 Q block">
+<svg viewBox="0 0 680 716" width="100%" role="img" aria-label="Tiling：Q 按 B_q 行切成 block，K 和 V 按 B_k 行切成 block。Kᵀ 画在 score 矩阵上面，第 j 个 block 对着 S 的第 j 列；V 画在 S 右边，O 画在 V 右边。Q_i 乘 K_j 转置得到 score tile S_ij；S 的第 i 个 block 行乘 V 得到 O_i，其中 S_ij 乘 V 的第 j 个 block 行 V_j，加进 O_i。S 右上方被 causal mask 盖住的 block 整块跳过，softmax 沿 S 的每一行做。内层循环 j 走过每个 K/V block，外层循环 i 走过每个 Q block">
   <style>
     .os2 { font-size: 11px; fill: currentColor; }
     .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
@@ -313,13 +313,14 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 <text class="os2-b" x="140.0" y="438" text-anchor="middle" style="fill: var(--fig-on-3)">K<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">ᵀ</tspan></text>
 <text class="os2" x="140.0" y="480" text-anchor="middle">d × B<tspan dy="3.5" font-size="72%">k</tspan></text>
 <text class="os2-b" x="172" y="439" text-anchor="middle">=</text>
+<text class="os2-s" x="204" y="404" text-anchor="middle">① 行最大值</text>
 <rect x="184" y="414" width="40" height="40" style="fill: var(--fig-hi); stroke: var(--fig-1)" stroke-opacity=".5"/>
 <text class="os2-b" x="204.0" y="438" text-anchor="middle" style="fill: var(--fig-on-3)">S<tspan dy="3.5" font-size="72%">ij</tspan></text>
 <text class="os2" x="204.0" y="480" text-anchor="middle">B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> × B</tspan><tspan dy="3.5" font-size="72%">k</tspan></text>
 <line x1="228" y1="434" x2="324" y2="434" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#tl-a)"/>
-<text class="os2-s" x="276" y="426" text-anchor="middle">exp(S − m<tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">)</tspan></text>
+<text class="os2-s" x="276" y="426" text-anchor="middle">② exp(S − m<tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">)</tspan></text>
 <rect x="332" y="414" width="40" height="40" style="fill: var(--fig-hi); stroke: var(--fig-1)" stroke-opacity=".5"/>
-<text class="os2-b" x="352.0" y="438" text-anchor="middle" style="fill: var(--fig-on-3)">P<tspan dy="3.5" font-size="72%">ij</tspan></text>
+<text class="os2-b" x="352.0" y="438" text-anchor="middle" style="fill: var(--fig-on-3)">P̃<tspan dy="3.5" font-size="72%">ij</tspan></text>
 <text class="os2" x="352.0" y="480" text-anchor="middle">B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> × B</tspan><tspan dy="3.5" font-size="72%">k</tspan></text>
 <text class="os2-b" x="384" y="439" text-anchor="middle">×</text>
 <rect x="396" y="414" width="56" height="40" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/>
@@ -329,21 +330,43 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 <text class="os2-b" x="424.0" y="438" text-anchor="middle" style="fill: var(--fig-on-3)">V<tspan dy="3.5" font-size="72%">j</tspan></text>
 <text class="os2" x="424.0" y="480" text-anchor="middle">B<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> × d</tspan></text>
 <line x1="456" y1="434" x2="552" y2="434" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#tl-a)"/>
-<text class="os2-s" x="504" y="426" text-anchor="middle">加进</text>
+<text class="os2-s" x="504" y="410" text-anchor="middle">④ 先乘 e<tspan dy="-5" font-size="72%">m−m</tspan><tspan dy="3" font-size="58%">new</tspan></text>
+<text class="os2-s" x="504" y="426" text-anchor="middle">再加进</text>
 <rect x="560" y="414" width="56" height="40" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/>
 <line x1="574.0" y1="414" x2="574.0" y2="454" stroke="currentColor" stroke-opacity=".18"/>
 <line x1="588.0" y1="414" x2="588.0" y2="454" stroke="currentColor" stroke-opacity=".18"/>
 <line x1="602.0" y1="414" x2="602.0" y2="454" stroke="currentColor" stroke-opacity=".18"/>
 <text class="os2-b" x="588.0" y="438" text-anchor="middle" style="fill: var(--fig-on-3)">O<tspan dy="3.5" font-size="72%">i</tspan></text>
 <text class="os2" x="588.0" y="480" text-anchor="middle">B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> × d</tspan></text>
+<rect x="628" y="420" width="14" height="34" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/>
+<text class="os2-b" x="635" y="414" text-anchor="middle">m</text>
+<rect x="652" y="420" width="14" height="34" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/>
+<text class="os2-b" x="659" y="414" text-anchor="middle">ℓ</text>
+<text class="os2-s" x="647" y="398" text-anchor="middle">每行状态</text>
+<text class="os2-s" x="635" y="467" text-anchor="middle">①⑤</text>
+<text class="os2-s" x="659" y="467" text-anchor="middle">③</text>
+<text class="os2" x="647" y="480" text-anchor="middle">B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> × 1</tspan></text>
 <path d="M40,488 v4 H160 v-4" fill="none" style="stroke: var(--fig-hi)" stroke-opacity=".8"/>
 <text class="os2 os2-hi" x="100.0" y="506" text-anchor="middle">GEMM：Q<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> K</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">ᵀ</tspan></text>
 <path d="M332,488 v4 H452 v-4" fill="none" style="stroke: var(--fig-hi)" stroke-opacity=".8"/>
-<text class="os2 os2-hi" x="392.0" y="506" text-anchor="middle">GEMM：P<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> V</tspan><tspan dy="3.5" font-size="72%">j</tspan></text>
-<text class="os2-s" x="40" y="534" text-anchor="start">Q<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5">、O</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 和每行的 m、ℓ 在整个内层循环里一直留在片上；K</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">、V</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> 每一轮从 HBM 读一个新的</tspan></text>
-<text class="os2-s" x="40" y="552" text-anchor="start">每个 batch、每个 head 各有一份 Q、K、V，各算一遍；FA2 里每个（Q block，batch × head）是一个 thread block</text>
+<text class="os2 os2-hi" x="392.0" y="506" text-anchor="middle">GEMM：P̃<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> V</tspan><tspan dy="3.5" font-size="72%">j</tspan></text>
+<text class="os2-b" x="8" y="540" text-anchor="start">online softmax 在这一轮里做的事（m、ℓ 每行一个数，O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 每行一起乘）</tspan></text>
+<text class="os2" x="40" y="562" text-anchor="start">① m<tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5"> = max(m, rowmax(S</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">))</tspan></text>
+<text class="os2-s" x="300" y="562" text-anchor="start">这一块进来以后的行最大值</text>
+<text class="os2" x="40" y="580" text-anchor="start">② P̃<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> = exp(S</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> − m</tspan><tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">)</tspan></text>
+<text class="os2-s" x="300" y="580" text-anchor="start">按新最大值取指数，还没除以分母</text>
+<text class="os2" x="40" y="598" text-anchor="start">③ ℓ ← e<tspan dy="-5" font-size="72%">m−m</tspan><tspan dy="3" font-size="58%">new</tspan><tspan dy="2">·ℓ + rowsum(P̃</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">)</tspan></text>
+<text class="os2-s" x="300" y="598" text-anchor="start">旧分母对齐到新最大值，再加上这一块</text>
+<text class="os2" x="40" y="616" text-anchor="start">④ O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> ← e</tspan><tspan dy="-5" font-size="72%">m−m</tspan><tspan dy="3" font-size="58%">new</tspan><tspan dy="2">·O</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> + P̃</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">V</tspan><tspan dy="3.5" font-size="72%">j</tspan></text>
+<text class="os2-s" x="300" y="616" text-anchor="start">旧输出用同一个因子对齐，再加这一块的贡献</text>
+<text class="os2" x="40" y="634" text-anchor="start">⑤ m ← m<tspan dy="3.5" font-size="72%">new</tspan></text>
+<text class="os2-s" x="300" y="634" text-anchor="start">进入下一个 j</text>
+<text class="os2" x="40" y="652" text-anchor="start">扫完 j = T<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5">：O</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> ← O</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> / ℓ</tspan></text>
+<text class="os2-s" x="300" y="652" text-anchor="start">只在最后除一次分母，写回 HBM</text>
+<text class="os2-s" x="40" y="688" text-anchor="start">Q<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5">、O</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 和每行的 m、ℓ 在整个内层循环里一直留在片上；K</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">、V</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> 每一轮从 HBM 读一个新的</tspan></text>
+<text class="os2-s" x="40" y="706" text-anchor="start">每个 batch、每个 head 各有一份 Q、K、V，各算一遍；FA2 里每个（Q block，batch × head）是一个 thread block</text>
 </svg>
-<figcaption><strong>图 1-2</strong> FlashAttention 的 tiling，按 FA2 的循环顺序画，和论文的 Figure 1 是同一件事。上半是各个 tile 在整个矩阵里的位置：$S$ 的第 $i$ 个 block 行乘 $V$ 得到 $O_i$，和 [图 1-1](#fig-1-1) (b) 一样，$S_{ij}$ 乘的是 $V$ 的第 $j$ 个 block 行。softmax 沿 $S$ 的每一行做，也就是内层循环走的方向；causal attention 里对角线右上方的 block 全被 mask，内层循环直接跳过，对角线穿过的 block 在块内 mask。下半是内层循环一轮里各个 tile 的形状，两次乘法都是 GEMM。</figcaption>
+<figcaption><strong>图 1-2</strong> FlashAttention 的 tiling，按 FA2 的循环顺序画，和论文的 Figure 1 是同一件事。上半是各个 tile 在整个矩阵里的位置：$S$ 的第 $i$ 个 block 行乘 $V$ 得到 $O_i$，和 [图 1-1](#fig-1-1) (b) 一样，$S_{ij}$ 乘的是 $V$ 的第 $j$ 个 block 行。softmax 沿 $S$ 的每一行做，也就是内层循环走的方向；causal attention 里对角线右上方的 block 全被 mask，内层循环直接跳过，对角线穿过的 block 在块内 mask。下半是内层循环一轮里各个 tile 的形状，两次乘法都是 GEMM；①–⑤ 是 online softmax 在这一轮里做的更新，$\tilde P_{ij}$ 是还没除以分母的 $P_{ij}$，为什么这样算是对的见 [1.2 节](#online-softmax)。</figcaption>
 </figure>
 
 ### 1.2 Online softmax {#online-softmax}
