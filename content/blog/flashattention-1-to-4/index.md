@@ -139,7 +139,7 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 问题出在两次乘法中间的 softmax。实际要算的是 $O = PV$，$P = \mathrm{softmax}(S)$ 按行归一化，$P$ 的每个元素都要除以它所在那一行全部元素的指数和。这一行有 $N_k$ 个元素，分在 $T_k$ 个 block 里。读到第 $j$ 个 block 时后面的 block 还没算，分母不知道，$P_{ij}$ 就算不出来，$P_{ij}V_j$ 也没法加进 $O_i$。最直接的办法是先扫一遍所有 $K_j$ 求每行的最大值，再扫一遍求分母，最后再扫一遍算 $P_{ij}V_j$，$K$ 要多读两遍；即使用 1.2 的递推把最大值和分母合成一遍，也还要多读一遍。FlashAttention 用 online softmax 把 softmax 也拆成一个 block 一个 block 地算，$K_j$、$V_j$ 都只读一遍，完整的 $S$ 和 $P$ 都不写回 HBM（[图 1-2](#fig-1-2)）。图里的 $\exp(S-m_{\text{new}})$ 和每行的 $m$、$\ell$ 是 1.2 要讲的。
 
 <figure id="fig-1-2">
-<svg viewBox="0 0 680 716" width="100%" role="img" aria-label="Tiling：Q 按 B_q 行切成 block，K 和 V 按 B_k 行切成 block。Kᵀ 画在 score 矩阵上面，第 j 个 block 对着 S 的第 j 列；V 画在 S 右边，O 画在 V 右边。Q_i 乘 K_j 转置得到 score tile S_ij；S 的第 i 个 block 行乘 V 得到 O_i，其中 S_ij 乘 V 的第 j 个 block 行 V_j，加进 O_i。S 右上方被 causal mask 盖住的 block 整块跳过，softmax 沿 S 的每一行做。内层循环 j 走过每个 K/V block，外层循环 i 走过每个 Q block">
+<svg viewBox="0 0 680 736" width="100%" role="img" aria-label="Tiling：Q 按 B_q 行切成 block，K 和 V 按 B_k 行切成 block。Kᵀ 画在 score 矩阵上面，第 j 个 block 对着 S 的第 j 列；V 画在 S 右边，O 画在 V 右边。Q_i 乘 K_j 转置得到 score tile S_ij；S 的第 i 个 block 行乘 V 得到 O_i，其中 S_ij 乘 V 的第 j 个 block 行 V_j，加进 O_i。S 右上方被 causal mask 盖住的 block 整块跳过，softmax 沿 S 的每一行做。内层循环 j 走过每个 K/V block，外层循环 i 走过每个 Q block">
   <style>
     .os2 { font-size: 11px; fill: currentColor; }
     .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
@@ -296,9 +296,11 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 <line x1="214" y1="34" x2="446" y2="34" stroke="currentColor" stroke-opacity=".45" stroke-width="1.4" marker-end="url(#tl-a)"/>
 <text class="os2" x="330.0" y="26" text-anchor="middle">内层循环：j = 1 … T<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5">，走过每个 K/V block</tspan></text>
 <line x1="116" y1="116" x2="116" y2="288" stroke="currentColor" stroke-opacity=".45" stroke-width="1.4" marker-end="url(#tl-a)"/>
-<text class="os2" transform="translate(108 202.0) rotate(-90)" text-anchor="middle">外层循环：i = 1 … T<tspan dy="3.5" font-size="72%">q</tspan></text>
+<text class="os2" text-anchor="middle" transform="translate(108 202.0) rotate(-90)">grid：i = 1 … T<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> 并行</tspan></text>
+<text class="os2-s" x="160" y="310" text-anchor="middle">Q<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 这一条</tspan></text>
+<text class="os2-s" x="160" y="324" text-anchor="middle">= 一个 program</text>
 <line x1="8" y1="370" x2="672" y2="370" stroke="currentColor" stroke-opacity=".15"/>
-<text class="os2-b" x="8" y="390" text-anchor="start">内层循环的一轮（都在片上）</text>
+<text class="os2-b" x="8" y="390" text-anchor="start">一个 program（thread block）里内层循环的一轮（都在片上）</text>
 <rect x="40" y="414" width="56" height="40" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/>
 <line x1="54.0" y1="414" x2="54.0" y2="454" stroke="currentColor" stroke-opacity=".18"/>
 <line x1="68.0" y1="414" x2="68.0" y2="454" stroke="currentColor" stroke-opacity=".18"/>
@@ -330,8 +332,8 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 <text class="os2-b" x="424.0" y="438" text-anchor="middle" style="fill: var(--fig-on-3)">V<tspan dy="3.5" font-size="72%">j</tspan></text>
 <text class="os2" x="424.0" y="480" text-anchor="middle">B<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> × d</tspan></text>
 <line x1="456" y1="434" x2="552" y2="434" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#tl-a)"/>
-<text class="os2-s" x="504" y="410" text-anchor="middle">④ 先乘 e<tspan dy="-5" font-size="72%">m−m</tspan><tspan dy="3" font-size="58%">new</tspan></text>
-<text class="os2-s" x="504" y="426" text-anchor="middle">再加进</text>
+<text class="os2-s" x="510" y="410" text-anchor="middle">④ 先乘 e<tspan dy="-5" font-size="72%">m−m</tspan><tspan dy="3" font-size="58%">new</tspan></text>
+<text class="os2-s" x="510" y="426" text-anchor="middle">再加进</text>
 <rect x="560" y="414" width="56" height="40" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/>
 <line x1="574.0" y1="414" x2="574.0" y2="454" stroke="currentColor" stroke-opacity=".18"/>
 <line x1="588.0" y1="414" x2="588.0" y2="454" stroke="currentColor" stroke-opacity=".18"/>
@@ -346,6 +348,26 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 <text class="os2-s" x="635" y="467" text-anchor="middle">①⑤</text>
 <text class="os2-s" x="659" y="467" text-anchor="middle">③</text>
 <text class="os2" x="647" y="480" text-anchor="middle">B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> × 1</tspan></text>
+<line x1="40" y1="424" x2="96" y2="424" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="40" y1="434" x2="96" y2="434" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="40" y1="444" x2="96" y2="444" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="184" y1="424" x2="224" y2="424" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="184" y1="434" x2="224" y2="434" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="184" y1="444" x2="224" y2="444" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="332" y1="424" x2="372" y2="424" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="332" y1="434" x2="372" y2="434" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="332" y1="444" x2="372" y2="444" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="560" y1="424" x2="616" y2="424" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="560" y1="434" x2="616" y2="434" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="560" y1="444" x2="616" y2="444" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="628" y1="428.5" x2="642" y2="428.5" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="628" y1="437" x2="642" y2="437" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="628" y1="445.5" x2="642" y2="445.5" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="652" y1="428.5" x2="666" y2="428.5" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="652" y1="437" x2="666" y2="437" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="652" y1="445.5" x2="666" y2="445.5" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<text class="os2-s" x="68" y="404" text-anchor="middle">按行分给 4 个 warp</text>
+<text class="os2-s" x="424" y="404" text-anchor="middle">4 个 warp 共用</text>
 <path d="M40,488 v4 H160 v-4" fill="none" style="stroke: var(--fig-hi)" stroke-opacity=".8"/>
 <text class="os2 os2-hi" x="100.0" y="506" text-anchor="middle">GEMM：Q<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> K</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">ᵀ</tspan></text>
 <path d="M332,488 v4 H452 v-4" fill="none" style="stroke: var(--fig-hi)" stroke-opacity=".8"/>
@@ -364,9 +386,10 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 <text class="os2" x="40" y="652" text-anchor="start">扫完 j = T<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5">：O</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> ← O</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> / ℓ</tspan></text>
 <text class="os2-s" x="300" y="652" text-anchor="start">只在最后除一次分母，写回 HBM</text>
 <text class="os2-s" x="40" y="688" text-anchor="start">Q<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5">、O</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 和每行的 m、ℓ 在整个内层循环里一直留在片上；K</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">、V</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> 每一轮从 HBM 读一个新的</tspan></text>
-<text class="os2-s" x="40" y="706" text-anchor="start">每个 batch、每个 head 各有一份 Q、K、V，各算一遍；FA2 里每个（Q block，batch × head）是一个 thread block</text>
+<text class="os2-s" x="40" y="706" text-anchor="start">grid 共 T<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> ×（batch × head）个 program，一个 program 就是一个 thread block，彼此独立、并行执行</tspan></text>
+<text class="os2-s" x="40" y="724" text-anchor="start">块内按行把 Q<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 分给 4 个 warp（虚线，split-Q，见第 2 节），S、P̃、O</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5">、m、ℓ 的行跟着分；K</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">、V</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> 在 shared memory 里共用</tspan></text>
 </svg>
-<figcaption><strong>图 1-2</strong> FlashAttention 的 tiling，按 FA2 的循环顺序画，和论文的 Figure 1 是同一件事。上半是各个 tile 在整个矩阵里的位置：$S$ 的第 $i$ 个 block 行乘 $V$ 得到 $O_i$，和 [图 1-1](#fig-1-1) (b) 一样，$S_{ij}$ 乘的是 $V$ 的第 $j$ 个 block 行。softmax 沿 $S$ 的每一行做，也就是内层循环走的方向；causal attention 里对角线右上方的 block 全被 mask，内层循环直接跳过，对角线穿过的 block 在块内 mask。下半是内层循环一轮里各个 tile 的形状，两次乘法都是 GEMM；①–⑤ 是 online softmax 在这一轮里做的更新，$\tilde P_{ij}$ 是还没除以分母的 $P_{ij}$，为什么这样算是对的见 [1.2 节](#online-softmax)。</figcaption>
+<figcaption><strong>图 1-2</strong> FlashAttention 的 tiling，按 FA2 的循环顺序画，和论文的 Figure 1 是同一件事。上半是各个 tile 在整个矩阵里的位置：$S$ 的第 $i$ 个 block 行乘 $V$ 得到 $O_i$，和 [图 1-1](#fig-1-1) (b) 一样，$S_{ij}$ 乘的是 $V$ 的第 $j$ 个 block 行。softmax 沿 $S$ 的每一行做，也就是内层循环走的方向；causal attention 里对角线右上方的 block 全被 mask，内层循环直接跳过，对角线穿过的 block 在块内 mask。左边的 $i$ 不是循环而是 grid 的一维：每个 $(i,\ \text{batch}\times\text{head})$ 是一个 program，即一个 thread block，互相独立地并行跑，内层对 $j$ 的循环在 program 里面串行走。下半是一个 program 内层循环一轮里各个 tile 的形状，虚线是块内各个 warp 分到的行，两次乘法都是 GEMM；①–⑤ 是 online softmax 在这一轮里做的更新，$\tilde P_{ij}$ 是还没除以分母的 $P_{ij}$，为什么这样算是对的见 [1.2 节](#online-softmax)。</figcaption>
 </figure>
 
 ### 1.2 Online softmax {#online-softmax}
