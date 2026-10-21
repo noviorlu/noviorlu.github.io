@@ -44,7 +44,7 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 
 ### 1.1 Tiling {#fa1-tiling}
 
-把 $Q$ 按行切成 $B_q$ 行一个的 block $Q_i$，$i = 1, \dots, T_q$，$T_q = N_q/B_q$；$K$、$V$ 按行切成 $B_k$ 行一个的 block $K_j$、$V_j$，$j = 1, \dots, T_k$，$T_k = N_k/B_k$；$d$ 方向不切。block 小到 $Q_i$、$K_j$、$V_j$、$O_i$ 能一起放进片上的 SRAM（即 shared memory）。attention 的两次乘法分别对应 [图 1-1](#fig-1-1) 的两种看法，只要把图里的每个格子看成一个 block。$d$ 方向不切，所以按 block 看，$Q$ 是竖着排的 $T_q$ 个 block，$K^\top$ 是横着排的 $T_k$ 个 block，$S = QK^\top$ 就是 (a) 的外积：$a_i$ 换成 $Q_i$，$b_j$ 换成 $K_j^\top$，$c_{ij}$ 就是 $S_{ij} = Q_iK_j^\top$，原来是两个数相乘，现在是两个 block 做一次 matmul。$O = PV$ 对应 (b)：固定第 $i$ 个 query block，$a_j$ 换成 $P_{ij}$，$B$ 的第 $j$ 行换成 $V_j$，$c$ 就是 $O_i = \sum_{j=1}^{T_k} P_{ij}V_j$，(b) 里的每个加号是一个 key block 的贡献。$P_{ij}$ 和 $V_j$ 对应同一个 key block，所以 $V$ 和 $K$ 按同一个下标切。后面 online softmax 修正 $O_i$ 靠的也是 (b)：一行的权重全乘同一个数，这一行输出也乘同一个数。
+把 $Q$ 按行切成 $B_q$ 行一个的 block $Q_i$，$i = 1, \dots, T_q$，$T_q = N_q/B_q$；$K$、$V$ 按行切成 $B_k$ 行一个的 block $K_j$、$V_j$，$j = 1, \dots, T_k$，$T_k = N_k/B_k$；$d$ 方向不切。block 小到 $Q_i$、$K_j$、$V_j$、$O_i$ 能一起放进片上的 SRAM（即 shared memory）。attention 的两次乘法分别对应 [图 1-1](#fig-1-1) 的两种看法，只要把图里的每个格子看成一个 block。$d$ 方向不切，所以按 block 看，$Q$ 是竖着排的 $T_q$ 个 block，$K^\top$ 是横着排的 $T_k$ 个 block，$S = QK^\top$ 就是 (a) 的外积：$a_i$ 换成 $Q_i$，$b_j$ 换成 $K_j^\top$，$c_{ij}$ 就是 $S_{ij} = Q_iK_j^\top$，原来是两个数相乘，现在是两个 block 做一次 matmul。$O = PV$ 对应 (b)：固定第 $i$ 个 query block，$a_j$ 换成 $P_{ij}$，$B$ 的第 $j$ 行换成 $V_j$，$c$ 就是 $O_i = \sum_{j=1}^{T_k} P_{ij}V_j$，(b) 里的每个加号是一个 key block 的贡献。$P_{ij}$ 和 $V_j$ 对应同一个 key block，所以 $V$ 和 $K$ 按同一个下标切。后面 online softmax 修正 $O_i$ 靠的也是 (b)：一行的权重全乘同一个数，这一行输出也乘同一个数。为了简洁，这一节省略缩放因子 $1/\sqrt d$，记 $S = QK^\top$；[1.2 节](#online-softmax)起把它并进 $S$。
 
 <figure id="fig-1-1">
 <svg viewBox="0 0 680 308" width="100%" role="img" aria-label="(a) 列向量 a 乘行向量 b 转置等于 3 乘 4 的矩阵 C，箭头从 b 的每个元素 b_j 指向 a，C 的第 j 列等于 b_j 乘 a。(b) 1 乘 4 的行向量 a 乘 4 乘 3 的矩阵 B 等于 1 乘 3 的行向量 c，箭头从 a 的每个元素 a_j 指向 B 的第 j 行，c 等于 a_j 乘 B 第 j 行之和。格子换成 block 就是图 1-2：(a) 是 S_ij = Q_i K_j 转置，(b) 是 O_i 等于 P_ij V_j 之和">
@@ -136,7 +136,7 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 
 如果 attention 只有两次乘法，$O = (QK^\top)V$，tiling 可以直接用。$O_i = \sum_{j=1}^{T_k} S_{ij}V_j$，$S_{ij} = Q_iK_j^\top$：固定 $i$，每从 HBM 读进一对 $K_j$、$V_j$，在片上算出 $S_{ij}$，乘 $V_j$ 加进 $O_i$，$S_{ij}$ 用完就丢。片上始终只有一个 $B_q\times B_k$ 的 score tile，完整的 $S$ 不进 HBM。tiling 为什么能少读显存，在[单卡 GPU 优化方法](/blog/gpu-single-gpu-optimization/#tiling)里按 matmul 算过一遍。
 
-问题出在两次乘法中间的 softmax。实际要算的是 $O = PV$，$P = \mathrm{softmax}(S)$ 按行归一化，$P$ 的每个元素都要除以它所在那一行全部元素的指数和。这一行有 $N_k$ 个元素，分在 $T_k$ 个 block 里。读到第 $j$ 个 block 时后面的 block 还没算，分母不知道，$P_{ij}$ 就算不出来，$P_{ij}V_j$ 也没法加进 $O_i$。最直接的办法是先把所有 $K_j$ 扫一遍，求出每行的最大值和分母，再扫一遍算 $P_{ij}V_j$，$K$ 要多读一遍。FlashAttention 用 online softmax 把 softmax 也拆成一个 block 一个 block 地算，$K_j$、$V_j$ 都只读一遍，完整的 $S$ 和 $P$ 都不写回 HBM（[图 1-2](#fig-1-2)）。图里的 $\exp(S-m_{\text{new}})$ 和每行的 $m$、$\ell$ 是 1.2 要讲的。
+问题出在两次乘法中间的 softmax。实际要算的是 $O = PV$，$P = \mathrm{softmax}(S)$ 按行归一化，$P$ 的每个元素都要除以它所在那一行全部元素的指数和。这一行有 $N_k$ 个元素，分在 $T_k$ 个 block 里。读到第 $j$ 个 block 时后面的 block 还没算，分母不知道，$P_{ij}$ 就算不出来，$P_{ij}V_j$ 也没法加进 $O_i$。最直接的办法是先扫一遍所有 $K_j$ 求每行的最大值，再扫一遍求分母，最后再扫一遍算 $P_{ij}V_j$，$K$ 要多读两遍；即使用 1.2 的递推把最大值和分母合成一遍，也还要多读一遍。FlashAttention 用 online softmax 把 softmax 也拆成一个 block 一个 block 地算，$K_j$、$V_j$ 都只读一遍，完整的 $S$ 和 $P$ 都不写回 HBM（[图 1-2](#fig-1-2)）。图里的 $\exp(S-m_{\text{new}})$ 和每行的 $m$、$\ell$ 是 1.2 要讲的。
 
 <figure id="fig-1-2">
 <svg viewBox="0 0 680 574" width="100%" role="img" aria-label="Tiling：Q 按 B_q 行切成 block，K 和 V 按 B_k 行切成 block。Kᵀ 画在 score 矩阵上面，第 j 个 block 对着 S 的第 j 列；V 画在 S 右边，O 画在 V 右边。Q_i 乘 K_j 转置得到 score tile S_ij；S 的第 i 个 block 行乘 V 得到 O_i，其中 S_ij 乘 V 的第 j 个 block 行 V_j，加进 O_i。S 右上方被 causal mask 盖住的 block 整块跳过，softmax 沿 S 的每一行做。内层循环 j 走过每个 K/V block，外层循环 i 走过每个 Q block">
@@ -543,6 +543,8 @@ $j = N$ 时就是 safe softmax 的分母。
 
 <p align="center">$\text{out} = \dfrac{O}{\ell}, \qquad O = \sum_{k=1}^{N_k} e^{x_k - m}\, v_k$</p>
 
+注意这里的 $O$ 是还没除以 $\ell$ 的分子，和 1.1 里归一化以后的 $O = PV$ 不是一回事。从这里到 1.2 结尾的伪代码，$O_i$ 都指这个分子，最后一步除以 $\ell$ 以后才是 1.1 的 $O_i$。
+
 <figure id="fig-1-4">
 <svg viewBox="0 0 680 316" width="100%" role="img" aria-label="attention 一行的输出是 p_k 乘 v_k 之和。每一项 p_k v_k 等于 e 的 x_k 减 m 次方乘 v_k，再乘整行共用的 1 除以 ℓ。共用的 1/ℓ 提到求和外面，输出等于 O 乘 1/ℓ，O 是 e 的 x_k 减 m 次方乘 v_k 之和">
   <style>
@@ -572,7 +574,7 @@ $j = N$ 时就是 safe softmax 的分母。
 <rect x="438" y="82" width="88" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="482.0" y="100.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">N</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> v</tspan><tspan dy="3.5" font-size="72%">N</tspan></text>
 <text class="os2-b" x="338.0" y="128" text-anchor="middle">×</text>
 <rect x="150" y="136" width="376" height="28" rx="3" style="fill: var(--fig-hi); stroke: var(--fig-1)" fill-opacity="0.18" stroke-opacity=".35"/>
-<text class="os2 os2-hi" x="338.0" y="154.0" text-anchor="middle">1 / ℓ，ℓ = Σ<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> e</tspan><tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">j</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5">（softmax 的分母）</tspan></text>
+<text class="os2 os2-hi" x="338.0" y="154.0" text-anchor="middle">1 / ℓ，ℓ = Σ<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> e</tspan><tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">k</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5">（softmax 的分母）</tspan></text>
 <text class="os2-s" x="338.0" y="186" text-anchor="middle">O = 第二行全部加起来 = Σ<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> e</tspan><tspan dy="-5" font-size="72%">x</tspan><tspan dy="3" font-size="58%">k</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> v</tspan><tspan dy="3.5" font-size="72%">k</tspan></text>
 <rect x="150" y="206" width="376" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.35" stroke-opacity=".35"/><text class="os2" x="338.0" y="224.0" text-anchor="middle">O × 1 / ℓ</text>
 <text class="os2-b" x="536" y="224.0" text-anchor="start">= out</text>
@@ -648,7 +650,7 @@ for i ← 1 … T_q:                           # 每个 query block
 
 attention 的反向一般要再用一次 $P$。为此存下完整的 $N\times N$ 矩阵，就把刚省下的显存又花回去了。FlashAttention 只存 $O$ 和每行的统计量 $(m, \ell)$，反向时在片上把需要的 $S_{ij}$、$P_{ij}$ block 重新算出来。这是用少量额外的 matmul 计算换显存和显存读写的大幅减少，被省掉的存储正好在慢的那一层，这时重算比存下来划算（[单卡 GPU 优化方法第 3 节](/blog/gpu-single-gpu-optimization/#recompute)）。
 
-论文的复杂度结论：标准 attention 要 $\Theta(Nd+N^2)$ 次 HBM 访问，FlashAttention 要 $\Theta(N^2d^2M^{-1})$，$M$ 是 SRAM 的大小。常见的 $d$（64–128）和 $M$（100KB 左右）下，$d^2$ 比 $M$ 小很多倍，所以 FlashAttention 的 HBM 访问也少很多倍；$M=\Theta(d^2)$ 时两者才一样。论文给的下界有意取得很弱：不存在一个精确算法，能对 $[d, Nd]$ 里的**每一个** $M$ 都做到 $o(N^2d^2M^{-1})$ 次访问。实际的效果是算得更多（反向要重算 score tile）、搬得少得多。
+论文的复杂度结论：标准 attention 要 $\Theta(Nd+N^2)$ 次 HBM 访问，FlashAttention 要 $\Theta(N^2d^2M^{-1})$，$M$ 是 SRAM 的大小。常见的 $d$（64–128）和 $M$（100KB 左右）下，$d^2$ 比 $M$ 小几倍到十几倍（$M$ 按 fp16 约 5 万个元素，$d=128$ 时 $d^2=16384$，小约 3 倍；$d=64$ 时小约 12 倍），所以 FlashAttention 的 HBM 访问也少同样的倍数（论文原文说「many times」，按它自己给的数其实只有这么多）；$M=\Theta(d^2)$ 时两者才一样。论文给的下界有意取得很弱：不存在一个精确算法，能对 $[d, Nd]$ 里的**每一个** $M$ 都做到 $o(N^2d^2M^{-1})$ 次访问。实际的效果是算得更多（反向要重算 score tile）、搬得少得多。
 
 显存随 $N$ 线性增长而不是平方增长，序列越长省得越多，算的仍然是**精确**的 softmax，当时的稀疏 attention 和低秩 attention 都做不到这一点。
 
@@ -780,7 +782,7 @@ Hopper 新增了几种异步硬件，v1 和 v2 都不是为它们设计的，[�
 
 H100 新加了两个原语，v1 和 v2 设计时都没有用到。一是 **Tensor Memory Accelerator（TMA）**，一个在 HBM 和 shared memory 之间异步整块搬 tile 的硬件单元（TMA 和异步同步见入门篇的 [Appendix C](/blog/gpu-triton-intro/#tma)）。二是 **warpgroup 级的 MMA（WGMMA）**，由 4 个 warp 组成的 warpgroup 一起发出的 Tensor core 指令，比以前的更宽，而且是异步的。FlashAttention-3（Shah, Bikshandi, Zhang, Thakkar, Ramani, Dao，2024）围绕这两个原语来设计，FP8 部分另外用了 block 量化和 incoherent processing。具体有三点。
 
-1. **Warp specialization（producer/consumer）。** FA2 里每个 warp 既要发出自己那份 tile 的拷贝（用 Ampere 的 cp.async，已经是异步的），又要做计算，各阶段之间用整个 block 的 barrier 同步。FA3 改成由一个 producer warp 发 TMA load，把 tile 搬进 shared memory 里一个多级的环形缓冲，缓冲的状态由硬件 barrier 跟踪；register 大部分分给 consumer warpgroup，它们只对已经搬好的 tile 跑 WGMMA（[图 3-1](#fig-3-1)，这种分工在入门篇的 [C.3](/blog/gpu-triton-intro/#tma-ws) 讲过）。这样 kernel 就成了一条显式的软件 pipeline。
+1. **Warp specialization（producer/consumer）。** FA2 里每个 warp 既要发出自己那份 tile 的拷贝（用 Ampere 的 cp.async，已经是异步的），又要做计算，各阶段之间用整个 block 的 barrier 同步。FA3 改成由一个 producer warpgroup 发 TMA load（实际发指令的只是其中一个 warp，这个 warpgroup 用 `setmaxnreg` 把 register 让出来），把 tile 搬进 shared memory 里一个多级的环形缓冲，缓冲的状态由硬件 barrier 跟踪；register 大部分分给 consumer warpgroup，它们只对已经搬好的 tile 跑 WGMMA（[图 3-1](#fig-3-1)，这种分工在入门篇的 [C.3](/blog/gpu-triton-intro/#tma-ws) 讲过）。这样 kernel 就成了一条显式的软件 pipeline。
 
 <figure id="fig-3-1">
 <svg viewBox="0 0 640 186" width="100%" role="img" aria-label="Warp specialization：producer warp 用 TMA 把 K、V tile 从 HBM 搬进 shared memory 里有 4 个 slot 的环形缓冲，两个 consumer warpgroup 取走已经搬满的 tile，做 WGMMA 和 softmax，用完的 slot 通过硬件 barrier 还给 producer">
@@ -886,7 +888,7 @@ H100 新加了两个原语，v1 和 v2 设计时都没有用到。一是 **Tenso
 <figcaption><strong>图 3-2</strong> 两个 warpgroup 的相位错开一步：一个在做 softmax 的标量运算时，另一个正在 Tensor core 上做 matmul，非 matmul 的开销藏进了 matmul 的时间里，不再和它串行。各段宽度是示意，按 H100、head dim 128 的比例画，exp 的耗时约为与它重叠的 GEMM 的一半。</figcaption>
 </figure>
 
-3. **FP8：block 量化和 incoherent processing。** 在 matmul 之前直接把 $Q$、$K$ 量化成 FP8，吞吐上很划算，但精度不够：少数离群值占满了量化范围，其余数值的分辨率被压得很低（FP8 和 block 量化见[单卡优化篇](/blog/gpu-single-gpu-optimization/#precision)）。FA3 用了两个互补的办法。第一是 block 量化：每个 tile 一个 FP8 scale，而不是整个张量一个，离群值的影响只限于它所在的 block；kernel 本来就按 tile 计算，所以这样做没有额外开销。第二是 incoherent processing：量化前把 $Q$ 和 $K$ 乘上同一个随机正交矩阵 $M$。因为 $M$ 正交，$(QM)(KM)^\top = QMM^\top K^\top = QK^\top$，attention 分数在数学上不变；但 $QM$ 的每个元素现在是许多原始元素的随机混合，任何一个坐标都不会被单个离群值主导（[图 3-3](#fig-3-3)）。实现上用的是带随机符号翻转的 Hadamard 变换，长度为 $d$ 的一行代价是 $O(d\log d)$，稠密的旋转则要 $O(d^2)$。
+3. **FP8：block 量化和 incoherent processing。** 在 matmul 之前直接把 $Q$、$K$ 量化成 FP8，吞吐上很划算，但精度不够：少数离群值占满了量化范围，其余数值的分辨率被压得很低（FP8 和 block 量化见[单卡优化篇](/blog/gpu-single-gpu-optimization/#precision)）。FA3 用了两个互补的办法。第一是 block 量化：每个 tile 一个 FP8 scale，而不是整个张量一个，离群值的影响只限于它所在的 block；kernel 本来就按 tile 计算，所以这样做没有额外开销。第二是 incoherent processing：量化前把 $Q$ 和 $K$ 乘上同一个随机正交矩阵 $R$。因为 $R$ 正交，$(QR)(KR)^\top = QRR^\top K^\top = QK^\top$，attention 分数在数学上不变；但 $QR$ 的每个元素现在是许多原始元素的随机混合，任何一个坐标都不会被单个离群值主导（[图 3-3](#fig-3-3)）。实现上用的是带随机符号翻转的 Hadamard 变换，长度为 $d$ 的一行代价是 $O(d\log d)$，稠密的旋转则要 $O(d^2)$。
 
 <figure id="fig-3-3">
 <svg viewBox="0 0 640 222" width="100%" role="img" aria-label="一个 8 维向量，有一个 8.0 的离群值，其余 7 个元素的绝对值都小于 0.4；随机翻转符号并做 Hadamard 旋转后，每个元素的绝对值都在 2.3 到 3.1 之间，最大值从 8.0 降到 3.1，向量长度保持 8.03">
@@ -939,7 +941,7 @@ H100 新加了两个原语，v1 和 v2 设计时都没有用到。一是 **Tenso
 
 FlashAttention-4 的作者是 Zadouri、Hoehnerbach、Shah、Liu、Thakkar 和 Dao（Princeton、Meta、Colfax Research、NVIDIA、Georgia Tech 和 Together AI），2026 年 3 月发在 arXiv 上。论文针对 Blackwell 数据中心 GPU（B200/GB200）；开源实现（flash-attention 仓库里的 `flash_attn/cute`，安装包名是 `flash-attn-4`）也带了 Hopper 的 kernel。它是四代里最新的一代，在生产环境里经过的检验也最少。
 
-论文的出发点是**硬件的非对称扩展**（asymmetric hardware scaling）。从 Hopper 到 Blackwell，dense BF16 的 Tensor core 吞吐翻了一倍（每个 SM 每个时钟 8192 和 4096 FLOPs；整卡约 2.25e15 和 1e15 FLOPS），shared memory 的读带宽（每个 SM 每个时钟 128 B）和做 exp 的 MUFU 单元（每个 SM 每个时钟 16 次）完全没变。以 $d=128$ 时一个 $128\times128$ 的 tile 为例（[图 4-1](#fig-4-1)），前向的两个 MMA 在 Hopper 上要 $4\cdot128^3/4096=2048$ 个周期，$128^2$ 个 exp 要 $128^2/16=1024$ 个周期，exp 只占 matmul 的一半，FA3 的 ping-pong 能把它们藏在 matmul 后面。B200 上 MMA 只要 1024 个周期，exp 仍然要 1024 个，只靠重叠已经藏不住了。这和最初的 FlashAttention 解决的是同一个 IO 与计算的平衡问题，只是发生在更高的一层。
+论文的出发点是**硬件的非对称扩展**（asymmetric hardware scaling）。从 Hopper 到 Blackwell，dense BF16 的 Tensor core 吞吐翻了一倍（每个 SM 每个时钟 8192 和 4096 FLOPs；整卡约 2.25e15 和 1e15 FLOPS），shared memory 的读带宽（每个 SM 每个时钟 128 B）和做 exp 的 MUFU 单元（每个 SM 每个时钟 16 次）完全没变。以 $d=128$ 时一个 $128\times128$ 的 tile 为例（[图 4-1](#fig-4-1)），前向的两个 MMA 在 Hopper 上要 $4\cdot128^3/4096=2048$ 个周期，$128^2$ 个 exp 要 $128^2/16=1024$ 个周期，exp 只占 matmul 的一半，FA3 的 ping-pong 能把它们藏在 matmul 后面。B200 上 MMA 只要 1024 个周期，exp 仍然要 1024 个，只靠重叠已经藏不住了。这和最初的 FlashAttention 是同一类问题：各个硬件单元的吞吐配比失衡，最慢的那个决定 kernel 的速度。只是 FA1 卡在 HBM 带宽上，这里前向卡在 MUFU 的 exp 吞吐上，反向卡在 shared memory 带宽上。
 
 <figure id="fig-4-1">
 <svg viewBox="0 0 640 250" width="100%" role="img" aria-label="前向一个 tile（128×128，head 维度 128）每个 SM 的周期估算。H100：Tensor core 的 MMA 2048 个周期，exp 单元 1024 个周期。B200：MMA 1024 个周期，exp 单元 1024 个周期，shared memory 读 768 个周期。从 H100 到 B200，MMA 的时间减半，exp 的时间不变。">
@@ -1059,7 +1061,7 @@ FA4 的做法有四条：
 
 前面几节讲的都是每一代改了什么。kernel 技巧一条条列下来，很容易忽略哪些东西始终没变，这里把它们明确写出来：
 
-- **四代算的是同一个数学函数。** 都是 $\mathrm{softmax}(QK^\top/\sqrt d)V$，差别只在浮点舍入；FP8 路径还有量化误差，这部分误差有界，论文也实际测量过，没有含糊带过。
+- **四代算的是同一个数学函数。** 都是 $\mathrm{softmax}(QK^\top/\sqrt d)V$，差别只在浮点舍入；FP8 路径还有量化误差，论文没有证明它的上界，而是实测了 RMSE：加上 block 量化和 incoherent processing，误差比 baseline FP8 attention 低 2.6 倍。
 - **没有一代降低了 FLOP 数的渐近量级。** 每个版本的计算量都是 $\Theta(N^2d)$；重计算会多出一点，有 causal mask 时跳过完全被 mask 掉的 tile，实际执行的计算比算完整矩阵再 mask 少一半左右。整条演进线一直在做同一件事：去掉 FLOP 数本身并不需要的数据搬运和非 matmul 开销。
 - **每一代针对的都是上一代留下的新瓶颈。** v1 去掉了 $N^2$ 大小的矩阵在 HBM 上的往返。v2 解决了 v1 的调度留下的低 occupancy 和 warp 之间的通信开销。v3 用上了 v1、v2 出现时还没有的异步硬件（TMA/WGMMA），另外用 FP8 处理精度和吞吐之间的取舍。v4 应对的是 Blackwell 的非对称扩展：exp 的 FLOP 数很少，在前向里却和 matmul 占一样多的周期，反向里 shared memory 的流量还超过了 matmul。所以「attention 慢」不是一次能解决的问题：每一代解决的只是当时最紧的约束，下一代 GPU 又会带来新的约束。
 
