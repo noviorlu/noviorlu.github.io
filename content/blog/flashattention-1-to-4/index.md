@@ -692,15 +692,7 @@ $j = N$ 时就是 safe softmax 的分母。
 
 ### 1.3 反向的 recomputation {#fa1-recompute}
 
-attention 的反向一般要再用一次 $P$。为此存下完整的 $N\times N$ 矩阵，就把刚省下的显存又花回去了。FlashAttention 只存 $O$ 和每行的统计量 $(m, \ell)$，反向时在片上把需要的 $S_{ij}$、$P_{ij}$ block 重新算出来。这是用少量额外的 matmul 计算换显存和显存读写的大幅减少，被省掉的存储正好在慢的那一层，这时重算比存下来划算（[单卡 GPU 优化方法第 3 节](/blog/gpu-single-gpu-optimization/#recompute)）。
-
-论文的复杂度结论：标准 attention 要 $\Theta(Nd+N^2)$ 次 HBM 访问，FlashAttention 要 $\Theta(N^2d^2M^{-1})$，$M$ 是 SRAM 的大小。常见的 $d$（64–128）和 $M$（100KB 左右）下，$d^2$ 比 $M$ 小几倍到十几倍（$M$ 按 fp16 约 5 万个元素，$d=128$ 时 $d^2=16384$，小约 3 倍；$d=64$ 时小约 12 倍），所以 FlashAttention 的 HBM 访问也少同样的倍数（论文原文说「many times」，按它自己给的数其实只有这么多）；$M=\Theta(d^2)$ 时两者才一样。论文给的下界有意取得很弱：不存在一个精确算法，能对 $[d, Nd]$ 里的**每一个** $M$ 都做到 $o(N^2d^2M^{-1})$ 次访问。实际的效果是算得更多（反向要重算 score tile）、搬得少得多。
-
-显存随 $N$ 线性增长而不是平方增长，序列越长省得越多，算的仍然是**精确**的 softmax，当时的稀疏 attention 和低秩 attention 都做不到这一点。
-
-*RTX 5090 实测待补：标准 attention 和 FlashAttention 的计算量、显存读写量和耗时（前向加反向），以及不同序列长度下的显存。*
-
-FA1 解决了 HBM 的读写，但 kernel 本身离 Tensor core 的峰值还很远，差距出在 kernel 怎么用 GPU 上，这是 FlashAttention-2 要解决的。
+*待补。*
 
 ## 2 FlashAttention-2：让 GPU 忙起来 {#fa2}
 
