@@ -83,7 +83,7 @@ SMSP 里另一块要紧的是 register file。每个 SMSP 有 16384 个 32-bit r
 
 <figure id="fig-memwall" class="fg-fig">
 <img src="memory-wall.webp" alt="1997 到 2023 年峰值算力、DRAM 带宽和互联带宽的增长：算力每两年 3.0 倍，DRAM 带宽每两年 1.6 倍，互联带宽每两年 1.4 倍" loading="lazy" style="width: 100%; height: auto; border-radius: 8px; background: #fff;">
-<figcaption><strong>图 1-4</strong> 峰值算力与 DRAM、互联带宽 20 年来的增长，纵轴是相对 1997 年的倍数（对数轴）。图来自 Gholami 等人的 <a href="https://arxiv.org/abs/2403.14123">AI and Memory Wall</a>（IEEE Micro，2024）。</figcaption>
+<figcaption><strong>图 1-4</strong> 峰值算力和 DRAM、互联带宽的增长（来自 <a href="https://arxiv.org/abs/2403.14123">AI and Memory Wall</a>）</figcaption>
 </figure>
 
 离计算单元越近越快、越小（[图 1-5](#fig-h-1)）。L1、L2 是硬件管的 cache，kernel 能自己安排的只有 register 和 shared memory。优化的核心就一条：把要反复用的数据留在这两层，多算几次再写回显存。
@@ -264,18 +264,6 @@ grid 是二维的：
 代价是 shared memory 用得越多，一个 SM 放的 program 越少：matmul 每个 program 占 32 KB（两个 slot，见 [3.3 节](#stages)），加上保留的 1 KB，100 KB 只放得下 3 个（[3.1 节](#sched-warp)）。
 
 </div>
-
-<details class="fold doc aside">
-<summary>matmul 编译出来什么样</summary>
-
-从编译出的 TTGIR 和 PTX 里数出来的（流水线见 [3.3 节](#stages)）：
-
-- **显存 → shared memory**：A、B 各搬 64 次、每次 8 KB，一个 program 共 1 MB，512 个 program 共 512 MB；A、B 本身只有 36 MB，所以 L2 命中率 91%。
-- **shared memory → register**：每轮 192 KB，同一个数平均被读 12 次，这就是复用。
-- **写回前换排布**：`tl.dot` 输出时每个 thread 拿两个 4 × 4 的小方块，`tl.store` 要每个 thread 拿 8 段、每段一行里连续 4 个数。数换了 thread 甚至 warp，register 又是私有的，只能先写进 shared memory、同步一次再读出来。两种排布写显存都是一个 warp 写两整行，这一步不是为了合并写入，只是排布对不上。
-- **精度**：代码加了 `input_precision="ieee"`，`tl.dot` 编成 CUDA core 上的 `fma.rn.f32x2`；不加的话 fp32 输入默认走 tf32 的 Tensor core，结果差 0.1 左右。
-
-</details>
 
 ---
 

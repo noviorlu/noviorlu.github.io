@@ -125,7 +125,7 @@ series_order: 1
   <line x1="537.0" y1="346.0" x2="537.0" y2="308.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-2-m0)"/>
   <text class="s" x="214" y="300">LD/ST 的请求</text><text class="s" x="434" y="330" text-anchor="end">TMA 的请求</text>
 </svg>
-<figcaption><strong>图 1-1</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core 和 1 个 Tensor core，4 个 SMSP 共享 L1 / shared memory。普通的 load / store 由 SMSP 里的 LD/ST 单元按每个 thread 的地址发出，经 L1 / shared memory、片上互联到 L2。TMA 是专门整块搬数据的单元，和 LD/ST 走同一条路，见 Appendix C。</figcaption>
+<figcaption><strong>图 1-1</strong> RTX 5090 的一个 SM（示意）</figcaption>
 </figure>
 
 <details class="fold doc aside">
@@ -256,7 +256,7 @@ series_order: 1
   <text class="s" x="384" y="269" text-anchor="start" style="fill: var(--fig-hi)">⑥</text>
   <text class="lab2" x="400" y="269">SFU：exp、rsqrt、sin 这类特殊函数</text>
 </svg>
-<figcaption><strong>图 1-2</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。</figcaption>
+<figcaption><strong>图 1-2</strong> 一个 SMSP（示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">RTX Blackwell 白皮书</a>图 5 画）</figcaption>
 </figure>
 
 SMSP 里有三种计算单元（[图 1-3](#fig-h-11)）：
@@ -439,7 +439,7 @@ SMSP 里有三种计算单元（[图 1-3](#fig-h-11)）：
   <text class="lab2" x="28" y="436">tl.exp(x) 编出来是两条：FMUL 算 x × log₂e（CUDA core），MUFU.EX2（SFU）</text>
   <text class="lab" x="28" y="456">每个 SM 每拍 16 个，FMA 是 128 个（实测吞吐比约 1 : 7）</text>
 </svg>
-<figcaption><strong>图 1-3</strong> CUDA core、Tensor core 和 SFU 各算什么（示意）。左：一条 FMA，warp 的每个 thread 用一个 CUDA core 算 a × b + c，乘积不舍入，最后只舍入一次。右：一条 mma，以 bf16 的 m16n8k16 为例，整个 warp 一起发，同样一条指令，算的量是 FMA 的 64 倍。下：SFU 用查表加二次插值近似 exp2、rcp、rsqrt、sin 这类函数（Oberman, Siu 2005），SASS 读自 5090 上编译出的 kernel，吞吐比是实测。</figcaption>
+<figcaption><strong>图 1-3</strong> CUDA core、Tensor core 和 SFU 各算什么（示意）</figcaption>
 </figure>
 
 `tl.dot` 默认走 Tensor core，其余加减乘除走 CUDA core。
@@ -454,7 +454,7 @@ SMSP 里另一块要紧的是 register file。每个 SMSP 有 16384 个 32-bit r
 
 <figure id="fig-memwall" class="fg-fig">
 <img src="memory-wall.webp" alt="1997 到 2023 年峰值算力、DRAM 带宽和互联带宽的增长：算力每两年 3.0 倍，DRAM 带宽每两年 1.6 倍，互联带宽每两年 1.4 倍" loading="lazy" style="width: 100%; height: auto; border-radius: 8px; background: #fff;">
-<figcaption><strong>图 1-4</strong> 峰值算力与 DRAM、互联带宽 20 年来的增长，纵轴是相对 1997 年的倍数（对数轴）。图来自 Gholami 等人的 <a href="https://arxiv.org/abs/2403.14123">AI and Memory Wall</a>（IEEE Micro，2024）。</figcaption>
+<figcaption><strong>图 1-4</strong> 峰值算力和 DRAM、互联带宽的增长（来自 <a href="https://arxiv.org/abs/2403.14123">AI and Memory Wall</a>）</figcaption>
 </figure>
 
 离计算单元越近越快、越小（[图 1-5](#fig-h-1)）。L1、L2 是硬件管的 cache，kernel 能自己安排的只有 register 和 shared memory。优化的核心就一条：把要反复用的数据留在这两层，多算几次再写回显存。
@@ -522,7 +522,7 @@ SMSP 里另一块要紧的是 register file。每个 SMSP 有 16384 个 32-bit r
   <line x1="500.0" y1="200.0" x2="452.0" y2="200.0" style="stroke: var(--fig-mute)" stroke-width="1.8" marker-end="url(#fig-h-1-m0)"/>
   <text class="lab2" x="10" y="292">越靠近 SM 越快、越小：register > L1 / shared > L2 > 显存</text>
 </svg>
-<figcaption><strong>图 1-5</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。</figcaption>
+<figcaption><strong>图 1-5</strong> RTX 5090 的存储层级（规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">RTX Blackwell 白皮书</a>）</figcaption>
 </figure>
 
 #### Memory access {#hw-move}
@@ -610,7 +610,7 @@ SMSP 里另一块要紧的是 register file。每个 SMSP 有 16384 个 32-bit r
   <text class="tb" x="480" y="282" text-anchor="middle" style="fill: var(--fig-hi)">✕</text>
   <text class="s" x="336" y="342">不能直接读，只能写回显存再读</text>
 </svg>
-<figcaption><strong>图 1-6</strong> 数据在各层之间怎么搬，指令名是 PTX 的写法。没有一步到位的就拼两行，比如 ld.global 再 st.shared 也能把显存搬进 shared memory。Hopper 起的 thread block cluster 里，几个 block 可以互读 shared memory，这篇用不到。</figcaption>
+<figcaption><strong>图 1-6</strong> 数据在各层之间怎么搬（PTX 指令名）</figcaption>
 </figure>
 
 Triton 代码里只有 `tl.load` 和 `tl.store`，走[图 1-6](#fig-h-12)的哪一条路由编译器决定：[第 2 节](#triton)的 GELU、softmax、row sum 都是显存和 register 之间直接读写；matmul 的 A、B 要经过 shared memory，编出来用的是 cp.async（[3.3 节](#stages)）；用 tensor descriptor 写的 load 才会用 TMA（[Appendix C](#tma)）。
@@ -737,7 +737,7 @@ CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 
   <path d="M32 264 L20 302 M40 264 L370 302" stroke="currentColor" stroke-opacity=".3" stroke-dasharray="3 3" fill="none"/>
   <text class="lab" x="32" y="328">thread：自己的 register，按编号算出读哪个数</text>
 </svg>
-<figcaption><strong>图 1-7</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；中间是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-1</a>；右边是这一层在 Triton 里怎么写。</figcaption>
+<figcaption><strong>图 1-7</strong> CUDA 的执行层级：跑在哪个硬件上，Triton 里怎么写</figcaption>
 </figure>
 
 ---
@@ -1046,7 +1046,7 @@ CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 
   <text class="s" x="374.0" y="368" text-anchor="middle">pid = (1, 1)</text>
   <text class="s" x="515.0" y="368" text-anchor="middle">实心是第 0 轮读的 block，斜线是之后几轮</text>
 </svg>
-<figcaption><strong>图 2-1</strong> 四个例子的数据怎么分给 program。深蓝是 pid = 1 的 program 要读的数据，红色是它写回的输出；row sum 和 matmul 要循环，实心是第 0 轮读的 block，斜线是之后几轮要读的。matmul 那格一格是一个 block。每个例子的完整数据流图在后面各小节。</figcaption>
+<figcaption><strong>图 2-1</strong> 四个例子的数据怎么分给 program</figcaption>
 </figure>
 
 每个例子配一张数据流图：左边是 grid，右边从上到下是计算单元、register、shared memory、显存，横向是时间；一块存储横跨它存在的那段时间，L2 不画。
@@ -1139,7 +1139,7 @@ GELU 逐元素算，用 tanh 近似：
   <rect x="529.0" y="252.0" width="20.0" height="28.0" style="fill: var(--fig-1)" fill-opacity=".55"/>
   <text class="s" x="539.0" y="293" text-anchor="middle">整个 y：32 MB</text>
 </svg>
-<figcaption><strong>图 2-2</strong> GELU kernel（n = 8388608，fp32）。左边是 grid，数组按 BLOCK = 1024 切段，一段一个 program。右边是 program 1 的数据流，泳道和箭头的含义见正文。显存泳道里的整条是整个 x、y（各 8388608 个 fp32，32 MB），深色一段是 program 1 读写的 1024 个（4 KB）；按比例只有整条的 1/8192，图里放大了。</figcaption>
+<figcaption><strong>图 2-2</strong> GELU kernel 的数据流（n = 8388608，fp32）</figcaption>
 </figure>
 
 n 个元素切成每段 BLOCK 个，一段一个 program，program 之间不用配合（[图 2-2](#fig-t-1)）：
@@ -1301,7 +1301,7 @@ def softmax_naive(x):                         # x: [M, N]，按行
   <line x1="519.0" y1="189.0" x2="519.0" y2="86.0" style="stroke: var(--nv-bg, #fff)" stroke-width="5"/>
   <line x1="519.0" y1="189.0" x2="519.0" y2="86.0" style="stroke: var(--fig-2)" stroke-width="1.3" marker-end="url(#fig-t-2-m2)"/>
 </svg>
-<figcaption><strong>图 2-3</strong> softmax kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-2</a>。一行一个 program，中间结果都留在 register 里，显存只读写各一次。显存泳道里的方块是整个 x、y（各 64 MB），深色一条是 program 1 读写的那一行（4096 个 fp32，16 KB），按比例只有 1/4096，图里放大了。</figcaption>
+<figcaption><strong>图 2-3</strong> softmax kernel 的数据流（4096 × 4096，fp32）</figcaption>
 </figure>
 
 一个 program 处理一整行（[图 2-3](#fig-t-2)），max、exp、求和、除都在 register 里做完，只读 MN、写 MN，读写量是 eager 的 1/4：
@@ -1568,7 +1568,7 @@ $\mathcal{J}_T$ 是第 $T$ 个 block 的 TILE 个列下标（TILE = 1024）。�
   <line x1="608.0" y1="130.0" x2="608.0" y2="253.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-3-m1)"/>
   <text class="s" x="604.0" y="152.0" text-anchor="end" style="fill: var(--fig-1)">tl.store</text>
 </svg>
-<figcaption><strong>图 2-4</strong> row sum：program 沿行一块一块读，逐位加到 acc 上，最后 <code>tl.sum</code> 加成一个数（图里 TILE = 4，代码里 1024）。</figcaption>
+<figcaption><strong>图 2-4</strong> row sum kernel 的数据流（图里 TILE = 4，代码里 1024）</figcaption>
 </figure>
 
 `acc` 是长度为 TILE 的向量：循环里每个 thread 只加自己的几个位置，不用通信；循环完再用 `tl.sum` 做一次跨 thread 归约。
@@ -2083,7 +2083,7 @@ M、N、K 分别按 BM、BN、BK 切成 block，$A_{IT}$ 是 A 第 $I$ 个 row b
   <text class="s" x="276.0" y="337">T = 0</text><text class="s" x="372.0" y="337" text-anchor="end">T = 63</text>
   <text class="s" x="276.0" y="354">每轮读 A 的 64 × 32、B 的 32 × 64，各 8 KB；</text><text class="s" x="276.0" y="368">图里一格 256 列，是 8 轮</text>
 </svg>
-<figcaption><strong>图 2-5</strong> matmul kernel（A 4096 × 2048，B 2048 × 512，fp32，BM = BN = 64，BK = 32），画法同<a href="#fig-t-1">图 2-2</a>。显存里的矩阵按比例画全，一格是 256 × 256 个元素。program (1, 1) 读 A 的第 1 个 row block 和 B 的第 1 个 column block，颜色由淡到浓是沿 K 读 block 的顺序。acc 就是 C 的 block (1, 1)，64 轮 dot 在它上面一轮轮累加，ReLU 之后就是要写回的值，图里 ReLU 后的那段叫 C block。A、B 的 block 由 cp.async 从显存经 L2 搬进 shared memory，不经过 register。shared memory 里 A、B 各有 2 个 slot，因为默认 <code>num_stages=3</code>：第 T 轮的 block 在第 T − 2 轮算完时开始搬，第 T − 1 轮期间在路上，第 T 轮被读出来算；算完 slot 就空出来，接着搬第 T + 2 轮。所以偶数轮用 slot 0、奇数轮用 slot 1，算第 T 轮时另一个 slot 里是第 T + 1 轮，见 <a href="#stages">3.3 节</a>。</figcaption>
+<figcaption><strong>图 2-5</strong> matmul kernel 的数据流（BM = BN = 64，BK = 32，<code>num_stages=3</code>）</figcaption>
 </figure>
 
 一个 program 算一个 $C_{IJ}$（[图 2-5](#fig-t-4)）：沿 K 循环用 `tl.dot` 乘加，写回前在 register 里做 ReLU，省掉一个单独读写 C 的 kernel：
@@ -2139,18 +2139,6 @@ def matmul_relu(a, b, BM=64, BN=64, BK=32):
 代价是 shared memory 用得越多，一个 SM 放的 program 越少：matmul 每个 program 占 32 KB（两个 slot，见 [3.3 节](#stages)），加上保留的 1 KB，100 KB 只放得下 3 个（[3.1 节](#sched-warp)）。
 
 </div>
-
-<details class="fold doc aside">
-<summary>matmul 编译出来什么样</summary>
-
-从编译出的 TTGIR 和 PTX 里数出来的（流水线见 [3.3 节](#stages)）：
-
-- **显存 → shared memory**：A、B 各搬 64 次、每次 8 KB，一个 program 共 1 MB，512 个 program 共 512 MB；A、B 本身只有 36 MB，所以 L2 命中率 91%。
-- **shared memory → register**：每轮 192 KB，同一个数平均被读 12 次，这就是复用。
-- **写回前换排布**：`tl.dot` 输出时每个 thread 拿两个 4 × 4 的小方块，`tl.store` 要每个 thread 拿 8 段、每段一行里连续 4 个数。数换了 thread 甚至 warp，register 又是私有的，只能先写进 shared memory、同步一次再读出来。两种排布写显存都是一个 warp 写两整行，这一步不是为了合并写入，只是排布对不上。
-- **精度**：代码加了 `input_precision="ieee"`，`tl.dot` 编成 CUDA core 上的 `fma.rn.f32x2`；不加的话 fp32 输入默认走 tf32 的 Tensor core，结果差 0.1 左右。
-
-</details>
 
 ---
 
@@ -2280,7 +2268,7 @@ program 放上 SM 后驻留到跑完，它的 warp 分到 4 个 SMSP（[图 3-1]
   <rect x="343" y="272" width="17" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity=".55"/><text class="lab2" x="367" y="281">等数据</text>
   <rect x="434" y="272" width="17" height="10" rx="2" style="fill: none; stroke: var(--fig-1)" stroke-opacity=".45"/><text class="lab2" x="458" y="281">空名额</text>
 </svg>
-<figcaption><strong>图 3-1</strong> 一个 SM 上驻留 3 个 program（P0、P1、P2，每个 4 个 warp）时的某一拍。每个 program 的 4 个 warp 分到 4 个 SMSP，格子里写的是这个 warp 属于哪个 program；每个 SMSP 有 12 个格子，整个 SM 共 48 个，就是<a href="#tab-3-1">表 3-1</a> 的 warp 名额。每个调度器每拍最多发射一个 warp，SMSP 2 的 3 个 warp 都在等数据，这一拍空转。</figcaption>
+<figcaption><strong>图 3-1</strong> 一个 SM 驻留 3 个 program 时的某一拍</figcaption>
 </figure>
 
 一个 SM 放几个 program，看[表 3-1](#tab-3-1) 四条上限里哪条先用完。第 2 节的 kernel 都是 4 个 warp：
@@ -2424,7 +2412,7 @@ grid 比全卡一次放得下的多时，program 分批（wave）跑。GELU 一�
   <rect x="434" y="385" width="12" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity="0.68"/><text class="lab" x="451" y="394">6120–8159</text>
   <rect x="542" y="385" width="12" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity="0.9"/><text class="lab" x="559" y="394">8160–8191</text>
 </svg>
-<figcaption><strong>图 3-2</strong> GELU 的 8192 个 program 实际怎么分批跑（RTX 5090，n = 8388608，fp32，每个 program 4 个 warp）。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，store 发出后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 编号所在的批次，一批 2040 个。浅红色是 bubble，最后一个 program 开始以后是 tail。下面的名额是按开始、结束时间排出来的，红框是这个 SM 上最长的一段空档。打点版 46.9 µs，不打点 45.2 µs。悬停可看 program 编号和时间。</figcaption>
+<figcaption><strong>图 3-2</strong> GELU 的 8192 个 program 怎么分批跑（<code>%globaltimer</code> 打点实测，悬停看详情）</figcaption>
 </figure>
 
 matmul 一批 510 个，512 个 program 多出 2 个，最后 168 个 SM 空等这 2 个跑完，这叫 tail effect（[图 3-3](#fig-t-7)）。A 换成 4032 × 2048，504 个 program 一批放下，耗时从 203.3 µs 降到 158.3 µs，按 FLOPS 算和 cuBLAS 一样快（4096 行 160.5 µs）。
@@ -2501,7 +2489,7 @@ matmul 一批 510 个，512 个 program 多出 2 个，最后 168 个 SM 空等�
   <rect x="210" y="337" width="12" height="10" rx="2" style="fill: var(--fig-1)" fill-opacity="0.9"/><text class="lab" x="227" y="346">510–511</text>
   <line x1="324" y1="342" x2="346" y2="342" style="stroke: var(--fig-hi)" stroke-width="1.6" stroke-dasharray="5 3"/><text class="lab" x="354" y="346">A 4032 × 2048：504 个，一批</text>
 </svg>
-<figcaption><strong>图 3-3</strong> matmul kernel 的 512 个 program 实际怎么分批跑（RTX 5090，fp32，A 4096 × 2048，B 2048 × 512，每个 SM 3 个 program），画法同<a href="#fig-t-5">图 3-2</a>。每个 program 开头读一次 <code>%globaltimer</code> 和 <code>%smid</code>，写回 C 之后再读一次时间，记录前先清空 L2。颜色由淡到浓是 program 的发射顺序所在的批次，一批 510 个。第 2 批只有 2 个，按比例只有 1 像素高，图里画成底边上的一条粗线并用红框圈出。打点版 210.8 µs，不打点 203.3 µs。悬停可看 program 编号和时间。</figcaption>
+<figcaption><strong>图 3-3</strong> matmul 的 512 个 program 怎么分批跑（打点实测，画法同图 3-2）</figcaption>
 </figure>
 
 ### 3.3 num_warps 和 num_stages {#stages}
@@ -2668,7 +2656,7 @@ matmul 一批 510 个，512 个 program 多出 2 个，最后 168 个 SM 空等�
   <rect x="100" y="421" width="20" height="11" rx="2" style="fill: var(--fig-2)" fill-opacity="0.75"/><text class="s" x="126" y="430">让给别的 warp</text>
   <rect x="222" y="421" width="20" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="1"/><text class="s" x="248" y="430">等显存</text>
 </svg>
-<figcaption><strong>图 3-4</strong> matmul 的循环按 shared memory slot 看（RTX 5090，fp32，A 4032 × 2048，B 2048 × 512，BM = BN = 64，BK = 32，4 个 warp）。1 级和 3 级时 504 个 program 一批跑完，4 级时每个 SM 只放得下 2 个，要分两批，这里画的是第一批里的一个 program。条长按 Nsight Compute 实测（<code>--clock-control none</code>）画，都是 64 轮的平均值：每轮的拍数 = 一个 warp 每条指令平均隔几拍 × 每轮的指令数；把这几拍按 warp 当时的状态拆开，等 L2 / 显存的记作「等显存」，自己已经就绪、但调度器这一拍发了别的 warp 的记作「让给别的 warp」，其余（发射、等 shared memory、barrier 等）记作「自己在跑」。三种状态在一轮里是穿插的，这里按比例拼在一起画。load 的延迟没法直接测，按不预取时每轮等数据的拍数画。三栏共用一根时间轴，都只画前 4 轮，红线是 4 轮算完的时刻。</figcaption>
+<figcaption><strong>图 3-4</strong> 不同 num_stages 下 matmul 每轮的时间（Nsight Compute 实测，A 4032 × 2048）</figcaption>
 </figure>
 
 | num_stages | A、B 各几个 slot (shmem) | load 提前几整轮 | shared memory | 每个 SM 放几个 program | 耗时 |
@@ -2779,7 +2767,7 @@ matmul 一批 510 个，512 个 program 多出 2 个，最后 168 个 SM 空等�
   <text class="tick" x="581.9" y="310" text-anchor="middle">5e5</text>
   <text class="lab2" x="122" y="310" text-anchor="end">拍</text>
 </svg>
-<figcaption><strong>图 3-5</strong> num_stages = 3 和 4 时，一个 SM 放几个 program、整个 kernel 跑几批（RTX 5090，形状同<a href="#tab-3-2">表 3-2</a>）。上：一个 slot 存一轮的 A、B block，各 8 KB，共 16 KB；灰色是每个 program 保留的 1 KB。下：每轮的拍数和整个 kernel 的拍数都按 Nsight Compute 实测（<code>--clock-control none</code>），整个 kernel 的拍数 = kernel 耗时 × SM 时钟频率；4 级第 1 批按 64 轮 × 每轮拍数画，第 2 批画到 kernel 结束。</figcaption>
+<figcaption><strong>图 3-5</strong> num_stages = 3 和 4：一个 SM 放几个 program、跑几批</figcaption>
 </figure>
 
 ### 3.4 block 大小和 autotune {#tile}
@@ -2860,7 +2848,7 @@ block 大小同时决定 program 的个数、每个 program 占的资源和每�
   <rect x="22" y="240" width="22" height="10" style="fill: var(--fig-1)"/><text class="lab" x="52" y="249">一格是一个 program 占的量</text>
   <rect x="230" y="239" width="22" height="12" rx="2" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/><text class="lab" x="260" y="249">先用完的那条</text>
 </svg>
-<figcaption><strong>图 3-6</strong> 正文形状（A 4096 × 2048，B 2048 × 512，fp32）下最快的配置和正文用的配置，在一个 SM 上各用了多少。四根条对应<a href="#tab-3-1">表 3-1</a> 的四条上限，条长是这条上限的总量。</figcaption>
+<figcaption><strong>图 3-6</strong> 最快的配置和正文的配置在一个 SM 上各用了多少</figcaption>
 </figure>
 
 两个形状规律一样（[图 3-7](#fig-d-2)）：每个 thread 存 32 到 64 个 acc、每个 SM 只驻留 8 到 16 个 warp 时最快。acc 越多，每从 shared memory 读一个数做的乘加越多（[单卡优化篇第 7 节](/blog/gpu-single-gpu-optimization/#tiling)）；warp 一多，每个 thread 的 register 就放不下这么多 acc。所以 matmul 靠后两种办法藏延迟，不靠多驻留 warp。
@@ -2955,7 +2943,7 @@ block 大小同时决定 program 的个数、每个 program 占的资源和每�
   <line x1="60" y1="286" x2="82" y2="286" style="stroke: var(--fig-1)" stroke-width="2"/><text class="lab" x="90" y="290">正文形状 4096 × 2048 × 512</text>
   <line x1="310" y1="286" x2="332" y2="286" style="stroke: var(--fig-hi)" stroke-width="2"/><text class="lab" x="340" y="290">4096 × 4096 × 4096</text>
 </svg>
-<figcaption><strong>图 3-7</strong> 两个形状各扫 198 组配置（RTX 5090，fp32，<code>input_precision="ieee"</code>）。左：按每个 thread 存的 acc 个数（BM × BN / (32 × num_warps)）分组；右：按每个 SM 驻留的 warp 数分组。每组取最快的一个，纵轴是它比这个形状下整体最快的配置慢几倍；有 spill 的配置不算在内。悬停可看时间。</figcaption>
+<figcaption><strong>图 3-7</strong> 198 组配置按每个 thread 的 acc 数、每个 SM 的 warp 数分组（悬停看时间）</figcaption>
 </figure>
 
 形状一变最快的配置就变，autotune 自动挑：
@@ -3113,7 +3101,7 @@ matmul 调到最好仍比 cuBLAS 慢 9%，差在 register 这一层的 tiling：
   <line x1="500.0" y1="118.0" x2="450.0" y2="118.0" style="stroke: var(--fig-mute)" stroke-width="1.8" marker-end="url(#fig-h-3-m1)"/>
   <text class="lab2" x="10" y="292">没有 warp，也没有硬件管理的 L1 / L2：HBM → VMEM → VREG → VPU / MXU 每一步都由编译器排好</text>
 </svg>
-<figcaption><strong>图 B-1</strong> TPU v5p 一个 TensorCore 的结构示意，画法对应<a href="#fig-h-1">图 1-5</a>。规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>，原书也有一张 TensorCore 的结构图。</figcaption>
+<figcaption><strong>图 B-1</strong> TPU v5p 的一个 TensorCore（示意，规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>）</figcaption>
 </figure>
 
 MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 B-2](#fig-h-4)）。GPU 上每个 CUDA core 做一次乘加，要从 register file 读两个数、写回一个；一个数被用很多次，得靠 kernel 自己切 block，先搬进 shared memory 和 register 再反复读，[2.4 节](#triton-matmul)的 matmul 就是这样写的。systolic array 把复用做进了硬件：权重先装进 128 × 128 个格子，固定不动；输入 x 从左边进入，每拍向右传一格，经过的每一格把它乘上自己的权重，加到从上面传下来的部分和上，再把部分和往下传。一个 x 从 VMEM 读一次，在一行里被 128 个格子用到；稳定以后每拍从左边进 128 个数、从底部出 128 个结果，阵列里同时做 16384 次乘加，中间结果都不经过 register file。
@@ -3241,7 +3229,7 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 B-2](#fig-h-
   <line x1="588.0" y1="288.0" x2="588.0" y2="310.0" style="stroke: var(--fig-hi)" stroke-width="1.4" marker-end="url(#fig-h-4-m1)"/>
   <text class="t" x="588.0" y="326" text-anchor="middle">y<tspan baseline-shift="sub" font-size="9">3</tspan></text>
 </svg>
-<figcaption><strong>图 B-2</strong> 乘加单元怎么拿到数据。左边是 GPU 的 CUDA core，右边是 TPU 的 MXU；x 按行错开一拍进入，y 是每列的输出。动画演示见 <a href="https://jax-ml.github.io/scaling-book/tpus/#appendix-b-how-does-a-systolic-array-work">How to Scale Your Model 的 Appendix B</a>。</figcaption>
+<figcaption><strong>图 B-2</strong> CUDA core 和 MXU 怎么拿到数据（<a href="https://jax-ml.github.io/scaling-book/tpus/#appendix-b-how-does-a-systolic-array-work">动画演示</a>）</figcaption>
 </figure>
 
 代价是形状要规整。矩阵的维度要是 128 的倍数才能填满阵列，小矩阵和不规则的计算会浪费格子；数据流由编译器提前排好，也不能像 GPU 那样靠切换 warp 应付不确定的访存延迟。多卡之间怎么互联是另一个大区别，超出了本文的范围。两边术语的对应见[表 B-1](#tab-b-1)。
@@ -3438,7 +3426,7 @@ ld.global 和 cp.async 的区别是数据进不进 register；cp.async 和 TMA �
   <rect x="217.0" y="349" width="18" height="11" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.7"/><text class="s" x="241.0" y="358">发 TMA、登记 16 KB</text>
   <path d="M13 369 L18 375 L13 381 L8 375 Z" style="fill: var(--fig-1)"/><text class="s" x="32" y="378">arrive：告诉 barrier 自己这份做完了，不阻塞</text>
 </svg>
-<figcaption><strong>图 C-2</strong> 两种 barrier 怎么等数据（示意，横轴是时间，长度不按比例；画法参考 <a href="https://dam-cdn.nvd.orangelogic.com/AssetLink/705n6ur546g0uk43w0117r17n8042d73.pdf">H100 白皮书</a> Figure 20）。上下搬的是同样的 16 KB，显存带宽一样，所以放行得一样早；区别在 thread 的时间花在哪。上：asynchronous barrier 只数 thread 的 arrive，每个 thread 要自己搬完自己那份才 arrive，几乎没有空做别的。下：asynchronous transaction barrier 还数字节，发起 TMA 的 thread 先登记这次要等 16 KB，TMA 每写进 shared memory 一段就把字节数加到 barrier 上；thread 一开始就 arrive，搬运期间都在做别的活，thread 都 arrive 过、字节数也到齐才放行。白皮书说 A100 上等着的 thread 在 barrier 上空转，H100 上可以睡眠。</figcaption>
+<figcaption><strong>图 C-2</strong> 两种 barrier 怎么等同样的 16 KB（示意，参考 <a href="https://dam-cdn.nvd.orangelogic.com/AssetLink/705n6ur546g0uk43w0117r17n8042d73.pdf">H100 白皮书</a> Figure 20）</figcaption>
 </figure>
 
 ### C.3 有了 TMA 以后怎么分工 {#tma-ws}
