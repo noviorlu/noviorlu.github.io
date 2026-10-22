@@ -56,7 +56,7 @@ for j in range(4):
     cell(80 + j * C, 120, kj(j), 'k_{%d}' % (j + 1))
     arc(f'M{92 + j * C},120 C{92 + j * C},{80 - 11 * j} {19 + 6 * j},{80 - 11 * j} {19 + 6 * j},95')
     for r in range(3):
-        cell(212 + j * C, 96 + r * C, 'chip', 's_{%d%d}' % (r + 1, j + 1))
+        cell(212 + j * C, 96 + r * C, 'chip' if j == 0 else 'chip_later', 's_{%d%d}' % (r + 1, j + 1))
     T('os2', 224 + j * C, 88, 'k_{%d}q' % (j + 1), 'middle')
 T('os2-b', 194, 137, '=', 'middle')
 T('os2-b', 28, 184, 'q', 'middle'); T('os2-s', 28, 198, '3 × 1', 'middle')
@@ -101,5 +101,5 @@ if __name__ == '__main__':
     assert n == 1
     s = re.sub(r'(<figcaption><strong>图 1-1</strong>)(.*?)(</figcaption>)', lambda m: m.group(1) +
         ' 两种看矩阵乘法的方式，箭头表示一个元素乘到哪里。格子换成 block 就是<a href="#fig-1-2">图 1-2</a>的两次乘法，'
-        '颜色也和图 1-2 一样：深蓝是读的，浅蓝是片上算的 $S$、$P$，红色是写回的输出；(a) 里的斜线是之后几轮才读的 $k_j$，(b) 里的斜线是别的 program 负责的行。' + m.group(3), s, count=1, flags=re.S)
+        '颜色也和图 1-2 一样：深蓝是读的，浅蓝是片上算的 $S$、$P$，红色是写回的输出；(a) 里的斜线是之后几轮才读的 $k_j$ 和它们算出的列，(b) 里的斜线是别的 program 负责的行。' + m.group(3), s, count=1, flags=re.S)
     open(p, 'w').write(s)
