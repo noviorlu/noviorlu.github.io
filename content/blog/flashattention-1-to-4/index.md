@@ -455,15 +455,15 @@ softmax 对 $S$ 的每一行单独做。取一行，记作 $x_1, \dots, x_{N_k}$
   <rect x="109" y="816" width="26" height="12.5" rx="1" style="fill: color-mix(in srgb, var(--fig-1) 32%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
   <rect x="109" y="830" width="26" height="12.5" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 10%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
   <text class="s" x="122" y="857" text-anchor="middle" style="opacity: 1; font-weight: 600">Q</text>
-  <rect x="153" y="788" width="26" height="5.5" rx="1" style="fill: color-mix(in srgb, var(--fig-1) 32%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="153" y="795" width="26" height="5.5" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="153" y="802" width="26" height="5.5" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="153" y="809" width="26" height="5.5" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="153" y="816" width="26" height="5.5" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="153" y="823" width="26" height="5.5" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="153" y="830" width="26" height="5.5" rx="1" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-  <rect x="153" y="837" width="26" height="5.5" rx="1" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-  <text class="s" x="166" y="857" text-anchor="middle" style="opacity: 1; font-weight: 600">K</text>
+  <rect x="160.5" y="788" width="10" height="26" rx="1" style="fill: color-mix(in srgb, var(--fig-1) 32%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="171.5" y="788" width="10" height="26" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="182.5" y="788" width="10" height="26" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="193.5" y="788" width="10" height="26" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="204.5" y="788" width="10" height="26" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="215.5" y="788" width="10" height="26" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="226.5" y="788" width="10" height="26" rx="1" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <rect x="237.5" y="788" width="10" height="26" rx="1" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="204.5" y="857" text-anchor="middle" style="opacity: 1; font-weight: 600">K<tspan dy="-5" font-size="72%">ᵀ</tspan></text>
   <rect x="413" y="788" width="26" height="5.5" rx="1" style="fill: color-mix(in srgb, var(--fig-1) 32%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
   <rect x="413" y="795" width="26" height="5.5" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
   <rect x="413" y="802" width="26" height="5.5" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>

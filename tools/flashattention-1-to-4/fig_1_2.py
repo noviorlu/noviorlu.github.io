@@ -258,7 +258,9 @@ def col(c, y, n, ch, kinds, name):
 my = yM + 12
 kv = ['read'] + ['later'] * (NJ - 1) + ['skip'] * (TK - NJ)
 col(QX, my, TQ, 14, ['read' if i == I else 'mute' for i in range(TQ)], 'Q')
-col(KX, my, TK, 7, kv, 'K')
+for k in range(TK):                                              # Kᵀ 横着放，第 0 个 block 对着 K_j
+    cell(KX - 5.5 + k * 11, my, 10, 26, kv[k], rx=1)
+T('s', KX - 5.5 + TK * 11 / 2, my + 69, 'K^{ᵀ}', 'middle', 'opacity: 1; font-weight: 600')
 col(VX2, my, TK, 7, kv, 'V')
 col(cx(4), my, TQ, 14, ['write' if i == I else 'mute' for i in range(TQ)], 'O')
 arrow(QX, my - 2, QX, rb + 1)
