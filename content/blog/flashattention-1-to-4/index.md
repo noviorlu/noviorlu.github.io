@@ -495,13 +495,7 @@ softmax 对 $S$ 的每一行单独做。取一行，记作 $s_1, \dots, s_{N_k}$
 
 ### 1.2 Online softmax {#online-softmax}
 
-记 $S = QK^\top/\sqrt d$。实际实现里，1.1 的 softmax 还要先减去整行的最大值：
-
-<p align="center">$p_k = \dfrac{e^{s_k - m}}{\ell}, \qquad m = \max_{k=1}^{N_k} s_k, \qquad \ell = \sum_{k=1}^{N_k} e^{s_k - m}$</p>
-
-减去 $m$ 相当于分子分母同乘 $e^{-m}$，结果不变，作用是让指数都不大于 0：fp32 里 $s$ 超过 88.7 时 $e^{s}$ 就溢出成 inf。$m$ 和 $\ell$ 都要看完整行才知道，1.1 卡住的就是这里。
-
-online softmax（Milakov 和 Gimelshein 2018），每读进一个 $K_j$：
+记 $S = QK^\top/\sqrt d$。online softmax（Milakov 和 Gimelshein 2018），每读进一个 $K_j$：
 
 <p align="center">$m_j = \max\big(m_{j-1},\, \mathrm{rowmax}(S_{ij})\big), \qquad \ell_j = \ell_{j-1}\, e^{m_{j-1} - m_j} + \mathrm{rowsum}\big(e^{S_{ij} - m_j}\big)$</p>
 
@@ -526,9 +520,9 @@ for i ← 1 … N:                      # 第 2 遍：读 s_i，写 y_i
     y_i ← e^(s_i) / ℓ_N
 ```
 
-问题是 $e^{s_j}$ 会溢出。
+问题是 $e^{s_j}$ 会溢出：fp32 里 $s$ 超过 88.7 时 $e^{s}$ 就是 inf。
 
-**第 2 步：safe softmax。** 就是上面减去最大值的写法，$m_N$ 是整行的最大值：
+**第 2 步：safe softmax。** 分子分母同乘 $e^{-m_N}$，$m_N$ 是整行的最大值。结果不变，指数都不大于 0，不会溢出：
 
 <p align="center">$y_i = \dfrac{e^{s_i - m_N}}{\sum_{j=1}^{N} e^{s_j - m_N}}, \qquad m_N = \max_{k=1}^{N} s_k$</p>
 
