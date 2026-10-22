@@ -163,9 +163,9 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 <figcaption><strong>图 1-1</strong> 两种看矩阵乘法的方式，箭头表示一个元素乘到哪里。格子换成 block 就是<a href="#fig-1-2">图 1-2</a>的两次乘法，颜色也和图 1-2 一样：深蓝是读的，浅蓝是片上算的 $S$、$P$，红色是写回的输出；(a) 里的斜线是之后几轮才读的 $k_j$ 和它们算出的列，(b) 里的斜线是别的 program 负责的行。</figcaption>
 </figure>
 
-softmax 对 $S$ 的每一行单独做。取一行，记作 $x_1, \dots, x_{N_k}$，$x_k$ 是这个 query 和第 $k$ 个 key 的 score：
+softmax 对 $S$ 的每一行单独做。取一行，记作 $x_1, \dots, x_{N_k}$，$x_j$ 是这个 query 和第 $j$ 个 key 的 score：
 
-<p align="center">$p_k = \dfrac{e^{x_k}}{\sum_{k'=1}^{N_k} e^{x_{k'}}}$</p>
+<p align="center">$p_j = \dfrac{e^{x_j}}{\sum_{j'=1}^{N_k} e^{x_{j'}}}$</p>
 
 问题出在两次乘法中间的这个 softmax：实际要算的是 $O = PV$，而分母要把 $T_k$ 个 block 全部加起来。读到第 $j$ 个 block 时后面的 block 还没算，分母不知道，$P_{ij}$ 就算不出来，$P_{ij}V_j$ 也没法加进 $O_i$。最直接的办法是先扫一遍所有 $K_j$ 求每行的最大值，再扫一遍求分母，最后再扫一遍算 $P_{ij}V_j$，$K$ 要多读两遍；即使用 1.2 的递推把最大值和分母合成一遍，也还要多读一遍。FlashAttention 用 online softmax 把 softmax 也拆成一个 block 一个 block 地算，$K_j$、$V_j$ 都只读一遍，完整的 $S$ 和 $P$ 都不写回 HBM（[图 1-2](#fig-1-2)）。图里的 ①–⑤ 和每行的 $m$、$\ell$ 是 1.2 要讲的。
 
