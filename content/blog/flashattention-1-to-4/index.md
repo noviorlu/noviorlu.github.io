@@ -501,7 +501,7 @@ softmax 对 $S$ 的每一行单独做。取一行，记作 $s_1, \dots, s_{N_k}$
 
 减去 $m$ 相当于分子分母同乘 $e^{-m}$，结果不变，作用是让指数都不大于 0：fp32 里 $s$ 超过 88.7 时 $e^{s}$ 就溢出成 inf。$m$ 和 $\ell$ 都要看完整行才知道，1.1 卡住的就是这里。
 
-online softmax（Milakov 和 Gimelshein 2018）的办法是边扫边维护到目前为止的最大值和分母。放到 block 上：固定第 $i$ 个 query block，$S_{ij} = Q_iK_j^\top/\sqrt d$ 是 $B_q\times B_k$ 的 tile。记 $m_j$、$\ell_j$ 为扫完前 $j$ 个 key block 以后每一行的最大值和分母，$j = 1, \dots, T_k$，都是长度 $B_q$ 的向量，一行一个数。每读进一个 $K_j$ 更新一次：
+online softmax（Milakov 和 Gimelshein 2018），每读进一个 $K_j$：
 
 <p align="center">$m_j = \max\big(m_{j-1},\, \mathrm{rowmax}(S_{ij})\big), \qquad \ell_j = \ell_{j-1}\, e^{m_{j-1} - m_j} + \mathrm{rowsum}\big(e^{S_{ij} - m_j}\big)$</p>
 
