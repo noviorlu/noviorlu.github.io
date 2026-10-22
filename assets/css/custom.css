@@ -941,3 +941,10 @@ img.nv-author__avatar { object-fit: cover; border: 1px solid var(--nv-border); b
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+/* AI reports archive: the owner's weekday picker (layouts/partials/nv/report-days.html) */
+.nv-days { margin-top: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.nv-days__label { font-size: 13px; color: var(--nv-text-3); }
+.nv-days__hint { flex-basis: 100%; margin: 0; font-size: 13px; color: var(--nv-text-3); }
+.nv-days .nv-vote__btn:disabled { cursor: default; opacity: .55; }
+.nv-days .nv-vote__btn:disabled:hover { border-color: var(--nv-border); color: var(--nv-text-2); background: var(--nv-surface); }
+.nv-days .nv-vote__btn[aria-pressed="false"]:hover { background: var(--nv-surface); color: var(--nv-text-2); }  /* a tapped-off day must not look on */

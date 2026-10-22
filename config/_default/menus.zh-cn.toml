@@ -4,7 +4,7 @@
   weight = 10
 
 [[main]]
-  name = "周报"
+  name = "简报"
   pageRef = "blog/ai-daily-reports"
   weight = 15
 

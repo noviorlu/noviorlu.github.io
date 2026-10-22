@@ -1,0 +1,82 @@
+{{- /* AI reports archive: the owner picks the weekdays a report goes out by giving them a 👍.
+       Each weekday is one Abacus counter, o<owner key>.day.<1–7> (Monday = 1), whose value mod 2 says
+       whether the day is on. Only a browser holding the owner key (set once by opening a page with
+       #owner=<key>) can read or change them; everyone else sees the row disabled. The report task runs
+       every morning and writes a report only when that day is on. */ -}}
+<div class="nv-days">
+  <span class="nv-days__label">更新日</span>
+  <div class="nv-vote__row" role="group" aria-label="哪几天出报告">
+    {{- range $i, $d := slice "周一" "周二" "周三" "周四" "周五" "周六" "周日" }}
+    <button type="button" class="nv-vote__btn" data-d="{{ add $i 1 }}" aria-pressed="false" disabled>👍 {{ $d }}</button>
+    {{- end }}
+  </div>
+  <p class="nv-days__hint">更新日由博主选择。</p>
+</div>
+<script>
+  (() => {
+    const box = document.querySelector(".nv-days");
+    if (!box) return;
+    const unlock = location.hash.match(/^#owner=([0-9a-f]{16}|off)$/);  // same switch as the paper votes
+    if (unlock) {
+      try { unlock[1] === "off" ? localStorage.removeItem("nv-owner-key") : localStorage.setItem("nv-owner-key", JSON.stringify(unlock[1])); } catch {}
+      history.replaceState(null, "", location.pathname + location.search);
+    }
+    let owner = null;
+    try { owner = JSON.parse(localStorage.getItem("nv-owner-key") || "null"); } catch {}
+    if (!owner) return;
+
+    const base = "https://abacus.jasoncameron.dev", ns = "noviorlu.github.io";
+    let chain = Promise.resolve();
+    const call = (op, d) => (chain = chain.then(async () => {  // one request at a time, as Abacus asks
+      for (let i = 0; i < 3; i++) {
+        const r = await fetch(`${base}/${op}/${ns}/o${owner}.day.${d}`).catch(() => null);
+        await new Promise((ok) => setTimeout(ok, 350));
+        if (r && r.status === 404 && op === "get") return 0;
+        if (r && r.ok) return (await r.json()).value;
+        if (!r || r.status !== 429) break;
+        await new Promise((ok) => setTimeout(ok, 3000));
+      }
+      throw new Error("abacus day " + d);
+    }));
+
+    const hint = box.querySelector(".nv-days__hint");
+    const btns = [...box.querySelectorAll("[data-d]")];
+    const on = {}, want = {}, busy = {};
+    const paint = () => {
+      btns.forEach((b) => b.setAttribute("aria-pressed", String(!!(b.dataset.d in want ? want[b.dataset.d] : on[b.dataset.d]))));
+      const days = btns.filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.textContent.replace("👍", "").trim());
+      hint.textContent = days.length
+        ? `已选${days.join("、")}：这几天早上 7:54（多伦多时间）出一期报告，只收上一期以来最值得读的论文。`
+        : "还没选：给哪天点 👍，那天早上 7:54（多伦多时间）就出一期报告。";
+    };
+    // A click changes want[d] and repaints at once; sync() then hits the counter until its parity matches.
+    const sync = async (d) => {
+      if (busy[d]) return;
+      busy[d] = true;
+      try {
+        while (on[d] !== want[d]) on[d] = (await call("hit", d)) % 2 === 1;
+      } catch {
+        hint.textContent = "没存上，过一会儿再点一次。";
+      }
+      busy[d] = false;
+      paint();
+    };
+    btns.forEach((b) => b.addEventListener("click", () => {
+      const d = b.dataset.d;
+      want[d] = !(d in want ? want[d] : on[d]);
+      paint();
+      sync(d);
+    }));
+    hint.textContent = "正在读取更新日…";
+    (async () => {
+      try {
+        for (const b of btns) on[b.dataset.d] = (await call("get", b.dataset.d)) % 2 === 1;
+      } catch {
+        hint.textContent = "读不到更新日，刷新一下再试。";
+        return;
+      }
+      btns.forEach((b) => { b.disabled = false; });
+      paint();
+    })();
+  })();
+</script>
