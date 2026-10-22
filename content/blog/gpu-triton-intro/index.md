@@ -3,7 +3,7 @@ title: "GPU 与 Triton 入门：从存储层级到第一个 kernel"
 date: 2026-10-03
 draft: false
 math: true
-description: "GPU 的存储层级、SM 结构和 CUDA 执行层级；再用 GELU、softmax、row sum、matmul 四个例子入门 Triton，再看 kernel 在 SM 上怎么调度、怎么调参，Appendix 对照 TPU。GPU training optimization 系列的第一篇。"
+description: "GPU 的 SM 结构、存储层级和 CUDA 执行层级；再用 GELU、softmax、row sum、matmul 四个例子入门 Triton，再看 kernel 在 SM 上怎么调度、怎么调参，Appendix 对照 TPU。GPU training optimization 系列的第一篇。"
 tags: ["GPU", "Triton", "CUDA", "TPU", "LLM", "AI"]
 categories: ["AI笔记"]
 series: ["GPU training optimization"]
@@ -12,7 +12,7 @@ series_order: 1
 
 这个系列讲怎么让 Transformer 训练在 GPU 上跑得更快，这一篇打基础：
 
-- **[第 1 节](#hardware) GPU 硬件**：存储层级、SM 结构、CUDA 执行层级
+- **[第 1 节](#hardware) GPU 硬件**：SM 结构、存储层级、软件架构
 - **[第 2 节](#triton) Triton 入门**：四个例子，后面的 kernel 都用它写
 - **[第 3 节](#tune) 调度与调参**：warp 藏延迟、一个 SM 放几个 program、分批，`num_warps` / `num_stages` / block 大小
 - **Appendix**：[A](#specs) 几代 GPU 规格，[B](#tpu) TPU 对照，[C](#tma) TMA 与异步同步
@@ -27,106 +27,9 @@ series_order: 1
 
 一个 kernel 受算力还是显存带宽限制，取决于它要搬多少数据、在哪一层读写。
 
-### 1.1 存储层级 {#hw-memory}
+### 1.1 SM 的结构 {#hw-sm}
 
-过去 20 年算力涨了约 6 万倍，显存带宽只涨了约 100 倍（[图 1-1](#fig-memwall)），所以越来越多的 op 卡在搬数据上（memory-bound）。
-
-<figure id="fig-memwall" class="fg-fig">
-<img src="memory-wall.webp" alt="1997 到 2023 年峰值算力、DRAM 带宽和互联带宽的增长：算力每两年 3.0 倍，DRAM 带宽每两年 1.6 倍，互联带宽每两年 1.4 倍" loading="lazy" style="width: 100%; height: auto; border-radius: 8px; background: #fff;">
-<figcaption><strong>图 1-1</strong> 峰值算力与 DRAM、互联带宽 20 年来的增长，纵轴是相对 1997 年的倍数（对数轴）。图来自 Gholami 等人的 <a href="https://arxiv.org/abs/2403.14123">AI and Memory Wall</a>（IEEE Micro，2024）。</figcaption>
-</figure>
-
-离计算单元越近越快、越小（[图 1-2](#fig-h-1)）。L1、L2 是硬件管的 cache，kernel 能自己安排的只有 register 和 shared memory。优化的核心就一条：把要反复用的数据留在这两层，多算几次再写回显存。
-
-<figure id="fig-h-1" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="RTX 5090 的存储层级：每个 SM 里有 256 KB register 和 128 KB L1/shared memory，170 个 SM 共享芯片上的 96 MB L2，芯片外是 32 GB GDDR7 显存，带宽 1.79e12 B/s">
-  <style>
-    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
-    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
-    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
-    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
-    .fg .lab { font-size: 12px; fill: currentColor; }
-    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
-    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
-    .fg .val { font-size: 11px; fill: currentColor; }
-    .fg .t { font-size: 12.5px; fill: currentColor; }
-    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
-    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
-    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
-    .fg .band { fill: currentColor; fill-opacity: .045; }
-    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
-    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
-    .fg g.m:hover > :not(title) { opacity: .85; }
-    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
-  </style>
-  <defs><marker id="fig-h-1-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-mute)"/></marker></defs>
-  <rect x="10" y="22" width="452" height="250" rx="12" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="6 4"/>
-  <text class="lab2" x="22" y="40">GPU 芯片（die），共 170 个 SM</text>
-  <rect x="20" y="52" width="92" height="108" rx="8" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="tb" x="66" y="70" text-anchor="middle">SM</text>
-  <rect x="28" y="80" width="76" height="32" rx="5" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
-  <text class="s" x="66" y="94" text-anchor="middle">register</text><text class="s" x="66" y="107" text-anchor="middle">256 KB</text>
-  <rect x="28" y="118" width="76" height="34" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="66" y="132" text-anchor="middle">L1 / shared</text><text class="s" x="66" y="146" text-anchor="middle">128 KB</text>
-  <line x1="66.0" y1="160.0" x2="66.0" y2="194.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.2"/>
-  <rect x="120" y="52" width="92" height="108" rx="8" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="tb" x="166" y="70" text-anchor="middle">SM</text>
-  <rect x="128" y="80" width="76" height="32" rx="5" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
-  <text class="s" x="166" y="94" text-anchor="middle">register</text><text class="s" x="166" y="107" text-anchor="middle">256 KB</text>
-  <rect x="128" y="118" width="76" height="34" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="166" y="132" text-anchor="middle">L1 / shared</text><text class="s" x="166" y="146" text-anchor="middle">128 KB</text>
-  <line x1="166.0" y1="160.0" x2="166.0" y2="194.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.2"/>
-  <rect x="220" y="52" width="92" height="108" rx="8" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="tb" x="266" y="70" text-anchor="middle">SM</text>
-  <rect x="228" y="80" width="76" height="32" rx="5" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
-  <text class="s" x="266" y="94" text-anchor="middle">register</text><text class="s" x="266" y="107" text-anchor="middle">256 KB</text>
-  <rect x="228" y="118" width="76" height="34" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="266" y="132" text-anchor="middle">L1 / shared</text><text class="s" x="266" y="146" text-anchor="middle">128 KB</text>
-  <line x1="266.0" y1="160.0" x2="266.0" y2="194.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.2"/>
-  <text class="t" x="339" y="110" text-anchor="middle">⋯</text>
-  <rect x="360" y="52" width="92" height="108" rx="8" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
-  <text class="tb" x="406" y="70" text-anchor="middle">SM</text>
-  <rect x="368" y="80" width="76" height="32" rx="5" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
-  <text class="s" x="406" y="94" text-anchor="middle">register</text><text class="s" x="406" y="107" text-anchor="middle">256 KB</text>
-  <rect x="368" y="118" width="76" height="34" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="s" x="406" y="132" text-anchor="middle">L1 / shared</text><text class="s" x="406" y="146" text-anchor="middle">128 KB</text>
-  <line x1="406.0" y1="160.0" x2="406.0" y2="194.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.2"/>
-  <rect x="24" y="194" width="426" height="40" rx="8" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
-  <text class="t" x="237" y="219" text-anchor="middle">L2 cache 96 MB，所有 SM 共享</text>
-  <text class="lab2" x="237" y="258" text-anchor="middle">片上</text>
-  <rect x="504" y="70" width="124" height="150" rx="10" style="fill: color-mix(in srgb, var(--fig-mute) 14%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
-  <text class="tb" x="566" y="124" text-anchor="middle">GDDR7 显存</text><text class="t" x="566" y="144" text-anchor="middle">32 GB</text><text class="s" x="566" y="168" text-anchor="middle">带宽 β</text><text class="s" x="566" y="182" text-anchor="middle">1.79e12 B/s</text>
-  <text class="lab2" x="566" y="238" text-anchor="middle">片外</text>
-  <line x1="452.0" y1="214.0" x2="500.0" y2="214.0" style="stroke: var(--fig-mute)" stroke-width="1.8" marker-end="url(#fig-h-1-m0)"/>
-  <line x1="500.0" y1="200.0" x2="452.0" y2="200.0" style="stroke: var(--fig-mute)" stroke-width="1.8" marker-end="url(#fig-h-1-m0)"/>
-  <text class="lab2" x="10" y="292">越靠近 SM 越快、越小：register > L1 / shared > L2 > 显存</text>
-</svg>
-<figcaption><strong>图 1-2</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。</figcaption>
-</figure>
-
-#### Memory access {#hw-move}
-
-计算单元只读写 register。register 归一个 thread，shared memory 归一个 block（[1.3 节](#hw-model)），L2 和显存全卡共享。[表 1-1](#tab-1-1) 是各层之间怎么搬，指令名用的是 PTX（GPU 上的汇编，CUDA 和 Triton 都先编译成它）的写法。
-
-| 从 | 到 | 怎么搬 |
-|:--|:--|:--|
-| 显存 | register | ld.global（Triton 的 `tl.load`），经过 L2，一般也经过 L1 |
-| register | 显存 | st.global（`tl.store`），经过 L2 |
-| register | shared memory | st.shared |
-| shared memory | register | ld.shared |
-| 显存 | shared memory | ld.global 读进 register 再 st.shared；或者 cp.async、TMA 直接进，不经过 register（[Appendix C](#tma)） |
-| shared memory | 显存 | ld.shared 读进 register 再 st.global；或者 TMA |
-| 一个 thread 的 register | 同一个 warp 里别的 thread | shuffle（shfl.sync）：一条指令里，每个 thread 直接读同一个 warp 里另一个 thread 的一个 register；出了 warp 就不行 |
-| 一个 block 的 shared memory | 别的 block | 不行，只能写回显存再读 |
-{#tab-1-1 caption="**表 1-1** 数据在各层之间能怎么搬" note="Hopper 起的 thread block cluster 里，几个 block 可以互读 shared memory，这篇用不到。"}
-
-Triton 代码里只有 `tl.load` 和 `tl.store`，走[表 1-1](#tab-1-1)的哪一行由编译器决定：[第 2 节](#triton)的 GELU、softmax、row sum 都是显存和 register 之间直接读写；matmul 的 A、B 要经过 shared memory，编出来用的是 cp.async（[3.3 节](#stages)）；用 tensor descriptor 写的 load 才会用 TMA（[Appendix C](#tma)）。
-
-register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构。
-
-### 1.2 SM 的结构 {#hw-sm}
-
-每个 SM 分成 4 个 SMSP（SM sub-partition），每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core（做 FP32 和 INT32 运算）、一个 Tensor core 和 4 个 LD/ST 单元，4 个 SMSP 共享 L1 / shared memory（[图 1-3](#fig-h-2)）。load / store 从 LD/ST 发出，先到 L1 / shared memory，不在这里的再经片上互联去 L2 和显存。L1 和 shared memory 是同一块 128 KB 的片上存储，shared memory 最多切到 100 KB，下面的 notes 讲两者的区别和几种切法。
+每个 SM 分成 4 个 SMSP（SM sub-partition），每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core（做 FP32 和 INT32 运算）、一个 Tensor core 和 4 个 LD/ST 单元，4 个 SMSP 共享 L1 / shared memory（[图 1-1](#fig-h-2)）。load / store 从 LD/ST 发出，先到 L1 / shared memory，不在这里的再经片上互联去 L2 和显存。L1 和 shared memory 是同一块 128 KB 的片上存储，shared memory 最多切到 100 KB，下面的 notes 讲两者的区别和几种切法。
 
 <figure id="fig-h-2" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 392" width="100%" role="img" aria-label="RTX 5090 的一个 SM：4 个 SMSP，每个有 1 个 warp 调度器、64 KB register、32 个 CUDA core、1 个 Tensor core 和 4 个 LD/ST；LD/ST 把请求交给 4 个 SMSP 共享的 128 KB L1/shared memory；TMA 接在 shared memory 和片上互联之间；请求经片上互联到 L2，再到显存">
@@ -222,7 +125,7 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
   <line x1="537.0" y1="346.0" x2="537.0" y2="308.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-2-m0)"/>
   <text class="s" x="214" y="300">LD/ST 的请求</text><text class="s" x="434" y="330" text-anchor="end">TMA 的请求</text>
 </svg>
-<figcaption><strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core 和 1 个 Tensor core，4 个 SMSP 共享 L1 / shared memory。普通的 load / store 由 SMSP 里的 LD/ST 单元按每个 thread 的地址发出，经 L1 / shared memory、片上互联到 L2。TMA 是专门整块搬数据的单元，和 LD/ST 走同一条路，见 Appendix C。</figcaption>
+<figcaption><strong>图 1-1</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core 和 1 个 Tensor core，4 个 SMSP 共享 L1 / shared memory。普通的 load / store 由 SMSP 里的 LD/ST 单元按每个 thread 的地址发出，经 L1 / shared memory、片上互联到 L2。TMA 是专门整块搬数据的单元，和 LD/ST 走同一条路，见 Appendix C。</figcaption>
 </figure>
 
 <details class="fold doc aside">
@@ -230,7 +133,7 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 
 两者是同一块 SRAM，区别在谁来管、给谁用。L1 是 cache：从显存读进来的数据经过它，硬件按 128 B 的 cache line 自动放进去、自动换出，kernel 指定不了哪些数据留下。shared memory 是 kernel 按地址读写的一块空间，数据什么时候放进去、什么时候被覆盖都由 kernel 决定；写 Triton 时这件事由编译器替你做，比如 [2.4 节](#triton-matmul) `tl.dot` 的 A、B block 和 `num_stages` 的两个 slot。shared memory 按 program 分配，只有这个 program 的 thread 能读写，program 跑完才释放，所以它算在驻留上限里（[表 3-1](#tab-3-1)）。L1 由 SM 上所有 program 共用，不占名额，但里面的数据随时可能被别的 program 挤掉。
 
-[GA102（RTX 30 系列）白皮书](https://www.nvidia.com/content/PDF/nvidia-ampere-ga-102-gpu-architecture-whitepaper-v2.pdf)列出的切法见[表 1-2](#tab-1-2)。跑 kernel 时（compute 模式）有 6 档，跑图形时固定一种，另外留 16 KB 给图形管线。
+[GA102（RTX 30 系列）白皮书](https://www.nvidia.com/content/PDF/nvidia-ampere-ga-102-gpu-architecture-whitepaper-v2.pdf)列出的切法见[表 1-1](#tab-1-1)。跑 kernel 时（compute 模式）有 6 档，跑图形时固定一种，另外留 16 KB 给图形管线。
 
 | 模式 | L1 | shared memory | 图形管线 |
 |:--|--:|--:|--:|
@@ -241,7 +144,7 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 | compute | 64 KB | 64 KB | — |
 | compute | 28 KB | 100 KB | — |
 | graphics | 64 KB | 48 KB | 16 KB |
-{#tab-1-2 caption="**表 1-2** 每个 SM 的 128 KB 怎么切（GA102 白皮书）" note="5090 能选的 shared memory 档位和 GA102 一样。"}
+{#tab-1-1 caption="**表 1-1** 每个 SM 的 128 KB 怎么切（GA102 白皮书）" note="5090 能选的 shared memory 档位和 GA102 一样。"}
 
 一个 kernel 用哪一档由驱动在启动时决定，kernel 可以通过 carveout 属性表达偏好，驱动不一定照办。
 
@@ -249,11 +152,9 @@ register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构�
 
 </details>
 
-[图 1-3](#fig-h-2) 右下角的 TMA（Tensor Memory Accelerator）是 Hopper 起 SM 里专门在显存和 shared memory 之间整块搬数据的硬件单元。它和 LD/ST 走同一条路，区别在于只要一个 thread 交给它一块数据的描述，地址由它自己算。正文的 kernel 用不到它，细节放在 [Appendix C](#tma)。
+[图 1-1](#fig-h-2) 右下角的 TMA（Tensor Memory Accelerator）是 Hopper 起 SM 里专门在显存和 shared memory 之间整块搬数据的硬件单元。它和 LD/ST 走同一条路，区别在于只要一个 thread 交给它一块数据的描述，地址由它自己算。正文的 kernel 用不到它，细节放在 [Appendix C](#tma)。
 
-再往里看一层，一个 SMSP 里有两种计算单元（[图 1-4](#fig-h-9)）。CUDA core 一次算一个数。最常用的是 FMA（fused multiply-add）指令，算 $d = a \times b + c$，乘和加在一条指令里做完、只舍入一次：一条 FMA 指令里 warp 的 32 个 thread 各用一个 CUDA core，各做一次乘加（2 FLOPs）。5090 一共 170 × 128 个 CUDA core，fp32 峰值 1.05e14 FLOPS。Tensor core 一次算一个小矩阵乘：一条指令由整个 warp 一起发出，算一小块 A × B 再加到累加器上。它只吃 bf16、fp16、tf32、fp8 这类低精度输入，bf16 的峰值是 2.1e14 FLOPS（fp32 累加），fp8 更高。第 2 节的 `tl.dot` 默认走 Tensor core，加减乘除在 CUDA core 上算，exp 这类函数在 SFU 上算。
-
-SMSP 里另一块要紧的是 register file。每个 SMSP 有 16384 个 32-bit register（64 KB），一个 SM 共 65536 个。每个 thread 用几个 register 在编译时就定了，最多 255 个；block 放上 SM 时，它的每个 thread 从所在 SMSP 的 register file 里分到这么多个，只归自己读写，block 跑完才还回去。所以每个 thread 用的 register 越多，一个 SM 能同时放的 thread 越少，[3.1 节](#sched-warp)会算这笔账。
+再往里看一层，一个 SMSP 的结构见[图 1-2](#fig-h-9)。
 
 <figure id="fig-h-9" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 322" width="100%" role="img" aria-label="RTX 5090 一个 SMSP 的结构：L0 指令 cache、warp scheduler 和 dispatch，64 KB register file，32 个 CUDA core（FP32/INT32）和 1 个 Tensor core，4 个 LD/ST 和 SFU；下面接 SM 共享的 128 KB L1 / shared memory">
@@ -333,7 +234,7 @@ SMSP 里另一块要紧的是 register file。每个 SMSP 有 16384 个 32-bit r
   <text class="s" x="211.0" y="225.0" text-anchor="middle">LD/ST</text>
   <rect x="250" y="210" width="104" height="22" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-3)" stroke-width="1.4"/>
   <text class="s" x="302.0" y="225.0" text-anchor="middle">⑥ SFU</text>
-  <text class="lab2" x="190" y="251" text-anchor="middle">↓ 4 个 SMSP 共享 128 KB L1 / shared memory（图 1-3）</text>
+  <text class="lab2" x="190" y="251" text-anchor="middle">↓ 4 个 SMSP 共享 128 KB L1 / shared memory（图 1-1）</text>
   <text class="s" x="384" y="34" text-anchor="start" style="fill: var(--fig-hi)">①</text>
   <text class="lab2" x="400" y="34">warp scheduler：每拍从驻留的</text>
   <text class="lab2" x="400" y="49">warp 里挑一个就绪的；dispatch</text>
@@ -355,16 +256,279 @@ SMSP 里另一块要紧的是 register file。每个 SMSP 有 16384 个 32-bit r
   <text class="s" x="384" y="269" text-anchor="start" style="fill: var(--fig-hi)">⑥</text>
   <text class="lab2" x="400" y="269">SFU：exp、rsqrt、sin 这类特殊函数</text>
 </svg>
-<figcaption><strong>图 1-4</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。</figcaption>
+<figcaption><strong>图 1-2</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。</figcaption>
 </figure>
+
+SMSP 里有两种计算单元（[图 1-3](#fig-h-11)）：
+
+- **CUDA core** 一次算一个数。主力指令是 FMA（fused multiply-add）：$d = a \times b + c$，乘加一条指令做完、只舍入一次。warp 的 32 个 thread 各用一个 CUDA core，全卡 170 × 128 个，fp32 峰值 1.05e14 FLOPS。
+- **Tensor core** 一次算一小块矩阵乘加，一条指令由整个 warp 一起发。只吃 bf16、fp16、tf32、fp8 这类低精度输入，bf16 峰值 2.1e14 FLOPS（fp32 累加），fp8 更高。
+
+<figure id="fig-h-11" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 312" width="100%" role="img" aria-label="左：一条 FMA，每个 thread 用一个 CUDA core，从 register 读 a、b、c，先乘、乘积不舍入再加 c，最后舍入一次写回 d；warp 一条指令 64 FLOPs。右：一条 mma.m16n8k16，整个 warp 一起发，Tensor core 算 16×16 的 A 乘 16×8 的 B 再加 16×8 的 C；一条指令 4096 FLOPs">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <defs><marker id="fig-h-11-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
+  <rect x="12" y="10" width="304" height="292" rx="12" style="fill: color-mix(in srgb, var(--fig-1) 6%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <rect x="328" y="10" width="300" height="292" rx="12" style="fill: color-mix(in srgb, var(--fig-1) 6%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="tb" x="28" y="34">CUDA core：一条 FMA，d = a × b + c</text>
+  <rect x="44" y="50" width="40" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <text class="t" x="64" y="67" text-anchor="middle" font-style="italic">a</text>
+  <rect x="104" y="50" width="40" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <text class="t" x="124" y="67" text-anchor="middle" font-style="italic">b</text>
+  <rect x="200" y="50" width="40" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <text class="t" x="220" y="67" text-anchor="middle" font-style="italic">c</text>
+  <circle cx="94" cy="114" r="16" class="op"/><text class="tb" x="94" y="119" text-anchor="middle">×</text>
+  <circle cx="150" cy="164" r="16" class="op"/><text class="tb" x="150" y="169" text-anchor="middle">+</text>
+  <line x1="64.0" y1="74.0" x2="84.0" y2="99.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-11-m0)"/>
+  <line x1="124.0" y1="74.0" x2="104.0" y2="99.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-11-m0)"/>
+  <line x1="106.0" y1="125.0" x2="138.0" y2="152.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-11-m0)"/>
+  <line x1="220.0" y1="74.0" x2="162.0" y2="152.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-11-m0)"/>
+  <text class="s" x="58" y="150" text-anchor="middle">乘积不舍入</text>
+  <rect x="110" y="196" width="80" height="22" rx="4" class="op"/><text class="s" x="150" y="211" text-anchor="middle">只舍入一次</text>
+  <line x1="150.0" y1="180.0" x2="150.0" y2="194.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-11-m0)"/>
+  <line x1="150.0" y1="218.0" x2="150.0" y2="230.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-11-m0)"/>
+  <rect x="130" y="232" width="40" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <text class="t" x="150" y="249" text-anchor="middle" font-style="italic">d</text>
+  <text class="s" x="246" y="66">register</text>
+  <text class="lab2" x="28" y="276">每个 thread 用一个 CUDA core，warp 32 个一起</text>
+  <text class="lab" x="28" y="292">一条指令：32 × 2 = 64 FLOPs</text>
+  <text class="tb" x="344" y="34">Tensor core：一条 mma，D = A × B + C</text>
+  <rect x="350" y="72" width="64" height="64" style="fill: color-mix(in srgb, var(--fig-2) 30%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
+  <line x1="354" y1="72" x2="354" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="358" y1="72" x2="358" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="362" y1="72" x2="362" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="366" y1="72" x2="366" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="370" y1="72" x2="370" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="374" y1="72" x2="374" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="378" y1="72" x2="378" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="382" y1="72" x2="382" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="386" y1="72" x2="386" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="390" y1="72" x2="390" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="394" y1="72" x2="394" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="398" y1="72" x2="398" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="402" y1="72" x2="402" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="406" y1="72" x2="406" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="410" y1="72" x2="410" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="350" y1="76" x2="414" y2="76" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="350" y1="80" x2="414" y2="80" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="350" y1="84" x2="414" y2="84" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="350" y1="88" x2="414" y2="88" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="350" y1="92" x2="414" y2="92" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="350" y1="96" x2="414" y2="96" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="350" y1="100" x2="414" y2="100" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="350" y1="104" x2="414" y2="104" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="350" y1="108" x2="414" y2="108" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="350" y1="112" x2="414" y2="112" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="350" y1="116" x2="414" y2="116" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="350" y1="120" x2="414" y2="120" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="350" y1="124" x2="414" y2="124" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="350" y1="128" x2="414" y2="128" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="350" y1="132" x2="414" y2="132" stroke="currentColor" stroke-opacity=".1"/>
+  <text class="s" x="382" y="154" text-anchor="middle">A 16×16</text><text class="s" x="382" y="168" text-anchor="middle">bf16</text>
+  <rect x="436" y="72" width="32" height="64" style="fill: color-mix(in srgb, var(--fig-2) 30%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
+  <line x1="440" y1="72" x2="440" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="444" y1="72" x2="444" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="448" y1="72" x2="448" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="452" y1="72" x2="452" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="456" y1="72" x2="456" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="460" y1="72" x2="460" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="464" y1="72" x2="464" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="436" y1="76" x2="468" y2="76" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="436" y1="80" x2="468" y2="80" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="436" y1="84" x2="468" y2="84" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="436" y1="88" x2="468" y2="88" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="436" y1="92" x2="468" y2="92" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="436" y1="96" x2="468" y2="96" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="436" y1="100" x2="468" y2="100" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="436" y1="104" x2="468" y2="104" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="436" y1="108" x2="468" y2="108" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="436" y1="112" x2="468" y2="112" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="436" y1="116" x2="468" y2="116" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="436" y1="120" x2="468" y2="120" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="436" y1="124" x2="468" y2="124" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="436" y1="128" x2="468" y2="128" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="436" y1="132" x2="468" y2="132" stroke="currentColor" stroke-opacity=".1"/>
+  <text class="s" x="452" y="154" text-anchor="middle">B 16×8</text><text class="s" x="452" y="168" text-anchor="middle">bf16</text>
+  <rect x="494" y="72" width="32" height="64" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-3)" stroke-width="1.2"/>
+  <line x1="498" y1="72" x2="498" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="502" y1="72" x2="502" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="506" y1="72" x2="506" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="510" y1="72" x2="510" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="514" y1="72" x2="514" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="518" y1="72" x2="518" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="522" y1="72" x2="522" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="494" y1="76" x2="526" y2="76" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="494" y1="80" x2="526" y2="80" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="494" y1="84" x2="526" y2="84" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="494" y1="88" x2="526" y2="88" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="494" y1="92" x2="526" y2="92" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="494" y1="96" x2="526" y2="96" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="494" y1="100" x2="526" y2="100" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="494" y1="104" x2="526" y2="104" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="494" y1="108" x2="526" y2="108" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="494" y1="112" x2="526" y2="112" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="494" y1="116" x2="526" y2="116" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="494" y1="120" x2="526" y2="120" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="494" y1="124" x2="526" y2="124" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="494" y1="128" x2="526" y2="128" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="494" y1="132" x2="526" y2="132" stroke="currentColor" stroke-opacity=".1"/>
+  <text class="s" x="510" y="154" text-anchor="middle">C 16×8</text><text class="s" x="510" y="168" text-anchor="middle">fp32</text>
+  <rect x="566" y="72" width="32" height="64" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-3)" stroke-width="1.2"/>
+  <line x1="570" y1="72" x2="570" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="574" y1="72" x2="574" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="578" y1="72" x2="578" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="582" y1="72" x2="582" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="586" y1="72" x2="586" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="590" y1="72" x2="590" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="594" y1="72" x2="594" y2="136" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="566" y1="76" x2="598" y2="76" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="566" y1="80" x2="598" y2="80" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="566" y1="84" x2="598" y2="84" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="566" y1="88" x2="598" y2="88" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="566" y1="92" x2="598" y2="92" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="566" y1="96" x2="598" y2="96" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="566" y1="100" x2="598" y2="100" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="566" y1="104" x2="598" y2="104" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="566" y1="108" x2="598" y2="108" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="566" y1="112" x2="598" y2="112" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="566" y1="116" x2="598" y2="116" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="566" y1="120" x2="598" y2="120" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="566" y1="124" x2="598" y2="124" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="566" y1="128" x2="598" y2="128" stroke="currentColor" stroke-opacity=".1"/>
+  <line x1="566" y1="132" x2="598" y2="132" stroke="currentColor" stroke-opacity=".1"/>
+  <text class="s" x="582" y="154" text-anchor="middle">D 16×8</text><text class="s" x="582" y="168" text-anchor="middle">fp32</text>
+  <text class="tb" x="425" y="109" text-anchor="middle">×</text><text class="tb" x="481" y="109" text-anchor="middle">+</text>
+  <line x1="532.0" y1="104.0" x2="560.0" y2="104.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-11-m0)"/>
+  <text class="lab2" x="344" y="212">A、B、C 分散在 32 个 thread 的 register 里</text>
+  <text class="lab2" x="344" y="230">输入 bf16 / fp16 / tf32 / fp8，fp32 累加</text>
+  <text class="lab2" x="344" y="276">整个 warp 发一条（mma.m16n8k16）</text>
+  <text class="lab" x="344" y="292">一条指令：2 × 16 × 8 × 16 = 4096 FLOPs</text>
+</svg>
+<figcaption><strong>图 1-3</strong> CUDA core 和 Tensor core 各算什么（示意）。左：一条 FMA，warp 的每个 thread 用一个 CUDA core 算 a × b + c，乘积不舍入，最后只舍入一次。右：一条 mma，以 bf16 的 m16n8k16 为例，整个 warp 一起发，同样一条指令，算的量是 FMA 的 64 倍。</figcaption>
+</figure>
+
+`tl.dot` 默认走 Tensor core，其余加减乘除走 CUDA core，exp 这类函数走 SFU。
+
+SMSP 里另一块要紧的是 register file。每个 SMSP 有 16384 个 32-bit register（64 KB），一个 SM 共 65536 个。每个 thread 用几个 register 在编译时就定了，最多 255 个；block 放上 SM 时，它的每个 thread 从所在 SMSP 的 register file 里分到这么多个，只归自己读写，block 跑完才还回去。所以每个 thread 用的 register 越多，一个 SM 能同时放的 thread 越少，[3.1 节](#sched-warp)会算这笔账。
 
 [第 2 节](#triton) kernel 图里的「register」就是这块 register file，「计算单元」指其中的 CUDA core 和 Tensor core。几代 GPU 的规格对比见 [Appendix A](#specs)。
 
-这些是硬件提供的资源。register 按 thread 分配，shared memory 按 block 分配，要知道一个 kernel 怎么用这些资源，得先看 CUDA 怎么把 thread 组织起来。
+### 1.2 存储层级 {#hw-memory}
 
-### 1.3 编程模型 {#hw-model}
+过去 20 年算力涨了约 6 万倍，显存带宽只涨了约 100 倍（[图 1-4](#fig-memwall)），所以越来越多的 op 卡在搬数据上（memory-bound）。
 
-CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 warp 的 32 个 thread 同一时刻执行同一条指令。thread 往上分四层：thread、warp（32 个 thread）、block（也叫 CTA，若干个 warp）、grid（一次 kernel 启动的全部 block），每层跑在哪个硬件上见[图 1-5](#fig-h-5)。
+<figure id="fig-memwall" class="fg-fig">
+<img src="memory-wall.webp" alt="1997 到 2023 年峰值算力、DRAM 带宽和互联带宽的增长：算力每两年 3.0 倍，DRAM 带宽每两年 1.6 倍，互联带宽每两年 1.4 倍" loading="lazy" style="width: 100%; height: auto; border-radius: 8px; background: #fff;">
+<figcaption><strong>图 1-4</strong> 峰值算力与 DRAM、互联带宽 20 年来的增长，纵轴是相对 1997 年的倍数（对数轴）。图来自 Gholami 等人的 <a href="https://arxiv.org/abs/2403.14123">AI and Memory Wall</a>（IEEE Micro，2024）。</figcaption>
+</figure>
+
+离计算单元越近越快、越小（[图 1-5](#fig-h-1)）。L1、L2 是硬件管的 cache，kernel 能自己安排的只有 register 和 shared memory。优化的核心就一条：把要反复用的数据留在这两层，多算几次再写回显存。
+
+<figure id="fig-h-1" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 300" width="100%" role="img" aria-label="RTX 5090 的存储层级：每个 SM 里有 256 KB register 和 128 KB L1/shared memory，170 个 SM 共享芯片上的 96 MB L2，芯片外是 32 GB GDDR7 显存，带宽 1.79e12 B/s">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <defs><marker id="fig-h-1-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" style="fill: var(--fig-mute)"/></marker></defs>
+  <rect x="10" y="22" width="452" height="250" rx="12" style="fill: none; stroke: currentColor" stroke-opacity=".35" stroke-dasharray="6 4"/>
+  <text class="lab2" x="22" y="40">GPU 芯片（die），共 170 个 SM</text>
+  <rect x="20" y="52" width="92" height="108" rx="8" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="tb" x="66" y="70" text-anchor="middle">SM</text>
+  <rect x="28" y="80" width="76" height="32" rx="5" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <text class="s" x="66" y="94" text-anchor="middle">register</text><text class="s" x="66" y="107" text-anchor="middle">256 KB</text>
+  <rect x="28" y="118" width="76" height="34" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="66" y="132" text-anchor="middle">L1 / shared</text><text class="s" x="66" y="146" text-anchor="middle">128 KB</text>
+  <line x1="66.0" y1="160.0" x2="66.0" y2="194.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.2"/>
+  <rect x="120" y="52" width="92" height="108" rx="8" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="tb" x="166" y="70" text-anchor="middle">SM</text>
+  <rect x="128" y="80" width="76" height="32" rx="5" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <text class="s" x="166" y="94" text-anchor="middle">register</text><text class="s" x="166" y="107" text-anchor="middle">256 KB</text>
+  <rect x="128" y="118" width="76" height="34" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="166" y="132" text-anchor="middle">L1 / shared</text><text class="s" x="166" y="146" text-anchor="middle">128 KB</text>
+  <line x1="166.0" y1="160.0" x2="166.0" y2="194.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.2"/>
+  <rect x="220" y="52" width="92" height="108" rx="8" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="tb" x="266" y="70" text-anchor="middle">SM</text>
+  <rect x="228" y="80" width="76" height="32" rx="5" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <text class="s" x="266" y="94" text-anchor="middle">register</text><text class="s" x="266" y="107" text-anchor="middle">256 KB</text>
+  <rect x="228" y="118" width="76" height="34" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="266" y="132" text-anchor="middle">L1 / shared</text><text class="s" x="266" y="146" text-anchor="middle">128 KB</text>
+  <line x1="266.0" y1="160.0" x2="266.0" y2="194.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.2"/>
+  <text class="t" x="339" y="110" text-anchor="middle">⋯</text>
+  <rect x="360" y="52" width="92" height="108" rx="8" style="fill: color-mix(in srgb, var(--fig-1) 10%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="tb" x="406" y="70" text-anchor="middle">SM</text>
+  <rect x="368" y="80" width="76" height="32" rx="5" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <text class="s" x="406" y="94" text-anchor="middle">register</text><text class="s" x="406" y="107" text-anchor="middle">256 KB</text>
+  <rect x="368" y="118" width="76" height="34" rx="5" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="s" x="406" y="132" text-anchor="middle">L1 / shared</text><text class="s" x="406" y="146" text-anchor="middle">128 KB</text>
+  <line x1="406.0" y1="160.0" x2="406.0" y2="194.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.2"/>
+  <rect x="24" y="194" width="426" height="40" rx="8" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <text class="t" x="237" y="219" text-anchor="middle">L2 cache 96 MB，所有 SM 共享</text>
+  <text class="lab2" x="237" y="258" text-anchor="middle">片上</text>
+  <rect x="504" y="70" width="124" height="150" rx="10" style="fill: color-mix(in srgb, var(--fig-mute) 14%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <text class="tb" x="566" y="124" text-anchor="middle">GDDR7 显存</text><text class="t" x="566" y="144" text-anchor="middle">32 GB</text><text class="s" x="566" y="168" text-anchor="middle">带宽 β</text><text class="s" x="566" y="182" text-anchor="middle">1.79e12 B/s</text>
+  <text class="lab2" x="566" y="238" text-anchor="middle">片外</text>
+  <line x1="452.0" y1="214.0" x2="500.0" y2="214.0" style="stroke: var(--fig-mute)" stroke-width="1.8" marker-end="url(#fig-h-1-m0)"/>
+  <line x1="500.0" y1="200.0" x2="452.0" y2="200.0" style="stroke: var(--fig-mute)" stroke-width="1.8" marker-end="url(#fig-h-1-m0)"/>
+  <text class="lab2" x="10" y="292">越靠近 SM 越快、越小：register > L1 / shared > L2 > 显存</text>
+</svg>
+<figcaption><strong>图 1-5</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。</figcaption>
+</figure>
+
+#### Memory access {#hw-move}
+
+计算单元只读写 register。register 归一个 thread，shared memory 归一个 block（[1.3 节](#hw-model)），L2 和显存全卡共享。[表 1-2](#tab-1-2) 是各层之间怎么搬，指令名用的是 PTX（GPU 上的汇编，CUDA 和 Triton 都先编译成它）的写法。
+
+| 从 | 到 | 怎么搬 |
+|:--|:--|:--|
+| 显存 | register | ld.global（Triton 的 `tl.load`），经过 L2，一般也经过 L1 |
+| register | 显存 | st.global（`tl.store`），经过 L2 |
+| register | shared memory | st.shared |
+| shared memory | register | ld.shared |
+| 显存 | shared memory | ld.global 读进 register 再 st.shared；或者 cp.async、TMA 直接进，不经过 register（[Appendix C](#tma)） |
+| shared memory | 显存 | ld.shared 读进 register 再 st.global；或者 TMA |
+| 一个 thread 的 register | 同一个 warp 里别的 thread | shuffle（shfl.sync）：一条指令里，每个 thread 直接读同一个 warp 里另一个 thread 的一个 register；出了 warp 就不行 |
+| 一个 block 的 shared memory | 别的 block | 不行，只能写回显存再读 |
+{#tab-1-2 caption="**表 1-2** 数据在各层之间能怎么搬" note="Hopper 起的 thread block cluster 里，几个 block 可以互读 shared memory，这篇用不到。"}
+
+Triton 代码里只有 `tl.load` 和 `tl.store`，走[表 1-2](#tab-1-2)的哪一行由编译器决定：[第 2 节](#triton)的 GELU、softmax、row sum 都是显存和 register 之间直接读写；matmul 的 A、B 要经过 shared memory，编出来用的是 cp.async（[3.3 节](#stages)）；用 tensor descriptor 写的 load 才会用 TMA（[Appendix C](#tma)）。
+
+### 1.3 软件架构 {#hw-model}
+
+CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 warp 的 32 个 thread 同一时刻执行同一条指令。thread 往上分四层：thread、warp（32 个 thread）、block（也叫 CTA，若干个 warp）、grid（一次 kernel 启动的全部 block），每层跑在哪个硬件上见[图 1-6](#fig-h-5)。
 
 <figure id="fig-h-5" class="fg-fig">
 <svg class="fg" viewBox="0 0 820 352" width="100%" style="--fg-minw: 692px" role="img" aria-label="CUDA 的执行层级：grid 由 block 组成，block 由 warp 组成，warp 由 32 个 thread 组成；分别跑在整张 GPU、一个 SM、一个 SMSP 和一条 lane 上；在 Triton 里，grid 自己定，block 叫 program，warp 只能定个数，thread 写不到">
@@ -484,7 +648,7 @@ CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 
   <path d="M32 264 L20 302 M40 264 L370 302" stroke="currentColor" stroke-opacity=".3" stroke-dasharray="3 3" fill="none"/>
   <text class="lab" x="32" y="328">thread：自己的 register，按编号算出读哪个数</text>
 </svg>
-<figcaption><strong>图 1-5</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；中间是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>；右边是这一层在 Triton 里怎么写。</figcaption>
+<figcaption><strong>图 1-6</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；中间是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-1</a>；右边是这一层在 Triton 里怎么写。</figcaption>
 </figure>
 
 block 放到 SM 上以后一直驻留到跑完，一个 SM 可以同时驻留多个 block。一个 SM 能放几个 block、驻留的 warp 怎么轮流执行、block 多于全卡的名额时怎么分批跑，[第 3 节](#tune)再讲。
@@ -495,7 +659,7 @@ block 之间不能直接共享数据，只能通过显存交换，而这正是�
 
 ## 2 Triton 入门 {#triton}
 
-第 1 节说过，kernel 优化的套路是把数据读进片上，算完能算的再写回显存。Triton 就是按这个思路写 kernel 的语言：你只写一个 block 的数据怎么处理，也就是 [1.3 节](#hw-model)说的 tiling。Triton 把这个 block 叫作一个 program，block 内怎么分给 thread、要不要经过 shared memory 由编译器决定，CUDA 的各层在 Triton 里怎么写见[图 1-5](#fig-h-5)。先看这样写能换来什么，[表 2-1](#tab-2-1) 把这一节的四个例子各写三遍：用 PyTorch 的张量运算直接写（eager），同一份代码包一层 `torch.compile`，以及用 Triton 手写一个 kernel。
+第 1 节说过，kernel 优化的套路是把数据读进片上，算完能算的再写回显存。Triton 就是按这个思路写 kernel 的语言：你只写一个 block 的数据怎么处理，也就是 [1.3 节](#hw-model)说的 tiling。Triton 把这个 block 叫作一个 program，block 内怎么分给 thread、要不要经过 shared memory 由编译器决定，CUDA 的各层在 Triton 里怎么写见[图 1-6](#fig-h-5)。先看这样写能换来什么，[表 2-1](#tab-2-1) 把这一节的四个例子各写三遍：用 PyTorch 的张量运算直接写（eager），同一份代码包一层 `torch.compile`，以及用 Triton 手写一个 kernel。
 
 | | [GELU](#triton-gelu) | [softmax](#triton-softmax) | [row sum](#triton-rowsum) | [matmul + ReLU](#triton-matmul) |
 |:--|--:|--:|--:|--:|
@@ -922,7 +1086,7 @@ program 编译后就是 CUDA 的一个 block。8192 个 program 远多于 170 �
 <details class="fold doc aside">
 <summary>GELU 编译成的 PTX</summary>
 
-Triton 把 kernel 编译成 PTX（[1.1 节](#hw-move)），PTX 描述的是单个 thread 的指令。n = 8388608 时的节选：
+Triton 把 kernel 编译成 PTX（[1.2 节](#hw-move)），PTX 描述的是单个 thread 的指令。n = 8388608 时的节选：
 
 ```
 mov.u32          %r17, %ctaid.x;                                // program 编号，即 blockIdx.x
@@ -1077,7 +1241,7 @@ def softmax(x):
     return y
 ```
 
-[图 2-3](#fig-t-2) 里的 warp max、warp sum 是 shared memory 在这个 kernel 里唯一的用处：`tl.max`、`tl.sum` 分三步归约。每个 thread 先把自己手里的 32 个数归约成一个。再在 warp 内用 shuffle 归约，shuffle 让每个 thread 直接读同一个 warp 里另一个 thread 的 register，不经过 shared memory（[表 1-1](#tab-1-1)）。编出来的 PTX 用的是 `shfl.sync.bfly`：每一步 thread $i$ 读 thread $i \oplus d$（按位异或）的值并和自己的合并，$d$ 依次取 16、8、4、2、1，5 步以后 warp 里每个 thread 都拿到这个 warp 的最大值或和。最后 4 个 warp 的部分结果经 shared memory 交换（一共 16 B），再用 $d$ 取 2、1 的两步 shuffle 合并成整行的结果。把一整个 block 的数据放进 shared memory 什么时候值得，[2.4 节](#triton-matmul)再讲。
+[图 2-3](#fig-t-2) 里的 warp max、warp sum 是 shared memory 在这个 kernel 里唯一的用处：`tl.max`、`tl.sum` 分三步归约。每个 thread 先把自己手里的 32 个数归约成一个。再在 warp 内用 shuffle 归约，shuffle 让每个 thread 直接读同一个 warp 里另一个 thread 的 register，不经过 shared memory（[表 1-2](#tab-1-2)）。编出来的 PTX 用的是 `shfl.sync.bfly`：每一步 thread $i$ 读 thread $i \oplus d$（按位异或）的值并和自己的合并，$d$ 依次取 16、8、4、2、1，5 步以后 warp 里每个 thread 都拿到这个 warp 的最大值或和。最后 4 个 warp 的部分结果经 shared memory 交换（一共 16 B），再用 $d$ 取 2、1 的两步 shuffle 合并成整行的结果。把一整个 block 的数据放进 shared memory 什么时候值得，[2.4 节](#triton-matmul)再讲。
 
 这个写法要求 BLOCK ≥ N，也就是一行能一次装进一个 program。行再长，program 就只能沿行一个 block 一个 block 地读，读过的 block 要留下一个中间结果。下一节先看最简单的按行归约：求和。
 
@@ -1911,7 +2075,7 @@ def matmul_relu(a, b, BM=64, BN=64, BK=32):
 program 放上 SM 后一直驻留到跑完，它的 warp 分到 4 个 SMSP（[图 3-1](#fig-h-6)）。每个 SMSP 的调度器每拍（一个时钟周期）挑一个就绪的 warp 发一条指令，一个 warp 等显存数据的几百拍里，调度器改发别的 warp。要让调度器每拍都有 warp 可发，有三种办法：
 
 1. 多驻留 warp；
-2. 让每个 thread 有更多互不依赖的 load 或乘加（FMA，[1.2 节](#hw-sm)）；
+2. 让每个 thread 有更多互不依赖的 load 或乘加（FMA，[1.1 节](#hw-sm)）；
 3. 提前发 load。
 
 <figure id="fig-h-6" class="fg-fig">
@@ -2036,7 +2200,7 @@ program 放上 SM 后一直驻留到跑完，它的 warp 分到 4 个 SMSP（[�
 | 驻留 warp | 48 个（每个 SMSP 12 个），即 1536 个 thread |
 | 驻留 program（CUDA block） | 24 个 |
 | register | 65536 个 32-bit（256 KB），每个 thread 最多 255 个 |
-| shared memory | 100 KB（128 KB 的 L1 / shared memory 里最多切出这么多，见 [1.2 节](#hw-sm)），每个 program 另占 1 KB |
+| shared memory | 100 KB（128 KB 的 L1 / shared memory 里最多切出这么多，见 [1.1 节](#hw-sm)），每个 program 另占 1 KB |
 {#tab-3-1 caption="**表 3-1** RTX 5090 一个 SM 的驻留上限" note="用 <code>cuDeviceGetAttribute</code> 在 5090 上读出，和 CUDA Programming Guide 里 compute capability 12.0 的数一致。一个 program 占 <code>num_warps</code> 个 warp 名额、1 个 program 名额、32 × <code>num_warps</code> × 每个 thread 的 register 数（按 8 取整），以及 shared memory 用量加 1 KB。几代 GPU 的对比见 Appendix A。"}
 
 ### 3.2 wave 和 tail effect {#sched-wave}
@@ -2252,7 +2416,7 @@ matmul 一批 510 个，512 个 program 多出 2 个，最后 168 个 SM 空等�
 
 `num_warps` 是一个 program 的 warp 数。block 的大小不变时，warp 多了，每个 thread 分到的数据就少，所以它是在 [3.1 节](#sched-warp)的前两种办法之间做分配。GELU 的 `num_warps` 从 1 到 16 耗时差不多；取 32 时一个 SM 只放得下 1 个 program，每个 thread 只剩 1 个数，才明显变慢。逐元素和按行归约的 kernel 用默认值就够。
 
-`num_stages` 是第三种办法。matmul 每轮把 A、B 的 block 搬进 shared memory 里的 slot，再读进 register 乘加。`num_stages` 取 S 时，第 $k$ 轮的 load 在第 $k-(S-1)$ 轮算完时就用 cp.async 发出（[1.1 节](#hw-move)），算第 $k$ 轮时，下一轮的数据已经在另一个 slot 里（[图 3-4](#fig-t-9)）。代价是每多一级多一个 slot 的 shared memory（[表 3-2](#tab-3-2)）。
+`num_stages` 是第三种办法。matmul 每轮把 A、B 的 block 搬进 shared memory 里的 slot，再读进 register 乘加。`num_stages` 取 S 时，第 $k$ 轮的 load 在第 $k-(S-1)$ 轮算完时就用 cp.async 发出（[1.2 节](#hw-move)），算第 $k$ 轮时，下一轮的数据已经在另一个 slot 里（[图 3-4](#fig-t-9)）。代价是每多一级多一个 slot 的 shared memory（[表 3-2](#tab-3-2)）。
 
 <figure id="fig-t-9" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 470" width="100%" role="img" aria-label="matmul 循环按 shared memory slot 画的甘特图，三栏共用一根时间轴，都只画前 4 轮。num_stages = 1 只有 1 个 slot：每轮先搬数据、等 852 拍，再从 slot 里读出来算。num_stages = 3 有 2 个 slot：第 k 轮的 load 在第 k − 2 轮算完后发出，算第 k 轮时，第 k + 1 轮已经在另一个 slot 里。num_stages = 4 有 3 个 slot，load 提前两整轮发出，每轮更短，但一个 program 占 49 KB，每个 SM 只放得下 2 个，504 个 program 要分两批">
@@ -2854,7 +3018,7 @@ block 一变，`num_stages` 的最优值也跟着变（[表 3-4](#tab-3-4)），
   <line x1="500.0" y1="118.0" x2="450.0" y2="118.0" style="stroke: var(--fig-mute)" stroke-width="1.8" marker-end="url(#fig-h-3-m1)"/>
   <text class="lab2" x="10" y="292">没有 warp，也没有硬件管理的 L1 / L2：HBM → VMEM → VREG → VPU / MXU 每一步都由编译器排好</text>
 </svg>
-<figcaption><strong>图 B-1</strong> TPU v5p 一个 TensorCore 的结构示意，画法对应<a href="#fig-h-1">图 1-2</a>。规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>，原书也有一张 TensorCore 的结构图。</figcaption>
+<figcaption><strong>图 B-1</strong> TPU v5p 一个 TensorCore 的结构示意，画法对应<a href="#fig-h-1">图 1-5</a>。规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>，原书也有一张 TensorCore 的结构图。</figcaption>
 </figure>
 
 MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 B-2](#fig-h-4)）。GPU 上每个 CUDA core 做一次乘加，要从 register file 读两个数、写回一个；一个数被用很多次，得靠 kernel 自己切 block，先搬进 shared memory 和 register 再反复读，[2.4 节](#triton-matmul)的 matmul 就是这样写的。systolic array 把复用做进了硬件：权重先装进 128 × 128 个格子，固定不动；输入 x 从左边进入，每拍向右传一格，经过的每一格把它乘上自己的权重，加到从上面传下来的部分和上，再把部分和往下传。一个 x 从 VMEM 读一次，在一行里被 128 个格子用到；稳定以后每拍从左边进 128 个数、从底部出 128 个结果，阵列里同时做 16384 次乘加，中间结果都不经过 register file。
@@ -3002,7 +3166,7 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 B-2](#fig-h-
 
 ## Appendix C TMA 和异步同步 {#tma}
 
-[表 1-1](#tab-1-1) 里显存到 shared memory 除了经 register 中转，还有 cp.async 和 TMA 两种直接搬法。正文的 kernel 都没用到 TMA，这个 appendix 讲它和 cp.async 差在哪（[C.1](#tma-vs-cpasync)），怎么知道它搬完了（[C.2](#tma-barrier)），以及有了它以后 kernel 怎么分工（[C.3](#tma-ws)）。
+[表 1-2](#tab-1-2) 里显存到 shared memory 除了经 register 中转，还有 cp.async 和 TMA 两种直接搬法。正文的 kernel 都没用到 TMA，这个 appendix 讲它和 cp.async 差在哪（[C.1](#tma-vs-cpasync)），怎么知道它搬完了（[C.2](#tma-barrier)），以及有了它以后 kernel 怎么分工（[C.3](#tma-ws)）。
 
 ### C.1 TMA 和 cp.async 的区别 {#tma-vs-cpasync}
 
@@ -3192,11 +3356,11 @@ ld.global 和 cp.async 的区别是数据进不进 register；cp.async 和 TMA �
 
 ## References {#references}
 
-1. Gholami, Yao, Kim, Hooper, Mahoney, Keutzer. [AI and Memory Wall](https://arxiv.org/abs/2403.14123). IEEE Micro, 2024. 图 1-1。
-2. NVIDIA. [NVIDIA RTX Blackwell GPU Architecture](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)（白皮书，[备份](https://web.archive.org/web/20261008150304/https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)）。RTX 5090 的存储层级和 SM 结构，图 1-2、图 1-3。
+1. Gholami, Yao, Kim, Hooper, Mahoney, Keutzer. [AI and Memory Wall](https://arxiv.org/abs/2403.14123). IEEE Micro, 2024. 图 1-4。
+2. NVIDIA. [NVIDIA RTX Blackwell GPU Architecture](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)（白皮书，[备份](https://web.archive.org/web/20261008150304/https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)）。RTX 5090 的 SM 结构和存储层级，图 1-1、图 1-5。
 3. NVIDIA. [NVIDIA Ampere GA102 GPU Architecture](https://www.nvidia.com/content/PDF/nvidia-ampere-ga-102-gpu-architecture-whitepaper-v2.pdf)（白皮书，[备份](https://web.archive.org/web/20261011221321/https://www.nvidia.com/content/PDF/nvidia-ampere-ga-102-gpu-architecture-whitepaper-v2.pdf)）。compute 模式下 L1 和 shared memory 的几种切法（28 KB L1 + 100 KB shared memory 等），第 1.2 节。
 4. NVIDIA. [NVIDIA A100 Tensor Core GPU Architecture](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)（白皮书，[备份](https://web.archive.org/web/20261003180516/https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)）、[A100 datasheet](https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf)（[备份](https://web.archive.org/web/20261018221712/https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf)）、[NVIDIA Blackwell Architecture Technical Brief](https://dam-cdn.nvd.orangelogic.com/AssetLink/gl2l4l4812s5fw0p614s6i8bv6mi3vx5.pdf)（[备份](https://web.archive.org/web/20261003103759/https://dam-cdn.nvd.orangelogic.com/AssetLink/gl2l4l4812s5fw0p614s6i8bv6mi3vx5.pdf)）、[Blackwell datasheet](https://dam-cdn.nvd.orangelogic.com/AssetLink/y441155802qub41q118b2852i557jem5.pdf)（[备份](https://web.archive.org/web/20260927220200/https://dam-cdn.nvd.orangelogic.com/AssetLink/y441155802qub41q118b2852i557jem5.pdf)）。表 A-1 的 A100、B200 一列：A100 是 80GB SXM，B200 按 datasheet 里 HGX B200 的单卡值（bf16 取 sparse 值的一半）；H100 一列见第 5 条。
-5. NVIDIA. [NVIDIA H100 Tensor Core GPU Architecture](https://dam-cdn.nvd.orangelogic.com/AssetLink/705n6ur546g0uk43w0117r17n8042d73.pdf)（白皮书，[备份](https://web.archive.org/web/20261018221616/https://dam-cdn.nvd.orangelogic.com/AssetLink/705n6ur546g0uk43w0117r17n8042d73.pdf)）。第 1.2 节和 Appendix C 的 TMA：SM 结构图（Figure 7）里每个 SM 一个，由一个 thread 发起，地址生成和数据搬运由硬件完成（Figure 18、19）；Appendix C 的两种 barrier（Figure 20）和 warp 分工；表 A-1 的 H100 一列（白皮书里的规格对比表，H100 SXM5）。
+5. NVIDIA. [NVIDIA H100 Tensor Core GPU Architecture](https://dam-cdn.nvd.orangelogic.com/AssetLink/705n6ur546g0uk43w0117r17n8042d73.pdf)（白皮书，[备份](https://web.archive.org/web/20261018221616/https://dam-cdn.nvd.orangelogic.com/AssetLink/705n6ur546g0uk43w0117r17n8042d73.pdf)）。第 1.1 节和 Appendix C 的 TMA：SM 结构图（Figure 7）里每个 SM 一个，由一个 thread 发起，地址生成和数据搬运由硬件完成（Figure 18、19）；Appendix C 的两种 barrier（Figure 20）和 warp 分工；表 A-1 的 H100 一列（白皮书里的规格对比表，H100 SXM5）。
 6. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、block、register 和 shared memory 上限，表 3-1、表 A-1，CUDA 执行层级。
 7. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 停顿原因的定义，图 3-4。
 8. Austin et al. [How to Scale Your Model](https://jax-ml.github.io/scaling-book/gpus/), Google DeepMind, 2025. Appendix B 的 TPU v5p 规格、systolic array 的数据流和表 B-1。

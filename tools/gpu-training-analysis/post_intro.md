@@ -3,7 +3,7 @@ title: "GPU 与 Triton 入门：从存储层级到第一个 kernel"
 date: 2026-10-03
 draft: false
 math: true
-description: "GPU 的存储层级、SM 结构和 CUDA 执行层级；再用 GELU、softmax、row sum、matmul 四个例子入门 Triton，再看 kernel 在 SM 上怎么调度、怎么调参，Appendix 对照 TPU。GPU training optimization 系列的第一篇。"
+description: "GPU 的 SM 结构、存储层级和 CUDA 执行层级；再用 GELU、softmax、row sum、matmul 四个例子入门 Triton，再看 kernel 在 SM 上怎么调度、怎么调参，Appendix 对照 TPU。GPU training optimization 系列的第一篇。"
 tags: ["GPU", "Triton", "CUDA", "TPU", "LLM", "AI"]
 categories: ["AI笔记"]
 series: ["GPU training optimization"]
@@ -12,7 +12,7 @@ series_order: 1
 
 这个系列讲怎么让 Transformer 训练在 GPU 上跑得更快，这一篇打基础：
 
-- **[第 1 节](#hardware) GPU 硬件**：存储层级、SM 结构、CUDA 执行层级
+- **[第 1 节](#hardware) GPU 硬件**：SM 结构、存储层级、软件架构
 - **[第 2 节](#triton) Triton 入门**：四个例子，后面的 kernel 都用它写
 - **[第 3 节](#tune) 调度与调参**：warp 藏延迟、一个 SM 放几个 program、分批，`num_warps` / `num_stages` / block 大小
 - **Appendix**：[A](#specs) 几代 GPU 规格，[B](#tpu) TPU 对照，[C](#tma) TMA 与异步同步
@@ -27,22 +27,71 @@ series_order: 1
 
 一个 kernel 受算力还是显存带宽限制，取决于它要搬多少数据、在哪一层读写。
 
-### 1.1 存储层级 {#hw-memory}
+### 1.1 SM 的结构 {#hw-sm}
 
-过去 20 年算力涨了约 6 万倍，显存带宽只涨了约 100 倍（[图 1-1](#fig-memwall)），所以越来越多的 op 卡在搬数据上（memory-bound）。
+每个 SM 分成 4 个 SMSP（SM sub-partition），每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core（做 FP32 和 INT32 运算）、一个 Tensor core 和 4 个 LD/ST 单元，4 个 SMSP 共享 L1 / shared memory（[图 1-1](#fig-h-2)）。load / store 从 LD/ST 发出，先到 L1 / shared memory，不在这里的再经片上互联去 L2 和显存。L1 和 shared memory 是同一块 128 KB 的片上存储，shared memory 最多切到 100 KB，下面的 notes 讲两者的区别和几种切法。
+
+{{fig-h-2}}
+
+<details class="fold doc aside">
+<summary>为什么 shared memory 最多 100 KB</summary>
+
+两者是同一块 SRAM，区别在谁来管、给谁用。L1 是 cache：从显存读进来的数据经过它，硬件按 128 B 的 cache line 自动放进去、自动换出，kernel 指定不了哪些数据留下。shared memory 是 kernel 按地址读写的一块空间，数据什么时候放进去、什么时候被覆盖都由 kernel 决定；写 Triton 时这件事由编译器替你做，比如 [2.4 节](#triton-matmul) `tl.dot` 的 A、B block 和 `num_stages` 的两个 slot。shared memory 按 program 分配，只有这个 program 的 thread 能读写，program 跑完才释放，所以它算在驻留上限里（[表 3-1](#tab-3-1)）。L1 由 SM 上所有 program 共用，不占名额，但里面的数据随时可能被别的 program 挤掉。
+
+[GA102（RTX 30 系列）白皮书](https://www.nvidia.com/content/PDF/nvidia-ampere-ga-102-gpu-architecture-whitepaper-v2.pdf)列出的切法见[表 1-1](#tab-1-1)。跑 kernel 时（compute 模式）有 6 档，跑图形时固定一种，另外留 16 KB 给图形管线。
+
+| 模式 | L1 | shared memory | 图形管线 |
+|:--|--:|--:|--:|
+| compute | 128 KB | 0 KB | — |
+| compute | 120 KB | 8 KB | — |
+| compute | 112 KB | 16 KB | — |
+| compute | 96 KB | 32 KB | — |
+| compute | 64 KB | 64 KB | — |
+| compute | 28 KB | 100 KB | — |
+| graphics | 64 KB | 48 KB | 16 KB |
+{#tab-1-1 caption="**表 1-1** 每个 SM 的 128 KB 怎么切（GA102 白皮书）" note="5090 能选的 shared memory 档位和 GA102 一样。"}
+
+一个 kernel 用哪一档由驱动在启动时决定，kernel 可以通过 carveout 属性表达偏好，驱动不一定照办。
+
+白皮书只列了切法，没有说为什么 shared memory 最多 100 KB、至少留 28 KB 给 L1，CUDA 文档里也没有说明。能验证的是这 28 KB 确实还在当 L1 用。在 5090 上让一个 thread 在一段数据里按随机顺序跳着读，每次读的地址取决于上一次读到的值（pointer chase），这样每次读的耗时就是一次访存的延迟。shared memory 切到最大时，数据在 20 KB 以内每次读约 22 ns，都在 L1 命中；超过 24 KB 开始变慢，到 48 KB 约 140 ns，基本都要去 L2 读。切成 L1 优先时，64 KB 以内都还在 30 ns 以内。
+
+</details>
+
+[图 1-1](#fig-h-2) 右下角的 TMA（Tensor Memory Accelerator）是 Hopper 起 SM 里专门在显存和 shared memory 之间整块搬数据的硬件单元。它和 LD/ST 走同一条路，区别在于只要一个 thread 交给它一块数据的描述，地址由它自己算。正文的 kernel 用不到它，细节放在 [Appendix C](#tma)。
+
+再往里看一层，一个 SMSP 的结构见[图 1-2](#fig-h-9)。
+
+{{fig-h-9}}
+
+SMSP 里有两种计算单元（[图 1-3](#fig-h-11)）：
+
+- **CUDA core** 一次算一个数。主力指令是 FMA（fused multiply-add）：$d = a \times b + c$，乘加一条指令做完、只舍入一次。warp 的 32 个 thread 各用一个 CUDA core，全卡 170 × 128 个，fp32 峰值 1.05e14 FLOPS。
+- **Tensor core** 一次算一小块矩阵乘加，一条指令由整个 warp 一起发。只吃 bf16、fp16、tf32、fp8 这类低精度输入，bf16 峰值 2.1e14 FLOPS（fp32 累加），fp8 更高。
+
+{{fig-h-11}}
+
+`tl.dot` 默认走 Tensor core，其余加减乘除走 CUDA core，exp 这类函数走 SFU。
+
+SMSP 里另一块要紧的是 register file。每个 SMSP 有 16384 个 32-bit register（64 KB），一个 SM 共 65536 个。每个 thread 用几个 register 在编译时就定了，最多 255 个；block 放上 SM 时，它的每个 thread 从所在 SMSP 的 register file 里分到这么多个，只归自己读写，block 跑完才还回去。所以每个 thread 用的 register 越多，一个 SM 能同时放的 thread 越少，[3.1 节](#sched-warp)会算这笔账。
+
+[第 2 节](#triton) kernel 图里的「register」就是这块 register file，「计算单元」指其中的 CUDA core 和 Tensor core。几代 GPU 的规格对比见 [Appendix A](#specs)。
+
+### 1.2 存储层级 {#hw-memory}
+
+过去 20 年算力涨了约 6 万倍，显存带宽只涨了约 100 倍（[图 1-4](#fig-memwall)），所以越来越多的 op 卡在搬数据上（memory-bound）。
 
 <figure id="fig-memwall" class="fg-fig">
 <img src="memory-wall.webp" alt="1997 到 2023 年峰值算力、DRAM 带宽和互联带宽的增长：算力每两年 3.0 倍，DRAM 带宽每两年 1.6 倍，互联带宽每两年 1.4 倍" loading="lazy" style="width: 100%; height: auto; border-radius: 8px; background: #fff;">
-<figcaption><strong>图 1-1</strong> 峰值算力与 DRAM、互联带宽 20 年来的增长，纵轴是相对 1997 年的倍数（对数轴）。图来自 Gholami 等人的 <a href="https://arxiv.org/abs/2403.14123">AI and Memory Wall</a>（IEEE Micro，2024）。</figcaption>
+<figcaption><strong>图 1-4</strong> 峰值算力与 DRAM、互联带宽 20 年来的增长，纵轴是相对 1997 年的倍数（对数轴）。图来自 Gholami 等人的 <a href="https://arxiv.org/abs/2403.14123">AI and Memory Wall</a>（IEEE Micro，2024）。</figcaption>
 </figure>
 
-离计算单元越近越快、越小（[图 1-2](#fig-h-1)）。L1、L2 是硬件管的 cache，kernel 能自己安排的只有 register 和 shared memory。优化的核心就一条：把要反复用的数据留在这两层，多算几次再写回显存。
+离计算单元越近越快、越小（[图 1-5](#fig-h-1)）。L1、L2 是硬件管的 cache，kernel 能自己安排的只有 register 和 shared memory。优化的核心就一条：把要反复用的数据留在这两层，多算几次再写回显存。
 
 {{fig-h-1}}
 
 #### Memory access {#hw-move}
 
-计算单元只读写 register。register 归一个 thread，shared memory 归一个 block（[1.3 节](#hw-model)），L2 和显存全卡共享。[表 1-1](#tab-1-1) 是各层之间怎么搬，指令名用的是 PTX（GPU 上的汇编，CUDA 和 Triton 都先编译成它）的写法。
+计算单元只读写 register。register 归一个 thread，shared memory 归一个 block（[1.3 节](#hw-model)），L2 和显存全卡共享。[表 1-2](#tab-1-2) 是各层之间怎么搬，指令名用的是 PTX（GPU 上的汇编，CUDA 和 Triton 都先编译成它）的写法。
 
 | 从 | 到 | 怎么搬 |
 |:--|:--|:--|
@@ -54,57 +103,13 @@ series_order: 1
 | shared memory | 显存 | ld.shared 读进 register 再 st.global；或者 TMA |
 | 一个 thread 的 register | 同一个 warp 里别的 thread | shuffle（shfl.sync）：一条指令里，每个 thread 直接读同一个 warp 里另一个 thread 的一个 register；出了 warp 就不行 |
 | 一个 block 的 shared memory | 别的 block | 不行，只能写回显存再读 |
-{#tab-1-1 caption="**表 1-1** 数据在各层之间能怎么搬" note="Hopper 起的 thread block cluster 里，几个 block 可以互读 shared memory，这篇用不到。"}
+{#tab-1-2 caption="**表 1-2** 数据在各层之间能怎么搬" note="Hopper 起的 thread block cluster 里，几个 block 可以互读 shared memory，这篇用不到。"}
 
-Triton 代码里只有 `tl.load` 和 `tl.store`，走[表 1-1](#tab-1-1)的哪一行由编译器决定：[第 2 节](#triton)的 GELU、softmax、row sum 都是显存和 register 之间直接读写；matmul 的 A、B 要经过 shared memory，编出来用的是 cp.async（[3.3 节](#stages)）；用 tensor descriptor 写的 load 才会用 TMA（[Appendix C](#tma)）。
+Triton 代码里只有 `tl.load` 和 `tl.store`，走[表 1-2](#tab-1-2)的哪一行由编译器决定：[第 2 节](#triton)的 GELU、softmax、row sum 都是显存和 register 之间直接读写；matmul 的 A、B 要经过 shared memory，编出来用的是 cp.async（[3.3 节](#stages)）；用 tensor descriptor 写的 load 才会用 TMA（[Appendix C](#tma)）。
 
-register 和 L1 / shared memory 都在 SM 里面，下面看 SM 本身的结构。
+### 1.3 软件架构 {#hw-model}
 
-### 1.2 SM 的结构 {#hw-sm}
-
-每个 SM 分成 4 个 SMSP（SM sub-partition），每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core（做 FP32 和 INT32 运算）、一个 Tensor core 和 4 个 LD/ST 单元，4 个 SMSP 共享 L1 / shared memory（[图 1-3](#fig-h-2)）。load / store 从 LD/ST 发出，先到 L1 / shared memory，不在这里的再经片上互联去 L2 和显存。L1 和 shared memory 是同一块 128 KB 的片上存储，shared memory 最多切到 100 KB，下面的 notes 讲两者的区别和几种切法。
-
-{{fig-h-2}}
-
-<details class="fold doc aside">
-<summary>为什么 shared memory 最多 100 KB</summary>
-
-两者是同一块 SRAM，区别在谁来管、给谁用。L1 是 cache：从显存读进来的数据经过它，硬件按 128 B 的 cache line 自动放进去、自动换出，kernel 指定不了哪些数据留下。shared memory 是 kernel 按地址读写的一块空间，数据什么时候放进去、什么时候被覆盖都由 kernel 决定；写 Triton 时这件事由编译器替你做，比如 [2.4 节](#triton-matmul) `tl.dot` 的 A、B block 和 `num_stages` 的两个 slot。shared memory 按 program 分配，只有这个 program 的 thread 能读写，program 跑完才释放，所以它算在驻留上限里（[表 3-1](#tab-3-1)）。L1 由 SM 上所有 program 共用，不占名额，但里面的数据随时可能被别的 program 挤掉。
-
-[GA102（RTX 30 系列）白皮书](https://www.nvidia.com/content/PDF/nvidia-ampere-ga-102-gpu-architecture-whitepaper-v2.pdf)列出的切法见[表 1-2](#tab-1-2)。跑 kernel 时（compute 模式）有 6 档，跑图形时固定一种，另外留 16 KB 给图形管线。
-
-| 模式 | L1 | shared memory | 图形管线 |
-|:--|--:|--:|--:|
-| compute | 128 KB | 0 KB | — |
-| compute | 120 KB | 8 KB | — |
-| compute | 112 KB | 16 KB | — |
-| compute | 96 KB | 32 KB | — |
-| compute | 64 KB | 64 KB | — |
-| compute | 28 KB | 100 KB | — |
-| graphics | 64 KB | 48 KB | 16 KB |
-{#tab-1-2 caption="**表 1-2** 每个 SM 的 128 KB 怎么切（GA102 白皮书）" note="5090 能选的 shared memory 档位和 GA102 一样。"}
-
-一个 kernel 用哪一档由驱动在启动时决定，kernel 可以通过 carveout 属性表达偏好，驱动不一定照办。
-
-白皮书只列了切法，没有说为什么 shared memory 最多 100 KB、至少留 28 KB 给 L1，CUDA 文档里也没有说明。能验证的是这 28 KB 确实还在当 L1 用。在 5090 上让一个 thread 在一段数据里按随机顺序跳着读，每次读的地址取决于上一次读到的值（pointer chase），这样每次读的耗时就是一次访存的延迟。shared memory 切到最大时，数据在 20 KB 以内每次读约 22 ns，都在 L1 命中；超过 24 KB 开始变慢，到 48 KB 约 140 ns，基本都要去 L2 读。切成 L1 优先时，64 KB 以内都还在 30 ns 以内。
-
-</details>
-
-[图 1-3](#fig-h-2) 右下角的 TMA（Tensor Memory Accelerator）是 Hopper 起 SM 里专门在显存和 shared memory 之间整块搬数据的硬件单元。它和 LD/ST 走同一条路，区别在于只要一个 thread 交给它一块数据的描述，地址由它自己算。正文的 kernel 用不到它，细节放在 [Appendix C](#tma)。
-
-再往里看一层，一个 SMSP 里有两种计算单元（[图 1-4](#fig-h-9)）。CUDA core 一次算一个数。最常用的是 FMA（fused multiply-add）指令，算 $d = a \times b + c$，乘和加在一条指令里做完、只舍入一次：一条 FMA 指令里 warp 的 32 个 thread 各用一个 CUDA core，各做一次乘加（2 FLOPs）。5090 一共 170 × 128 个 CUDA core，fp32 峰值 1.05e14 FLOPS。Tensor core 一次算一个小矩阵乘：一条指令由整个 warp 一起发出，算一小块 A × B 再加到累加器上。它只吃 bf16、fp16、tf32、fp8 这类低精度输入，bf16 的峰值是 2.1e14 FLOPS（fp32 累加），fp8 更高。第 2 节的 `tl.dot` 默认走 Tensor core，加减乘除在 CUDA core 上算，exp 这类函数在 SFU 上算。
-
-SMSP 里另一块要紧的是 register file。每个 SMSP 有 16384 个 32-bit register（64 KB），一个 SM 共 65536 个。每个 thread 用几个 register 在编译时就定了，最多 255 个；block 放上 SM 时，它的每个 thread 从所在 SMSP 的 register file 里分到这么多个，只归自己读写，block 跑完才还回去。所以每个 thread 用的 register 越多，一个 SM 能同时放的 thread 越少，[3.1 节](#sched-warp)会算这笔账。
-
-{{fig-h-9}}
-
-[第 2 节](#triton) kernel 图里的「register」就是这块 register file，「计算单元」指其中的 CUDA core 和 Tensor core。几代 GPU 的规格对比见 [Appendix A](#specs)。
-
-这些是硬件提供的资源。register 按 thread 分配，shared memory 按 block 分配，要知道一个 kernel 怎么用这些资源，得先看 CUDA 怎么把 thread 组织起来。
-
-### 1.3 编程模型 {#hw-model}
-
-CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 warp 的 32 个 thread 同一时刻执行同一条指令。thread 往上分四层：thread、warp（32 个 thread）、block（也叫 CTA，若干个 warp）、grid（一次 kernel 启动的全部 block），每层跑在哪个硬件上见[图 1-5](#fig-h-5)。
+CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 warp 的 32 个 thread 同一时刻执行同一条指令。thread 往上分四层：thread、warp（32 个 thread）、block（也叫 CTA，若干个 warp）、grid（一次 kernel 启动的全部 block），每层跑在哪个硬件上见[图 1-6](#fig-h-5)。
 
 {{fig-h-5}}
 
@@ -116,7 +121,7 @@ block 之间不能直接共享数据，只能通过显存交换，而这正是�
 
 ## 2 Triton 入门 {#triton}
 
-第 1 节说过，kernel 优化的套路是把数据读进片上，算完能算的再写回显存。Triton 就是按这个思路写 kernel 的语言：你只写一个 block 的数据怎么处理，也就是 [1.3 节](#hw-model)说的 tiling。Triton 把这个 block 叫作一个 program，block 内怎么分给 thread、要不要经过 shared memory 由编译器决定，CUDA 的各层在 Triton 里怎么写见[图 1-5](#fig-h-5)。先看这样写能换来什么，[表 2-1](#tab-2-1) 把这一节的四个例子各写三遍：用 PyTorch 的张量运算直接写（eager），同一份代码包一层 `torch.compile`，以及用 Triton 手写一个 kernel。
+第 1 节说过，kernel 优化的套路是把数据读进片上，算完能算的再写回显存。Triton 就是按这个思路写 kernel 的语言：你只写一个 block 的数据怎么处理，也就是 [1.3 节](#hw-model)说的 tiling。Triton 把这个 block 叫作一个 program，block 内怎么分给 thread、要不要经过 shared memory 由编译器决定，CUDA 的各层在 Triton 里怎么写见[图 1-6](#fig-h-5)。先看这样写能换来什么，[表 2-1](#tab-2-1) 把这一节的四个例子各写三遍：用 PyTorch 的张量运算直接写（eager），同一份代码包一层 `torch.compile`，以及用 Triton 手写一个 kernel。
 
 | | [GELU](#triton-gelu) | [softmax](#triton-softmax) | [row sum](#triton-rowsum) | [matmul + ReLU](#triton-matmul) |
 |:--|--:|--:|--:|--:|
@@ -158,7 +163,7 @@ program 编译后就是 CUDA 的一个 block。8192 个 program 远多于 170 �
 <details class="fold doc aside">
 <summary>GELU 编译成的 PTX</summary>
 
-Triton 把 kernel 编译成 PTX（[1.1 节](#hw-move)），PTX 描述的是单个 thread 的指令。n = 8388608 时的节选：
+Triton 把 kernel 编译成 PTX（[1.2 节](#hw-move)），PTX 描述的是单个 thread 的指令。n = 8388608 时的节选：
 
 ```
 mov.u32          %r17, %ctaid.x;                                // program 编号，即 blockIdx.x
@@ -201,7 +206,7 @@ $y_{ij}$ 要用到第 $i$ 行全部 N 个数。eager 下 softmax 要 5 个 kerne
 {{code:triton_tutorial.py:softmax_launch}}
 ```
 
-[图 2-3](#fig-t-2) 里的 warp max、warp sum 是 shared memory 在这个 kernel 里唯一的用处：`tl.max`、`tl.sum` 分三步归约。每个 thread 先把自己手里的 32 个数归约成一个。再在 warp 内用 shuffle 归约，shuffle 让每个 thread 直接读同一个 warp 里另一个 thread 的 register，不经过 shared memory（[表 1-1](#tab-1-1)）。编出来的 PTX 用的是 `shfl.sync.bfly`：每一步 thread $i$ 读 thread $i \oplus d$（按位异或）的值并和自己的合并，$d$ 依次取 16、8、4、2、1，5 步以后 warp 里每个 thread 都拿到这个 warp 的最大值或和。最后 4 个 warp 的部分结果经 shared memory 交换（一共 16 B），再用 $d$ 取 2、1 的两步 shuffle 合并成整行的结果。把一整个 block 的数据放进 shared memory 什么时候值得，[2.4 节](#triton-matmul)再讲。
+[图 2-3](#fig-t-2) 里的 warp max、warp sum 是 shared memory 在这个 kernel 里唯一的用处：`tl.max`、`tl.sum` 分三步归约。每个 thread 先把自己手里的 32 个数归约成一个。再在 warp 内用 shuffle 归约，shuffle 让每个 thread 直接读同一个 warp 里另一个 thread 的 register，不经过 shared memory（[表 1-2](#tab-1-2)）。编出来的 PTX 用的是 `shfl.sync.bfly`：每一步 thread $i$ 读 thread $i \oplus d$（按位异或）的值并和自己的合并，$d$ 依次取 16、8、4、2、1，5 步以后 warp 里每个 thread 都拿到这个 warp 的最大值或和。最后 4 个 warp 的部分结果经 shared memory 交换（一共 16 B），再用 $d$ 取 2、1 的两步 shuffle 合并成整行的结果。把一整个 block 的数据放进 shared memory 什么时候值得，[2.4 节](#triton-matmul)再讲。
 
 这个写法要求 BLOCK ≥ N，也就是一行能一次装进一个 program。行再长，program 就只能沿行一个 block 一个 block 地读，读过的 block 要留下一个中间结果。下一节先看最简单的按行归约：求和。
 
@@ -293,7 +298,7 @@ grid 是二维的：
 program 放上 SM 后一直驻留到跑完，它的 warp 分到 4 个 SMSP（[图 3-1](#fig-h-6)）。每个 SMSP 的调度器每拍（一个时钟周期）挑一个就绪的 warp 发一条指令，一个 warp 等显存数据的几百拍里，调度器改发别的 warp。要让调度器每拍都有 warp 可发，有三种办法：
 
 1. 多驻留 warp；
-2. 让每个 thread 有更多互不依赖的 load 或乘加（FMA，[1.2 节](#hw-sm)）；
+2. 让每个 thread 有更多互不依赖的 load 或乘加（FMA，[1.1 节](#hw-sm)）；
 3. 提前发 load。
 
 {{fig-h-6}}
@@ -305,7 +310,7 @@ program 放上 SM 后一直驻留到跑完，它的 warp 分到 4 个 SMSP（[�
 | 驻留 warp | 48 个（每个 SMSP 12 个），即 1536 个 thread |
 | 驻留 program（CUDA block） | 24 个 |
 | register | 65536 个 32-bit（256 KB），每个 thread 最多 255 个 |
-| shared memory | 100 KB（128 KB 的 L1 / shared memory 里最多切出这么多，见 [1.2 节](#hw-sm)），每个 program 另占 1 KB |
+| shared memory | 100 KB（128 KB 的 L1 / shared memory 里最多切出这么多，见 [1.1 节](#hw-sm)），每个 program 另占 1 KB |
 {#tab-3-1 caption="**表 3-1** RTX 5090 一个 SM 的驻留上限" note="用 <code>cuDeviceGetAttribute</code> 在 5090 上读出，和 CUDA Programming Guide 里 compute capability 12.0 的数一致。一个 program 占 <code>num_warps</code> 个 warp 名额、1 个 program 名额、32 × <code>num_warps</code> × 每个 thread 的 register 数（按 8 取整），以及 shared memory 用量加 1 KB。几代 GPU 的对比见 Appendix A。"}
 
 ### 3.2 wave 和 tail effect {#sched-wave}
@@ -324,7 +329,7 @@ matmul 一批 510 个，512 个 program 多出 2 个，最后 168 个 SM 空等�
 
 `num_warps` 是一个 program 的 warp 数。block 的大小不变时，warp 多了，每个 thread 分到的数据就少，所以它是在 [3.1 节](#sched-warp)的前两种办法之间做分配。GELU 的 `num_warps` 从 1 到 16 耗时差不多；取 32 时一个 SM 只放得下 1 个 program，每个 thread 只剩 1 个数，才明显变慢。逐元素和按行归约的 kernel 用默认值就够。
 
-`num_stages` 是第三种办法。matmul 每轮把 A、B 的 block 搬进 shared memory 里的 slot，再读进 register 乘加。`num_stages` 取 S 时，第 $k$ 轮的 load 在第 $k-(S-1)$ 轮算完时就用 cp.async 发出（[1.1 节](#hw-move)），算第 $k$ 轮时，下一轮的数据已经在另一个 slot 里（[图 3-4](#fig-t-9)）。代价是每多一级多一个 slot 的 shared memory（[表 3-2](#tab-3-2)）。
+`num_stages` 是第三种办法。matmul 每轮把 A、B 的 block 搬进 shared memory 里的 slot，再读进 register 乘加。`num_stages` 取 S 时，第 $k$ 轮的 load 在第 $k-(S-1)$ 轮算完时就用 cp.async 发出（[1.2 节](#hw-move)），算第 $k$ 轮时，下一轮的数据已经在另一个 slot 里（[图 3-4](#fig-t-9)）。代价是每多一级多一个 slot 的 shared memory（[表 3-2](#tab-3-2)）。
 
 {{fig-t-9}}
 
@@ -461,7 +466,7 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 B-2](#fig-h-
 
 ## Appendix C TMA 和异步同步 {#tma}
 
-[表 1-1](#tab-1-1) 里显存到 shared memory 除了经 register 中转，还有 cp.async 和 TMA 两种直接搬法。正文的 kernel 都没用到 TMA，这个 appendix 讲它和 cp.async 差在哪（[C.1](#tma-vs-cpasync)），怎么知道它搬完了（[C.2](#tma-barrier)），以及有了它以后 kernel 怎么分工（[C.3](#tma-ws)）。
+[表 1-2](#tab-1-2) 里显存到 shared memory 除了经 register 中转，还有 cp.async 和 TMA 两种直接搬法。正文的 kernel 都没用到 TMA，这个 appendix 讲它和 cp.async 差在哪（[C.1](#tma-vs-cpasync)），怎么知道它搬完了（[C.2](#tma-barrier)），以及有了它以后 kernel 怎么分工（[C.3](#tma-ws)）。
 
 ### C.1 TMA 和 cp.async 的区别 {#tma-vs-cpasync}
 
@@ -500,11 +505,11 @@ ld.global 和 cp.async 的区别是数据进不进 register；cp.async 和 TMA �
 
 ## References {#references}
 
-1. Gholami, Yao, Kim, Hooper, Mahoney, Keutzer. [AI and Memory Wall](https://arxiv.org/abs/2403.14123). IEEE Micro, 2024. 图 1-1。
-2. NVIDIA. [NVIDIA RTX Blackwell GPU Architecture](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)（白皮书，[备份](https://web.archive.org/web/20261008150304/https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)）。RTX 5090 的存储层级和 SM 结构，图 1-2、图 1-3。
+1. Gholami, Yao, Kim, Hooper, Mahoney, Keutzer. [AI and Memory Wall](https://arxiv.org/abs/2403.14123). IEEE Micro, 2024. 图 1-4。
+2. NVIDIA. [NVIDIA RTX Blackwell GPU Architecture](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)（白皮书，[备份](https://web.archive.org/web/20261008150304/https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)）。RTX 5090 的 SM 结构和存储层级，图 1-1、图 1-5。
 3. NVIDIA. [NVIDIA Ampere GA102 GPU Architecture](https://www.nvidia.com/content/PDF/nvidia-ampere-ga-102-gpu-architecture-whitepaper-v2.pdf)（白皮书，[备份](https://web.archive.org/web/20261011221321/https://www.nvidia.com/content/PDF/nvidia-ampere-ga-102-gpu-architecture-whitepaper-v2.pdf)）。compute 模式下 L1 和 shared memory 的几种切法（28 KB L1 + 100 KB shared memory 等），第 1.2 节。
 4. NVIDIA. [NVIDIA A100 Tensor Core GPU Architecture](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)（白皮书，[备份](https://web.archive.org/web/20261003180516/https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)）、[A100 datasheet](https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf)（[备份](https://web.archive.org/web/20261018221712/https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf)）、[NVIDIA Blackwell Architecture Technical Brief](https://dam-cdn.nvd.orangelogic.com/AssetLink/gl2l4l4812s5fw0p614s6i8bv6mi3vx5.pdf)（[备份](https://web.archive.org/web/20261003103759/https://dam-cdn.nvd.orangelogic.com/AssetLink/gl2l4l4812s5fw0p614s6i8bv6mi3vx5.pdf)）、[Blackwell datasheet](https://dam-cdn.nvd.orangelogic.com/AssetLink/y441155802qub41q118b2852i557jem5.pdf)（[备份](https://web.archive.org/web/20260927220200/https://dam-cdn.nvd.orangelogic.com/AssetLink/y441155802qub41q118b2852i557jem5.pdf)）。表 A-1 的 A100、B200 一列：A100 是 80GB SXM，B200 按 datasheet 里 HGX B200 的单卡值（bf16 取 sparse 值的一半）；H100 一列见第 5 条。
-5. NVIDIA. [NVIDIA H100 Tensor Core GPU Architecture](https://dam-cdn.nvd.orangelogic.com/AssetLink/705n6ur546g0uk43w0117r17n8042d73.pdf)（白皮书，[备份](https://web.archive.org/web/20261018221616/https://dam-cdn.nvd.orangelogic.com/AssetLink/705n6ur546g0uk43w0117r17n8042d73.pdf)）。第 1.2 节和 Appendix C 的 TMA：SM 结构图（Figure 7）里每个 SM 一个，由一个 thread 发起，地址生成和数据搬运由硬件完成（Figure 18、19）；Appendix C 的两种 barrier（Figure 20）和 warp 分工；表 A-1 的 H100 一列（白皮书里的规格对比表，H100 SXM5）。
+5. NVIDIA. [NVIDIA H100 Tensor Core GPU Architecture](https://dam-cdn.nvd.orangelogic.com/AssetLink/705n6ur546g0uk43w0117r17n8042d73.pdf)（白皮书，[备份](https://web.archive.org/web/20261018221616/https://dam-cdn.nvd.orangelogic.com/AssetLink/705n6ur546g0uk43w0117r17n8042d73.pdf)）。第 1.1 节和 Appendix C 的 TMA：SM 结构图（Figure 7）里每个 SM 一个，由一个 thread 发起，地址生成和数据搬运由硬件完成（Figure 18、19）；Appendix C 的两种 barrier（Figure 20）和 warp 分工；表 A-1 的 H100 一列（白皮书里的规格对比表，H100 SXM5）。
 6. NVIDIA. [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)。各 compute capability 每 SM 的 warp、block、register 和 shared memory 上限，表 3-1、表 A-1，CUDA 执行层级。
 7. NVIDIA. [Nsight Compute Kernel Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)。warp 停顿原因的定义，图 3-4。
 8. Austin et al. [How to Scale Your Model](https://jax-ml.github.io/scaling-book/gpus/), Google DeepMind, 2025. Appendix B 的 TPU v5p 规格、systolic array 的数据流和表 B-1。

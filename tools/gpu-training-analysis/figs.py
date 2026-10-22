@@ -852,7 +852,7 @@ def hw_smsp():
     for k in range(4):
         box(30 + k * 52.5, 210, 47, 22, "LD/ST", "--fig-mute", 22)
     box(250, 210, 104, 22, "⑥ SFU", "--fig-3", 45)
-    f.w('<text class="lab2" x="190" y="251" text-anchor="middle">↓ 4 个 SMSP 共享 128 KB L1 / shared memory（图 1-3）</text>')
+    f.w('<text class="lab2" x="190" y="251" text-anchor="middle">↓ 4 个 SMSP 共享 128 KB L1 / shared memory（图 1-1）</text>')
     notes = [("①", ["warp scheduler：每拍从驻留的", "warp 里挑一个就绪的；dispatch", "把它的一条指令发给 32 个 thread"]),
              ("②", ["register：按 thread 切给驻留的 thread，", "每个 thread 最多 255 个，只归自己用"]),
              ("③", ["CUDA core：一条加法、乘法或", "FMA，32 个 thread 各用一个；", "同一拍只能做 FP32 或 INT32"]),
@@ -865,6 +865,49 @@ def hw_smsp():
         for k, line in enumerate(lines):
             f.w(f'<text class="lab2" x="400" y="{y + k * 15}">{line}</text>')
         y += 15 * len(lines) + 8
+    return f
+
+def hw_cores():
+    f = F("fig-h-11", 312, "左：一条 FMA，每个 thread 用一个 CUDA core，从 register 读 a、b、c，先乘、乘积不舍入再加 c，最后舍入一次写回 d；warp 一条指令 64 FLOPs。右：一条 mma.m16n8k16，整个 warp 一起发，Tensor core 算 16×16 的 A 乘 16×8 的 B 再加 16×8 的 C；一条指令 4096 FLOPs")
+    for x, w in ((12, 304), (328, 300)):
+        f.w(f'<rect x="{x}" y="10" width="{w}" height="292" rx="12" {tint("--fig-1", 6, sw=1.4)}/>')
+    # 左：CUDA core 的 FMA
+    f.w('<text class="tb" x="28" y="34">CUDA core：一条 FMA，d = a × b + c</text>')
+    def reg(x, y, t):
+        f.w(f'<rect x="{x}" y="{y}" width="40" height="24" rx="4" {tint("--fig-hi", 16)}/>')
+        f.w(f'<text class="t" x="{x + 20}" y="{y + 17}" text-anchor="middle" font-style="italic">{t}</text>')
+    def op(cx, cy, t):
+        f.w(f'<circle cx="{cx}" cy="{cy}" r="16" class="op"/><text class="tb" x="{cx}" y="{cy + 5}" text-anchor="middle">{t}</text>')
+    reg(44, 50, "a"); reg(104, 50, "b"); reg(200, 50, "c")
+    op(94, 114, "×"); op(150, 164, "+")
+    f.arrow(64, 74, 84, 99, None, width=1.4); f.arrow(124, 74, 104, 99, None, width=1.4)
+    f.arrow(106, 125, 138, 152, None, width=1.4); f.arrow(220, 74, 162, 152, None, width=1.4)
+    f.w('<text class="s" x="58" y="150" text-anchor="middle">乘积不舍入</text>')
+    f.w(f'<rect x="110" y="196" width="80" height="22" rx="4" class="op"/><text class="s" x="150" y="211" text-anchor="middle">只舍入一次</text>')
+    f.arrow(150, 180, 150, 194, None, width=1.4); f.arrow(150, 218, 150, 230, None, width=1.4)
+    reg(130, 232, "d")
+    f.w('<text class="s" x="246" y="66">register</text>')
+    f.w('<text class="lab2" x="28" y="276">每个 thread 用一个 CUDA core，warp 32 个一起</text>')
+    f.w('<text class="lab" x="28" y="292">一条指令：32 × 2 = 64 FLOPs</text>')
+    # 右：Tensor core 的 mma
+    f.w('<text class="tb" x="344" y="34">Tensor core：一条 mma，D = A × B + C</text>')
+    def grid(x, y, cols, rows, var, pct):
+        c = 4
+        f.w(f'<rect x="{x}" y="{y}" width="{cols * c}" height="{rows * c}" {tint(var, pct, sw=1.2)}/>')
+        for i in range(1, cols): f.w(f'<line x1="{x + i * c}" y1="{y}" x2="{x + i * c}" y2="{y + rows * c}" stroke="currentColor" stroke-opacity=".1"/>')
+        for j in range(1, rows): f.w(f'<line x1="{x}" y1="{y + j * c}" x2="{x + cols * c}" y2="{y + j * c}" stroke="currentColor" stroke-opacity=".1"/>')
+    Y = 72
+    mats = [(350, 16, "A 16×16", "bf16", "--fig-2", 30), (436, 8, "B 16×8", "bf16", "--fig-2", 30),
+            (494, 8, "C 16×8", "fp32", "--fig-3", 45), (566, 8, "D 16×8", "fp32", "--fig-3", 45)]
+    for x, cols, l1, l2, var, pct in mats:
+        grid(x, Y, cols, 16, var, pct)
+        f.w(f'<text class="s" x="{x + cols * 2}" y="{Y + 82}" text-anchor="middle">{l1}</text><text class="s" x="{x + cols * 2}" y="{Y + 96}" text-anchor="middle">{l2}</text>')
+    f.w(f'<text class="tb" x="425" y="{Y + 37}" text-anchor="middle">×</text><text class="tb" x="481" y="{Y + 37}" text-anchor="middle">+</text>')
+    f.arrow(532, Y + 32, 560, Y + 32, None, width=1.4)
+    f.w('<text class="lab2" x="344" y="212">A、B、C 分散在 32 个 thread 的 register 里</text>')
+    f.w('<text class="lab2" x="344" y="230">输入 bf16 / fp16 / tf32 / fp8，fp32 累加</text>')
+    f.w('<text class="lab2" x="344" y="276">整个 warp 发一条（mma.m16n8k16）</text>')
+    f.w('<text class="lab" x="344" y="292">一条指令：2 × 16 × 8 × 16 = 4096 FLOPs</text>')
     return f
 
 # ── 3.6 节：matmul 的 BM、BN 扫描（mm_tile_sweep.json） ─────────────────────
@@ -2272,15 +2315,16 @@ def stages_sm():
     return f
 
 CAPS = {
- "hw_hierarchy": '<strong>图 1-2</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。',
+ "hw_hierarchy": '<strong>图 1-5</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。',
  "hw_move": '<strong>图 C-1</strong> 显存到 shared memory 的三种搬法走的路径。',
- "hw_sm": '<strong>图 1-3</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core 和 1 个 Tensor core，4 个 SMSP 共享 L1 / shared memory。普通的 load / store 由 SMSP 里的 LD/ST 单元按每个 thread 的地址发出，经 L1 / shared memory、片上互联到 L2。TMA 是专门整块搬数据的单元，和 LD/ST 走同一条路，见 Appendix C。',
+ "hw_sm": '<strong>图 1-1</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core 和 1 个 Tensor core，4 个 SMSP 共享 L1 / shared memory。普通的 load / store 由 SMSP 里的 LD/ST 单元按每个 thread 的地址发出，经 L1 / shared memory、片上互联到 L2。TMA 是专门整块搬数据的单元，和 LD/ST 走同一条路，见 Appendix C。',
  "residency": '<strong>图 3-2</strong> 第 2 节四个 kernel 的 program 怎么放上一个 SM（RTX 5090，形状同正文，每个 program 4 个 warp）。上面：第 2 节图里 grid 的一格是一个 program，也就是一个 CUDA block，放上 SM 时要占四样东西。下面每个 kernel 四根条，对应<a href="#tab-3-1">表 3-1</a> 的四条上限，条长是这条上限的总量；深色一格是一个实际放进去的 program 占的量，虚线框是只看这一条还能再放的，红框是先用完的那条，它决定了一个 SM 放几个。register 和 shared memory 读自编译出的 kernel；register 以 warp 为单位按 256 个分配，摊到每个 thread 是 8 的倍数，shared memory 按 128 B 取整。四条取最小的结果和 <code>cuOccupancyMaxActiveBlocksPerMultiprocessor</code> 算出的一致。softmax 和 row sum 的 16 B shared memory 用来让 4 个 warp 交换归约的部分结果。',
  "tile_res": '<strong>图 3-6</strong> 正文形状（A 4096 × 2048，B 2048 × 512，fp32）下最快的配置和正文用的配置，在一个 SM 上各用了多少。四根条对应<a href="#tab-3-1">表 3-1</a> 的四条上限，条长是这条上限的总量。',
  "tile_rules": '<strong>图 3-7</strong> 两个形状各扫 198 组配置（RTX 5090，fp32，<code>input_precision="ieee"</code>）。左：按每个 thread 存的 acc 个数（BM × BN / (32 × num_warps)）分组；右：按每个 SM 驻留的 warp 数分组。每组取最快的一个，纵轴是它比这个形状下整体最快的配置慢几倍；有 spill 的配置不算在内。悬停可看时间。',
  "warp_slots": '<strong>图 3-1</strong> 一个 SM 上驻留 3 个 program（P0、P1、P2，每个 4 个 warp）时的某一拍。每个 program 的 4 个 warp 分到 4 个 SMSP，格子里写的是这个 warp 属于哪个 program；每个 SMSP 有 12 个格子，整个 SM 共 48 个，就是<a href="#tab-3-1">表 3-1</a> 的 warp 名额。每个调度器每拍最多发射一个 warp，SMSP 2 的 3 个 warp 都在等数据，这一拍空转。',
- "hw_smsp": '<strong>图 1-4</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。',
- "cuda_model": '<strong>图 1-5</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；中间是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-3</a>；右边是这一层在 Triton 里怎么写。',
+ "hw_smsp": '<strong>图 1-2</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。',
+ "hw_cores": '<strong>图 1-3</strong> CUDA core 和 Tensor core 各算什么（示意）。左：一条 FMA，warp 的每个 thread 用一个 CUDA core 算 a × b + c，乘积不舍入，最后只舍入一次。右：一条 mma，以 bf16 的 m16n8k16 为例，整个 warp 一起发，同样一条指令，算的量是 FMA 的 64 倍。',
+ "cuda_model": '<strong>图 1-6</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；中间是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-1</a>；右边是这一层在 Triton 里怎么写。',
  "op_split": '<strong>图 2-1</strong> 四个例子的数据怎么分给 program。深蓝是 pid = 1 的 program 要读的数据，红色是它写回的输出；row sum 和 matmul 要循环，实心是第 0 轮读的 block，斜线是之后几轮要读的。matmul 那格一格是一个 block。每个例子的完整数据流图在后面各小节。',
  "mm_tiling": '<strong>图 7-1</strong> matmul 怎么切 block，一格是一个 block。C 的 block (1, 1) 只用到 A 的第 1 个 row block 和 B 的第 1 个 column block；沿 K 一轮读一对 block，乘完加到累加器上，实心是第 0 轮，斜线是之后几轮。A block 里的每个数被 C block 里同一行的 BN 个输出用到，B block 里的每个数被同一列的 BM 个输出用到。',
  "opt_divergence": '<strong>图 1-1</strong> control divergence（按 8 条 lane 画，实际一个 warp 32 条），代码是 <code>if (lane &lt; 4) { A; B } else { X; Y }; Z</code>。虚线是这一段被屏蔽、没在执行的 lane。上：Pascal 及以前一个 warp 只有一个程序计数器，分支两边串行执行。中：Volta 起每个 thread 有自己的程序计数器，两边的语句可以交替执行，调度器也不保证在 Z 合起来；但每一拍仍然只执行一条指令，空着的 lane 一样多。下：分支按 warp 一致时没有空着的 lane。上、中两层的画法参考 <a href="https://images.nvidia.com/content/volta-architecture/pdf/volta-architecture-whitepaper.pdf">Volta 白皮书</a> Figure 20、22 和 <a href="https://github.com/stanford-cs336/lectures/blob/main/lecture_05.pdf">CS336 lecture 5</a>。',
@@ -2302,7 +2346,7 @@ CAPS = {
  "mm_pipe_ncu": '<strong>图 3-4</strong> matmul kernel 一个 warp 的流水线（RTX 5090，fp32，A 4032 × 2048，504 个 program 一批跑完；Nsight Compute 实测，<code>--clock-control none</code>）。每轮的拍数 = 每条指令平均隔几拍 × 每轮的指令数，等数据的拍数 = 每条指令平均等 L2 / 显存几拍 × 每轮的指令数，都是 64 轮的平均值。load 的延迟没法直接测，按不预取时每轮等数据的拍数画。只画前 5 轮。',
  "occ_sweep": '<strong>图 2-5</strong> 驻留的 warp 数和速度（RTX 5090，256 MiB 的 fp32 数组，每个元素读 4 B、写 4 B，中间串 K 次相互依赖的 FMA，I = 2K / 8 FLOPs/B）。grid 正好是 170 × m 个 program、每个 4 个 warp，全部同时驻留，每个 SMSP 就是 m 个 warp。最快值：前三条是显存带宽 1.4e12 B/s，I = 128 是 8.5e13 FLOPS（fp32 峰值的 81%）。悬停可看数值。',
  "tile_sweep": '<strong>图 2-6</strong> row sum 的 TILE 和带宽（RTX 5090，fp32，两种形状都是 340 MiB，<code>num_warps=4</code>，每点取 8 次计时的最快值）。悬停可看耗时和每线程的 register 数。',
- "tpu_core": '<strong>图 B-1</strong> TPU v5p 一个 TensorCore 的结构示意，画法对应<a href="#fig-h-1">图 1-2</a>。规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>，原书也有一张 TensorCore 的结构图。',
+ "tpu_core": '<strong>图 B-1</strong> TPU v5p 一个 TensorCore 的结构示意，画法对应<a href="#fig-h-1">图 1-5</a>。规格来自 <a href="https://jax-ml.github.io/scaling-book/tpus/">How to Scale Your Model</a>，原书也有一张 TensorCore 的结构图。',
  "systolic": '<strong>图 B-2</strong> 乘加单元怎么拿到数据。左边是 GPU 的 CUDA core，右边是 TPU 的 MXU；x 按行错开一拍进入，y 是每列的输出。动画演示见 <a href="https://jax-ml.github.io/scaling-book/tpus/#appendix-b-how-does-a-systolic-array-work">How to Scale Your Model 的 Appendix B</a>。',
  "linear": '<strong>图 2-1</strong> 一个 Linear 的前向与反向：前向从左边往下，误差从右边传回；虚线是反向要从前向拿的东西。',
  "step_time": '<strong>图 2-2</strong> 一步训练里前向、反向、optimizer 的耗时占比（fp32，batch 4，seq 512），右侧是每步耗时和 MFU。',
@@ -2323,7 +2367,7 @@ CAPS = {
  "ckpt": '<strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。',
  "sweep": '<strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。',
 }
-OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_move", hw_move), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("residency", residency), ("tile_res", tile_res), ("tile_rules", tile_rules), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("wave_trace", wave_trace), ("op_split", op_split), ("mm_tiling", mm_tiling), ("opt_divergence", opt_divergence), ("opt_precision", opt_precision), ("opt_mx", opt_mx), ("opt_fusion", opt_fusion), ("opt_recompute", opt_recompute), ("opt_coalescing", opt_coalescing), ("opt_bank", opt_bank), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("mm_wave", mm_wave), ("mm_pipe_ncu", mm_pipe_ncu), ("pipe_slots", pipe_slots), ("stages_sm", stages_sm), ("tx_barrier", tx_barrier), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
+OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_move", hw_move), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("hw_cores", hw_cores), ("residency", residency), ("tile_res", tile_res), ("tile_rules", tile_rules), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("wave_trace", wave_trace), ("op_split", op_split), ("mm_tiling", mm_tiling), ("opt_divergence", opt_divergence), ("opt_precision", opt_precision), ("opt_mx", opt_mx), ("opt_fusion", opt_fusion), ("opt_recompute", opt_recompute), ("opt_coalescing", opt_coalescing), ("opt_bank", opt_bank), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("mm_wave", mm_wave), ("mm_pipe_ncu", mm_pipe_ncu), ("pipe_slots", pipe_slots), ("stages_sm", stages_sm), ("tx_barrier", tx_barrier), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
        ("flops_vs_time", flops_vs_time), ("share_vs_seq", share_vs_seq), ("peak_memory", peak_memory), ("peak_moment", peak_moment),
        ("rms_eager", rms_eager), ("rms_fused", rms_fused), ("attn_flow", attn_flow), ("layer_donut", layer_donut), ("timelines", timelines),
        ("bf16", bf16), ("ckpt", ckpt), ("sweep", sweep))}
