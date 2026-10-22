@@ -495,11 +495,15 @@ softmax 对 $S$ 的每一行单独做。取一行，记作 $s_1, \dots, s_{N_k}$
 
 ### 1.2 Online softmax {#online-softmax}
 
-记 $S = QK^\top/\sqrt d$。online softmax（Milakov 和 Gimelshein 2018）的核心是把一行的两段合并：两段各自的最大值和分母是 $(m_A, \ell_A)$、$(m_B, \ell_B)$，合起来是
+记 $S = QK^\top/\sqrt d$。online softmax（Milakov 和 Gimelshein 2018）的核心是把一行的两段合并。一段 A 的最大值和分母是
+
+<p align="center">$m_A = \max_{k \in A} s_k, \qquad \ell_A = \sum_{k \in A} e^{s_k - m_A}$</p>
+
+两段 A、B 合起来是
 
 <p align="center">$m = \max(m_A, m_B), \qquad \ell = \ell_A\, e^{m_A - m} + \ell_B\, e^{m_B - m}$</p>
 
-每读进一个 $K_j$，A 是前 $j-1$ 个 block，记作 $(m_{j-1}, \ell_{j-1})$；B 是第 $j$ 个 block；合并的结果记作 $(m_j, \ell_j)$，$m_0 = -\infty$，$\ell_0 = 0$。推导和证明见下面的 notes。
+每读进一个 $K_j$，A 是前 $j-1$ 个 block，记作 $(m_{j-1}, \ell_{j-1})$；B 是第 $j$ 个 block，$m_B = \mathrm{rowmax}(S_{ij})$，$\ell_B = \mathrm{rowsum}(e^{S_{ij} - m_B})$；合并的结果记作 $(m_j, \ell_j)$，$m_0 = -\infty$，$\ell_0 = 0$。推导和证明见下面的 notes。
 
 <details class="fold doc aside">
 <summary>第 1 到第 4 步：从 naive softmax 到 online softmax 和并行</summary>
