@@ -100,6 +100,6 @@ if __name__ == '__main__':
     s, n = re.subn(r'<figure id="fig-1-1">\n<svg.*?</svg>', lambda m: svg, s, count=1, flags=re.S)
     assert n == 1
     s = re.sub(r'(<figcaption><strong>图 1-1</strong>)(.*?)(</figcaption>)', lambda m: m.group(1) +
-        ' 两种看矩阵乘法的方式，箭头表示一个元素乘到哪里。格子换成 block 就是<a href="#fig-1-2">图 1-2</a>的两次乘法，'
-        '颜色也和图 1-2 一样：深蓝是读的，浅蓝是片上算的 $S$、$P$，红色是写回的输出；(a) 里的斜线是之后几轮才读的 $k_j$ 和它们算出的列，(b) 里的斜线是别的 program 负责的行。' + m.group(3), s, count=1, flags=re.S)
+
+        ' 两种看矩阵乘法的方式；格子换成 block 就是<a href="#fig-1-2">图 1-2</a>的两次乘法，配色也相同。' + m.group(3), s, count=1, flags=re.S)
     open(p, 'w').write(s)
