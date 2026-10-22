@@ -159,11 +159,56 @@ for k, (kind, txt) in enumerate([('read', '这一轮读的（j = 0）'), ('later
 T('s', 16, SY + SH + 40, '一个 Q block 一个 program：Q_{i} 读一次，沿 j 每轮读一对 K_{j}、V_{j}，S 和 P 都只在片上，最后写回 O_{i}。')
 T('s', 16, SY + SH + 55, 'softmax 按行做，一行正好落在一个 program 里，所以不需要和别的 program 通信。')
 
+# ===================== 中间：每个 program 干什么，以及部分 mask 的 block =====================
+Y1 = SY + SH + 84
+HB = 244
+w(f'<rect class="band" x="4" y="{Y1}" width="632" height="{HB}" rx="10"/>')
+T('tb', 16, Y1 + 22, '每个 program 干什么（causal，B_{q} = 2B_{k}）')
+T('s', 624, Y1 + 22, '一行一个 program，互相独立、并行', 'end', 'fill: var(--fig-hi)')
+def part(x, y, sz):
+    cell(x, y, sz, sz, 'chip')
+    w(f'<path d="M{x},{y} L{x + sz},{y} L{x + sz},{y + sz} Z" style="fill: color-mix(in srgb, var(--fig-mute) 45%, transparent)"/>')
+for i in range(TQ):
+    y = Y1 + 40 + i * 28
+    T('s', 16, y + 13, f'pid_m = {i}', 'start', 'opacity: 1; font-weight: 600' if i == I else '')
+    for j in range(TK):
+        x = 74 + j * 18
+        if j < 2 * i: cell(x, y, 16, 16, 'chip')
+        elif j < 2 * i + 2: part(x, y, 16)
+        else: cell(x, y, 16, 16, 'skip')
+    T('s', 74 + TK * 18 + 6, y + 13, f'算 {2 * i + 2} 块，j = {2 * i}、{2 * i + 1} 部分 mask')
+if True:
+    lx = 74
+    for k, (fn, txt) in enumerate([(lambda x, y: cell(x, y, 12, 12, 'chip'), '整块都算'), (lambda x, y: part(x, y, 12), '部分 mask'), (lambda x, y: cell(x, y, 12, 12, 'skip'), '整块跳过')]):
+        fn(lx + k * 90, Y1 + 156); T('s', lx + k * 90 + 18, Y1 + 166, txt)
+for k, t in enumerate(['越往下的 program 活越多：pid_m = 3 算 8 块，pid_m = 0 只算 2 块',
+                       '（FA4 用最长任务优先的调度来摊平）。',
+                       'program 里面 B_{q} 行分给 num_warps × 32 个 thread：每行的 m、ℓ',
+                       '各自更新，行之间不通信；哪个 thread 算哪些元素由编译器决定。']):
+    T('s', 16, Y1 + 188 + k * 15, t)
+# 放大 pid_m = 2 的两个部分 mask 的 block
+ZX, ZY, ZC = 454, Y1 + 50, 10
+for b, j in enumerate((2 * I, 2 * I + 1)):
+    x0 = ZX + b * 62
+    T('s', x0 + 20, ZY - 8, 'S_{' + f'{I},{j}' + '}', 'middle', 'opacity: 1; font-weight: 600')
+    for r in range(8):
+        for c in range(4):
+            keep = (c + 4 * (j - 2 * I)) <= r
+            st = 'fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)' if keep else 'fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)'
+            w(f'<rect x="{x0 + c * ZC}" y="{ZY + r * ZC}" width="{ZC - 1}" height="{ZC - 1}" rx="1" style="{st}" stroke-width=".8"/>')
+w(f'<path d="M{ZX + 62 + 42},{ZY} h4 v{4 * ZC - 1} h-4" fill="none" stroke="currentColor" stroke-opacity=".6"/>')
+T('s', ZX + 62 + 50, ZY + 17, '整行', 'start'); T('s', ZX + 62 + 50, ZY + 30, '都是 −∞', 'start')
+T('s', ZX - 6, ZY + 4, 'query', 'end'); T('s', ZX - 6, ZY + 16, '↓', 'end')
+T('s', ZX + 20, ZY + 8 * ZC + 13, 'key →', 'middle')
+T('s', ZX - 10, ZY + 8 * ZC + 30, '灰色：key > query，tl.where 设成 −∞，', 'start')
+T('s', ZX - 10, ZY + 8 * ZC + 44, 'exp2 以后是 0；整行 −∞ 的行这一轮', 'start')
+T('s', ZX - 10, ZY + 8 * ZC + 58, 'm 不变、α = 1、什么都不加', 'start')
+
 # ===================== 下半：一个 program 里面（同图 2-5） =====================
-Y0 = SY + SH + 84
+Y0 = Y1 + HB + 16
 T('ttl', 10, Y0 + 16, 'grid')
-T('ttl', 162, Y0 + 16, '一个 program（pid_m = 2，pid_bh = 0）')
-T('tb', 630, Y0 + 16, 'block 乘加 + online softmax', 'end', 'fill: var(--fig-hi)')
+T('ttl', 162, Y0 + 16, '一个 program（pid_m = 2）的 j = 4 这一轮')
+T('tb', 630, Y0 + 16, 'block 乘加 + softmax', 'end', 'fill: var(--fig-hi)')
 for r in range(TQ):
     for c in range(3):
         on = (r == I and c == 0)
@@ -190,14 +235,15 @@ def op(x, y, wd, a, b, hi=False):
     w(f'<rect class="op" x="{x}" y="{y}" width="{wd}" height="38" rx="6"{st}/>')
     T('tb', x + wd / 2, y + 16, a, 'middle'); T('s', x + wd / 2, y + 31, b, 'middle')
 oy = yC + 24
-op(214, oy, 74, 'dot', 'S = q·k^{ᵀ}')
-op(296, oy, 94, '① ② ③', 'max · exp2 · sum', True)
-op(398, oy, 92, 'dot  ④', 'α·acc + p̃·v')
-T('tb', 522, oy + 23, '⋯', 'middle')
+op(210, oy, 60, 'dot', 'S = q·k^{ᵀ}')
+op(276, oy, 66, 'mask', 'tl.where', True)
+op(348, oy, 84, '① ② ③', 'max·exp2·sum', True)
+op(438, oy, 76, 'dot  ④', 'α·acc + p̃·v')
+T('tb', 535, oy + 23, '⋯', 'middle')
 op(556, oy, 74, '÷ ℓ', '扫完以后一次')
-arrow(289, oy + 19, 294, oy + 19); arrow(391, oy + 19, 396, oy + 19)
-path(f'M{251},{oy - 2} V{yC + 14} H{444} V{oy - 2}', var='--fig-hi', head=False)
-T('s', 347, yC + 10, '第 j 轮（j = 0 … 5），每轮一样', 'middle', 'fill: var(--fig-hi); opacity: 1')
+arrow(271, oy + 19, 274, oy + 19); arrow(343, oy + 19, 346, oy + 19); arrow(433, oy + 19, 436, oy + 19)
+path(f'M{240},{oy - 2} V{yC + 14} H{476} V{oy - 2}', var='--fig-hi', head=False)
+T('s', 358, yC + 10, '第 j 轮；对角线上的 block 多一步 mask', 'middle', 'fill: var(--fig-hi); opacity: 1')
 T('s', 593, yC + 16, '循环结束后', 'middle')
 
 def bar(x, y, wd, txt, kind):
@@ -206,31 +252,32 @@ def bar(x, y, wd, txt, kind):
     w(f'<rect x="{x}" y="{y}" width="{wd}" height="22" rx="5" style="{st}" stroke-width="1.2"/>')
     T('s', x + wd / 2, y + 15, txt, 'middle', 'opacity: 1')
 r1, r2 = yR + 10, yR + 42
-bar(204, r1, 52, 'q', 'keep')
-bar(296, r1, 94, 's、p̃（用完就丢）', 'tmp')
-bar(420, r1, 70, 'acc', 'keep')
-bar(296, r2, 94, 'm、ℓ', 'keep')
-T('s', 230, r2 + 9, 'B_{q} × d', 'middle')
-T('s', 455, r2 + 9, 'B_{q} × d', 'middle')
-arrow(230, r1, 230, oy + 39)                       # q → dot
-arrow(330, oy + 39, 330, r1)                       # dot 出来的 s（经 softmax）
-arrow(360, r1, 360, oy + 39)
-arrow(346, r2, 346, r1 + 23) if False else None
-arrow(455, r1, 455, oy + 39); arrow(475, oy + 39, 475, r1)   # acc ↔ dot ④
-path(f'M{490},{r1 + 11} H{580} V{oy + 40}')        # acc → ÷ ℓ
-path(f'M{390},{r2 + 11} H{606} V{oy + 40}')        # ℓ → ÷ ℓ
+bar(196, r1, 56, 'q', 'keep')
+bar(262, r1, 188, 's、p̃（每轮重算，用完就丢）', 'tmp')
+bar(460, r1, 60, 'acc', 'keep')
+bar(330, r2, 120, 'm、ℓ（每行一个）', 'keep')
+T('s', 224, r2 + 9, 'B_{q} × d', 'middle')
+T('s', 490, r2 + 9, 'B_{q} × d', 'middle')
+arrow(224, r1, 224, oy + 39)                       # q → dot
+arrow(266, oy + 39, 266, r1)                       # dot → s
+arrow(320, r1, 320, oy + 39)                       # s → mask → softmax
+arrow(400, oy + 39, 400, r1)                       # softmax → p̃
+arrow(446, r1, 446, oy + 39)                       # p̃ → dot ④
+arrow(480, r1, 480, oy + 39); arrow(500, oy + 39, 500, r1)   # acc ↔ dot ④
+path(f'M{520},{r1 + 11} H{580} V{oy + 40}')        # acc → ÷ ℓ
+path(f'M{450},{r2 + 11} H{606} V{oy + 40}')        # ℓ → ÷ ℓ
 
 def blk(x, y, n):
     w(f'<rect x="{x}" y="{y}" width="44" height="40" rx="5" style="fill: var(--fig-1); stroke: var(--fig-1)"/>')
     T('tb', x + 22, y + 18, n + '_{j}', 'middle', 'fill: var(--fig-on-1)')
     T('s', x + 22, y + 32, 'B_{k}×d', 'middle', 'fill: var(--fig-on-1); opacity: .8')
 sy0 = yS + 11
-blk(248, sy0, 'K'); blk(386, sy0, 'V')
-arrow(270, sy0, 270, oy + 39)                      # K_j → dot S
-arrow(408, sy0, 408, oy + 39)                      # V_j → dot ④
-w(f'<rect x="450" y="{sy0}" width="120" height="40" rx="5" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-dasharray="4 3"/>')
-T('s', 510, sy0 + 17, 'K_{j+1}、V_{j+1} 正在搬', 'middle'); T('s', 510, sy0 + 31, 'num_stages = 2', 'middle')
-T('s', 300, sy0 + 17, '两个 slot', 'start'); T('s', 300, sy0 + 31, '轮流用', 'start')
+blk(236, sy0, 'K'); blk(433, sy0, 'V')
+arrow(258, sy0, 258, oy + 39)                      # K_j → dot S
+arrow(455, sy0, 455, oy + 39)                      # V_j → dot ④
+w(f'<rect x="490" y="{sy0}" width="108" height="40" rx="5" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-dasharray="4 3"/>')
+T('s', 544, sy0 + 17, 'K_{j+1}、V_{j+1} 正在搬', 'middle'); T('s', 544, sy0 + 31, 'num_stages = 2', 'middle')
+T('s', 296, sy0 + 17, '两个 slot 轮流用：', 'start'); T('s', 296, sy0 + 31, '算第 j 轮时 j + 1 在搬', 'start')
 
 def col(x, y, n, ch, cwid, kinds, name, sub):
     for k in range(n):
@@ -239,22 +286,22 @@ def col(x, y, n, ch, cwid, kinds, name, sub):
     T('s', x + cwid / 2, y + n * ch + 26, sub, 'middle')
 my = yM + 12
 kv = ['read'] + ['later'] * (NJ - 1) + ['skip'] * (TK - NJ)
-col(217, my, TQ, 14, 26, ['read' if i == I else 'mute' for i in range(TQ)], 'Q', 'N_{q} × d')
-col(257, my, TK, 7, 26, kv, 'K', 'N_{k} × d')
-col(395, my, TK, 7, 26, kv, 'V', 'N_{k} × d')
-col(593, my, TQ, 14, 26, ['write' if i == I else 'mute' for i in range(TQ)], 'O', 'N_{q} × d')
-arrow(230, my - 2, 230, r1 + 23)                   # Q_i → q（直接进 register）
-arrow(270, my - 2, 270, sy0 + 41)                  # K → slot
-arrow(408, my - 2, 408, sy0 + 41)                  # V → slot
-T('s', 292, my + 12, 'tl.load：', 'start')
-T('s', 292, my + 26, 'Q_{i} 只读一次，', 'start')
-T('s', 292, my + 40, 'K_{j}、V_{j} 每轮一对', 'start')
-T('s', 432, my + 12, 'S、P 不进显存；', 'start')
-T('s', 432, my + 26, '除了 O 只多存每行一个', 'start')
-T('s', 432, my + 40, 'logsumexp 给反向用', 'start')
-path(f'M{614},{oy + 40} V{my - 2}', var='--fig-hi')    # ÷ ℓ → O_i
+col(211, my, TQ, 14, 26, ['read' if i == I else 'mute' for i in range(TQ)], 'Q', '')
+col(245, my, TK, 7, 26, kv, 'K', '')
+col(442, my, TK, 7, 26, kv, 'V', '')
+col(604, my, TQ, 14, 26, ['write' if i == I else 'mute' for i in range(TQ)], 'O', '')
+arrow(224, my - 2, 224, r1 + 23)                   # Q_i → q（直接进 register）
+arrow(258, my - 2, 258, sy0 + 41)                  # K → slot
+arrow(455, my - 2, 455, sy0 + 41)                  # V → slot
+T('s', 282, my + 12, 'tl.load：', 'start')
+T('s', 282, my + 26, 'Q_{i} 只读一次，', 'start')
+T('s', 282, my + 40, 'K_{j}、V_{j} 每轮一对', 'start')
+T('s', 476, my + 12, 'S、P 不进显存；', 'start')
+T('s', 476, my + 26, '只多存每行一个', 'start')
+T('s', 476, my + 40, 'logsumexp 给反向', 'start')
+path(f'M{617},{oy + 40} V{my - 2}', var='--fig-hi')    # ÷ ℓ → O_i
 T('s', 610, sy0 + 17, 'tl.store', 'end', 'fill: var(--fig-hi); opacity: 1') if False else None
-T('s', 608, r2 + 32, 'tl.store 只写一次', 'end', 'fill: var(--fig-hi); opacity: 1')
+T('s', 611, r2 + 32, 'tl.store 只写一次', 'end', 'fill: var(--fig-hi); opacity: 1')
 
 # 底下的步骤
 yT = yM + 112 + 26
