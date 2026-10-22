@@ -868,7 +868,7 @@ def hw_smsp():
     return f
 
 def hw_cores():
-    f = F("fig-h-11", 312, "左：一条 FMA，每个 thread 用一个 CUDA core，从 register 读 a、b、c，先乘、乘积不舍入再加 c，最后舍入一次写回 d；warp 一条指令 64 FLOPs。右：一条 mma.m16n8k16，整个 warp 一起发，Tensor core 算 16×16 的 A 乘 16×8 的 B 再加 16×8 的 C；一条指令 4096 FLOPs")
+    f = F("fig-h-11", 476, "左：一条 FMA，每个 thread 用一个 CUDA core，从 register 读 a、b、c，先乘、乘积不舍入再加 c，最后舍入一次写回 d；warp 一条指令 64 FLOPs。右：一条 mma.m16n8k16，整个 warp 一起发，Tensor core 算 16×16 的 A 乘 16×8 的 B 再加 16×8 的 C；一条指令 4096 FLOPs。下：SFU 一条 MUFU.EX2，x 的高位查表取系数 C0、C1、C2，低位 Δ 代入 C0 + C1Δ + C2Δ² 得到 2 的 x 次方")
     for x, w in ((12, 304), (328, 300)):
         f.w(f'<rect x="{x}" y="10" width="{w}" height="292" rx="12" {tint("--fig-1", 6, sw=1.4)}/>')
     # 左：CUDA core 的 FMA
@@ -908,6 +908,20 @@ def hw_cores():
     f.w('<text class="lab2" x="344" y="230">输入 bf16 / fp16 / tf32 / fp8，fp32 累加</text>')
     f.w('<text class="lab2" x="344" y="276">整个 warp 发一条（mma.m16n8k16）</text>')
     f.w('<text class="lab" x="344" y="292">一条指令：2 × 16 × 8 × 16 = 4096 FLOPs</text>')
+    # 下：SFU
+    f.w(f'<rect x="12" y="314" width="616" height="156" rx="12" {tint("--fig-1", 6, sw=1.4)}/>')
+    f.w('<text class="tb" x="28" y="338">SFU：一条 MUFU.EX2，近似 2<tspan dy="-5" font-size="9">x</tspan></text>')
+    reg(28, 368, "x")
+    f.w(f'<rect x="104" y="356" width="104" height="50" rx="4" class="op"/><line x1="104" y1="381" x2="208" y2="381" stroke="currentColor" stroke-opacity=".45"/>')
+    f.w('<text class="s" x="156" y="373" text-anchor="middle">高位</text><text class="s" x="156" y="398" text-anchor="middle">低位 Δ</text>')
+    f.arrow(68, 380, 102, 380, None, width=1.4)
+    f.w(f'<rect x="248" y="350" width="112" height="26" rx="4" {tint("--fig-3", 45, stroke="--fig-2")}/><text class="s" x="304" y="367" text-anchor="middle">查表：C0、C1、C2</text>')
+    f.w(f'<rect x="398" y="368" width="140" height="30" rx="4" class="op"/><text class="s" x="468" y="387" text-anchor="middle">C0 + C1·Δ + C2·Δ²</text>')
+    f.arrow(208, 368, 246, 364, None, width=1.4); f.arrow(360, 366, 396, 378, None, width=1.4); f.arrow(208, 394, 396, 390, None, width=1.4)
+    f.arrow(538, 383, 562, 383, None, width=1.4)
+    f.w(f'<rect x="564" y="370" width="48" height="26" rx="4" {tint("--fig-hi", 16)}/><text class="t" x="588" y="388" text-anchor="middle">2<tspan dy="-5" font-size="9" font-style="italic">x</tspan></text>')
+    f.w('<text class="lab2" x="28" y="436">tl.exp(x) 编出来是两条：FMUL 算 x × log₂e（CUDA core），MUFU.EX2（SFU）</text>')
+    f.w('<text class="lab" x="28" y="456">每个 SM 每拍 16 个，FMA 是 128 个（实测吞吐比约 1 : 7）</text>')
     return f
 
 # ── 3.6 节：matmul 的 BM、BN 扫描（mm_tile_sweep.json） ─────────────────────
@@ -2323,7 +2337,7 @@ CAPS = {
  "tile_rules": '<strong>图 3-7</strong> 两个形状各扫 198 组配置（RTX 5090，fp32，<code>input_precision="ieee"</code>）。左：按每个 thread 存的 acc 个数（BM × BN / (32 × num_warps)）分组；右：按每个 SM 驻留的 warp 数分组。每组取最快的一个，纵轴是它比这个形状下整体最快的配置慢几倍；有 spill 的配置不算在内。悬停可看时间。',
  "warp_slots": '<strong>图 3-1</strong> 一个 SM 上驻留 3 个 program（P0、P1、P2，每个 4 个 warp）时的某一拍。每个 program 的 4 个 warp 分到 4 个 SMSP，格子里写的是这个 warp 属于哪个 program；每个 SMSP 有 12 个格子，整个 SM 共 48 个，就是<a href="#tab-3-1">表 3-1</a> 的 warp 名额。每个调度器每拍最多发射一个 warp，SMSP 2 的 3 个 warp 都在等数据，这一拍空转。',
  "hw_smsp": '<strong>图 1-2</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。',
- "hw_cores": '<strong>图 1-3</strong> CUDA core 和 Tensor core 各算什么（示意）。左：一条 FMA，warp 的每个 thread 用一个 CUDA core 算 a × b + c，乘积不舍入，最后只舍入一次。右：一条 mma，以 bf16 的 m16n8k16 为例，整个 warp 一起发，同样一条指令，算的量是 FMA 的 64 倍。',
+ "hw_cores": '<strong>图 1-3</strong> CUDA core、Tensor core 和 SFU 各算什么（示意）。左：一条 FMA，warp 的每个 thread 用一个 CUDA core 算 a × b + c，乘积不舍入，最后只舍入一次。右：一条 mma，以 bf16 的 m16n8k16 为例，整个 warp 一起发，同样一条指令，算的量是 FMA 的 64 倍。下：SFU 用查表加二次插值近似 exp2、rcp、rsqrt、sin 这类函数（Oberman, Siu 2005），SASS 读自 5090 上编译出的 kernel，吞吐比是实测。',
  "cuda_model": '<strong>图 1-6</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；中间是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-1</a>；右边是这一层在 Triton 里怎么写。',
  "op_split": '<strong>图 2-1</strong> 四个例子的数据怎么分给 program。深蓝是 pid = 1 的 program 要读的数据，红色是它写回的输出；row sum 和 matmul 要循环，实心是第 0 轮读的 block，斜线是之后几轮要读的。matmul 那格一格是一个 block。每个例子的完整数据流图在后面各小节。',
  "mm_tiling": '<strong>图 7-1</strong> matmul 怎么切 block，一格是一个 block。C 的 block (1, 1) 只用到 A 的第 1 个 row block 和 B 的第 1 个 column block；沿 K 一轮读一对 block，乘完加到累加器上，实心是第 0 轮，斜线是之后几轮。A block 里的每个数被 C block 里同一行的 BN 个输出用到，B block 里的每个数被同一列的 BM 个输出用到。',

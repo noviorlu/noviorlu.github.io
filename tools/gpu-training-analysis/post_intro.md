@@ -63,14 +63,15 @@ series_order: 1
 
 {{fig-h-9}}
 
-SMSP 里有两种计算单元（[图 1-3](#fig-h-11)）：
+SMSP 里有三种计算单元（[图 1-3](#fig-h-11)）：
 
 - **CUDA core** 一次算一个数。主力指令是 FMA（fused multiply-add）：$d = a \times b + c$，乘加一条指令做完、只舍入一次。warp 的 32 个 thread 各用一个 CUDA core，全卡 170 × 128 个，fp32 峰值 1.05e14 FLOPS。
 - **Tensor core** 一次算一小块矩阵乘加，一条指令由整个 warp 一起发。只吃 bf16、fp16、tf32、fp8 这类低精度输入，bf16 峰值 2.1e14 FLOPS（fp32 累加），fp8 更高。
+- **SFU** 算 exp、rsqrt、sin 这类函数：查表加二次插值，吞吐是 FMA 的 1/8。`tl.exp` 编出来是 CUDA core 上的一条乘法加 SFU 上的一条 ex2。
 
 {{fig-h-11}}
 
-`tl.dot` 默认走 Tensor core，其余加减乘除走 CUDA core，exp 这类函数走 SFU。
+`tl.dot` 默认走 Tensor core，其余加减乘除走 CUDA core。
 
 SMSP 里另一块要紧的是 register file。每个 SMSP 有 16384 个 32-bit register（64 KB），一个 SM 共 65536 个。每个 thread 用几个 register 在编译时就定了，最多 255 个；block 放上 SM 时，它的每个 thread 从所在 SMSP 的 register file 里分到这么多个，只归自己读写，block 跑完才还回去。所以每个 thread 用的 register 越多，一个 SM 能同时放的 thread 越少，[3.1 节](#sched-warp)会算这笔账。
 
@@ -517,3 +518,4 @@ ld.global 和 cp.async 的区别是数据进不进 register；cp.async 和 TMA �
 14. Milakov, Gimelshein. [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867). arXiv:1805.02867, 2018. 第 2.3 节提到的 online softmax。
 15. [triton.autotune](https://triton-lang.org/main/python-api/generated/triton.autotune.html) 和 [triton.Config](https://triton-lang.org/main/python-api/generated/triton.Config.html)（Triton API 文档）。3.4 节的参数。
 16. NVIDIA. [PTX ISA: cp.async](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async) 和 [cp.async.bulk.tensor](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async-bulk-tensor)。Appendix C 里 cp.async、wait_group 和 TMA、mbarrier 指令的语义。
+17. Oberman, Siu. [A High-Performance Area-Efficient Multifunction Interpolator](https://doi.org/10.1109/ARITH.2005.7). ARITH 2005. SFU 的查表加二次插值，图 1-3。
