@@ -122,7 +122,97 @@ series_order: 1
 
 显存到 shared memory 有三种搬法，差别在经不经过 register、谁来算地址（[图 1-3](#fig-h-10)）。
 
-{{fig-h-10}}
+<figure id="fig-h-10" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 374" width="100%" role="img" aria-label="显存到 shared memory 的三种搬法。路径：ld.global 加 st.shared 经过 L2、L1、register；cp.async.ca 经过 L2、L1，不经过 register；cp.async.cg 和 TMA 只经过 L2。时间线：ld.global 的数据要先落进 register 再 st.shared，register 一直被占着；cp.async 发出后不占 register，等 wait_group 后 bar.sync 就能用">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <defs><marker id="fig-h-10-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
+  <text class="tb" x="8" y="20">路径</text>
+  <text class="lab2" x="190" y="38" text-anchor="middle">显存</text>
+  <text class="lab2" x="280" y="38" text-anchor="middle">L2</text>
+  <text class="lab2" x="370" y="38" text-anchor="middle">L1</text>
+  <text class="lab2" x="460" y="38" text-anchor="middle">register</text>
+  <text class="lab2" x="568" y="38" text-anchor="middle">shared memory</text>
+  <text class="lab" x="8" y="61">ld.global + st.shared</text><text class="s" x="8" y="75">每个 thread 自己的地址</text>
+  <rect x="155.0" y="50" width="70" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 14%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="245.0" y="50" width="70" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <rect x="335.0" y="50" width="70" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <rect x="425.0" y="50" width="70" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <rect x="518.0" y="50" width="100" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <line x1="227.0" y1="62.0" x2="243.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-10-m0)"/>
+  <line x1="317.0" y1="62.0" x2="333.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-10-m0)"/>
+  <line x1="407.0" y1="62.0" x2="423.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-10-m0)"/>
+  <line x1="497.0" y1="62.0" x2="516.0" y2="62.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-10-m0)"/>
+  <text class="lab" x="8" y="97">cp.async.ca</text><text class="s" x="8" y="111">每个 thread 4 / 8 / 16 B</text>
+  <rect x="155.0" y="86" width="70" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 14%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="245.0" y="86" width="70" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <rect x="335.0" y="86" width="70" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <rect x="518.0" y="86" width="100" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <line x1="227.0" y1="98.0" x2="243.0" y2="98.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-10-m0)"/>
+  <line x1="317.0" y1="98.0" x2="333.0" y2="98.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-10-m0)"/>
+  <line x1="407.0" y1="98.0" x2="516.0" y2="98.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-10-m0)"/>
+  <text class="lab" x="8" y="133">cp.async.cg</text><text class="s" x="8" y="147">同上，不在 L1 留</text>
+  <rect x="155.0" y="122" width="70" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 14%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="245.0" y="122" width="70" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <rect x="518.0" y="122" width="100" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <line x1="227.0" y1="134.0" x2="243.0" y2="134.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-10-m0)"/>
+  <line x1="317.0" y1="134.0" x2="516.0" y2="134.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-10-m0)"/>
+  <text class="lab" x="8" y="169">TMA</text><text class="s" x="8" y="183">1 个 thread 发，整块搬</text>
+  <rect x="155.0" y="158" width="70" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 14%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="245.0" y="158" width="70" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <rect x="518.0" y="158" width="100" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <line x1="227.0" y1="170.0" x2="243.0" y2="170.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-10-m0)"/>
+  <line x1="317.0" y1="170.0" x2="516.0" y2="170.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-10-m0)"/>
+  <text class="tb" x="8" y="220">一个 thread 的时间线（示意）</text>
+  <text class="lab" x="8" y="254">ld.global</text><text class="lab" x="8" y="270">+ st.shared</text>
+  <rect x="140" y="240" width="70" height="20" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.7"/>
+  <text class="s" x="175.0" y="254.0" text-anchor="middle">ld.global</text>
+  <rect x="210" y="240" width="120" height="20" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
+  <text class="s" x="270.0" y="254.0" text-anchor="middle">别的活</text>
+  <rect x="330" y="240" width="80" height="20" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
+  <text class="s" x="370.0" y="254.0" text-anchor="middle">等数据</text>
+  <rect x="410" y="240" width="70" height="20" rx="2" style="fill: var(--fig-2)" fill-opacity="0.55"/>
+  <text class="s" x="445.0" y="254.0" text-anchor="middle">st.shared</text>
+  <rect x="480" y="240" width="65" height="20" rx="2" style="fill: var(--fig-mute)" fill-opacity="0.5"/>
+  <text class="s" x="512.5" y="254.0" text-anchor="middle">bar.sync</text>
+  <rect x="545" y="240" width="83" height="20" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
+  <text class="s" x="586.5" y="254.0" text-anchor="middle">用数据</text>
+  <rect x="140" y="264" width="340" height="16" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.2"/>
+  <text class="s" x="310.0" y="276.0" text-anchor="middle">register 一直被占着</text>
+  <text class="lab" x="8" y="320">cp.async</text>
+  <rect x="140" y="306" width="70" height="20" rx="2" style="fill: var(--fig-hi)" fill-opacity="0.7"/>
+  <text class="s" x="175.0" y="320.0" text-anchor="middle">cp.async</text>
+  <rect x="210" y="306" width="120" height="20" rx="2" style="fill: var(--fig-3)" fill-opacity="0.9"/>
+  <text class="s" x="270.0" y="320.0" text-anchor="middle">别的活</text>
+  <rect x="330" y="306" width="80" height="20" rx="2" style="fill: none; stroke: var(--fig-hi)" stroke-dasharray="3 2"/>
+  <text class="s" x="370.0" y="320.0" text-anchor="middle">wait_group</text>
+  <rect x="410" y="306" width="65" height="20" rx="2" style="fill: var(--fig-mute)" fill-opacity="0.5"/>
+  <text class="s" x="442.5" y="320.0" text-anchor="middle">bar.sync</text>
+  <rect x="475" y="306" width="83" height="20" rx="2" style="fill: var(--fig-1)" fill-opacity="0.6"/>
+  <text class="s" x="516.5" y="320.0" text-anchor="middle">用数据</text>
+  <text class="s" x="144" y="342">不占 register，数据直接进 shared memory</text>
+  <line x1="210" y1="302" x2="210" y2="330" stroke="currentColor" stroke-width="1.6"/><text class="s" x="214" y="300">commit_group</text>
+  <line x1="410" y1="230" x2="410" y2="350" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="4 3"/><text class="s" x="414" y="234">数据到</text>
+</svg>
+<figcaption><strong>图 1-3</strong> 显存到 shared memory 的三种搬法（示意）。cp.async 是 Ampere 起的 PTX 指令，几条打成一组（<code>commit_group</code>），<code>wait_group N</code> 等到最多剩 N 组在路上；TMA 见 <a href="#tma">Appendix C</a>。ld.global 想提前几轮搬，就得多占几轮 register；cp.async 只多占 shared memory。</figcaption>
+</figure>
 
 Triton 代码里只有 `tl.load` 和 `tl.store`，走[表 1-1](#tab-1-1)的哪一行由编译器决定：[第 2 节](#triton)的 GELU、softmax、row sum 都是显存和 register 之间直接读写；matmul 的 A、B 要经过 shared memory，编出来用的是 cp.async（[3.3 节](#stages)）；用 tensor descriptor 写的 load 才会用 TMA（[Appendix C](#tma)）。
 
