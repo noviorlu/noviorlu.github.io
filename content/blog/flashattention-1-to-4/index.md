@@ -686,93 +686,13 @@ $j = N$ 时就是 safe softmax 的分母。
 
 </details>
 
-<details class="fold doc aside">
-<summary>对应的 Triton kernel（前向）</summary>
-
-按 [图 1-2](#fig-1-2) 一一对应：grid 是 `(cdiv(N_q, BLOCK_M), batch × head)`，`tl.program_id(0)` 就是 $i$，`tl.program_id(1)` 是第几个 (batch, head)；`BLOCK_M`、`BLOCK_N` 就是 $B_q$、$B_k$。一个 program 把 $Q_i$ 读进来，在 `for` 循环里走 $j$，循环体就是图里的 mask 和 ①–⑤。
-
-```python
-@triton.jit
-def attn_fwd(Q, K, V, O, L, sm_scale, N_q, N_k,
-             stride_qh, stride_qm, stride_kh, stride_kn,
-             stride_vh, stride_vn, stride_oh, stride_om,
-             HEAD_DIM: tl.constexpr, BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr,
-             IS_CAUSAL: tl.constexpr):
-    pid_i = tl.program_id(0)                  # i：这个 program 负责第几个 Q block
-    pid_bh = tl.program_id(1)                 # 第几个 (batch, head)
-    offs_m = pid_i * BLOCK_M + tl.arange(0, BLOCK_M)   # Q_i 的 B_q 行
-    offs_n = tl.arange(0, BLOCK_N)
-    offs_d = tl.arange(0, HEAD_DIM)
-
-    # Q_i：整个 j 循环里一直留在片上
-    q = tl.load(Q + pid_bh * stride_qh + offs_m[:, None] * stride_qm + offs_d[None, :],
-                mask=offs_m[:, None] < N_q, other=0.0)
-    m = tl.full([BLOCK_M], float("-inf"), tl.float32)   # 每行的 m
-    l = tl.zeros([BLOCK_M], tl.float32)                 # 每行的 ℓ
-    acc = tl.zeros([BLOCK_M, HEAD_DIM], tl.float32)     # O_i，还没除以 ℓ
-    qk_scale = sm_scale * 1.44269504                    # 乘 log2(e)，下面用 exp2
-
-    hi = tl.minimum(N_k, (pid_i + 1) * BLOCK_M) if IS_CAUSAL else N_k  # causal：右上整块跳过
-    for start_n in range(0, hi, BLOCK_N):               # j 循环，在 program 里串行
-        offs_kv = start_n + offs_n
-        k = tl.load(K + pid_bh * stride_kh + offs_kv[None, :] * stride_kn + offs_d[:, None],
-                    mask=offs_kv[None, :] < N_k, other=0.0)          # K_jᵀ：d × B_k
-        s = tl.dot(q, k) * qk_scale                                  # S_ij：B_q × B_k
-        s = tl.where(offs_kv[None, :] < N_k, s, float("-inf"))
-        if IS_CAUSAL:                                                # 对角线上的 block 在块内 mask
-            s = tl.where(offs_m[:, None] >= offs_kv[None, :], s, float("-inf"))
-        m_new = tl.maximum(m, tl.max(s, 1))                          # ①
-        p = tl.exp2(s - m_new[:, None])                              # ② P̃_ij
-        l = l * tl.exp2(m - m_new) + tl.sum(p, 1)                    # ③
-        v = tl.load(V + pid_bh * stride_vh + offs_kv[:, None] * stride_vn + offs_d[None, :],
-                    mask=offs_kv[:, None] < N_k, other=0.0)          # V_j：B_k × d
-        acc = acc * tl.exp2(m - m_new)[:, None] + tl.dot(p.to(v.dtype), v)  # ④
-        m = m_new                                                    # ⑤
-
-    acc = acc / l[:, None]                                           # 最后除一次 ℓ
-    tl.store(O + pid_bh * stride_oh + offs_m[:, None] * stride_om + offs_d[None, :],
-             acc.to(O.dtype.element_ty), mask=offs_m[:, None] < N_q)
-    tl.store(L + pid_bh * N_q + offs_m, m + tl.log2(l), mask=offs_m < N_q)  # 给反向用，以 2 为底
-
-def flash_attn(q, k, v, causal=False, BLOCK_M=64, BLOCK_N=32):
-    # q、k、v：(B, H, N, d)，contiguous
-    B, H, N_q, d = q.shape
-    N_k = k.shape[2]
-    o = torch.empty_like(q)
-    L = torch.empty((B * H, N_q), device=q.device, dtype=torch.float32)
-    grid = (triton.cdiv(N_q, BLOCK_M), B * H)        # 一个 program = 一个 (i, batch·head)
-    attn_fwd[grid](q, k, v, o, L, d ** -0.5, N_q, N_k,
-                   q.stride(1), q.stride(2), k.stride(1), k.stride(2),
-                   v.stride(1), v.stride(2), o.stride(1), o.stride(2),
-                   HEAD_DIM=d, BLOCK_M=BLOCK_M, BLOCK_N=BLOCK_N, IS_CAUSAL=causal,
-                   num_warps=4, num_stages=2)        # warp 怎么分由编译器决定
-    return o
-```
-
-几点说明：
-
-- 用 `exp2` 代替 `exp`：先把 scale 乘上 $\log_2 e$，$2^{x\log_2 e} = e^x$，结果不变，`exp2` 在 GPU 上更便宜。因此存下的 `L` 是以 2 为底的 logsumexp。
-- causal 时 `hi` 让循环在对角线所在的 block 处停下，右上整块不算；对角线穿过的 block 用 `tl.where` 在块内 mask。这里为了简单，每个 block 都做了 `tl.where`，Triton 官方教程把对角线 block 单独拿出来处理，省掉其余 block 的这一步。causal 这里假设 $N_q = N_k$。
-- `q`、`k`、`v` 假设是 contiguous 的 `(B, H, N, d)`，所以 `pid_bh * stride_h` 能同时跨过 batch 和 head；最后一维的 stride 假设是 1。
-- 这段代码用 `TRITON_INTERPRET=1` 在 CPU 上和 `torch.nn.functional.scaled_dot_product_attention` 对过，causal 和非 causal、$N$ 不是 block 整数倍的情况，最大误差都在 $10^{-6}$ 以下；没有在 GPU 上测过性能。
-
-</details>
-
 修正以后每一项都等于按最终最大值算的值，所以结果是精确的，只差浮点加法的顺序；额外的显存只有每行的 $m$、$\ell$，是 $O(N)$。
 
 前向不存 $P$，反向却要用到它，这是下一小节的事。
 
 ### 1.3 反向的 recomputation {#fa1-recompute}
 
-attention 的反向一般要再用一次 $P$。为此存下完整的 $N\times N$ 矩阵，就把刚省下的显存又花回去了。FlashAttention 只存 $O$ 和每行的统计量 $(m, \ell)$，反向时在片上把需要的 $S_{ij}$、$P_{ij}$ block 重新算出来。这是用少量额外的 matmul 计算换显存和显存读写的大幅减少，被省掉的存储正好在慢的那一层，这时重算比存下来划算（[单卡 GPU 优化方法第 3 节](/blog/gpu-single-gpu-optimization/#recompute)）。
-
-论文的复杂度结论：标准 attention 要 $\Theta(Nd+N^2)$ 次 HBM 访问，FlashAttention 要 $\Theta(N^2d^2M^{-1})$，$M$ 是 SRAM 的大小。常见的 $d$（64–128）和 $M$（100KB 左右）下，$d^2$ 比 $M$ 小几倍到十几倍（$M$ 按 fp16 约 5 万个元素，$d=128$ 时 $d^2=16384$，小约 3 倍；$d=64$ 时小约 12 倍），所以 FlashAttention 的 HBM 访问也少同样的倍数（论文原文说「many times」，按它自己给的数其实只有这么多）；$M=\Theta(d^2)$ 时两者才一样。论文给的下界有意取得很弱：不存在一个精确算法，能对 $[d, Nd]$ 里的**每一个** $M$ 都做到 $o(N^2d^2M^{-1})$ 次访问。实际的效果是算得更多（反向要重算 score tile）、搬得少得多。
-
-显存随 $N$ 线性增长而不是平方增长，序列越长省得越多，算的仍然是**精确**的 softmax，当时的稀疏 attention 和低秩 attention 都做不到这一点。
-
-*RTX 5090 实测待补：标准 attention 和 FlashAttention 的计算量、显存读写量和耗时（前向加反向），以及不同序列长度下的显存。*
-
-FA1 解决了 HBM 的读写，但 kernel 本身离 Tensor core 的峰值还很远，差距出在 kernel 怎么用 GPU 上，这是 FlashAttention-2 要解决的。
+*待补。*
 
 ## 2 FlashAttention-2：让 GPU 忙起来 {#fa2}
 
