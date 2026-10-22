@@ -139,7 +139,7 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 问题出在两次乘法中间的 softmax。实际要算的是 $O = PV$，$P = \mathrm{softmax}(S)$ 按行归一化，$P$ 的每个元素都要除以它所在那一行全部元素的指数和。这一行有 $N_k$ 个元素，分在 $T_k$ 个 block 里。读到第 $j$ 个 block 时后面的 block 还没算，分母不知道，$P_{ij}$ 就算不出来，$P_{ij}V_j$ 也没法加进 $O_i$。最直接的办法是先扫一遍所有 $K_j$ 求每行的最大值，再扫一遍求分母，最后再扫一遍算 $P_{ij}V_j$，$K$ 要多读两遍；即使用 1.2 的递推把最大值和分母合成一遍，也还要多读一遍。FlashAttention 用 online softmax 把 softmax 也拆成一个 block 一个 block 地算，$K_j$、$V_j$ 都只读一遍，完整的 $S$ 和 $P$ 都不写回 HBM（[图 1-2](#fig-1-2)）。图里的 $\exp(S-m_{\text{new}})$ 和每行的 $m$、$\ell$ 是 1.2 要讲的。
 
 <figure id="fig-1-2">
-<svg viewBox="0 0 680 716" width="100%" role="img" aria-label="Tiling：Q 按 B_q 行切成 block，K 和 V 按 B_k 行切成 block。Kᵀ 画在 score 矩阵上面，第 j 个 block 对着 S 的第 j 列；V 画在 S 右边，O 画在 V 右边。Q_i 乘 K_j 转置得到 score tile S_ij；S 的第 i 个 block 行乘 V 得到 O_i，其中 S_ij 乘 V 的第 j 个 block 行 V_j，加进 O_i。S 右上方被 causal mask 盖住的 block 整块跳过，softmax 沿 S 的每一行做。内层循环 j 走过每个 K/V block，外层循环 i 走过每个 Q block">
+<svg viewBox="0 0 680 754" width="100%" role="img" aria-label="Tiling：Q 按 B_q 行切成 block，K 和 V 按 B_k 行切成 block。Kᵀ 画在 score 矩阵上面，第 j 个 block 对着 S 的第 j 列；V 画在 S 右边，O 画在 V 右边。Q_i 乘 K_j 转置得到 score tile S_ij；S 的第 i 个 block 行乘 V 得到 O_i，其中 S_ij 乘 V 的第 j 个 block 行 V_j，加进 O_i。S 右上方被 causal mask 盖住的 block 整块跳过，softmax 沿 S 的每一行做。内层循环 j 走过每个 K/V block，外层循环 i 走过每个 Q block">
   <style>
     .os2 { font-size: 11px; fill: currentColor; }
     .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
@@ -296,9 +296,12 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 <line x1="214" y1="34" x2="446" y2="34" stroke="currentColor" stroke-opacity=".45" stroke-width="1.4" marker-end="url(#tl-a)"/>
 <text class="os2" x="330.0" y="26" text-anchor="middle">内层循环：j = 1 … T<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5">，走过每个 K/V block</tspan></text>
 <line x1="116" y1="116" x2="116" y2="288" stroke="currentColor" stroke-opacity=".45" stroke-width="1.4" marker-end="url(#tl-a)"/>
-<text class="os2" transform="translate(108 202.0) rotate(-90)" text-anchor="middle">外层循环：i = 1 … T<tspan dy="3.5" font-size="72%">q</tspan></text>
+<text class="os2" text-anchor="middle" transform="translate(108 202.0) rotate(-90)">grid：i = 1 … T<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> 并行</tspan></text>
+<text class="os2-s" x="160" y="310" text-anchor="middle">Q<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 这一条</tspan></text>
+<text class="os2-s" x="160" y="324" text-anchor="middle">= 一个 program</text>
+<text class="os2-s" x="160" y="338" text-anchor="middle">tl.program_id(0) = i</text>
 <line x1="8" y1="370" x2="672" y2="370" stroke="currentColor" stroke-opacity=".15"/>
-<text class="os2-b" x="8" y="390" text-anchor="start">内层循环的一轮（都在片上）</text>
+<text class="os2-b" x="8" y="390" text-anchor="start">一个 program（thread block）里内层循环的一轮（都在片上）</text>
 <rect x="40" y="414" width="56" height="40" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/>
 <line x1="54.0" y1="414" x2="54.0" y2="454" stroke="currentColor" stroke-opacity=".18"/>
 <line x1="68.0" y1="414" x2="68.0" y2="454" stroke="currentColor" stroke-opacity=".18"/>
@@ -330,8 +333,8 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 <text class="os2-b" x="424.0" y="438" text-anchor="middle" style="fill: var(--fig-on-3)">V<tspan dy="3.5" font-size="72%">j</tspan></text>
 <text class="os2" x="424.0" y="480" text-anchor="middle">B<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> × d</tspan></text>
 <line x1="456" y1="434" x2="552" y2="434" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#tl-a)"/>
-<text class="os2-s" x="504" y="410" text-anchor="middle">④ 先乘 e<tspan dy="-5" font-size="72%">m−m</tspan><tspan dy="3" font-size="58%">new</tspan></text>
-<text class="os2-s" x="504" y="426" text-anchor="middle">再加进</text>
+<text class="os2-s" x="510" y="410" text-anchor="middle">④ 先乘 e<tspan dy="-5" font-size="72%">m−m</tspan><tspan dy="3" font-size="58%">new</tspan></text>
+<text class="os2-s" x="510" y="426" text-anchor="middle">再加进</text>
 <rect x="560" y="414" width="56" height="40" style="fill: var(--fig-3); stroke: var(--fig-1)" stroke-opacity=".5"/>
 <line x1="574.0" y1="414" x2="574.0" y2="454" stroke="currentColor" stroke-opacity=".18"/>
 <line x1="588.0" y1="414" x2="588.0" y2="454" stroke="currentColor" stroke-opacity=".18"/>
@@ -346,6 +349,26 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 <text class="os2-s" x="635" y="467" text-anchor="middle">①⑤</text>
 <text class="os2-s" x="659" y="467" text-anchor="middle">③</text>
 <text class="os2" x="647" y="480" text-anchor="middle">B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> × 1</tspan></text>
+<line x1="40" y1="424" x2="96" y2="424" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="40" y1="434" x2="96" y2="434" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="40" y1="444" x2="96" y2="444" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="184" y1="424" x2="224" y2="424" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="184" y1="434" x2="224" y2="434" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="184" y1="444" x2="224" y2="444" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="332" y1="424" x2="372" y2="424" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="332" y1="434" x2="372" y2="434" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="332" y1="444" x2="372" y2="444" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="560" y1="424" x2="616" y2="424" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="560" y1="434" x2="616" y2="434" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="560" y1="444" x2="616" y2="444" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="628" y1="428.5" x2="642" y2="428.5" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="628" y1="437" x2="642" y2="437" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="628" y1="445.5" x2="642" y2="445.5" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="652" y1="428.5" x2="666" y2="428.5" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="652" y1="437" x2="666" y2="437" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<line x1="652" y1="445.5" x2="666" y2="445.5" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="2 2"/>
+<text class="os2-s" x="68" y="404" text-anchor="middle">按行分给 4 个 warp</text>
+<text class="os2-s" x="424" y="404" text-anchor="middle">4 个 warp 共用</text>
 <path d="M40,488 v4 H160 v-4" fill="none" style="stroke: var(--fig-hi)" stroke-opacity=".8"/>
 <text class="os2 os2-hi" x="100.0" y="506" text-anchor="middle">GEMM：Q<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> K</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">ᵀ</tspan></text>
 <path d="M332,488 v4 H452 v-4" fill="none" style="stroke: var(--fig-hi)" stroke-opacity=".8"/>
@@ -364,9 +387,11 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 <text class="os2" x="40" y="652" text-anchor="start">扫完 j = T<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5">：O</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> ← O</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> / ℓ</tspan></text>
 <text class="os2-s" x="300" y="652" text-anchor="start">只在最后除一次分母，写回 HBM</text>
 <text class="os2-s" x="40" y="688" text-anchor="start">Q<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5">、O</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 和每行的 m、ℓ 在整个内层循环里一直留在片上；K</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">、V</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> 每一轮从 HBM 读一个新的</tspan></text>
-<text class="os2-s" x="40" y="706" text-anchor="start">每个 batch、每个 head 各有一份 Q、K、V，各算一遍；FA2 里每个（Q block，batch × head）是一个 thread block</text>
+<text class="os2-s" x="40" y="706" text-anchor="start">grid 共 T<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> ×（batch × head）个 program，一个 program 就是一个 thread block，彼此独立、并行执行</tspan></text>
+<text class="os2-s" x="40" y="724" text-anchor="start">块内按行把 Q<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 分给 4 个 warp（虚线，split-Q，见第 2 节），S、P̃、O</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5">、m、ℓ 的行跟着分；K</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">、V</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> 在 shared memory 里共用</tspan></text>
+<text class="os2-s" x="40" y="742" text-anchor="start">Triton 里看不到 warp：写的是整个 block 的 tl.dot，由编译器按 num_warps 把行分给各个 warp</text>
 </svg>
-<figcaption><strong>图 1-2</strong> FlashAttention 的 tiling，按 FA2 的循环顺序画，和论文的 Figure 1 是同一件事。上半是各个 tile 在整个矩阵里的位置：$S$ 的第 $i$ 个 block 行乘 $V$ 得到 $O_i$，和 [图 1-1](#fig-1-1) (b) 一样，$S_{ij}$ 乘的是 $V$ 的第 $j$ 个 block 行。softmax 沿 $S$ 的每一行做，也就是内层循环走的方向；causal attention 里对角线右上方的 block 全被 mask，内层循环直接跳过，对角线穿过的 block 在块内 mask。下半是内层循环一轮里各个 tile 的形状，两次乘法都是 GEMM；①–⑤ 是 online softmax 在这一轮里做的更新，$\tilde P_{ij}$ 是还没除以分母的 $P_{ij}$，为什么这样算是对的见 [1.2 节](#online-softmax)。</figcaption>
+<figcaption><strong>图 1-2</strong> FlashAttention 的 tiling，按 FA2 的循环顺序画，和论文的 Figure 1 是同一件事。上半是各个 tile 在整个矩阵里的位置：$S$ 的第 $i$ 个 block 行乘 $V$ 得到 $O_i$，和 [图 1-1](#fig-1-1) (b) 一样，$S_{ij}$ 乘的是 $V$ 的第 $j$ 个 block 行。softmax 沿 $S$ 的每一行做，也就是内层循环走的方向；causal attention 里对角线右上方的 block 全被 mask，内层循环直接跳过，对角线穿过的 block 在块内 mask。左边的 $i$ 不是循环而是 grid 的一维：每个 $(i,\ \text{batch}\times\text{head})$ 是一个 program，即一个 thread block，互相独立地并行跑，内层对 $j$ 的循环在 program 里面串行走。下半是一个 program 内层循环一轮里各个 tile 的形状，虚线是块内各个 warp 分到的行，两次乘法都是 GEMM；①–⑤ 是 online softmax 在这一轮里做的更新，$\tilde P_{ij}$ 是还没除以分母的 $P_{ij}$，为什么这样算是对的见 [1.2 节](#online-softmax)。</figcaption>
 </figure>
 
 ### 1.2 Online softmax {#online-softmax}
@@ -664,6 +689,79 @@ for i ← 1 … T_q:                           # 每个 query block
 ```
 
 严格说，这是 FlashAttention-2 采用的循环顺序。FA1 论文的 Algorithm 1 是反过来套的：外层循环走 $K$/$V$ block，内层循环走 $Q$ block，所以内层的每一步都要从 HBM 读出 $O_i$、$\ell_i$、$m_i$，更新后再写回去，而且每一步都用 $\mathrm{diag}(\ell_i)^{-1}$ 把 $O_i$ 归一化一次。后面的 IO 复杂度对两种顺序都成立；换循环顺序是 FA2 的改动之一（[第 2 节](#fa2)）。
+
+<details class="fold doc aside">
+<summary>对应的 Triton kernel（前向）</summary>
+
+按 [图 1-2](#fig-1-2) 一一对应：grid 是 `(cdiv(N_q, BLOCK_M), batch × head)`，`tl.program_id(0)` 就是 $i$，`tl.program_id(1)` 是第几个 (batch, head)；`BLOCK_M`、`BLOCK_N` 就是 $B_q$、$B_k$。一个 program 把 $Q_i$ 读进来，在 `for` 循环里走 $j$，循环体就是图里的 ①–⑤。Triton 写的是整个 block 的 `tl.dot`，看不到 warp，块内怎么把行分给 `num_warps` 个 warp 由编译器决定。
+
+```python
+@triton.jit
+def attn_fwd(Q, K, V, O, L, sm_scale, N_q, N_k,
+             stride_qh, stride_qm, stride_kh, stride_kn,
+             stride_vh, stride_vn, stride_oh, stride_om,
+             HEAD_DIM: tl.constexpr, BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr,
+             IS_CAUSAL: tl.constexpr):
+    pid_m = tl.program_id(0)                  # i：这个 program 负责第几个 Q block
+    pid_bh = tl.program_id(1)                 # 第几个 (batch, head)
+    offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)   # Q_i 的 B_q 行
+    offs_n = tl.arange(0, BLOCK_N)
+    offs_d = tl.arange(0, HEAD_DIM)
+
+    # Q_i：整个 j 循环里一直留在片上
+    q = tl.load(Q + pid_bh * stride_qh + offs_m[:, None] * stride_qm + offs_d[None, :],
+                mask=offs_m[:, None] < N_q, other=0.0)
+    m = tl.full([BLOCK_M], float("-inf"), tl.float32)   # 每行的 m
+    l = tl.zeros([BLOCK_M], tl.float32)                 # 每行的 ℓ
+    acc = tl.zeros([BLOCK_M, HEAD_DIM], tl.float32)     # O_i，还没除以 ℓ
+    qk_scale = sm_scale * 1.44269504                    # 乘 log2(e)，下面用 exp2
+
+    hi = tl.minimum(N_k, (pid_m + 1) * BLOCK_M) if IS_CAUSAL else N_k  # causal：右上整块跳过
+    for start_n in range(0, hi, BLOCK_N):               # j 循环，在 program 里串行
+        offs_kv = start_n + offs_n
+        k = tl.load(K + pid_bh * stride_kh + offs_kv[None, :] * stride_kn + offs_d[:, None],
+                    mask=offs_kv[None, :] < N_k, other=0.0)          # K_jᵀ：d × B_k
+        s = tl.dot(q, k) * qk_scale                                  # S_ij：B_q × B_k
+        s = tl.where(offs_kv[None, :] < N_k, s, float("-inf"))
+        if IS_CAUSAL:                                                # 对角线上的 block 在块内 mask
+            s = tl.where(offs_m[:, None] >= offs_kv[None, :], s, float("-inf"))
+        m_new = tl.maximum(m, tl.max(s, 1))                          # ①
+        p = tl.exp2(s - m_new[:, None])                              # ② P̃_ij
+        alpha = tl.exp2(m - m_new)                                   # e^(m − m_new)
+        l = l * alpha + tl.sum(p, 1)                                 # ③
+        v = tl.load(V + pid_bh * stride_vh + offs_kv[:, None] * stride_vn + offs_d[None, :],
+                    mask=offs_kv[:, None] < N_k, other=0.0)          # V_j：B_k × d
+        acc = acc * alpha[:, None] + tl.dot(p.to(v.dtype), v)        # ④
+        m = m_new                                                    # ⑤
+
+    acc = acc / l[:, None]                                           # 最后除一次 ℓ
+    tl.store(O + pid_bh * stride_oh + offs_m[:, None] * stride_om + offs_d[None, :],
+             acc.to(O.dtype.element_ty), mask=offs_m[:, None] < N_q)
+    tl.store(L + pid_bh * N_q + offs_m, m + tl.log2(l), mask=offs_m < N_q)  # 给反向用，以 2 为底
+
+def flash_attn(q, k, v, causal=False, BLOCK_M=64, BLOCK_N=32):
+    # q、k、v：(B, H, N, d)，contiguous
+    B, H, N_q, d = q.shape
+    N_k = k.shape[2]
+    o = torch.empty_like(q)
+    L = torch.empty((B * H, N_q), device=q.device, dtype=torch.float32)
+    grid = (triton.cdiv(N_q, BLOCK_M), B * H)        # 一个 program = 一个 (i, batch·head)
+    attn_fwd[grid](q, k, v, o, L, d ** -0.5, N_q, N_k,
+                   q.stride(1), q.stride(2), k.stride(1), k.stride(2),
+                   v.stride(1), v.stride(2), o.stride(1), o.stride(2),
+                   HEAD_DIM=d, BLOCK_M=BLOCK_M, BLOCK_N=BLOCK_N, IS_CAUSAL=causal,
+                   num_warps=4, num_stages=2)        # warp 怎么分由编译器决定
+    return o
+```
+
+几点说明：
+
+- 用 `exp2` 代替 `exp`：先把 scale 乘上 $\log_2 e$，$2^{x\log_2 e} = e^x$，结果不变，`exp2` 在 GPU 上更便宜。因此存下的 `L` 是以 2 为底的 logsumexp。
+- causal 时 `hi` 让循环在对角线所在的 block 处停下，右上整块不算；对角线穿过的 block 用 `tl.where` 在块内 mask。这里为了简单，每个 block 都做了 `tl.where`，Triton 官方教程把对角线 block 单独拿出来处理，省掉其余 block 的这一步。causal 这里假设 $N_q = N_k$。
+- `q`、`k`、`v` 假设是 contiguous 的 `(B, H, N, d)`，所以 `pid_bh * stride_h` 能同时跨过 batch 和 head；最后一维的 stride 假设是 1。
+- 这段代码用 `TRITON_INTERPRET=1` 在 CPU 上和 `torch.nn.functional.scaled_dot_product_attention` 对过，causal 和非 causal、$N$ 不是 block 整数倍的情况，最大误差都在 $10^{-6}$ 以下；没有在 GPU 上测过性能。
+
+</details>
 
 修正以后每一项都等于按最终最大值算的值，所以结果是精确的，只差浮点加法的顺序；额外的显存只有每行的 $m$、$\ell$，是 $O(N)$。
 
