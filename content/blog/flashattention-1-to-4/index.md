@@ -72,31 +72,31 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 <rect x="104" y="120" width="24" height="24" rx="1.5" style="fill: url(#fig-1-1-hatch); stroke: var(--fig-1)" stroke-width="1"/>
 <text class="os2" x="116" y="136" text-anchor="middle">k<tspan dy="3.5" font-size="72%">2</tspan></text>
 <path d="M116,120 C116,69 25,69 25,95" fill="none" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#fig-1-1-ar)"/>
-<rect x="236" y="96" width="24" height="24" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="236" y="96" width="24" height="24" rx="1.5" style="fill: url(#fig-1-1-hatch2); stroke: var(--fig-2)" stroke-width="1"/>
 <text class="os2" x="248" y="112" text-anchor="middle">s<tspan dy="3.5" font-size="72%">12</tspan></text>
-<rect x="236" y="120" width="24" height="24" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="236" y="120" width="24" height="24" rx="1.5" style="fill: url(#fig-1-1-hatch2); stroke: var(--fig-2)" stroke-width="1"/>
 <text class="os2" x="248" y="136" text-anchor="middle">s<tspan dy="3.5" font-size="72%">22</tspan></text>
-<rect x="236" y="144" width="24" height="24" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="236" y="144" width="24" height="24" rx="1.5" style="fill: url(#fig-1-1-hatch2); stroke: var(--fig-2)" stroke-width="1"/>
 <text class="os2" x="248" y="160" text-anchor="middle">s<tspan dy="3.5" font-size="72%">32</tspan></text>
 <text class="os2" x="248" y="88" text-anchor="middle">k<tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5">q</tspan></text>
 <rect x="128" y="120" width="24" height="24" rx="1.5" style="fill: url(#fig-1-1-hatch); stroke: var(--fig-1)" stroke-width="1"/>
 <text class="os2" x="140" y="136" text-anchor="middle">k<tspan dy="3.5" font-size="72%">3</tspan></text>
 <path d="M140,120 C140,58 31,58 31,95" fill="none" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#fig-1-1-ar)"/>
-<rect x="260" y="96" width="24" height="24" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="260" y="96" width="24" height="24" rx="1.5" style="fill: url(#fig-1-1-hatch2); stroke: var(--fig-2)" stroke-width="1"/>
 <text class="os2" x="272" y="112" text-anchor="middle">s<tspan dy="3.5" font-size="72%">13</tspan></text>
-<rect x="260" y="120" width="24" height="24" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="260" y="120" width="24" height="24" rx="1.5" style="fill: url(#fig-1-1-hatch2); stroke: var(--fig-2)" stroke-width="1"/>
 <text class="os2" x="272" y="136" text-anchor="middle">s<tspan dy="3.5" font-size="72%">23</tspan></text>
-<rect x="260" y="144" width="24" height="24" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="260" y="144" width="24" height="24" rx="1.5" style="fill: url(#fig-1-1-hatch2); stroke: var(--fig-2)" stroke-width="1"/>
 <text class="os2" x="272" y="160" text-anchor="middle">s<tspan dy="3.5" font-size="72%">33</tspan></text>
 <text class="os2" x="272" y="88" text-anchor="middle">k<tspan dy="3.5" font-size="72%">3</tspan><tspan dy="-3.5">q</tspan></text>
 <rect x="152" y="120" width="24" height="24" rx="1.5" style="fill: url(#fig-1-1-hatch); stroke: var(--fig-1)" stroke-width="1"/>
 <text class="os2" x="164" y="136" text-anchor="middle">k<tspan dy="3.5" font-size="72%">4</tspan></text>
 <path d="M164,120 C164,47 37,47 37,95" fill="none" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#fig-1-1-ar)"/>
-<rect x="284" y="96" width="24" height="24" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="284" y="96" width="24" height="24" rx="1.5" style="fill: url(#fig-1-1-hatch2); stroke: var(--fig-2)" stroke-width="1"/>
 <text class="os2" x="296" y="112" text-anchor="middle">s<tspan dy="3.5" font-size="72%">14</tspan></text>
-<rect x="284" y="120" width="24" height="24" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="284" y="120" width="24" height="24" rx="1.5" style="fill: url(#fig-1-1-hatch2); stroke: var(--fig-2)" stroke-width="1"/>
 <text class="os2" x="296" y="136" text-anchor="middle">s<tspan dy="3.5" font-size="72%">24</tspan></text>
-<rect x="284" y="144" width="24" height="24" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="284" y="144" width="24" height="24" rx="1.5" style="fill: url(#fig-1-1-hatch2); stroke: var(--fig-2)" stroke-width="1"/>
 <text class="os2" x="296" y="160" text-anchor="middle">s<tspan dy="3.5" font-size="72%">34</tspan></text>
 <text class="os2" x="296" y="88" text-anchor="middle">k<tspan dy="3.5" font-size="72%">4</tspan><tspan dy="-3.5">q</tspan></text>
 <text class="os2-b" x="194" y="137" text-anchor="middle">=</text>
@@ -160,7 +160,7 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 <text class="os2-s" x="584" y="204" text-anchor="middle">3 × 1</text>
 <text class="os2-b" x="330" y="240" text-anchor="start">o = v<tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5"> · P</tspan><tspan dy="3.5" font-size="72%">:,1</tspan><tspan dy="-3.5"> + v</tspan><tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5"> · P</tspan><tspan dy="3.5" font-size="72%">:,2</tspan><tspan dy="-3.5"> + v</tspan><tspan dy="3.5" font-size="72%">3</tspan><tspan dy="-3.5"> · P</tspan><tspan dy="3.5" font-size="72%">:,3</tspan><tspan dy="-3.5"> + v</tspan><tspan dy="3.5" font-size="72%">4</tspan><tspan dy="-3.5"> · P</tspan><tspan dy="3.5" font-size="72%">:,4</tspan></text>
 </svg>
-<figcaption><strong>图 1-1</strong> 两种看矩阵乘法的方式，箭头表示一个元素乘到哪里。格子换成 block 就是<a href="#fig-1-2">图 1-2</a>的两次乘法，颜色也和图 1-2 一样：深蓝是读的，浅蓝是片上算的 $S$、$P$，红色是写回的输出；(a) 里的斜线是之后几轮才读的 $k_j$，(b) 里的斜线是别的 program 负责的行。</figcaption>
+<figcaption><strong>图 1-1</strong> 两种看矩阵乘法的方式，箭头表示一个元素乘到哪里。格子换成 block 就是<a href="#fig-1-2">图 1-2</a>的两次乘法，颜色也和图 1-2 一样：深蓝是读的，浅蓝是片上算的 $S$、$P$，红色是写回的输出；(a) 里的斜线是之后几轮才读的 $k_j$ 和它们算出的列，(b) 里的斜线是别的 program 负责的行。</figcaption>
 </figure>
 
 softmax 对 $S$ 的每一行单独做。取一行，记作 $x_1, \dots, x_{N_k}$，$x_k$ 是这个 query 和第 $k$ 个 key 的 score：
@@ -455,15 +455,15 @@ softmax 对 $S$ 的每一行单独做。取一行，记作 $x_1, \dots, x_{N_k}$
   <rect x="109" y="816" width="26" height="12.5" rx="1" style="fill: color-mix(in srgb, var(--fig-1) 32%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
   <rect x="109" y="830" width="26" height="12.5" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 10%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
   <text class="s" x="122" y="857" text-anchor="middle" style="opacity: 1; font-weight: 600">Q</text>
-  <rect x="153" y="788" width="26" height="5.5" rx="1" style="fill: color-mix(in srgb, var(--fig-1) 32%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="153" y="795" width="26" height="5.5" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="153" y="802" width="26" height="5.5" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="153" y="809" width="26" height="5.5" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="153" y="816" width="26" height="5.5" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="153" y="823" width="26" height="5.5" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
-  <rect x="153" y="830" width="26" height="5.5" rx="1" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-  <rect x="153" y="837" width="26" height="5.5" rx="1" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-  <text class="s" x="166" y="857" text-anchor="middle" style="opacity: 1; font-weight: 600">K</text>
+  <rect x="160.5" y="788" width="10" height="26" rx="1" style="fill: color-mix(in srgb, var(--fig-1) 32%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="171.5" y="788" width="10" height="26" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="182.5" y="788" width="10" height="26" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="193.5" y="788" width="10" height="26" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="204.5" y="788" width="10" height="26" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="215.5" y="788" width="10" height="26" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="226.5" y="788" width="10" height="26" rx="1" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <rect x="237.5" y="788" width="10" height="26" rx="1" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <text class="s" x="204.5" y="857" text-anchor="middle" style="opacity: 1; font-weight: 600">K<tspan dy="-5" font-size="72%">ᵀ</tspan></text>
   <rect x="413" y="788" width="26" height="5.5" rx="1" style="fill: color-mix(in srgb, var(--fig-1) 32%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
   <rect x="413" y="795" width="26" height="5.5" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
   <rect x="413" y="802" width="26" height="5.5" rx="1" style="fill: url(#fig-1-2-hatch); stroke: var(--fig-1)" stroke-width="1"/>
