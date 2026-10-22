@@ -1568,7 +1568,7 @@ $\mathcal{J}_T$ 是第 $T$ 个 block 的 TILE 个列下标（TILE = 1024）。�
   <line x1="608.0" y1="130.0" x2="608.0" y2="253.0" style="stroke: var(--fig-1)" stroke-width="1.6" marker-end="url(#fig-t-3-m1)"/>
   <text class="s" x="604.0" y="152.0" text-anchor="end" style="fill: var(--fig-1)">tl.store</text>
 </svg>
-<figcaption><strong>图 2-4</strong> row sum kernel（4096 × 4096，fp32），画法同<a href="#fig-t-1">图 2-2</a>。图里 TILE = 4，一行 16 个数分 4 个 block，代码里 TILE = 1024。颜色由淡到浓是 for 循环读 block 的顺序：第 0 轮后 acc 只有 block 0 的数，最后的 acc 是 4 个 block 逐位相加 [7, 8, 4, 6]，铺满整条渐变；中间两轮用 ⋯ 省略，最后 <code>tl.sum</code> 加成 25 写回。</figcaption>
+<figcaption><strong>图 2-4</strong> row sum：program 沿行一块一块读，逐位加到 acc 上，最后 <code>tl.sum</code> 加成一个数（图里 TILE = 4，代码里 1024）。</figcaption>
 </figure>
 
 `acc` 是长度为 TILE 的向量：循环里每个 thread 只加自己的几个位置，不用通信；循环完再用 `tl.sum` 做一次跨 thread 归约。
