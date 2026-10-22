@@ -120,6 +120,8 @@ T('s', SX + NJ * CW / 2, KY - 14, 'j = 0 … 5', 'middle')
 for i in range(TQ):
     cell(QX, SY + i * RH, DW, RH - 2, 'read' if i == I else 'mute')
 T('tb', QX + DW / 2, SY - 20, 'Q', 'middle')
+arrow(24, SY, 24, SY + SH - 2)                                   # 竖着：i = 0 … 3，每个 i 一个 program
+T('s', 0, 0, 'i = 0 … 3', 'middle', '', f' transform="translate(16 {SY + SH / 2}) rotate(-90)"')
 T('s', QX + DW / 2, SY - 7, 'N_{q} × d', 'middle')
 T('s', QX - 6, SY + I * RH + RH / 2 + 4, 'pid_m = 2', 'end', 'fill: var(--fig-1); opacity: 1; font-weight: 600')
 # S：虚线框，只在片上

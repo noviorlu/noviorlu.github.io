@@ -203,6 +203,8 @@ softmax 对 $S$ 的每一行单独做。取一行，记作 $x_1, \dots, x_{N_k}$
   <rect x="82" y="204" width="44" height="42" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 32%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
   <rect x="82" y="248" width="44" height="42" rx="1.5" style="fill: color-mix(in srgb, var(--fig-mute) 10%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
   <text class="tb" x="104" y="96" text-anchor="middle">Q</text>
+  <line x1="24" y1="116" x2="24" y2="290" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-2-m0)"/>
+  <text class="s" x="0" y="0" text-anchor="middle" transform="translate(16 204.0) rotate(-90)">i = 0 … 3</text>
   <text class="s" x="104" y="109" text-anchor="middle">N<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> × d</tspan></text>
   <text class="s" x="76" y="230" text-anchor="end" style="fill: var(--fig-1); opacity: 1; font-weight: 600">pid_m = 2</text>
   <rect x="147" y="113" width="180" height="180" rx="4" fill="none" stroke="currentColor" stroke-opacity=".4" stroke-dasharray="4 3"/>
