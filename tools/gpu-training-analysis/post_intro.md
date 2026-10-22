@@ -10,7 +10,12 @@ series: ["GPU training optimization"]
 series_order: 1
 ---
 
-这个系列讲怎么让 Transformer 训练在 GPU 上跑得更快。这一篇先打基础：[第 1 节](#hardware)介绍 GPU 的硬件，包括数据存在哪几层、一个 SM 里有什么、CUDA 的执行层级怎么对应到硬件、数据能在哪几层之间搬；[第 2 节](#triton)用四个例子介绍 Triton，后面两篇的 kernel 都用它写。[第 3 节](#tune)看写好的 kernel 在 SM 上怎么跑、怎么调：warp 怎么藏住访存延迟，一个 SM 放几个 program，program 怎么分批，`num_warps`、`num_stages` 和 block 的大小各改变了什么。几代 NVIDIA GPU 的规格对比放在 [Appendix A](#specs)，TPU 和 GPU 的对照放在 [Appendix B](#tpu)，TMA 和异步同步放在 [Appendix C](#tma)。
+这个系列讲怎么让 Transformer 训练在 GPU 上跑得更快，这一篇打基础：
+
+- **[第 1 节](#hardware) GPU 硬件**：存储层级、SM 结构、CUDA 执行层级
+- **[第 2 节](#triton) Triton 入门**：四个例子，后面的 kernel 都用它写
+- **[第 3 节](#tune) 调度与调参**：warp 藏延迟、一个 SM 放几个 program、分批，`num_warps` / `num_stages` / block 大小
+- **Appendix**：[A](#specs) 几代 GPU 规格，[B](#tpu) TPU 对照，[C](#tma) TMA 与异步同步
 
 下一篇[单卡 GPU 优化方法](/blog/gpu-single-gpu-optimization/)把单卡上常用的优化方法放在一起，第三篇[谁偷走了 5090 的算力和显存](/blog/gpu-training-analysis/)用这些知识在 RTX 5090 上拆解一步训练的时间和显存，第四篇 [FlashAttention 1–4](/blog/flashattention-1-to-4/) 讲 attention 的 IO-aware kernel。
 
@@ -20,7 +25,7 @@ series_order: 1
 
 ## 1 GPU 硬件 {#hardware}
 
-做性能分析时最常用的两个数是峰值算力和显存带宽，一个 kernel 受哪个限制，取决于它要搬多少数据、在哪一层读写。这一节先看数据存在哪几层、能在哪几层之间搬（[1.1](#hw-memory)）和 SM 里有什么（[1.2](#hw-sm)），再看 CUDA 的 thread、warp、block 怎么落到这些硬件上（[1.3](#hw-model)）。
+一个 kernel 受算力还是显存带宽限制，取决于它要搬多少数据、在哪一层读写。
 
 ### 1.1 存储层级 {#hw-memory}
 
