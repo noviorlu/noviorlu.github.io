@@ -42,7 +42,7 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 
 ### 1.1 Tiling {#fa1-tiling}
 
-把 $Q$ 按行切成 $B_q$ 行一个的 block $Q_i$，$i = 1, \dots, T_q$，$T_q = N_q/B_q$；$K$、$V$ 按行切成 $B_k$ 行一个的 block $K_j$、$V_j$，$j = 1, \dots, T_k$，$T_k = N_k/B_k$；$d$ 方向不切。block 小到 $Q_i$、$K_j$、$V_j$、$O_i$ 能一起放进片上的 SRAM（即 shared memory）。attention 的两次乘法分别对应 [图 1-1](#fig-1-1) 的两种看法，只要把图里的每个格子看成一个 block：$Q$ 是竖着排的 $T_q$ 个 block，$K^\top$ 是横着排的 $T_k$ 个 block，$S = QK^\top$ 就是 (a) 的外积：$q_i$ 换成 $Q_i$，$k_j$ 换成 $K_j^\top$，$s_{ij}$ 就是 $S_{ij} = Q_iK_j^\top$，原来是两个数相乘，现在是两个 block 做一次 matmul。$O = PV$ 对应 (b)：$P$ 的格子 $P_{ij}$ 换成 block $P_{ij}$，$v_j$ 换成 block $V_j$，$o_i$ 就是 $O_i = \sum_{j=1}^{T_k} P_{ij}V_j$，(b) 里的每个加号是一个 key block 的贡献。$P_{ij}$ 和 $V_j$ 对应同一个 key block，所以 $V$ 和 $K$ 按同一个下标切。后面 online softmax 修正 $O_i$ 靠的也是 (b)：$P$ 的第 $i$ 行全乘同一个数，$o_i$ 也乘同一个数。为了简洁，这一节省略缩放因子 $1/\sqrt d$，记 $S = QK^\top$；[1.2 节](#online-softmax)起把它并进 $S$。
+把 $Q$ 按 $B_q$ 行切成 $T_q$ 个 block $Q_i$，$K$、$V$ 按 $B_k$ 行切成 $T_k$ 个 block $K_j$、$V_j$（$d$ 方向不切），[图 1-1](#fig-1-1) 的格子换成 block，$S_{ij} = Q_iK_j^\top$ 就是 (a) 的外积，$O_i = \sum_j P_{ij}V_j$ 就是 (b) 的列组合。
 
 <figure id="fig-1-1">
 <svg viewBox="0 0 680 276" width="100%" role="img" aria-label="(a) 列向量 q 乘行向量 k 转置等于 3 乘 4 的矩阵 S，箭头从 k 的每个元素 k_j 指向 q，S 的第 j 列等于 k_j 乘 q。(b) 3 乘 4 的矩阵 P 乘 4 乘 1 的列向量 v 等于 3 乘 1 的列向量 o，箭头从 v 的每个元素 v_j 指向 P 的第 j 列，o 等于 v_j 乘 P 第 j 列之和。格子换成 block 就是图 1-2：(a) 是 S_ij = Q_i K_j 转置，(b) 是 O_i 等于 P_ij V_j 之和。颜色和图 1-2 一样。">
@@ -165,9 +165,11 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 <figcaption><strong>图 1-1</strong> 两种看矩阵乘法的方式，箭头表示一个元素乘到哪里。格子换成 block 就是<a href="#fig-1-2">图 1-2</a>的两次乘法，颜色也和图 1-2 一样：深蓝是第 1 轮读的，斜线是之后几轮读的，浅蓝是片上算的 $S$、$P$，红色是写回的输出。</figcaption>
 </figure>
 
-如果 attention 只有两次乘法，$O = (QK^\top)V$，tiling 可以直接用。$O_i = \sum_{j=1}^{T_k} S_{ij}V_j$，$S_{ij} = Q_iK_j^\top$：固定 $i$，每从 HBM 读进一对 $K_j$、$V_j$，在片上算出 $S_{ij}$，乘 $V_j$ 加进 $O_i$，$S_{ij}$ 用完就丢。片上始终只有一个 $B_q\times B_k$ 的 score tile，完整的 $S$ 不进 HBM。tiling 为什么能少读显存，在[单卡 GPU 优化方法](/blog/gpu-single-gpu-optimization/#tiling)里按 matmul 算过一遍。
+softmax 对 $S$ 的每一行单独做。取一行，记作 $x_1, \dots, x_{N_k}$，$x_k$ 是这个 query 和第 $k$ 个 key 的 score：
 
-问题出在两次乘法中间的 softmax。实际要算的是 $O = PV$，$P = \mathrm{softmax}(S)$ 按行归一化，$P$ 的每个元素都要除以它所在那一行全部元素的指数和。这一行有 $N_k$ 个元素，分在 $T_k$ 个 block 里。读到第 $j$ 个 block 时后面的 block 还没算，分母不知道，$P_{ij}$ 就算不出来，$P_{ij}V_j$ 也没法加进 $O_i$。最直接的办法是先扫一遍所有 $K_j$ 求每行的最大值，再扫一遍求分母，最后再扫一遍算 $P_{ij}V_j$，$K$ 要多读两遍；即使用 1.2 的递推把最大值和分母合成一遍，也还要多读一遍。FlashAttention 用 online softmax 把 softmax 也拆成一个 block 一个 block 地算，$K_j$、$V_j$ 都只读一遍，完整的 $S$ 和 $P$ 都不写回 HBM（[图 1-2](#fig-1-2)）。图里的 ①–⑤ 和每行的 $m$、$\ell$ 是 1.2 要讲的。
+<p align="center">$p_k = \dfrac{e^{x_k}}{\sum_{k'=1}^{N_k} e^{x_{k'}}}$</p>
+
+问题出在两次乘法中间的这个 softmax：实际要算的是 $O = PV$，而分母要把 $T_k$ 个 block 全部加起来。读到第 $j$ 个 block 时后面的 block 还没算，分母不知道，$P_{ij}$ 就算不出来，$P_{ij}V_j$ 也没法加进 $O_i$。最直接的办法是先扫一遍所有 $K_j$ 求每行的最大值，再扫一遍求分母，最后再扫一遍算 $P_{ij}V_j$，$K$ 要多读两遍；即使用 1.2 的递推把最大值和分母合成一遍，也还要多读一遍。FlashAttention 用 online softmax 把 softmax 也拆成一个 block 一个 block 地算，$K_j$、$V_j$ 都只读一遍，完整的 $S$ 和 $P$ 都不写回 HBM（[图 1-2](#fig-1-2)）。图里的 ①–⑤ 和每行的 $m$、$\ell$ 是 1.2 要讲的。
 
 <figure id="fig-1-2" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 992" width="100%" role="img" aria-label="FlashAttention 的 tiling，按 Triton program 看。上：pid_m = 2 的 program 读 Q 的第 2 个 block，沿 j 依次读 K、V 的 block，S 只在片上算，最后写回 O 的第 2 个 block；causal 时对角线右上的 block 跳过。下：grid 每个 Q block 一个 program；program 里每轮 dot 算 S，online softmax 更新 m、ℓ，再 dot 乘 V 累加进 acc；K、V 经 shared memory 的两个 slot 轮流搬，q、acc、m、ℓ 一直在 register，扫完除以 ℓ 写回 O。">
@@ -519,7 +521,7 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 
 ### 1.2 Online softmax {#online-softmax}
 
-记 $S = QK^\top/\sqrt d$，softmax 对 $S$ 的每一行单独做。取 $S$ 的一行，记作 $x_1, \dots, x_{N_k}$，$x_k$ 是这个 query 和第 $k$ 个 key 的 score：
+记 $S = QK^\top/\sqrt d$。实际实现里，1.1 的 softmax 还要先减去整行的最大值：
 
 <p align="center">$p_k = \dfrac{e^{x_k - m}}{\ell}, \qquad m = \max_{k=1}^{N_k} x_k, \qquad \ell = \sum_{k=1}^{N_k} e^{x_k - m}$</p>
 
