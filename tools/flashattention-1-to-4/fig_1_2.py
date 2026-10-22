@@ -201,8 +201,9 @@ T('s', ZX + 62 + 50, ZY + 17, '整行', 'start'); T('s', ZX + 62 + 50, ZY + 30, 
 T('s', ZX - 6, ZY + 4, 'query', 'end'); T('s', ZX - 6, ZY + 16, '↓', 'end')
 T('s', ZX + 20, ZY + 8 * ZC + 13, 'key →', 'middle')
 T('s', ZX - 10, ZY + 8 * ZC + 30, '灰色：key > query，tl.where 设成 −∞，', 'start')
-T('s', ZX - 10, ZY + 8 * ZC + 44, 'exp2 以后是 0；整行 −∞ 的行这一轮', 'start')
-T('s', ZX - 10, ZY + 8 * ZC + 58, 'm 不变、α = 1、什么都不加', 'start')
+T('s', ZX - 10, ZY + 8 * ZC + 44, 'exp2 以后是 0；整行 −∞ 的行这一轮：', 'start')
+T('s', ZX - 10, ZY + 8 * ZC + 58, 'm 不变，exp(m − m_{new}) = 1，', 'start')
+T('s', ZX - 10, ZY + 8 * ZC + 72, '什么都不加', 'start')
 
 # ===================== 下半：一个 program 里面（同图 2-5） =====================
 Y0 = Y1 + HB + 16
@@ -238,13 +239,12 @@ oy = yC + 24
 op(210, oy, 60, 'dot', 'S = q·k^{ᵀ}')
 op(276, oy, 66, 'mask', 'tl.where', True)
 op(348, oy, 84, '① ② ③', 'max·exp2·sum', True)
-op(438, oy, 76, 'dot  ④', 'α·acc + p̃·v')
-T('tb', 535, oy + 23, '⋯', 'middle')
-op(556, oy, 74, '÷ ℓ', '扫完以后一次')
+op(438, oy, 124, 'dot  ④', 'exp(m−m_{new})·acc + p̃·v')
+op(568, oy, 62, '÷ ℓ', '最后一次')
 arrow(271, oy + 19, 274, oy + 19); arrow(343, oy + 19, 346, oy + 19); arrow(433, oy + 19, 436, oy + 19)
-path(f'M{240},{oy - 2} V{yC + 14} H{476} V{oy - 2}', var='--fig-hi', head=False)
+path(f'M{240},{oy - 2} V{yC + 14} H{500} V{oy - 2}', var='--fig-hi', head=False)
 T('s', 358, yC + 10, '第 j 轮；对角线上的 block 多一步 mask', 'middle', 'fill: var(--fig-hi); opacity: 1')
-T('s', 593, yC + 16, '循环结束后', 'middle')
+T('s', 599, yC + 16, '循环结束后', 'middle')
 
 def bar(x, y, wd, txt, kind):
     st = {'keep': 'fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)',
@@ -308,8 +308,8 @@ yT = yM + 112 + 26
 T('ttl', 10, yT, 'online softmax 在第 j 轮做的事（m、ℓ 每行一个数，acc 每行一起乘）')
 rows = [('① m_{new} = max(m, rowmax(S_{ij}))', '这一块进来以后的行最大值'),
         ('② P̃_{ij} = exp(S_{ij} − m_{new})', '按新最大值取指数，还没除以分母'),
-        ('③ ℓ ← α·ℓ + rowsum(P̃_{ij})，α = e^{m−m_{new}}', '旧分母对齐到新最大值，再加这一块'),
-        ('④ acc ← α·acc + P̃_{ij}V_{j}', '旧输出用同一个 α 对齐，再加这一块'),
+        ('③ ℓ ← exp(m − m_{new})·ℓ + rowsum(P̃_{ij})', '旧分母对齐到新最大值，再加这一块'),
+        ('④ acc ← exp(m − m_{new})·acc + P̃_{ij}V_{j}', '旧输出乘同一个 exp(m − m_{new}) 对齐，再加这一块'),
         ('⑤ m ← m_{new}', '进入下一个 j'),
         ('扫完：O_{i} = acc / ℓ', '只在最后除一次，tl.store 写回')]
 for k, (a, b) in enumerate(rows):

@@ -379,8 +379,9 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
   <text class="s" x="448" y="442" text-anchor="end">↓</text>
   <text class="s" x="474" y="519" text-anchor="middle">key →</text>
   <text class="s" x="444" y="536">灰色：key > query，tl.where 设成 −∞，</text>
-  <text class="s" x="444" y="550">exp2 以后是 0；整行 −∞ 的行这一轮</text>
-  <text class="s" x="444" y="564">m 不变、α = 1、什么都不加</text>
+  <text class="s" x="444" y="550">exp2 以后是 0；整行 −∞ 的行这一轮：</text>
+  <text class="s" x="444" y="564">m 不变，exp(m − m<tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">) = 1，</tspan></text>
+  <text class="s" x="444" y="578">什么都不加</text>
   <text class="ttl" x="10" y="652">grid</text>
   <text class="ttl" x="162" y="652">一个 program（pid_m = 2）的 j = 4 这一轮</text>
   <text class="tb" x="630" y="652" text-anchor="end" style="fill: var(--fig-hi)">block 乘加 + softmax</text>
@@ -428,19 +429,18 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
   <rect class="op" x="348" y="686" width="84" height="38" rx="6" style="stroke: var(--fig-hi); stroke-opacity: 1"/>
   <text class="tb" x="390" y="702" text-anchor="middle">① ② ③</text>
   <text class="s" x="390" y="717" text-anchor="middle">max·exp2·sum</text>
-  <rect class="op" x="438" y="686" width="76" height="38" rx="6"/>
-  <text class="tb" x="476" y="702" text-anchor="middle">dot  ④</text>
-  <text class="s" x="476" y="717" text-anchor="middle">α·acc + p̃·v</text>
-  <text class="tb" x="535" y="709" text-anchor="middle">⋯</text>
-  <rect class="op" x="556" y="686" width="74" height="38" rx="6"/>
-  <text class="tb" x="593" y="702" text-anchor="middle">÷ ℓ</text>
-  <text class="s" x="593" y="717" text-anchor="middle">扫完以后一次</text>
+  <rect class="op" x="438" y="686" width="124" height="38" rx="6"/>
+  <text class="tb" x="500" y="702" text-anchor="middle">dot  ④</text>
+  <text class="s" x="500" y="717" text-anchor="middle">exp(m−m<tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">)·acc + p̃·v</tspan></text>
+  <rect class="op" x="568" y="686" width="62" height="38" rx="6"/>
+  <text class="tb" x="599" y="702" text-anchor="middle">÷ ℓ</text>
+  <text class="s" x="599" y="717" text-anchor="middle">最后一次</text>
   <line x1="271" y1="705" x2="274" y2="705" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-2-m0)"/>
   <line x1="343" y1="705" x2="346" y2="705" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-2-m0)"/>
   <line x1="433" y1="705" x2="436" y2="705" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-2-m0)"/>
-  <path d="M240,684 V676 H476 V684" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5"/>
+  <path d="M240,684 V676 H500 V684" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5"/>
   <text class="s" x="358" y="672" text-anchor="middle" style="fill: var(--fig-hi); opacity: 1">第 j 轮；对角线上的 block 多一步 mask</text>
-  <text class="s" x="593" y="678" text-anchor="middle">循环结束后</text>
+  <text class="s" x="599" y="678" text-anchor="middle">循环结束后</text>
   <rect x="196" y="750" width="56" height="22" rx="5" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="1.2"/>
   <text class="s" x="224" y="765" text-anchor="middle" style="opacity: 1">q</text>
   <rect x="262" y="750" width="188" height="22" rx="5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
@@ -521,10 +521,10 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
   <text class="s" x="330" y="1054">这一块进来以后的行最大值</text>
   <text class="lab" x="24" y="1072">② P̃<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> = exp(S</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> − m</tspan><tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">)</tspan></text>
   <text class="s" x="330" y="1072">按新最大值取指数，还没除以分母</text>
-  <text class="lab" x="24" y="1090">③ ℓ ← α·ℓ + rowsum(P̃<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">)，α = e</tspan><tspan dy="-5" font-size="72%">m−m</tspan><tspan dy="3" font-size="58%">new</tspan></text>
+  <text class="lab" x="24" y="1090">③ ℓ ← exp(m − m<tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">)·ℓ + rowsum(P̃</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">)</tspan></text>
   <text class="s" x="330" y="1090">旧分母对齐到新最大值，再加这一块</text>
-  <text class="lab" x="24" y="1108">④ acc ← α·acc + P̃<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">V</tspan><tspan dy="3.5" font-size="72%">j</tspan></text>
-  <text class="s" x="330" y="1108">旧输出用同一个 α 对齐，再加这一块</text>
+  <text class="lab" x="24" y="1108">④ acc ← exp(m − m<tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">)·acc + P̃</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">V</tspan><tspan dy="3.5" font-size="72%">j</tspan></text>
+  <text class="s" x="330" y="1108">旧输出乘同一个 exp(m − m<tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">) 对齐，再加这一块</tspan></text>
   <text class="lab" x="24" y="1126">⑤ m ← m<tspan dy="3.5" font-size="72%">new</tspan></text>
   <text class="s" x="330" y="1126">进入下一个 j</text>
   <text class="lab" x="24" y="1144">扫完：O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> = acc / ℓ</tspan></text>
@@ -867,11 +867,10 @@ def attn_fwd(Q, K, V, O, L, sm_scale, N_q, N_k,
             s = tl.where(offs_m[:, None] >= offs_kv[None, :], s, float("-inf"))
         m_new = tl.maximum(m, tl.max(s, 1))                          # ①
         p = tl.exp2(s - m_new[:, None])                              # ② P̃_ij
-        alpha = tl.exp2(m - m_new)                                   # e^(m − m_new)
-        l = l * alpha + tl.sum(p, 1)                                 # ③
+        l = l * tl.exp2(m - m_new) + tl.sum(p, 1)                    # ③
         v = tl.load(V + pid_bh * stride_vh + offs_kv[:, None] * stride_vn + offs_d[None, :],
                     mask=offs_kv[:, None] < N_k, other=0.0)          # V_j：B_k × d
-        acc = acc * alpha[:, None] + tl.dot(p.to(v.dtype), v)        # ④
+        acc = acc * tl.exp2(m - m_new)[:, None] + tl.dot(p.to(v.dtype), v)  # ④
         m = m_new                                                    # ⑤
 
     acc = acc / l[:, None]                                           # 最后除一次 ℓ
