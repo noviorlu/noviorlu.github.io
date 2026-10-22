@@ -495,11 +495,11 @@ softmax 对 $S$ 的每一行单独做。取一行，记作 $s_1, \dots, s_{N_k}$
 
 ### 1.2 Online softmax {#online-softmax}
 
-记 $S = QK^\top/\sqrt d$。online softmax（Milakov 和 Gimelshein 2018），每读进一个 $K_j$：
+记 $S = QK^\top/\sqrt d$。online softmax（Milakov 和 Gimelshein 2018）的核心是把一行的两段合并：两段各自的最大值和分母是 $(m_A, \ell_A)$、$(m_B, \ell_B)$，合起来是
 
-<p align="center">$m_j = \max\big(m_{j-1},\, \mathrm{rowmax}(S_{ij})\big), \qquad \ell_j = \ell_{j-1}\, e^{m_{j-1} - m_j} + \mathrm{rowsum}\big(e^{S_{ij} - m_j}\big)$</p>
+<p align="center">$m = \max(m_A, m_B), \qquad \ell = \ell_A\, e^{m_A - m} + \ell_B\, e^{m_B - m}$</p>
 
-$m_0 = -\infty$，$\ell_0 = 0$。推导和证明见下面的 notes。
+每读进一个 $K_j$，A 是前 $j-1$ 个 block，记作 $(m_{j-1}, \ell_{j-1})$；B 是第 $j$ 个 block；合并的结果记作 $(m_j, \ell_j)$，$m_0 = -\infty$，$\ell_0 = 0$。推导和证明见下面的 notes。
 
 <details class="fold doc aside">
 <summary>第 1 到第 4 步：从 naive softmax 到 online softmax 和并行</summary>
