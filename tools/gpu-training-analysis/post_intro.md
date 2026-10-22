@@ -37,7 +37,7 @@ series_order: 1
 
 #### Memory access {#hw-move}
 
-数据能从哪一层搬到哪一层，取决于每一层归谁用：计算单元只读写 register；register 只归一个 thread，shared memory 只归一个 block（thread、block 见 [1.3 节](#hw-model)）；显存和 L2 全卡共享。L1 和 L2 是 cache，没有指令能指定读写它们，数据只是经过。[表 1-1](#tab-1-1) 是各层之间能怎么搬，表里的指令名是 PTX 里的写法。PTX（Parallel Thread Execution）是 NVIDIA 定义的 GPU 虚拟指令集，相当于 GPU 上的汇编：CUDA C++ 和 Triton 写的 kernel 都先编译成 PTX，再由 ptxas 翻译成某一代 GPU 的机器码（SASS）。PTX 按单个 thread 的视角写，一条指令由一个 warp 的 32 个 thread 一起执行。
+计算单元只读写 register。register 归一个 thread，shared memory 归一个 block（[1.3 节](#hw-model)），L2 和显存全卡共享；L1、L2 是 cache，指令不能直接读写。[表 1-1](#tab-1-1) 是各层之间怎么搬，指令名用的是 PTX（GPU 上的汇编，CUDA 和 Triton 都先编译成它）的写法。
 
 | 从 | 到 | 怎么搬 |
 |:--|:--|:--|
