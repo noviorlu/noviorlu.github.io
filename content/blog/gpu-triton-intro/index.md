@@ -259,13 +259,14 @@ series_order: 1
 <figcaption><strong>图 1-2</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。</figcaption>
 </figure>
 
-SMSP 里有两种计算单元（[图 1-3](#fig-h-11)）：
+SMSP 里有三种计算单元（[图 1-3](#fig-h-11)）：
 
 - **CUDA core** 一次算一个数。主力指令是 FMA（fused multiply-add）：$d = a \times b + c$，乘加一条指令做完、只舍入一次。warp 的 32 个 thread 各用一个 CUDA core，全卡 170 × 128 个，fp32 峰值 1.05e14 FLOPS。
 - **Tensor core** 一次算一小块矩阵乘加，一条指令由整个 warp 一起发。只吃 bf16、fp16、tf32、fp8 这类低精度输入，bf16 峰值 2.1e14 FLOPS（fp32 累加），fp8 更高。
+- **SFU** 算 exp、rsqrt、sin 这类函数：查表加二次插值，吞吐是 FMA 的 1/8。`tl.exp` 编出来是 CUDA core 上的一条乘法加 SFU 上的一条 ex2。
 
 <figure id="fig-h-11" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 312" width="100%" role="img" aria-label="左：一条 FMA，每个 thread 用一个 CUDA core，从 register 读 a、b、c，先乘、乘积不舍入再加 c，最后舍入一次写回 d；warp 一条指令 64 FLOPs。右：一条 mma.m16n8k16，整个 warp 一起发，Tensor core 算 16×16 的 A 乘 16×8 的 B 再加 16×8 的 C；一条指令 4096 FLOPs">
+<svg class="fg" viewBox="0 0 640 476" width="100%" role="img" aria-label="左：一条 FMA，每个 thread 用一个 CUDA core，从 register 读 a、b、c，先乘、乘积不舍入再加 c，最后舍入一次写回 d；warp 一条指令 64 FLOPs。右：一条 mma.m16n8k16，整个 warp 一起发，Tensor core 算 16×16 的 A 乘 16×8 的 B 再加 16×8 的 C；一条指令 4096 FLOPs。下：SFU 一条 MUFU.EX2，x 的高位查表取系数 C0、C1、C2，低位 Δ 代入 C0 + C1Δ + C2Δ² 得到 2 的 x 次方">
   <style>
     .fg .grid { stroke: currentColor; stroke-opacity: .1; }
     .fg .axis { stroke: currentColor; stroke-opacity: .35; }
@@ -421,11 +422,27 @@ SMSP 里有两种计算单元（[图 1-3](#fig-h-11)）：
   <text class="lab2" x="344" y="230">输入 bf16 / fp16 / tf32 / fp8，fp32 累加</text>
   <text class="lab2" x="344" y="276">整个 warp 发一条（mma.m16n8k16）</text>
   <text class="lab" x="344" y="292">一条指令：2 × 16 × 8 × 16 = 4096 FLOPs</text>
+  <rect x="12" y="314" width="616" height="156" rx="12" style="fill: color-mix(in srgb, var(--fig-1) 6%, transparent); stroke: var(--fig-1)" stroke-width="1.4"/>
+  <text class="tb" x="28" y="338">SFU：一条 MUFU.EX2，近似 2<tspan dy="-5" font-size="9">x</tspan></text>
+  <rect x="28" y="368" width="40" height="24" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <text class="t" x="48" y="385" text-anchor="middle" font-style="italic">x</text>
+  <rect x="104" y="356" width="104" height="50" rx="4" class="op"/><line x1="104" y1="381" x2="208" y2="381" stroke="currentColor" stroke-opacity=".45"/>
+  <text class="s" x="156" y="373" text-anchor="middle">高位</text><text class="s" x="156" y="398" text-anchor="middle">低位 Δ</text>
+  <line x1="68.0" y1="380.0" x2="102.0" y2="380.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-11-m0)"/>
+  <rect x="248" y="350" width="112" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/><text class="s" x="304" y="367" text-anchor="middle">查表：C0、C1、C2</text>
+  <rect x="398" y="368" width="140" height="30" rx="4" class="op"/><text class="s" x="468" y="387" text-anchor="middle">C0 + C1·Δ + C2·Δ²</text>
+  <line x1="208.0" y1="368.0" x2="246.0" y2="364.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-11-m0)"/>
+  <line x1="360.0" y1="366.0" x2="396.0" y2="378.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-11-m0)"/>
+  <line x1="208.0" y1="394.0" x2="396.0" y2="390.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-11-m0)"/>
+  <line x1="538.0" y1="383.0" x2="562.0" y2="383.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-11-m0)"/>
+  <rect x="564" y="370" width="48" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/><text class="t" x="588" y="388" text-anchor="middle">2<tspan dy="-5" font-size="9" font-style="italic">x</tspan></text>
+  <text class="lab2" x="28" y="436">tl.exp(x) 编出来是两条：FMUL 算 x × log₂e（CUDA core），MUFU.EX2（SFU）</text>
+  <text class="lab" x="28" y="456">每个 SM 每拍 16 个，FMA 是 128 个（实测吞吐比约 1 : 7）</text>
 </svg>
-<figcaption><strong>图 1-3</strong> CUDA core 和 Tensor core 各算什么（示意）。左：一条 FMA，warp 的每个 thread 用一个 CUDA core 算 a × b + c，乘积不舍入，最后只舍入一次。右：一条 mma，以 bf16 的 m16n8k16 为例，整个 warp 一起发，同样一条指令，算的量是 FMA 的 64 倍。</figcaption>
+<figcaption><strong>图 1-3</strong> CUDA core、Tensor core 和 SFU 各算什么（示意）。左：一条 FMA，warp 的每个 thread 用一个 CUDA core 算 a × b + c，乘积不舍入，最后只舍入一次。右：一条 mma，以 bf16 的 m16n8k16 为例，整个 warp 一起发，同样一条指令，算的量是 FMA 的 64 倍。下：SFU 用查表加二次插值近似 exp2、rcp、rsqrt、sin 这类函数（Oberman, Siu 2005），SASS 读自 5090 上编译出的 kernel，吞吐比是实测。</figcaption>
 </figure>
 
-`tl.dot` 默认走 Tensor core，其余加减乘除走 CUDA core，exp 这类函数走 SFU。
+`tl.dot` 默认走 Tensor core，其余加减乘除走 CUDA core。
 
 SMSP 里另一块要紧的是 register file。每个 SMSP 有 16384 个 32-bit register（64 KB），一个 SM 共 65536 个。每个 thread 用几个 register 在编译时就定了，最多 255 个；block 放上 SM 时，它的每个 thread 从所在 SMSP 的 register file 里分到这么多个，只归自己读写，block 跑完才还回去。所以每个 thread 用的 register 越多，一个 SM 能同时放的 thread 越少，[3.1 节](#sched-warp)会算这笔账。
 
@@ -3368,3 +3385,4 @@ ld.global 和 cp.async 的区别是数据进不进 register；cp.async 和 TMA �
 14. Milakov, Gimelshein. [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867). arXiv:1805.02867, 2018. 第 2.3 节提到的 online softmax。
 15. [triton.autotune](https://triton-lang.org/main/python-api/generated/triton.autotune.html) 和 [triton.Config](https://triton-lang.org/main/python-api/generated/triton.Config.html)（Triton API 文档）。3.4 节的参数。
 16. NVIDIA. [PTX ISA: cp.async](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async) 和 [cp.async.bulk.tensor](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async-bulk-tensor)。Appendix C 里 cp.async、wait_group 和 TMA、mbarrier 指令的语义。
+17. Oberman, Siu. [A High-Performance Area-Efficient Multifunction Interpolator](https://doi.org/10.1109/ARITH.2005.7). ARITH 2005. SFU 的查表加二次插值，图 1-3。
