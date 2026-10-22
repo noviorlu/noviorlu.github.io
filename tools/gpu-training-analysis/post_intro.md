@@ -37,7 +37,7 @@ series_order: 1
 
 #### Memory access {#hw-move}
 
-计算单元只读写 register。register 归一个 thread，shared memory 归一个 block（[1.3 节](#hw-model)），L2 和显存全卡共享；L1、L2 是 cache，指令不能直接读写。[表 1-1](#tab-1-1) 是各层之间怎么搬，指令名用的是 PTX（GPU 上的汇编，CUDA 和 Triton 都先编译成它）的写法。
+计算单元只读写 register。register 归一个 thread，shared memory 归一个 block（[1.3 节](#hw-model)），L2 和显存全卡共享。[表 1-1](#tab-1-1) 是各层之间怎么搬，指令名用的是 PTX（GPU 上的汇编，CUDA 和 Triton 都先编译成它）的写法。
 
 | 从 | 到 | 怎么搬 |
 |:--|:--|:--|
