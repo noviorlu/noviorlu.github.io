@@ -191,40 +191,29 @@ T('s', ZX + 62 + 50, ZY + 17, '整行', 'start'); T('s', ZX + 62 + 50, ZY + 30, 
 T('s', ZX - 6, ZY + 4, 'query', 'end'); T('s', ZX - 6, ZY + 16, '↓', 'end')
 T('s', ZX + 20, ZY + 8 * ZC + 13, 'key →', 'middle')
 
-# ===================== 下半：一个 program 里面（同图 2-5） =====================
+# ===================== 下半：pid_m = 2 这个 program 的一轮（泳道同图 2-5，不画 grid） =====================
 Y0 = Y1 + HB + 16
-T('ttl', 10, Y0 + 16, 'grid')
-T('ttl', 162, Y0 + 16, '一个 program（pid_m = 2）的 j = 4 这一轮')
-T('tb', 630, Y0 + 16, 'block 乘加 + softmax', 'end', 'fill: var(--fig-hi)')
-for r in range(TQ):
-    for c in range(3):
-        on = (r == I and c == 0)
-        st = 'fill: color-mix(in srgb, var(--fig-1) 30%, transparent); stroke: var(--fig-1)' if on else 'fill: color-mix(in srgb, var(--fig-mute) 12%, transparent); stroke: var(--fig-mute)'
-        x, y = 10 + c * 42, Y0 + 28 + r * 27
-        w(f'<rect x="{x}" y="{y}" width="38" height="23" rx="4" style="{st}" stroke-width="1.4"/>')
-        if on: T('s', x + 19, y + 15, '(2,0)', 'middle')
-T('lab2', 10, Y0 + 152, 'grid =')
-T('lab2', 10, Y0 + 167, '(N_{q} / BLOCK_M, B·H)')
-arrow(136, Y0 + 28 + I * 27 + 11, 144, Y0 + 28 + I * 27 + 11)
+T('ttl', 10, Y0 + 16, 'pid_m = 2 这个 program，j = 4 这一轮')
+MK['__both'] = (f'{FID}-mb', f'<marker id="{FID}-mb" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker>')
+def both(x, y1, y2):   # 双向箭头：读出来、写回去
+    w(f'<line x1="{x}" y1="{y1}" x2="{x}" y2="{y2}" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-start="url(#{FID}-mb)" marker-end="url(#{FID}-mb)"/>')
 
-LX0, LW = 146, 490
-lanes = [('计算', '单元', Y0 + 26, 78), ('register', '', Y0 + 112, 56), ('shared', 'memory', Y0 + 176, 60), ('显存', '', Y0 + 244, 92)]
+LX0, LW = 10, 620
+lanes = [('计算', '单元', Y0 + 26, 82), ('register', '', Y0 + 116, 50), ('shared', 'memory', Y0 + 174, 58), ('显存', '', Y0 + 240, 92)]
 for a, b, y, h in lanes:
     w(f'<rect class="band" x="{LX0}" y="{y}" width="{LW}" height="{h}" rx="8"/>')
-    T('lab2', 152, y + 16, a)
-    if b: T('lab2', 152, y + 29, b)
+    T('lab2', 18, y + 18, a)
+    if b: T('lab2', 18, y + 31, b)
 yC, yR, yS, yM = [l[2] for l in lanes]
 
-# 计算单元：五步排成一行，前四步是循环体，÷ ℓ 在循环外
-OW, OS, OX0 = 82, 94, 170
+OW, OS, OX0 = 92, 108, 92
 def op(k, a, b, hi=False, dash=False):
     x = OX0 + k * OS
     st = ' style="stroke: var(--fig-hi); stroke-opacity: 1"' if hi else ''
     d = ' stroke-dasharray="4 3"' if dash else ''
-    w(f'<rect class="op" x="{x}" y="{yC + 30}" width="{OW}" height="40" rx="6"{st}{d}/>')
-    T('tb', x + OW / 2, yC + 47, a, 'middle'); T('s', x + OW / 2, yC + 62, b, 'middle')
-    return x
-oy, ob = yC + 30, yC + 70
+    w(f'<rect class="op" x="{x}" y="{yC + 32}" width="{OW}" height="40" rx="6"{st}{d}/>')
+    T('tb', x + OW / 2, yC + 49, a, 'middle'); T('s', x + OW / 2, yC + 64, b, 'middle')
+oy, ob = yC + 32, yC + 72
 op(0, 'dot', 'q · k^{ᵀ}')
 op(1, 'mask', 'tl.where', True)
 op(2, '① ② ③', 'max·exp2·sum', True)
@@ -232,58 +221,56 @@ op(3, 'dot  ④', 'p̃ · v')
 op(4, '÷ ℓ', 'acc / ℓ', dash=True)
 for k in range(3):
     arrow(OX0 + k * OS + OW + 1, oy + 20, OX0 + (k + 1) * OS - 2, oy + 20)
-path(f'M{OX0 + OW / 2},{oy - 2} V{yC + 18} H{OX0 + 3 * OS + OW / 2} V{oy - 2}', var='--fig-hi', head=False)
-T('s', OX0 + 1.5 * OS + OW / 2, yC + 14, '第 j 轮', 'middle', 'fill: var(--fig-hi); opacity: 1')
+cx = lambda k: OX0 + k * OS + OW / 2
+path(f'M{cx(0)},{oy - 2} V{yC + 18} H{cx(3)} V{oy - 2}', var='--fig-hi', head=False)
+T('s', (cx(0) + cx(3)) / 2, yC + 14, '第 j 轮', 'middle', 'fill: var(--fig-hi); opacity: 1')
 
-# register：每块状态放在用它的那一步正下方
 def bar(x0, x1, txt, kind):
     st = {'keep': 'fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)',
           'tmp': 'fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)'}[kind]
-    w(f'<rect x="{x0}" y="{yR + 23}" width="{x1 - x0}" height="24" rx="5" style="{st}" stroke-width="1.2"/>')
-    T('s', (x0 + x1) / 2, yR + 39, txt, 'middle', 'opacity: 1')
-rt, rb = yR + 23, yR + 47
-bar(170, 226, 'q  B_{q}×d', 'keep')
-bar(264, 346, 's、p̃  B_{q}×B_{k}', 'tmp')
-bar(358, 440, 'm、ℓ  B_{q}', 'keep')
-bar(470, 534, 'acc  B_{q}×d', 'keep')
-arrow(198, rt, 198, ob + 1)                                     # q → dot
-for x in (295, 389, 492):                                        # mask ↕ s，softmax ↕ m、ℓ，dot ④ ↕ acc
-    arrow(x - 7, ob + 1, x - 7, rt - 1); arrow(x + 7, rt, x + 7, ob + 1)
+    w(f'<rect x="{x0}" y="{yR + 13}" width="{x1 - x0}" height="24" rx="5" style="{st}" stroke-width="1.2"/>')
+    T('s', (x0 + x1) / 2, yR + 29, txt, 'middle', 'opacity: 1')
+rt, rb = yR + 13, yR + 37
+QX, KX, VX2 = 122, 166, 426
+bar(96, 148, 'q  B_{q}×d', 'keep')
+bar(OX0 + OS, OX0 + OS + OW, 's、p̃  B_{q}×B_{k}', 'tmp')
+bar(OX0 + 2 * OS, OX0 + 2 * OS + OW, 'm、ℓ  B_{q}', 'keep')
+bar(438, OX0 + 3 * OS + OW, 'acc  B_{q}×d', 'keep')
+arrow(QX, rt, QX, ob + 1)                                      # q → dot
+both(cx(1), rt - 1, ob + 1)                                    # mask ↕ s、p̃
+both(cx(2), rt - 1, ob + 1)                                    # ①②③ ↕ m、ℓ
+both((438 + OX0 + 3 * OS + OW) / 2, rt - 1, ob + 1)            # dot ④ ↕ acc
 
-# shared memory：K_j 在 dot 正下方，V_j 在 dot ④ 正下方
-def blk(cx, n):
-    w(f'<rect x="{cx - 22}" y="{yS + 10}" width="44" height="40" rx="5" style="fill: var(--fig-1); stroke: var(--fig-1)"/>')
-    T('tb', cx, yS + 28, n + '_{j}', 'middle', 'fill: var(--fig-on-1)')
-    T('s', cx, yS + 42, 'B_{k}×d', 'middle', 'fill: var(--fig-on-1); opacity: .8')
-KX, VX2 = 238, 456
+def blk(c, n):
+    w(f'<rect x="{c - 22}" y="{yS + 9}" width="44" height="40" rx="5" style="fill: var(--fig-1); stroke: var(--fig-1)"/>')
+    T('tb', c, yS + 27, n + '_{j}', 'middle', 'fill: var(--fig-on-1)')
+    T('s', c, yS + 41, 'B_{k}×d', 'middle', 'fill: var(--fig-on-1); opacity: .8')
 blk(KX, 'K'); blk(VX2, 'V')
-w(f'<rect x="{300}" y="{yS + 10}" width="100" height="40" rx="5" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-dasharray="4 3"/>')
-T('s', 350, yS + 27, 'K_{j+1}、V_{j+1}', 'middle'); T('s', 350, yS + 41, '正在搬', 'middle')
-arrow(KX, yS + 10, KX, ob + 1)                                   # K_j → dot
-arrow(VX2, yS + 10, VX2, ob + 1)                                 # V_j → dot ④
+w(f'<rect x="{252}" y="{yS + 9}" width="92" height="40" rx="5" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-dasharray="4 3"/>')
+T('s', 298, yS + 33, 'K_{j+1}、V_{j+1}', 'middle')
+arrow(KX, yS + 9, KX, ob + 1)                                  # K_j → dot
+arrow(VX2, yS + 9, VX2, ob + 1)                                # V_j → dot ④
 
-# 显存：每一列正对着它要去的地方
-def col(cx, y, n, ch, kinds, name):
+def col(c, y, n, ch, kinds, name):
     for k in range(n):
-        cell(cx - 13, y + k * ch, 26, ch - 1.5, kinds[k], rx=1)
-    T('s', cx, y + n * ch + 13, name, 'middle', 'opacity: 1; font-weight: 600')
+        cell(c - 13, y + k * ch, 26, ch - 1.5, kinds[k], rx=1)
+    T('s', c, y + n * ch + 13, name, 'middle', 'opacity: 1; font-weight: 600')
 my = yM + 12
 kv = ['read'] + ['later'] * (NJ - 1) + ['skip'] * (TK - NJ)
-col(198, my, TQ, 14, ['read' if i == I else 'mute' for i in range(TQ)], 'Q')
+col(QX, my, TQ, 14, ['read' if i == I else 'mute' for i in range(TQ)], 'Q')
 col(KX, my, TK, 7, kv, 'K')
 col(VX2, my, TK, 7, kv, 'V')
-OCX = OX0 + 4 * OS + OW / 2
-col(OCX, my, TQ, 14, ['write' if i == I else 'mute' for i in range(TQ)], 'O')
-arrow(198, my - 2, 198, rb + 1)                                  # Q_i → q
-arrow(KX, my - 2, KX, yS + 51)
-arrow(VX2, my - 2, VX2, yS + 51)
-path(f'M{OCX},{ob + 1} V{my - 2}', var='--fig-hi')                # ÷ ℓ → O_i
-T('s', OCX + 6, yS + 34, 'tl.store', 'start', 'fill: var(--fig-hi); opacity: 1')
+col(cx(4), my, TQ, 14, ['write' if i == I else 'mute' for i in range(TQ)], 'O')
+arrow(QX, my - 2, QX, rb + 1)
+arrow(KX, my - 2, KX, yS + 50)
+arrow(VX2, my - 2, VX2, yS + 50)
+path(f'M{cx(4)},{ob + 1} V{my - 2}', var='--fig-hi')
+T('s', cx(4) + 6, yS + 33, 'tl.store', 'start', 'fill: var(--fig-hi); opacity: 1')
 
-# 底下的步骤：两列，每列三行
+# 底下的公式：两列
 yT = yM + 92 + 16
-w(f'<rect class="band" x="146" y="{yT}" width="490" height="96" rx="8"/>')
-T('lab2', 152, yT + 16, '第 j 轮')
+w(f'<rect class="band" x="10" y="{yT}" width="620" height="96" rx="8"/>')
+T('lab2', 18, yT + 18, '第 j 轮')
 cols = [['① m_{new} = max(m, rowmax(S_{ij}))',
          '② P̃_{ij} = exp(S_{ij} − m_{new})',
          '③ ℓ ← exp(m − m_{new})·ℓ + rowsum(P̃_{ij})'],
@@ -292,7 +279,7 @@ cols = [['① m_{new} = max(m, rowmax(S_{ij}))',
          '循环后：O_{i} = acc / ℓ']]
 for c, rows in enumerate(cols):
     for k, t in enumerate(rows):
-        T('lab', 206 + c * 224, yT + 30 + k * 24, t)
+        T('lab', 92 + c * 272, yT + 30 + k * 24, t)
 H = yT + 104
 
 LABEL = ("FlashAttention 的 tiling，按 Triton program 看。上：pid_m = 2 的 program 读 Q 的第 2 个 block，沿 j 依次读 K、V 的 block，"
