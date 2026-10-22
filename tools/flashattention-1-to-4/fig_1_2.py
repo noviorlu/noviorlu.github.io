@@ -161,7 +161,7 @@ T('s', 16, SY + SH + 55, 'softmax 按行做，一行正好落在一个 program �
 
 # ===================== 中间：每个 program 干什么，以及部分 mask 的 block =====================
 Y1 = SY + SH + 84
-HB = 244
+HB = 182
 w(f'<rect class="band" x="4" y="{Y1}" width="632" height="{HB}" rx="10"/>')
 T('tb', 16, Y1 + 22, '每个 program 干什么（causal，B_{q} = 2B_{k}）')
 T('s', 624, Y1 + 22, '一行一个 program，互相独立、并行', 'end', 'fill: var(--fig-hi)')
@@ -181,11 +181,6 @@ if True:
     lx = 74
     for k, (fn, txt) in enumerate([(lambda x, y: cell(x, y, 12, 12, 'chip'), '整块都算'), (lambda x, y: part(x, y, 12), '部分 mask'), (lambda x, y: cell(x, y, 12, 12, 'skip'), '整块跳过')]):
         fn(lx + k * 90, Y1 + 156); T('s', lx + k * 90 + 18, Y1 + 166, txt)
-for k, t in enumerate(['越往下的 program 活越多：pid_m = 3 算 8 块，pid_m = 0 只算 2 块',
-                       '（FA4 用最长任务优先的调度来摊平）。',
-                       'program 里面 B_{q} 行分给 num_warps × 32 个 thread：每行的 m、ℓ',
-                       '各自更新，行之间不通信；哪个 thread 算哪些元素由编译器决定。']):
-    T('s', 16, Y1 + 188 + k * 15, t)
 # 放大 pid_m = 2 的两个部分 mask 的 block
 ZX, ZY, ZC = 454, Y1 + 50, 10
 for b, j in enumerate((2 * I, 2 * I + 1)):
@@ -200,10 +195,6 @@ w(f'<path d="M{ZX + 62 + 42},{ZY} h4 v{4 * ZC - 1} h-4" fill="none" stroke="curr
 T('s', ZX + 62 + 50, ZY + 17, '整行', 'start'); T('s', ZX + 62 + 50, ZY + 30, '都是 −∞', 'start')
 T('s', ZX - 6, ZY + 4, 'query', 'end'); T('s', ZX - 6, ZY + 16, '↓', 'end')
 T('s', ZX + 20, ZY + 8 * ZC + 13, 'key →', 'middle')
-T('s', ZX - 10, ZY + 8 * ZC + 30, '灰色：key > query，tl.where 设成 −∞，', 'start')
-T('s', ZX - 10, ZY + 8 * ZC + 44, 'exp2 以后是 0；整行 −∞ 的行这一轮：', 'start')
-T('s', ZX - 10, ZY + 8 * ZC + 58, 'm 不变，exp(m − m_{new}) = 1，', 'start')
-T('s', ZX - 10, ZY + 8 * ZC + 72, '什么都不加', 'start')
 
 # ===================== 下半：一个 program 里面（同图 2-5） =====================
 Y0 = Y1 + HB + 16
