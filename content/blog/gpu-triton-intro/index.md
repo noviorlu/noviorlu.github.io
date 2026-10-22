@@ -651,15 +651,11 @@ CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 
 <figcaption><strong>图 1-6</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；中间是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-1</a>；右边是这一层在 Triton 里怎么写。</figcaption>
 </figure>
 
-block 放到 SM 上以后一直驻留到跑完，一个 SM 可以同时驻留多个 block。一个 SM 能放几个 block、驻留的 warp 怎么轮流执行、block 多于全卡的名额时怎么分批跑，[第 3 节](#tune)再讲。
-
-block 之间不能直接共享数据，只能通过显存交换，而这正是最慢的一层。所以要尽量把会重复读的数据放进同一个 block 里处理，这就是 tiling。在 CUDA 里做 tiling 要自己管 shared memory 和 thread 同步，[第 2 节](#triton)的 Triton 把这部分交给编译器。
-
 ---
 
 ## 2 Triton 入门 {#triton}
 
-第 1 节说过，kernel 优化的套路是把数据读进片上，算完能算的再写回显存。Triton 就是按这个思路写 kernel 的语言：你只写一个 block 的数据怎么处理，也就是 [1.3 节](#hw-model)说的 tiling。Triton 把这个 block 叫作一个 program，block 内怎么分给 thread、要不要经过 shared memory 由编译器决定，CUDA 的各层在 Triton 里怎么写见[图 1-6](#fig-h-5)。先看这样写能换来什么，[表 2-1](#tab-2-1) 把这一节的四个例子各写三遍：用 PyTorch 的张量运算直接写（eager），同一份代码包一层 `torch.compile`，以及用 Triton 手写一个 kernel。
+写 Triton 只写一个 block 的数据怎么处理，这叫 tiling：把要重复读的数据放进同一个 block，在片上算完再写回显存（[1.2 节](#hw-memory)）。Triton 把这个 block 叫作一个 program，block 内怎么分给 thread、要不要经过 shared memory 由编译器决定，CUDA 的各层在 Triton 里怎么写见[图 1-6](#fig-h-5)。先看这样写能换来什么，[表 2-1](#tab-2-1) 把这一节的四个例子各写三遍：用 PyTorch 的张量运算直接写（eager），同一份代码包一层 `torch.compile`，以及用 Triton 手写一个 kernel。
 
 | | [GELU](#triton-gelu) | [softmax](#triton-softmax) | [row sum](#triton-rowsum) | [matmul + ReLU](#triton-matmul) |
 |:--|--:|--:|--:|--:|
