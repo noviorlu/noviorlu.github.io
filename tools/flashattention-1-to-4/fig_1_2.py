@@ -105,7 +105,6 @@ OX = VX + DW + 40
 SW, SH = TK * CW, TQ * RH
 
 w(f'<rect class="band" x="4" y="4" width="632" height="{SY + SH + 34}" rx="10"/>')
-T('tb', 16, 26, '数据怎么分给 program')
 T('s', 624, 26, 'causal', 'end', 'fill: var(--fig-hi)')
 
 # Kᵀ（d × N_k），在 S 上面
@@ -123,7 +122,6 @@ T('tb', QX + DW / 2, SY - 20, 'Q', 'middle')
 arrow(24, SY, 24, SY + SH - 2)                                   # 竖着：i = 0 … 3，每个 i 一个 program
 T('s', 0, 0, 'i = 0 … 3', 'middle', '', f' transform="translate(16 {SY + SH / 2}) rotate(-90)"')
 T('s', QX + DW / 2, SY - 7, 'N_{q} × d', 'middle')
-T('s', QX - 6, SY + I * RH + RH / 2 + 4, 'pid_m = 2', 'end', 'fill: var(--fig-1); opacity: 1; font-weight: 600')
 # S：虚线框，只在片上
 w(f'<rect x="{SX - 3}" y="{SY - 3}" width="{SW + 4}" height="{SH + 4}" rx="4" fill="none" stroke="currentColor" stroke-opacity=".4" stroke-dasharray="4 3"/>')
 for i in range(TQ):
@@ -168,7 +166,7 @@ def part(x, y, sz):
     w(f'<path d="M{x},{y} L{x + sz},{y} L{x + sz},{y + sz} Z" style="fill: color-mix(in srgb, var(--fig-mute) 45%, transparent)"/>')
 for i in range(TQ):
     y = Y1 + 40 + i * 28
-    T('s', 16, y + 13, f'pid_m = {i}', 'start', 'opacity: 1; font-weight: 600' if i == I else '')
+    T('s', 16, y + 13, f'pid_i = {i}', 'start', 'opacity: 1; font-weight: 600' if i == I else '')
     for j in range(TK):
         x = 74 + j * 18
         if j < 2 * i: cell(x, y, 16, 16, 'chip')
@@ -195,7 +193,7 @@ T('s', ZX + 20, ZY + 8 * ZC + 13, 'key →', 'middle')
 
 # ===================== 下半：pid_m = 2 这个 program 的一轮（泳道同图 2-5，不画 grid） =====================
 Y0 = Y1 + HB + 16
-T('ttl', 10, Y0 + 16, 'pid_m = 2 这个 program，j = 4 这一轮')
+T('ttl', 10, Y0 + 16, 'pid_i = 2 这个 program，j = 4 这一轮')
 MK['__both'] = (f'{FID}-mb', f'<marker id="{FID}-mb" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker>')
 def both(x, y1, y2):   # 双向箭头：读出来、写回去
     w(f'<line x1="{x}" y1="{y1}" x2="{x}" y2="{y2}" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-start="url(#{FID}-mb)" marker-end="url(#{FID}-mb)"/>')
@@ -286,7 +284,7 @@ for c, rows in enumerate(cols):
         T('lab', 92 + c * 272, yT + 30 + k * 24, t)
 H = yT + 104
 
-LABEL = ("FlashAttention 的 tiling，按 Triton program 看。上：pid_m = 2 的 program 读 Q 的第 2 个 block，沿 j 依次读 K、V 的 block，"
+LABEL = ("FlashAttention 的 tiling，按 Triton program 看。上：i = 2 的 program 读 Q 的第 2 个 block，沿 j 依次读 K、V 的 block，"
          "S 只在片上算，最后写回 O 的第 2 个 block；causal 时对角线右上的 block 跳过。下：grid 每个 Q block 一个 program；program 里每轮 "
          "dot 算 S，online softmax 更新 m、ℓ，再 dot 乘 V 累加进 acc；K、V 经 shared memory 的两个 slot 轮流搬，q、acc、m、ℓ 一直在 register，扫完除以 ℓ 写回 O。")
 defs = ''.join(m for _, m in MK.values())
