@@ -243,8 +243,7 @@ both((438 + OX0 + 3 * OS + OW) / 2, rt - 1, ob + 1)            # dot ④ ↕ acc
 
 def blk(c, n):
     w(f'<rect x="{c - 22}" y="{yS + 9}" width="44" height="40" rx="5" style="fill: var(--fig-1); stroke: var(--fig-1)"/>')
-    T('tb', c, yS + 27, n + '_{j}', 'middle', 'fill: var(--fig-on-1)')
-    T('s', c, yS + 41, 'B_{k}×d', 'middle', 'fill: var(--fig-on-1); opacity: .8')
+    T('tb', c, yS + 33, n + '_{j}', 'middle', 'fill: var(--fig-on-1)')
 blk(KX, 'K'); blk(VX2, 'V')
 w(f'<rect x="{252}" y="{yS + 9}" width="92" height="40" rx="5" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-dasharray="4 3"/>')
 T('s', 298, yS + 33, 'K_{j+1}、V_{j+1}', 'middle')

@@ -441,11 +441,9 @@ softmax 对 $S$ 的每一行单独做。取一行，记作 $s_1, \dots, s_{N_k}$
   <line x1="354.0" y1="664" x2="354.0" y2="635" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-start="url(#fig-1-2-mb)" marker-end="url(#fig-1-2-mb)"/>
   <line x1="473.0" y1="664" x2="473.0" y2="635" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-start="url(#fig-1-2-mb)" marker-end="url(#fig-1-2-mb)"/>
   <rect x="144" y="719" width="44" height="40" rx="5" style="fill: var(--fig-1); stroke: var(--fig-1)"/>
-  <text class="tb" x="166" y="737" text-anchor="middle" style="fill: var(--fig-on-1)">K<tspan dy="3.5" font-size="72%">j</tspan></text>
-  <text class="s" x="166" y="751" text-anchor="middle" style="fill: var(--fig-on-1); opacity: .8">B<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5">×d</tspan></text>
+  <text class="tb" x="166" y="743" text-anchor="middle" style="fill: var(--fig-on-1)">K<tspan dy="3.5" font-size="72%">j</tspan></text>
   <rect x="404" y="719" width="44" height="40" rx="5" style="fill: var(--fig-1); stroke: var(--fig-1)"/>
-  <text class="tb" x="426" y="737" text-anchor="middle" style="fill: var(--fig-on-1)">V<tspan dy="3.5" font-size="72%">j</tspan></text>
-  <text class="s" x="426" y="751" text-anchor="middle" style="fill: var(--fig-on-1); opacity: .8">B<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5">×d</tspan></text>
+  <text class="tb" x="426" y="743" text-anchor="middle" style="fill: var(--fig-on-1)">V<tspan dy="3.5" font-size="72%">j</tspan></text>
   <rect x="252" y="719" width="92" height="40" rx="5" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-dasharray="4 3"/>
   <text class="s" x="298" y="743" text-anchor="middle">K<tspan dy="3.5" font-size="72%">j+1</tspan><tspan dy="-3.5">、V</tspan><tspan dy="3.5" font-size="72%">j+1</tspan></text>
   <line x1="166" y1="719" x2="166" y2="635" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-2-m0)"/>
