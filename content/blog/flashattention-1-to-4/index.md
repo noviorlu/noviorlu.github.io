@@ -505,7 +505,7 @@ online softmax（Milakov 和 Gimelshein 2018）的办法是边扫边维护到目
 
 <p align="center">$m_j = \max\big(m_{j-1},\, \mathrm{rowmax}(S_{ij})\big), \qquad \ell_j = \ell_{j-1}\, e^{m_{j-1} - m_j} + \mathrm{rowsum}\big(e^{S_{ij} - m_j}\big)$</p>
 
-$m_0 = -\infty$，$\ell_0 = 0$。$\ell_{j-1}$ 里的每一项都是按旧的最大值算的 $e^{s_k - m_{j-1}}$，乘上 $e^{m_{j-1}-m_j}$ 正好变成 $e^{s_k - m_j}$，和新 block 的项对齐到同一个最大值再相加；最大值没变时这个因子是 1。扫完 $j = T_k$，$m_{T_k}$、$\ell_{T_k}$ 就是整行的 $m$、$\ell$，和一次看完整行算的完全一样。从按定义写的 softmax 一步一步推到这个递推，以及它为什么对，放在下面的折叠里。
+$m_0 = -\infty$，$\ell_0 = 0$。推导和证明见下面的 notes。
 
 <details class="fold doc aside">
 <summary>第 1 到第 4 步：从 naive softmax 到 online softmax 和并行</summary>
