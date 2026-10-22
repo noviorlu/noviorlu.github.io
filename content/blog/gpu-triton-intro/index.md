@@ -527,25 +527,97 @@ SMSP 里另一块要紧的是 register file。每个 SMSP 有 16384 个 32-bit r
 
 #### Memory access {#hw-move}
 
-计算单元只读写 register。register 归一个 thread，shared memory 归一个 block（[1.3 节](#hw-model)），L2 和显存全卡共享。[表 1-2](#tab-1-2) 是各层之间怎么搬，指令名用的是 PTX（GPU 上的汇编，CUDA 和 Triton 都先编译成它）的写法。
+计算单元只读写 register。register 归一个 thread，shared memory 归一个 block（[1.3 节](#hw-model)），L2 和显存全卡共享。[图 1-6](#fig-h-12) 是各层之间怎么搬，指令名用的是 PTX（GPU 上的汇编，CUDA 和 Triton 都先编译成它）的写法。
 
-| 从 | 到 | 怎么搬 |
-|:--|:--|:--|
-| 显存 | register | ld.global（Triton 的 `tl.load`），经过 L2，一般也经过 L1 |
-| register | 显存 | st.global（`tl.store`），经过 L2 |
-| register | shared memory | st.shared |
-| shared memory | register | ld.shared |
-| 显存 | shared memory | ld.global 读进 register 再 st.shared；或者 cp.async、TMA 直接进，不经过 register（[Appendix C](#tma)） |
-| shared memory | 显存 | ld.shared 读进 register 再 st.global；或者 TMA |
-| 一个 thread 的 register | 同一个 warp 里别的 thread | shuffle（shfl.sync）：一条指令里，每个 thread 直接读同一个 warp 里另一个 thread 的一个 register；出了 warp 就不行 |
-| 一个 block 的 shared memory | 别的 block | 不行，只能写回显存再读 |
-{#tab-1-2 caption="**表 1-2** 数据在各层之间能怎么搬" note="Hopper 起的 thread block cluster 里，几个 block 可以互读 shared memory，这篇用不到。"}
+<figure id="fig-h-12" class="fg-fig">
+<svg class="fg" viewBox="0 0 640 352" width="100%" role="img" aria-label="数据在各层之间怎么搬：ld.global 从显存经 L2、L1 到 register；st.global 从 register 经 L2 到显存；st.shared 从 register 到 shared memory；ld.shared 反过来；cp.async 和 TMA 从显存经 L2 直接到 shared memory；TMA 也能把 shared memory 经 L2 写回显存。warp 内 thread 之间用 shfl.sync 直接读别的 thread 的 register；block 之间不能直接读 shared memory，只能经显存">
+  <style>
+    .fg .grid { stroke: currentColor; stroke-opacity: .1; }
+    .fg .axis { stroke: currentColor; stroke-opacity: .35; }
+    .fg .ref { stroke: currentColor; stroke-opacity: .45; stroke-dasharray: 4 4; }
+    .fg .tick { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .lab { font-size: 12px; fill: currentColor; }
+    .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
+    .fg .ttl { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .fg .val { font-size: 11px; fill: currentColor; }
+    .fg .t { font-size: 12.5px; fill: currentColor; }
+    .fg .tb { font-size: 12.5px; font-weight: 600; fill: currentColor; }
+    .fg .s { font-size: 10.5px; fill: currentColor; opacity: .7; }
+    .fg .op { fill: var(--fig-bg); stroke: currentColor; stroke-opacity: .45; stroke-width: 1.2; }
+    .fg .band { fill: currentColor; fill-opacity: .045; }
+    .fg .ring { stroke: var(--nv-bg, #fff); stroke-width: 2; }
+    .fg .halo { fill: none; stroke: var(--nv-bg, #fff); stroke-width: 6px; stroke-linejoin: round; opacity: 1; }
+    .fg g.m:hover > :not(title) { opacity: .85; }
+    @media (max-width: 640px) { .fg-fig { overflow-x: auto; } .fg-fig > svg { min-width: var(--fg-minw, 540px); } }
+  </style>
+  <defs><marker id="fig-h-12-m0" viewBox="0 0 8 8" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor" fill-opacity=".65"/></marker></defs>
+  <text class="lab2" x="196" y="20" text-anchor="middle">显存</text>
+  <text class="lab2" x="286" y="20" text-anchor="middle">L2</text>
+  <text class="lab2" x="376" y="20" text-anchor="middle">L1</text>
+  <text class="lab2" x="466" y="20" text-anchor="middle">register</text>
+  <text class="lab2" x="572" y="20" text-anchor="middle">shared memory</text>
+  <text class="lab" x="8" y="41">ld.global</text>
+  <text class="s" x="8" y="55">Triton 的 tl.load</text>
+  <rect x="160.0" y="30" width="72" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 14%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="250.0" y="30" width="72" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <rect x="340.0" y="30" width="72" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <rect x="430.0" y="30" width="72" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <line x1="234.0" y1="43.0" x2="248.0" y2="43.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-12-m0)"/>
+  <line x1="324.0" y1="43.0" x2="338.0" y2="43.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-12-m0)"/>
+  <line x1="414.0" y1="43.0" x2="428.0" y2="43.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-12-m0)"/>
+  <text class="lab" x="8" y="77">st.global</text>
+  <text class="s" x="8" y="91">Triton 的 tl.store</text>
+  <rect x="430.0" y="66" width="72" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <rect x="250.0" y="66" width="72" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <rect x="160.0" y="66" width="72" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 14%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <line x1="428.0" y1="79.0" x2="324.0" y2="79.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-12-m0)"/>
+  <line x1="248.0" y1="79.0" x2="234.0" y2="79.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-12-m0)"/>
+  <text class="lab" x="8" y="119">st.shared</text>
+  <rect x="430.0" y="102" width="72" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <rect x="522.0" y="102" width="100" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <line x1="504.0" y1="115.0" x2="520.0" y2="115.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-12-m0)"/>
+  <text class="lab" x="8" y="155">ld.shared</text>
+  <rect x="522.0" y="138" width="100" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <rect x="430.0" y="138" width="72" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/>
+  <line x1="520.0" y1="151.0" x2="504.0" y2="151.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-12-m0)"/>
+  <text class="lab" x="8" y="185">cp.async / TMA</text>
+  <text class="s" x="8" y="199">不经过 register</text>
+  <rect x="160.0" y="174" width="72" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 14%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <rect x="250.0" y="174" width="72" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <rect x="522.0" y="174" width="100" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <line x1="234.0" y1="187.0" x2="248.0" y2="187.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-12-m0)"/>
+  <line x1="324.0" y1="187.0" x2="520.0" y2="187.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-12-m0)"/>
+  <text class="lab" x="8" y="221">TMA 写回</text>
+  <text class="s" x="8" y="235">cp.async 不能反向</text>
+  <rect x="522.0" y="210" width="100" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <rect x="250.0" y="210" width="72" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/>
+  <rect x="160.0" y="210" width="72" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 14%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/>
+  <line x1="520.0" y1="223.0" x2="324.0" y2="223.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-12-m0)"/>
+  <line x1="248.0" y1="223.0" x2="234.0" y2="223.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-12-m0)"/>
+  <line x1="8" y1="254" x2="632" y2="254" stroke="currentColor" stroke-opacity=".15"/>
+  <text class="lab" x="8" y="278">warp 内 thread 之间：shfl.sync</text>
+  <rect x="8" y="296" width="116" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/><text class="s" x="66.0" y="313" text-anchor="middle">thread 0 的 register</text>
+  <rect x="176" y="296" width="116" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-hi) 16%, transparent); stroke: var(--fig-hi)" stroke-width="1.4"/><text class="s" x="234.0" y="313" text-anchor="middle">thread 5 的 register</text>
+  <line x1="174.0" y1="309.0" x2="126.0" y2="309.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-12-m0)"/>
+  <text class="s" x="8" y="342">一条指令直接读，出了 warp 就不行</text>
+  <text class="lab" x="336" y="278">block 之间</text>
+  <rect x="336" y="296" width="92" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/><text class="s" x="382.0" y="313" text-anchor="middle">block 0 的 shared</text>
+  <rect x="448" y="296" width="64" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-mute) 14%, transparent); stroke: var(--fig-mute)" stroke-width="1.4"/><text class="s" x="480.0" y="313" text-anchor="middle">显存</text>
+  <rect x="532" y="296" width="92" height="26" rx="4" style="fill: color-mix(in srgb, var(--fig-2) 22%, transparent); stroke: var(--fig-2)" stroke-width="1.4"/><text class="s" x="578.0" y="313" text-anchor="middle">block 1 的 shared</text>
+  <line x1="430.0" y1="309.0" x2="446.0" y2="309.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-12-m0)"/>
+  <line x1="514.0" y1="309.0" x2="530.0" y2="309.0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.4" marker-end="url(#fig-h-12-m0)"/>
+  <path d="M382 294 Q480 262 576 294" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="1.2" stroke-dasharray="6 4" marker-end="url(#fig-h-12-m0)"/>
+  <text class="tb" x="480" y="282" text-anchor="middle" style="fill: var(--fig-hi)">✕</text>
+  <text class="s" x="336" y="342">不能直接读，只能写回显存再读</text>
+</svg>
+<figcaption><strong>图 1-6</strong> 数据在各层之间怎么搬，指令名是 PTX 的写法。没有一步到位的就拼两行，比如 ld.global 再 st.shared 也能把显存搬进 shared memory。Hopper 起的 thread block cluster 里，几个 block 可以互读 shared memory，这篇用不到。</figcaption>
+</figure>
 
-Triton 代码里只有 `tl.load` 和 `tl.store`，走[表 1-2](#tab-1-2)的哪一行由编译器决定：[第 2 节](#triton)的 GELU、softmax、row sum 都是显存和 register 之间直接读写；matmul 的 A、B 要经过 shared memory，编出来用的是 cp.async（[3.3 节](#stages)）；用 tensor descriptor 写的 load 才会用 TMA（[Appendix C](#tma)）。
+Triton 代码里只有 `tl.load` 和 `tl.store`，走[图 1-6](#fig-h-12)的哪一条路由编译器决定：[第 2 节](#triton)的 GELU、softmax、row sum 都是显存和 register 之间直接读写；matmul 的 A、B 要经过 shared memory，编出来用的是 cp.async（[3.3 节](#stages)）；用 tensor descriptor 写的 load 才会用 TMA（[Appendix C](#tma)）。
 
 ### 1.3 软件架构 {#hw-model}
 
-CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 warp 的 32 个 thread 同一时刻执行同一条指令。thread 往上分四层：thread、warp（32 个 thread）、block（也叫 CTA，若干个 warp）、grid（一次 kernel 启动的全部 block），每层跑在哪个硬件上见[图 1-6](#fig-h-5)。
+CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 warp 的 32 个 thread 同一时刻执行同一条指令。thread 往上分四层：thread、warp（32 个 thread）、block（也叫 CTA，若干个 warp）、grid（一次 kernel 启动的全部 block），每层跑在哪个硬件上见[图 1-7](#fig-h-5)。
 
 <figure id="fig-h-5" class="fg-fig">
 <svg class="fg" viewBox="0 0 820 352" width="100%" style="--fg-minw: 692px" role="img" aria-label="CUDA 的执行层级：grid 由 block 组成，block 由 warp 组成，warp 由 32 个 thread 组成；分别跑在整张 GPU、一个 SM、一个 SMSP 和一条 lane 上；在 Triton 里，grid 自己定，block 叫 program，warp 只能定个数，thread 写不到">
@@ -665,14 +737,14 @@ CUDA 的执行模型叫 SIMT（single instruction, multiple threads）：一个 
   <path d="M32 264 L20 302 M40 264 L370 302" stroke="currentColor" stroke-opacity=".3" stroke-dasharray="3 3" fill="none"/>
   <text class="lab" x="32" y="328">thread：自己的 register，按编号算出读哪个数</text>
 </svg>
-<figcaption><strong>图 1-6</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；中间是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-1</a>；右边是这一层在 Triton 里怎么写。</figcaption>
+<figcaption><strong>图 1-7</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；中间是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-1</a>；右边是这一层在 Triton 里怎么写。</figcaption>
 </figure>
 
 ---
 
 ## 2 Triton 入门 {#triton}
 
-写 Triton 只写一个 block 的数据怎么处理，这叫 tiling：把要重复读的数据放进同一个 block，在片上算完再写回显存（[1.2 节](#hw-memory)）。Triton 把这个 block 叫作一个 program，block 内怎么分给 thread、要不要经过 shared memory 由编译器决定，CUDA 的各层在 Triton 里怎么写见[图 1-6](#fig-h-5)。先看这样写能换来什么，[表 2-1](#tab-2-1) 把这一节的四个例子各写三遍：用 PyTorch 的张量运算直接写（eager），同一份代码包一层 `torch.compile`，以及用 Triton 手写一个 kernel。
+写 Triton 只写一个 block 的数据怎么处理，这叫 tiling：把要重复读的数据放进同一个 block，在片上算完再写回显存（[1.2 节](#hw-memory)）。Triton 把这个 block 叫作一个 program，block 内怎么分给 thread、要不要经过 shared memory 由编译器决定，CUDA 的各层在 Triton 里怎么写见[图 1-7](#fig-h-5)。先看这样写能换来什么，[表 2-1](#tab-2-1) 把这一节的四个例子各写三遍：用 PyTorch 的张量运算直接写（eager），同一份代码包一层 `torch.compile`，以及用 Triton 手写一个 kernel。
 
 | | [GELU](#triton-gelu) | [softmax](#triton-softmax) | [row sum](#triton-rowsum) | [matmul + ReLU](#triton-matmul) |
 |:--|--:|--:|--:|--:|
@@ -1254,7 +1326,7 @@ def softmax(x):
     return y
 ```
 
-[图 2-3](#fig-t-2) 里的 warp max、warp sum 是 shared memory 在这个 kernel 里唯一的用处：`tl.max`、`tl.sum` 分三步归约。每个 thread 先把自己手里的 32 个数归约成一个。再在 warp 内用 shuffle 归约，shuffle 让每个 thread 直接读同一个 warp 里另一个 thread 的 register，不经过 shared memory（[表 1-2](#tab-1-2)）。编出来的 PTX 用的是 `shfl.sync.bfly`：每一步 thread $i$ 读 thread $i \oplus d$（按位异或）的值并和自己的合并，$d$ 依次取 16、8、4、2、1，5 步以后 warp 里每个 thread 都拿到这个 warp 的最大值或和。最后 4 个 warp 的部分结果经 shared memory 交换（一共 16 B），再用 $d$ 取 2、1 的两步 shuffle 合并成整行的结果。把一整个 block 的数据放进 shared memory 什么时候值得，[2.4 节](#triton-matmul)再讲。
+[图 2-3](#fig-t-2) 里的 warp max、warp sum 是 shared memory 在这个 kernel 里唯一的用处：`tl.max`、`tl.sum` 分三步归约。每个 thread 先把自己手里的 32 个数归约成一个。再在 warp 内用 shuffle 归约，shuffle 让每个 thread 直接读同一个 warp 里另一个 thread 的 register，不经过 shared memory（[图 1-6](#fig-h-12)）。编出来的 PTX 用的是 `shfl.sync.bfly`：每一步 thread $i$ 读 thread $i \oplus d$（按位异或）的值并和自己的合并，$d$ 依次取 16、8、4、2、1，5 步以后 warp 里每个 thread 都拿到这个 warp 的最大值或和。最后 4 个 warp 的部分结果经 shared memory 交换（一共 16 B），再用 $d$ 取 2、1 的两步 shuffle 合并成整行的结果。把一整个 block 的数据放进 shared memory 什么时候值得，[2.4 节](#triton-matmul)再讲。
 
 这个写法要求 BLOCK ≥ N，也就是一行能一次装进一个 program。行再长，program 就只能沿行一个 block 一个 block 地读，读过的 block 要留下一个中间结果。下一节先看最简单的按行归约：求和。
 
@@ -3179,7 +3251,7 @@ MXU 和 GPU 最大的不同在乘加单元怎么拿到数据（[图 B-2](#fig-h-
 
 ## Appendix C TMA 和异步同步 {#tma}
 
-[表 1-2](#tab-1-2) 里显存到 shared memory 除了经 register 中转，还有 cp.async 和 TMA 两种直接搬法。正文的 kernel 都没用到 TMA，这个 appendix 讲它和 cp.async 差在哪（[C.1](#tma-vs-cpasync)），怎么知道它搬完了（[C.2](#tma-barrier)），以及有了它以后 kernel 怎么分工（[C.3](#tma-ws)）。
+[图 1-6](#fig-h-12) 里显存到 shared memory 除了经 register 中转，还有 cp.async 和 TMA 两种直接搬法。正文的 kernel 都没用到 TMA，这个 appendix 讲它和 cp.async 差在哪（[C.1](#tma-vs-cpasync)），怎么知道它搬完了（[C.2](#tma-barrier)），以及有了它以后 kernel 怎么分工（[C.3](#tma-ws)）。
 
 ### C.1 TMA 和 cp.async 的区别 {#tma-vs-cpasync}
 

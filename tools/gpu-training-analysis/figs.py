@@ -810,6 +810,44 @@ def hw_sm():
     f.w('<text class="s" x="214" y="300">LD/ST 的请求</text><text class="s" x="434" y="330" text-anchor="end">TMA 的请求</text>')
     return f
 
+def hw_paths():
+    f = F("fig-h-12", 352, "数据在各层之间怎么搬：ld.global 从显存经 L2、L1 到 register；st.global 从 register 经 L2 到显存；st.shared 从 register 到 shared memory；ld.shared 反过来；cp.async 和 TMA 从显存经 L2 直接到 shared memory；TMA 也能把 shared memory 经 L2 写回显存。warp 内 thread 之间用 shfl.sync 直接读别的 thread 的 register；block 之间不能直接读 shared memory，只能经显存")
+    COLS = [("显存", 196, 72, "--fig-mute", 14, None), ("L2", 286, 72, "--fig-3", 45, "--fig-2"), ("L1", 376, 72, "--fig-2", 22, None),
+            ("register", 466, 72, "--fig-hi", 16, None), ("shared memory", 572, 100, "--fig-2", 22, None)]
+    for name, cx, *_ in COLS:
+        f.w(f'<text class="lab2" x="{cx}" y="20" text-anchor="middle">{name}</text>')
+    ROWS = [("ld.global", "Triton 的 tl.load", [0, 1, 2, 3]),
+            ("st.global", "Triton 的 tl.store", [3, 1, 0]),
+            ("st.shared", "", [3, 4]),
+            ("ld.shared", "", [4, 3]),
+            ("cp.async / TMA", "不经过 register", [0, 1, 4]),
+            ("TMA 写回", "cp.async 不能反向", [4, 1, 0])]
+    for r, (name, sub, cells) in enumerate(ROWS):
+        y = 30 + r * 36
+        f.w(f'<text class="lab" x="8" y="{y + (11 if sub else 17)}">{name}</text>')
+        if sub: f.w(f'<text class="s" x="8" y="{y + 25}">{sub}</text>')
+        for i in cells:
+            n, cx, w, var, pct, st = COLS[i]
+            f.w(f'<rect x="{cx - w / 2}" y="{y}" width="{w}" height="26" rx="4" {tint(var, pct, stroke=st)}/>')
+        for a, b in zip(cells, cells[1:]):
+            (_, ca, wa, *_), (_, cb, wb, *_) = COLS[a], COLS[b]
+            sgn = 1 if cb > ca else -1
+            f.arrow(ca + sgn * (wa / 2 + 2), y + 13, cb - sgn * (wb / 2 + 2), y + 13, None, width=1.4)
+    f.w('<line x1="8" y1="254" x2="632" y2="254" stroke="currentColor" stroke-opacity=".15"/>')
+    def chip(x, y, w, t, var, pct, st=None):
+        f.w(f'<rect x="{x}" y="{y}" width="{w}" height="26" rx="4" {tint(var, pct, stroke=st)}/><text class="s" x="{x + w / 2}" y="{y + 17}" text-anchor="middle">{t}</text>')
+    f.w('<text class="lab" x="8" y="278">warp 内 thread 之间：shfl.sync</text>')
+    chip(8, 296, 116, "thread 0 的 register", "--fig-hi", 16); chip(176, 296, 116, "thread 5 的 register", "--fig-hi", 16)
+    f.arrow(174, 309, 126, 309, None, width=1.4)
+    f.w('<text class="s" x="8" y="342">一条指令直接读，出了 warp 就不行</text>')
+    f.w('<text class="lab" x="336" y="278">block 之间</text>')
+    chip(336, 296, 92, "block 0 的 shared", "--fig-2", 22); chip(448, 296, 64, "显存", "--fig-mute", 14); chip(532, 296, 92, "block 1 的 shared", "--fig-2", 22)
+    f.arrow(430, 309, 446, 309, None, width=1.4); f.arrow(514, 309, 530, 309, None, width=1.4)
+    f.path("M382 294 Q480 262 576 294", None, dash=True, width=1.2)
+    f.w('<text class="tb" x="480" y="282" text-anchor="middle" style="fill: var(--fig-hi)">✕</text>')
+    f.w('<text class="s" x="336" y="342">不能直接读，只能写回显存再读</text>')
+    return f
+
 def hw_move():
     f = F("fig-h-10", 150, "显存到 shared memory 的三种搬法：ld.global 加 st.shared 经过 L2 和 register；cp.async 和 TMA 经过 L2，直接写进 shared memory，不经过 register")
     COLS = [("显存", 200, 80, "--fig-mute", 14, None), ("L2", 310, 80, "--fig-3", 45, "--fig-2"),
@@ -2330,6 +2368,7 @@ def stages_sm():
 
 CAPS = {
  "hw_hierarchy": '<strong>图 1-5</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。',
+ "hw_paths": '<strong>图 1-6</strong> 数据在各层之间怎么搬，指令名是 PTX 的写法。没有一步到位的就拼两行，比如 ld.global 再 st.shared 也能把显存搬进 shared memory。Hopper 起的 thread block cluster 里，几个 block 可以互读 shared memory，这篇用不到。',
  "hw_move": '<strong>图 C-1</strong> 显存到 shared memory 的三种搬法走的路径。',
  "hw_sm": '<strong>图 1-1</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core 和 1 个 Tensor core，4 个 SMSP 共享 L1 / shared memory。普通的 load / store 由 SMSP 里的 LD/ST 单元按每个 thread 的地址发出，经 L1 / shared memory、片上互联到 L2。TMA 是专门整块搬数据的单元，和 LD/ST 走同一条路，见 Appendix C。',
  "residency": '<strong>图 3-2</strong> 第 2 节四个 kernel 的 program 怎么放上一个 SM（RTX 5090，形状同正文，每个 program 4 个 warp）。上面：第 2 节图里 grid 的一格是一个 program，也就是一个 CUDA block，放上 SM 时要占四样东西。下面每个 kernel 四根条，对应<a href="#tab-3-1">表 3-1</a> 的四条上限，条长是这条上限的总量；深色一格是一个实际放进去的 program 占的量，虚线框是只看这一条还能再放的，红框是先用完的那条，它决定了一个 SM 放几个。register 和 shared memory 读自编译出的 kernel；register 以 warp 为单位按 256 个分配，摊到每个 thread 是 8 的倍数，shared memory 按 128 B 取整。四条取最小的结果和 <code>cuOccupancyMaxActiveBlocksPerMultiprocessor</code> 算出的一致。softmax 和 row sum 的 16 B shared memory 用来让 4 个 warp 交换归约的部分结果。',
@@ -2338,7 +2377,7 @@ CAPS = {
  "warp_slots": '<strong>图 3-1</strong> 一个 SM 上驻留 3 个 program（P0、P1、P2，每个 4 个 warp）时的某一拍。每个 program 的 4 个 warp 分到 4 个 SMSP，格子里写的是这个 warp 属于哪个 program；每个 SMSP 有 12 个格子，整个 SM 共 48 个，就是<a href="#tab-3-1">表 3-1</a> 的 warp 名额。每个调度器每拍最多发射一个 warp，SMSP 2 的 3 个 warp 都在等数据，这一拍空转。',
  "hw_smsp": '<strong>图 1-2</strong> RTX 5090 一个 SMSP 的结构示意，按 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>的图 5 画。Blackwell 的 CUDA core 既做 FP32 也做 INT32，同一拍只能做其中一种。',
  "hw_cores": '<strong>图 1-3</strong> CUDA core、Tensor core 和 SFU 各算什么（示意）。左：一条 FMA，warp 的每个 thread 用一个 CUDA core 算 a × b + c，乘积不舍入，最后只舍入一次。右：一条 mma，以 bf16 的 m16n8k16 为例，整个 warp 一起发，同样一条指令，算的量是 FMA 的 64 倍。下：SFU 用查表加二次插值近似 exp2、rcp、rsqrt、sin 这类函数（Oberman, Siu 2005），SASS 读自 5090 上编译出的 kernel，吞吐比是实测。',
- "cuda_model": '<strong>图 1-6</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；中间是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-1</a>；右边是这一层在 Triton 里怎么写。',
+ "cuda_model": '<strong>图 1-7</strong> CUDA 的执行层级。左边从上到下逐层放大：grid 里的一个 block、block 里的一个 warp、warp 里的一个 thread；中间是每一层跑在哪个硬件上，对应<a href="#fig-h-2">图 1-1</a>；右边是这一层在 Triton 里怎么写。',
  "op_split": '<strong>图 2-1</strong> 四个例子的数据怎么分给 program。深蓝是 pid = 1 的 program 要读的数据，红色是它写回的输出；row sum 和 matmul 要循环，实心是第 0 轮读的 block，斜线是之后几轮要读的。matmul 那格一格是一个 block。每个例子的完整数据流图在后面各小节。',
  "mm_tiling": '<strong>图 7-1</strong> matmul 怎么切 block，一格是一个 block。C 的 block (1, 1) 只用到 A 的第 1 个 row block 和 B 的第 1 个 column block；沿 K 一轮读一对 block，乘完加到累加器上，实心是第 0 轮，斜线是之后几轮。A block 里的每个数被 C block 里同一行的 BN 个输出用到，B block 里的每个数被同一列的 BM 个输出用到。',
  "opt_divergence": '<strong>图 1-1</strong> control divergence（按 8 条 lane 画，实际一个 warp 32 条），代码是 <code>if (lane &lt; 4) { A; B } else { X; Y }; Z</code>。虚线是这一段被屏蔽、没在执行的 lane。上：Pascal 及以前一个 warp 只有一个程序计数器，分支两边串行执行。中：Volta 起每个 thread 有自己的程序计数器，两边的语句可以交替执行，调度器也不保证在 Z 合起来；但每一拍仍然只执行一条指令，空着的 lane 一样多。下：分支按 warp 一致时没有空着的 lane。上、中两层的画法参考 <a href="https://images.nvidia.com/content/volta-architecture/pdf/volta-architecture-whitepaper.pdf">Volta 白皮书</a> Figure 20、22 和 <a href="https://github.com/stanford-cs336/lectures/blob/main/lecture_05.pdf">CS336 lecture 5</a>。',
@@ -2381,7 +2420,7 @@ CAPS = {
  "ckpt": '<strong>图 4-2</strong> 4 层 xl block 有无 checkpoint：钢蓝框一直占到反向，浅蓝虚线框在反向时用 entry 重算、用完即丢。',
  "sweep": '<strong>图 4-3</strong> checkpoint 段长扫描（large，batch 1，seq 1024，前向 + 反向，fp32 eager）。',
 }
-OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_move", hw_move), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("hw_cores", hw_cores), ("residency", residency), ("tile_res", tile_res), ("tile_rules", tile_rules), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("wave_trace", wave_trace), ("op_split", op_split), ("mm_tiling", mm_tiling), ("opt_divergence", opt_divergence), ("opt_precision", opt_precision), ("opt_mx", opt_mx), ("opt_fusion", opt_fusion), ("opt_recompute", opt_recompute), ("opt_coalescing", opt_coalescing), ("opt_bank", opt_bank), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("mm_wave", mm_wave), ("mm_pipe_ncu", mm_pipe_ncu), ("pipe_slots", pipe_slots), ("stages_sm", stages_sm), ("tx_barrier", tx_barrier), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
+OUT = {k: fn().html(CAPS[k]) for k, fn in (("hw_hierarchy", hw_hierarchy), ("hw_paths", hw_paths), ("hw_move", hw_move), ("hw_sm", hw_sm), ("hw_smsp", hw_smsp), ("hw_cores", hw_cores), ("residency", residency), ("tile_res", tile_res), ("tile_rules", tile_rules), ("warp_slots", warp_slots), ("occ_sweep", occ_sweep), ("tile_sweep", tile_sweep), ("wave_trace", wave_trace), ("op_split", op_split), ("mm_tiling", mm_tiling), ("opt_divergence", opt_divergence), ("opt_precision", opt_precision), ("opt_mx", opt_mx), ("opt_fusion", opt_fusion), ("opt_recompute", opt_recompute), ("opt_coalescing", opt_coalescing), ("opt_bank", opt_bank), ("tri_gelu", tri_gelu), ("tri_softmax", tri_softmax), ("tri_rowsum", tri_rowsum), ("tri_matmul", tri_matmul), ("mm_wave", mm_wave), ("mm_pipe_ncu", mm_pipe_ncu), ("pipe_slots", pipe_slots), ("stages_sm", stages_sm), ("tx_barrier", tx_barrier), ("cuda_model", cuda_model), ("tpu_core", tpu_core), ("systolic", systolic), ("linear", linear), ("step_time", step_time), ("roofline", roofline), ("roofline_ops", roofline_ops), ("roofline_rms", roofline_rms), 
        ("flops_vs_time", flops_vs_time), ("share_vs_seq", share_vs_seq), ("peak_memory", peak_memory), ("peak_moment", peak_moment),
        ("rms_eager", rms_eager), ("rms_fused", rms_fused), ("attn_flow", attn_flow), ("layer_donut", layer_donut), ("timelines", timelines),
        ("bf16", bf16), ("ckpt", ckpt), ("sweep", sweep))}
