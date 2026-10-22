@@ -811,47 +811,22 @@ def hw_sm():
     return f
 
 def hw_move():
-    f = F("fig-h-10", 374, "显存到 shared memory 的三种搬法。路径：ld.global 加 st.shared 经过 L2、L1、register；cp.async.ca 经过 L2、L1，不经过 register；cp.async.cg 和 TMA 只经过 L2。时间线：ld.global 的数据要先落进 register 再 st.shared，register 一直被占着；cp.async 发出后不占 register，等 wait_group 后 bar.sync 就能用")
-    COLS = [("显存", 190, 70, "--fig-mute", 14, None), ("L2", 280, 70, "--fig-3", 45, "--fig-2"), ("L1", 370, 70, "--fig-2", 22, None),
-            ("register", 460, 70, "--fig-hi", 16, None), ("shared memory", 568, 100, "--fig-2", 22, None)]
-    f.w('<text class="tb" x="8" y="20">路径</text>')
-    for name, cx, w, *_ in COLS:
-        f.w(f'<text class="lab2" x="{cx}" y="38" text-anchor="middle">{name}</text>')
-    ROWS = [("ld.global + st.shared", "每个 thread 自己的地址", [0, 1, 2, 3, 4]),
-            ("cp.async.ca", "每个 thread 4 / 8 / 16 B", [0, 1, 2, 4]),
-            ("cp.async.cg", "同上，不在 L1 留", [0, 1, 4]),
-            ("TMA", "1 个 thread 发，整块搬", [0, 1, 4])]
+    f = F("fig-h-10", 150, "显存到 shared memory 的三种搬法：ld.global 加 st.shared 经过 L2 和 register；cp.async 和 TMA 经过 L2，直接写进 shared memory，不经过 register")
+    COLS = [("显存", 200, 80, "--fig-mute", 14, None), ("L2", 310, 80, "--fig-3", 45, "--fig-2"),
+            ("register", 420, 80, "--fig-hi", 16, None), ("shared memory", 548, 110, "--fig-2", 22, None)]
+    for name, cx, *_ in COLS:
+        f.w(f'<text class="lab2" x="{cx}" y="20" text-anchor="middle">{name}</text>')
+    ROWS = [("ld.global + st.shared", "每个 thread 算地址", [0, 1, 2, 3]),
+            ("cp.async", "每个 thread 算地址", [0, 1, 3]),
+            ("TMA", "1 个 thread 发，整块搬", [0, 1, 3])]
     for r, (name, sub, cells) in enumerate(ROWS):
-        y = 50 + r * 36
+        y = 32 + r * 38
         f.w(f'<text class="lab" x="8" y="{y + 11}">{name}</text><text class="s" x="8" y="{y + 25}">{sub}</text>')
         for i in cells:
             n, cx, w, var, pct, st = COLS[i]
-            f.w(f'<rect x="{cx - w / 2}" y="{y}" width="{w}" height="24" rx="4" {tint(var, pct, stroke=st)}/>')
+            f.w(f'<rect x="{cx - w / 2}" y="{y}" width="{w}" height="26" rx="4" {tint(var, pct, stroke=st)}/>')
         for a, b in zip(cells, cells[1:]):
-            f.arrow(COLS[a][1] + COLS[a][2] / 2 + 2, y + 12, COLS[b][1] - COLS[b][2] / 2 - 2, y + 12, None, width=1.4)
-    # 时间线
-    X0 = 140
-    def bar(u0, u1, y, var, pct=None, dash=False, lab="", h=20):
-        st = (f'style="fill: none; stroke: var({var})" stroke-dasharray="3 2"' if dash
-              else f'style="fill: var({var})" fill-opacity="{pct}"')
-        f.w(f'<rect x="{X0 + u0}" y="{y}" width="{u1 - u0}" height="{h}" rx="2" {st}/>')
-        if lab: f.w(f'<text class="s" x="{X0 + (u0 + u1) / 2}" y="{y + h / 2 + 4}" text-anchor="middle">{lab}</text>')
-    YT = 236
-    f.w(f'<text class="tb" x="8" y="{YT - 16}">一个 thread 的时间线（示意）</text>')
-    A, B = YT + 4, YT + 70
-    f.w(f'<text class="lab" x="8" y="{A + 14}">ld.global</text><text class="lab" x="8" y="{A + 30}">+ st.shared</text>')
-    bar(0, 70, A, "--fig-hi", .7, lab="ld.global"); bar(70, 190, A, "--fig-3", .9, lab="别的活")
-    bar(190, 270, A, "--fig-hi", dash=True, lab="等数据"); bar(270, 340, A, "--fig-2", .55, lab="st.shared")
-    bar(340, 405, A, "--fig-mute", .5, lab="bar.sync"); bar(405, 488, A, "--fig-1", .6, lab="用数据")
-    bar(0, 340, A + 24, "--fig-hi", .2, lab="register 一直被占着", h=16)
-    f.w(f'<text class="lab" x="8" y="{B + 14}">cp.async</text>')
-    bar(0, 70, B, "--fig-hi", .7, lab="cp.async"); bar(70, 190, B, "--fig-3", .9, lab="别的活")
-    bar(190, 270, B, "--fig-hi", dash=True, lab="wait_group"); bar(270, 335, B, "--fig-mute", .5, lab="bar.sync")
-    bar(335, 418, B, "--fig-1", .6, lab="用数据")
-    f.w(f'<text class="s" x="{X0 + 4}" y="{B + 36}">不占 register，数据直接进 shared memory</text>')
-    f.w(f'<line x1="{X0 + 70}" y1="{B - 4}" x2="{X0 + 70}" y2="{B + 24}" stroke="currentColor" stroke-width="1.6"/><text class="s" x="{X0 + 74}" y="{B - 6}">commit_group</text>')
-    x = X0 + 270
-    f.w(f'<line x1="{x}" y1="{YT - 6}" x2="{x}" y2="{B + 44}" stroke="currentColor" stroke-opacity=".6" stroke-dasharray="4 3"/><text class="s" x="{x + 4}" y="{YT - 2}">数据到</text>')
+            f.arrow(COLS[a][1] + COLS[a][2] / 2 + 2, y + 13, COLS[b][1] - COLS[b][2] / 2 - 2, y + 13, None, width=1.4)
     return f
 
 def hw_smsp():
@@ -2298,7 +2273,7 @@ def stages_sm():
 
 CAPS = {
  "hw_hierarchy": '<strong>图 1-2</strong> RTX 5090 的存储层级示意。规格来自 <a href="https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf">NVIDIA RTX Blackwell 白皮书</a>，官方的整芯片和 SM 结构图也在白皮书里。',
- "hw_move": '<strong>图 1-3</strong> 显存到 shared memory 的三种搬法（示意）。cp.async 是 Ampere 起的 PTX 指令，几条打成一组（<code>commit_group</code>），<code>wait_group N</code> 等到最多剩 N 组在路上；TMA 见 <a href="#tma">Appendix C</a>。ld.global 想提前几轮搬，就得多占几轮 register；cp.async 只多占 shared memory。',
+ "hw_move": '<strong>图 1-3</strong> 显存到 shared memory 的三种搬法。ld.global 先把数据读进 register，再用 st.shared 写进 shared memory；cp.async（Ampere 起）和 TMA（Hopper 起，见 <a href="#tma">Appendix C</a>）不经过 register，发出后 thread 接着往下跑，要用时再等。',
  "hw_sm": '<strong>图 1-4</strong> RTX 5090 一个 SM 的结构示意（SMSP 即 SM sub-partition）。每个 SMSP 有自己的 warp 调度器、register、32 个 CUDA core 和 1 个 Tensor core，4 个 SMSP 共享 L1 / shared memory。普通的 load / store 由 SMSP 里的 LD/ST 单元按每个 thread 的地址发出，经 L1 / shared memory、片上互联到 L2。TMA 是专门整块搬数据的单元，和 LD/ST 走同一条路，见 Appendix C。',
  "residency": '<strong>图 3-2</strong> 第 2 节四个 kernel 的 program 怎么放上一个 SM（RTX 5090，形状同正文，每个 program 4 个 warp）。上面：第 2 节图里 grid 的一格是一个 program，也就是一个 CUDA block，放上 SM 时要占四样东西。下面每个 kernel 四根条，对应<a href="#tab-3-1">表 3-1</a> 的四条上限，条长是这条上限的总量；深色一格是一个实际放进去的 program 占的量，虚线框是只看这一条还能再放的，红框是先用完的那条，它决定了一个 SM 放几个。register 和 shared memory 读自编译出的 kernel；register 以 warp 为单位按 256 个分配，摊到每个 thread 是 8 的倍数，shared memory 按 128 B 取整。四条取最小的结果和 <code>cuOccupancyMaxActiveBlocksPerMultiprocessor</code> 算出的一致。softmax 和 row sum 的 16 B shared memory 用来让 4 个 warp 交换归约的部分结果。',
  "tile_res": '<strong>图 3-6</strong> 正文形状（A 4096 × 2048，B 2048 × 512，fp32）下最快的配置和正文用的配置，在一个 SM 上各用了多少。四根条对应<a href="#tab-3-1">表 3-1</a> 的四条上限，条长是这条上限的总量。',
