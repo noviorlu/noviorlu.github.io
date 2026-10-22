@@ -40,6 +40,8 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 
 标准 attention 慢在 $N\times N$ 的 $S$ 和 $P$ 要在 HBM 里来回读写。Dao、Fu、Ermon、Rudra、Ré 2022 年的 FlashAttention 把整个 attention 融合成一个 kernel，用 **tiling** 让这两个矩阵完全不进 HBM，用 **recomputation** 省掉反向要存的 $P$；难点在于让 softmax 也能分块算。
 
+<p align="center">$S = \dfrac{QK^\top}{\sqrt d}, \qquad P = \mathrm{softmax}(S), \qquad O = PV, \qquad Q \in \mathbb{R}^{N_q \times d},\ K, V \in \mathbb{R}^{N_k \times d}$</p>
+
 ### 1.1 Tiling {#fa1-tiling}
 
 把 $Q$ 按 $B_q$ 行切成 $T_q$ 个 block $Q_i$，$K$、$V$ 按 $B_k$ 行切成 $T_k$ 个 block $K_j$、$V_j$（$d$ 方向不切），[图 1-1](#fig-1-1) 的格子换成 block，$S_{ij} = Q_iK_j^\top$ 就是 (a) 的外积，$O_i = \sum_j P_{ij}V_j$ 就是 (b) 的列组合。
@@ -495,7 +497,7 @@ softmax 对 $S$ 的每一行单独做。取一行，记作 $s_1, \dots, s_{N_k}$
 
 ### 1.2 Online softmax {#online-softmax}
 
-记 $S = QK^\top/\sqrt d$。online softmax（Milakov 和 Gimelshein 2018）的核心是把一行的两段合并。一段 A 的最大值和分母是
+online softmax（Milakov 和 Gimelshein 2018）的核心是把一行的两段合并。一段 A 的最大值和分母是
 
 <p align="center">$m_A = \max_{k \in A} s_k, \qquad \ell_A = \sum_{k \in A} e^{s_k - m_A}$</p>
 
@@ -684,109 +686,6 @@ $j = N$ 时就是 safe softmax 的分母。
 
 </details>
 
-**推广到 attention。** 到这里每行的分母一遍就能求出来，但 $P_{ij} = e^{S_{ij} - m_{T_k}}/\ell_{T_k}$ 要用最终的 $m_{T_k}$、$\ell_{T_k}$，还是得等扫完，单独算 softmax 要再扫一遍才能写出 $P$。attention 不需要 $P$ 本身，只要 $PV$。一行的输出是 $\text{out} = \sum_k p_k v_k$，$v_k$ 是 $V$ 的第 $k$ 行。$p_k$ 的分母 $\ell$ 对每一项都一样，提到求和外面，输出就是分子 $O$ 除以 $\ell$（[图 1-4](#fig-1-4)）：
-
-<p align="center">$\text{out} = \dfrac{O}{\ell}, \qquad O = \sum_{k=1}^{N_k} e^{s_k - m}\, v_k$</p>
-
-注意这里的 $O$ 是还没除以 $\ell$ 的分子，和 1.1 里归一化以后的 $O = PV$ 不是一回事。从这里到 1.2 结尾的伪代码，$O_i$ 都指这个分子，最后一步除以 $\ell$ 以后才是 1.1 的 $O_i$。
-
-<figure id="fig-1-4">
-<svg viewBox="0 0 680 316" width="100%" role="img" aria-label="attention 一行的输出是 p_k 乘 v_k 之和。每一项 p_k v_k 等于 e 的 s_k 减 m 次方乘 v_k，再乘整行共用的 1 除以 ℓ。共用的 1/ℓ 提到求和外面，输出等于 O 乘 1/ℓ，O 是 e 的 s_k 减 m 次方乘 v_k 之和">
-  <style>
-    .os2 { font-size: 11px; fill: currentColor; }
-    .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
-    .os2-s { font-size: 10.5px; fill: currentColor; opacity: .72; }
-    .os2-c { font-size: 12px; font-weight: 600; text-anchor: middle; fill: currentColor; }
-    .os2-hi { fill: var(--fig-hi); font-weight: 600; }
-  </style>
-<text class="os2-b" x="338.0" y="16" text-anchor="middle">一行 attention 的输出 out = Σ<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> p</tspan><tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> v</tspan><tspan dy="3.5" font-size="72%">k</tspan></text>
-<text class="os2-b" x="8" y="44.0" text-anchor="start">out 的每一项</text>
-<text class="os2-s" x="8" y="58.0" text-anchor="start">softmax 权重 × v</text>
-<text class="os2-b" x="8" y="100.0" text-anchor="start">每个元素自己的部分</text>
-<text class="os2-b" x="8" y="154.0" text-anchor="start">整行同一个数</text>
-<text class="os2-b" x="8" y="224.0" text-anchor="start">合并</text>
-<text class="os2-s" x="8" y="238.0" text-anchor="start">共用的数提到求和外面</text>
-<rect x="150" y="26" width="88" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="194.0" y="44.0" text-anchor="middle">p<tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5"> v</tspan><tspan dy="3.5" font-size="72%">1</tspan></text>
-<text class="os2-b" x="194.0" y="72" text-anchor="middle">=</text>
-<rect x="150" y="82" width="88" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="194.0" y="100.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">s</tspan><tspan dy="3" font-size="58%">1</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> v</tspan><tspan dy="3.5" font-size="72%">1</tspan></text>
-<rect x="246" y="26" width="88" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="290.0" y="44.0" text-anchor="middle">p<tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5"> v</tspan><tspan dy="3.5" font-size="72%">2</tspan></text>
-<text class="os2-b" x="290.0" y="72" text-anchor="middle">=</text>
-<rect x="246" y="82" width="88" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="290.0" y="100.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">s</tspan><tspan dy="3" font-size="58%">2</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> v</tspan><tspan dy="3.5" font-size="72%">2</tspan></text>
-<text class="os2-b" x="386.0" y="44.0" text-anchor="middle">⋯</text>
-<text class="os2-b" x="386.0" y="100.0" text-anchor="middle">⋯</text>
-<rect x="438" y="26" width="88" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="482.0" y="44.0" text-anchor="middle">p<tspan dy="3.5" font-size="72%">N</tspan><tspan dy="-3.5"> v</tspan><tspan dy="3.5" font-size="72%">N</tspan></text>
-<text class="os2-b" x="482.0" y="72" text-anchor="middle">=</text>
-<rect x="438" y="82" width="88" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="482.0" y="100.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">s</tspan><tspan dy="3" font-size="58%">N</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> v</tspan><tspan dy="3.5" font-size="72%">N</tspan></text>
-<text class="os2-b" x="338.0" y="128" text-anchor="middle">×</text>
-<rect x="150" y="136" width="376" height="28" rx="3" style="fill: var(--fig-hi); stroke: var(--fig-1)" fill-opacity="0.18" stroke-opacity=".35"/>
-<text class="os2 os2-hi" x="338.0" y="154.0" text-anchor="middle">1 / ℓ，ℓ = Σ<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> e</tspan><tspan dy="-5" font-size="72%">s</tspan><tspan dy="3" font-size="58%">k</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5">（softmax 的分母）</tspan></text>
-<text class="os2-s" x="338.0" y="186" text-anchor="middle">O = 第二行全部加起来 = Σ<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> e</tspan><tspan dy="-5" font-size="72%">s</tspan><tspan dy="3" font-size="58%">k</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> v</tspan><tspan dy="3.5" font-size="72%">k</tspan></text>
-<rect x="150" y="206" width="376" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.35" stroke-opacity=".35"/><text class="os2" x="338.0" y="224.0" text-anchor="middle">O × 1 / ℓ</text>
-<text class="os2-b" x="536" y="224.0" text-anchor="start">= out</text>
-<text class="os2-s" x="150" y="260" text-anchor="start">p<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> = e</tspan><tspan dy="-5" font-size="72%">s</tspan><tspan dy="3" font-size="58%">k</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="5"> / ℓ。O 是分子，ℓ 是分母，两个都是一项一项加起来的</tspan></text>
-<text class="os2-s" x="150" y="278" text-anchor="start">所以只要能分段算出 O 和 ℓ，最后除一次就得到 out</text>
-</svg>
-<figcaption><strong>图 1-4</strong> 一行的输出 = 分子 $O$ / 分母 $\ell$。</figcaption>
-</figure>
-
-$O$ 和 $\ell$ 是同一种求和，只是每一项多乘一个 $v_k$，所以 $O$ 也能边扫边用同一个因子修正：按 [图 1-1](#fig-1-1) (b)，$o_i = \sum_j P_{ij}v_j$，第 $i$ 行的权重全乘同一个数，$o_i$ 也乘同一个数。所以 $O_i$ 从 0 开始，每读进一对 $K_j$、$V_j$：
-
-<p align="center">$O_i \leftarrow e^{m_{j-1} - m_j}\, O_i + e^{S_{ij} - m_j}\, V_j$</p>
-
-$e^{m_{j-1}-m_j}$ 每行一个数，乘到 $O_i$ 的对应行上。扫完 $j = T_k$，$O_i$ 每行除以自己的 $\ell_{T_k}$，就是这个 query block 的输出。kernel 的状态只有每行的 $m$、$\ell$ 和 $O_i$（[图 1-5](#fig-1-5)，图里的 $m_{\text{old}}$、$m_{\text{new}}$ 就是 $m_{j-1}$、$m_j$）。
-
-<figure id="fig-1-5">
-<svg viewBox="0 0 680 252" width="100%" role="img" aria-label="顺序扫：之前扫过的 block 1 到 j−1 只留下 m_old、ℓ_old、O_old，当成一个 tile；新读的 block j 按 m_new 算每一项。ℓ_old 乘 e 的 m_old 减 m_new 次方，加上 block j 的项，得到 ℓ_new">
-  <style>
-    .os2 { font-size: 11px; fill: currentColor; }
-    .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
-    .os2-s { font-size: 10.5px; fill: currentColor; opacity: .72; }
-    .os2-c { font-size: 12px; font-weight: 600; text-anchor: middle; fill: currentColor; }
-    .os2-hi { fill: var(--fig-hi); font-weight: 600; }
-  </style>
-<text class="os2-b" x="265.0" y="16" text-anchor="middle">之前扫过的 block 1 ⋯ j−1</text>
-<text class="os2-b" x="472.0" y="16" text-anchor="middle">这一步读 block j</text>
-<text class="os2-s" x="619.0" y="16" text-anchor="middle">还没读</text>
-<text class="os2-b" x="8" y="44.0" text-anchor="start">合并前</text>
-<text class="os2-b" x="8" y="94.0" text-anchor="start">对齐到 m<tspan dy="3.5" font-size="72%">new</tspan></text>
-<text class="os2-b" x="8" y="148.0" text-anchor="start">合并</text>
-<rect x="150" y="26" width="230" height="28" rx="3" style="fill: var(--fig-3); stroke: var(--fig-1)" fill-opacity="0.6" stroke-opacity=".35"/><text class="os2" x="265.0" y="44.0" text-anchor="middle">m<tspan dy="3.5" font-size="72%">old</tspan><tspan dy="-3.5">，ℓ</tspan><tspan dy="3.5" font-size="72%">old</tspan><tspan dy="-3.5">，O</tspan><tspan dy="3.5" font-size="72%">old</tspan><tspan dy="-3.5">（按 m</tspan><tspan dy="3.5" font-size="72%">old</tspan><tspan dy="-3.5"> 算的）</tspan></text>
-<rect x="398.0" y="26" width="72.0" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="434.0" y="44.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">s</tspan><tspan dy="3" font-size="58%">k</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="3" font-size="58%">new</tspan></text>
-<rect x="474.0" y="26" width="72.0" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.2" stroke-opacity=".35"/><text class="os2" x="510.0" y="44.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">s</tspan><tspan dy="3" font-size="58%">k</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="3" font-size="58%">new</tspan></text>
-<rect x="564" y="26" width="110" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.05" stroke-opacity=".35" stroke-dasharray="4 3"/>
-<text class="os2-s" x="619.0" y="44.0" text-anchor="middle">block j+1 ⋯</text>
-<text class="os2-b" x="265.0" y="70" text-anchor="middle">×</text>
-<rect x="150" y="76" width="230" height="28" rx="3" style="fill: var(--fig-hi); stroke: var(--fig-1)" fill-opacity="0.18" stroke-opacity=".35"/>
-<text class="os2 os2-hi" x="265.0" y="94.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">old</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="3" font-size="58%">new</tspan></text>
-<text class="os2-s" x="472.0" y="94.0" text-anchor="middle">已经按 m<tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5"> 算，不用乘</tspan></text>
-<rect x="150" y="130" width="230" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.35" stroke-opacity=".35"/><text class="os2" x="265.0" y="148.0" text-anchor="middle">e<tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">old</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="3" font-size="58%">new</tspan><tspan dy="2"> · ℓ</tspan><tspan dy="3.5" font-size="72%">old</tspan></text>
-<text class="os2-b" x="389" y="148.0" text-anchor="middle">+</text>
-<rect x="398" y="130" width="148" height="28" rx="3" style="fill: var(--fig-1); stroke: var(--fig-1)" fill-opacity="0.35" stroke-opacity=".35"/><text class="os2" x="472.0" y="148.0" text-anchor="middle">Σ<tspan dy="3.5" font-size="72%">k∈j</tspan><tspan dy="-3.5"> e</tspan><tspan dy="-5" font-size="72%">s</tspan><tspan dy="3" font-size="58%">k</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="3" font-size="58%">new</tspan></text>
-<text class="os2-b" x="556" y="148.0" text-anchor="start">= ℓ<tspan dy="3.5" font-size="72%">new</tspan></text>
-<text class="os2-s" x="150" y="184" text-anchor="start">m<tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5"> = max(m</tspan><tspan dy="3.5" font-size="72%">old</tspan><tspan dy="-3.5">, block j 的最大值)</tspan></text>
-<text class="os2-s" x="150" y="202" text-anchor="start">O 同理：e<tspan dy="-5" font-size="72%">m</tspan><tspan dy="3" font-size="58%">old</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="3" font-size="58%">new</tspan><tspan dy="2"> · O</tspan><tspan dy="3.5" font-size="72%">old</tspan><tspan dy="-3.5"> + Σ</tspan><tspan dy="3.5" font-size="72%">k∈j</tspan><tspan dy="-3.5"> e</tspan><tspan dy="-5" font-size="72%">s</tspan><tspan dy="3" font-size="58%">k</tspan><tspan dy="-3" font-size="72%">−m</tspan><tspan dy="3" font-size="58%">new</tspan><tspan dy="2"> v</tspan><tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> = O</tspan><tspan dy="3.5" font-size="72%">new</tspan></text>
-<text class="os2-s" x="150" y="220" text-anchor="start">读下一个 block 时，m<tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">、ℓ</tspan><tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">、O</tspan><tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5"> 就是新的 m</tspan><tspan dy="3.5" font-size="72%">old</tspan><tspan dy="-3.5">、ℓ</tspan><tspan dy="3.5" font-size="72%">old</tspan><tspan dy="-3.5">、O</tspan><tspan dy="3.5" font-size="72%">old</tspan><tspan dy="-3.5">；扫完整行再算 O / ℓ</tspan></text>
-</svg>
-<figcaption><strong>图 1-5</strong> 顺序扫的一步。kernel 只存每行的 $m$、$\ell$、$O$。</figcaption>
-</figure>
-
-写成伪代码，每行的 $m$、$\ell$ 原地更新，最后归一化一次：
-
-```
-for i ← 1 … T_q:                           # 每个 query block
-    O_i ← 0,  ℓ ← 0,  m ← −∞               # 长度 B_q 的 m、ℓ 和 O_i 只放在 register / shared memory 里
-    for j ← 1 … T_k:                       # 每个 key/value block
-        S_ij  ← Q_i K_jᵀ / sqrt(d)         # B_q × B_k，只在片上，不进 HBM
-        m_new ← max(m, rowmax(S_ij))
-        P̃_ij  ← exp(S_ij − m_new)          # 还没除以分母
-        ℓ     ← exp(m − m_new)·ℓ + rowsum(P̃_ij)
-        O_i   ← exp(m − m_new)·O_i + P̃_ij·V_j
-        m     ← m_new
-    O_i ← O_i / ℓ                          # O_i（和每行的统计量）只写回 HBM 一次
-```
-
-严格说，这是 FlashAttention-2 采用的循环顺序。FA1 论文的 Algorithm 1 是反过来套的：外层循环走 $K$/$V$ block，内层循环走 $Q$ block，所以内层的每一步都要从 HBM 读出 $O_i$、$\ell_i$、$m_i$，更新后再写回去，而且每一步都用 $\mathrm{diag}(\ell_i)^{-1}$ 把 $O_i$ 归一化一次。后面的 IO 复杂度对两种顺序都成立；换循环顺序是 FA2 的改动之一（[第 2 节](#fa2)）。
-
 <details class="fold doc aside">
 <summary>对应的 Triton kernel（前向）</summary>
 
@@ -881,7 +780,7 @@ FA1 解决了 HBM 的读写，但 kernel 本身离 Tensor core 的峰值还很�
 
 FlashAttention-2（Dao，2023）最要紧的改动有三处。
 
-1. **减少非 matmul 的 FLOPs。** 非 matmul 的计算（exp、行最大值和行和、rescale 的乘法）跑在 FP32 ALU 和特殊函数单元上，不走 Tensor core。A100 的 FP32 算力是 1.95e13 FLOPS，FP16 matmul 是 3.12e14 FLOPS，所以每个非 matmul 的 FLOP 大约贵 16 倍。v1 每一步都让输出保持归一化，除了免不掉的 $\exp(m_{\text{old}}-m_{\text{new}})$ 修正，还要再除以当前的累计和。FA2 的累加器不做归一化，每个 block 只乘 $\exp(m_{\text{old}}-m_{\text{new}})$ 这一项修正，最后才除一次 $\ell$（即 [1.2 节](#online-softmax)的伪代码）；给反向存的也只有每行一个 logsumexp $L=m+\log\ell$，不再把 $m$ 和 $\ell$ 都存下来。
+1. **减少非 matmul 的 FLOPs。** 非 matmul 的计算（exp、行最大值和行和、rescale 的乘法）跑在 FP32 ALU 和特殊函数单元上，不走 Tensor core。A100 的 FP32 算力是 1.95e13 FLOPS，FP16 matmul 是 3.12e14 FLOPS，所以每个非 matmul 的 FLOP 大约贵 16 倍。v1 每一步都让输出保持归一化，除了免不掉的 $\exp(m_{\text{old}}-m_{\text{new}})$ 修正，还要再除以当前的累计和。FA2 的累加器不做归一化，每个 block 只乘 $\exp(m_{\text{old}}-m_{\text{new}})$ 这一项修正，最后才除一次 $\ell$（即[图 1-2](#fig-1-2)的做法）；给反向存的也只有每行一个 logsumexp $L=m+\log\ell$，不再把 $m$ 和 $\ell$ 都存下来。
 2. **交换内外层循环，在序列长度上并行。** v1 只在 (batch × head) 上并行。现在的序列长、每张卡上的 batch 小，这样分出的 thread block 可能不够占满 GPU 的 SM（[图 2-1](#fig-2-1)）。FA2 把 query block 的循环放到外层，各个行 block 之间互相独立：前向里每个 thread block 负责一个 query 行 block。反向里每个 thread block 负责一个 key/value 列 block，在本地累加自己的 $dK_j$、$dV_j$，$dQ$ 则用 atomic add 累加到一块共享的缓冲区里。
 
 <figure id="fig-2-1">
