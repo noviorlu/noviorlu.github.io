@@ -214,11 +214,11 @@ def op(k, a, b, hi=False, dash=False):
     w(f'<rect class="op" x="{x}" y="{yC + 32}" width="{OW}" height="40" rx="6"{st}{d}/>')
     T('tb', x + OW / 2, yC + 49, a, 'middle'); T('s', x + OW / 2, yC + 64, b, 'middle')
 oy, ob = yC + 32, yC + 72
-op(0, 'dot', 'q · k^{ᵀ}')
+op(0, 'dot', 'Q_{i} K_{j}^{ᵀ}')
 op(1, 'mask', 'tl.where', True)
 op(2, '① ② ③', 'max·exp2·sum', True)
-op(3, 'dot  ④', 'p̃ · v')
-op(4, '÷ ℓ', 'acc / ℓ', dash=True)
+op(3, 'dot  ④', 'P̃_{ij} V_{j}')
+op(4, '÷ ℓ', 'O_{i} / ℓ', dash=True)
 for k in range(3):
     arrow(OX0 + k * OS + OW + 1, oy + 20, OX0 + (k + 1) * OS - 2, oy + 20)
 cx = lambda k: OX0 + k * OS + OW / 2
@@ -232,10 +232,10 @@ def bar(x0, x1, txt, kind):
     T('s', (x0 + x1) / 2, yR + 29, txt, 'middle', 'opacity: 1')
 rt, rb = yR + 13, yR + 37
 QX, KX, VX2 = 122, 166, 426
-bar(96, 148, 'q  B_{q}×d', 'keep')
-bar(OX0 + OS, OX0 + OS + OW, 's、p̃  B_{q}×B_{k}', 'tmp')
-bar(OX0 + 2 * OS, OX0 + 2 * OS + OW, 'm、ℓ  B_{q}', 'keep')
-bar(438, OX0 + 3 * OS + OW, 'acc  B_{q}×d', 'keep')
+bar(96, 148, 'Q_{i}', 'keep')
+bar(OX0 + OS, OX0 + OS + OW, 'S_{ij}、P̃_{ij}', 'tmp')
+bar(OX0 + 2 * OS, OX0 + 2 * OS + OW, 'm、ℓ', 'keep')
+bar(438, OX0 + 3 * OS + OW, 'O_{i}', 'keep')
 arrow(QX, rt, QX, ob + 1)                                      # q → dot
 both(cx(1), rt - 1, ob + 1)                                    # mask ↕ s、p̃
 both(cx(2), rt - 1, ob + 1)                                    # ①②③ ↕ m、ℓ
@@ -276,9 +276,9 @@ T('lab2', 18, yT + 18, '第 j 轮')
 cols = [['① m_{new} = max(m, rowmax(S_{ij}))',
          '② P̃_{ij} = exp(S_{ij} − m_{new})',
          '③ ℓ ← exp(m − m_{new})·ℓ + rowsum(P̃_{ij})'],
-        ['④ acc ← exp(m − m_{new})·acc + P̃_{ij}V_{j}',
+        ['④ O_{i} ← exp(m − m_{new})·O_{i} + P̃_{ij}V_{j}',
          '⑤ m ← m_{new}',
-         '循环后：O_{i} = acc / ℓ']]
+         '循环后：O_{i} ← O_{i} / ℓ']]
 for c, rows in enumerate(cols):
     for k, t in enumerate(rows):
         T('lab', 92 + c * 272, yT + 30 + k * 24, t)
@@ -286,7 +286,7 @@ H = yT + 104
 
 LABEL = ("FlashAttention 的 tiling，按 Triton program 看。上：i = 2 的 program 读 Q 的第 2 个 block，沿 j 依次读 K、V 的 block，"
          "S 只在片上算，最后写回 O 的第 2 个 block；causal 时对角线右上的 block 跳过。下：grid 每个 Q block 一个 program；program 里每轮 "
-         "dot 算 S，online softmax 更新 m、ℓ，再 dot 乘 V 累加进 acc；K、V 经 shared memory 的两个 slot 轮流搬，q、acc、m、ℓ 一直在 register，扫完除以 ℓ 写回 O。")
+         "dot 算 S，online softmax 更新 m、ℓ，再 dot 乘 V 累加进 O_i；K、V 经 shared memory 的两个 slot 轮流搬，Q_i、O_i、m、ℓ 一直在 register，扫完除以 ℓ 写回 O。")
 defs = ''.join(m for _, m in MK.values())
 svg = (f'<figure id="{FID}" class="fg-fig">\n<svg class="fg" viewBox="0 0 640 {H}" width="100%" role="img" aria-label="{LABEL}">\n' + CSS +
        f'\n  <defs>{defs}<pattern id="{FID}-hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="5" style="stroke: var(--fig-1)" stroke-opacity=".55" stroke-width="1.3"/></pattern></defs>\n'

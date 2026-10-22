@@ -170,7 +170,7 @@ softmax 对 $S$ 的每一行单独做。取一行，记作 $s_1, \dots, s_{N_k}$
 问题出在两次乘法中间的这个 softmax：实际要算的是 $O = PV$，而分母要把 $T_k$ 个 block 全部加起来。读到第 $j$ 个 block 时后面的 block 还没算，分母不知道，$P_{ij}$ 就算不出来，$P_{ij}V_j$ 也没法加进 $O_i$。最直接的办法是先扫一遍所有 $K_j$ 求每行的最大值，再扫一遍求分母，最后再扫一遍算 $P_{ij}V_j$，$K$ 要多读两遍；即使用 1.2 的递推把最大值和分母合成一遍，也还要多读一遍。FlashAttention 用 online softmax 把 softmax 也拆成一个 block 一个 block 地算，$K_j$、$V_j$ 都只读一遍，完整的 $S$ 和 $P$ 都不写回 HBM（[图 1-2](#fig-1-2)）。图里的 ①–⑤ 和每行的 $m$、$\ell$ 是 1.2 要讲的。
 
 <figure id="fig-1-2" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 988" width="100%" role="img" aria-label="FlashAttention 的 tiling，按 Triton program 看。上：i = 2 的 program 读 Q 的第 2 个 block，沿 j 依次读 K、V 的 block，S 只在片上算，最后写回 O 的第 2 个 block；causal 时对角线右上的 block 跳过。下：grid 每个 Q block 一个 program；program 里每轮 dot 算 S，online softmax 更新 m、ℓ，再 dot 乘 V 累加进 acc；K、V 经 shared memory 的两个 slot 轮流搬，q、acc、m、ℓ 一直在 register，扫完除以 ℓ 写回 O。">
+<svg class="fg" viewBox="0 0 640 988" width="100%" role="img" aria-label="FlashAttention 的 tiling，按 Triton program 看。上：i = 2 的 program 读 Q 的第 2 个 block，沿 j 依次读 K、V 的 block，S 只在片上算，最后写回 O 的第 2 个 block；causal 时对角线右上的 block 跳过。下：grid 每个 Q block 一个 program；program 里每轮 dot 算 S，online softmax 更新 m、ℓ，再 dot 乘 V 累加进 O_i；K、V 经 shared memory 的两个 slot 轮流搬，Q_i、O_i、m、ℓ 一直在 register，扫完除以 ℓ 写回 O。">
   <style>
     .fg .lab { font-size: 12px; fill: currentColor; }
     .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
@@ -410,7 +410,7 @@ softmax 对 $S$ 的每一行单独做。取一行，记作 $s_1, \dots, s_{N_k}$
   <text class="lab2" x="18" y="794">显存</text>
   <rect class="op" x="92" y="594" width="92" height="40" rx="6"/>
   <text class="tb" x="138" y="611" text-anchor="middle">dot</text>
-  <text class="s" x="138" y="626" text-anchor="middle">q · k<tspan dy="-5" font-size="72%">ᵀ</tspan></text>
+  <text class="s" x="138" y="626" text-anchor="middle">Q<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> K</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-8.5" font-size="72%">ᵀ</tspan></text>
   <rect class="op" x="200" y="594" width="92" height="40" rx="6" style="stroke: var(--fig-hi); stroke-opacity: 1"/>
   <text class="tb" x="246" y="611" text-anchor="middle">mask</text>
   <text class="s" x="246" y="626" text-anchor="middle">tl.where</text>
@@ -419,23 +419,23 @@ softmax 对 $S$ 的每一行单独做。取一行，记作 $s_1, \dots, s_{N_k}$
   <text class="s" x="354" y="626" text-anchor="middle">max·exp2·sum</text>
   <rect class="op" x="416" y="594" width="92" height="40" rx="6"/>
   <text class="tb" x="462" y="611" text-anchor="middle">dot  ④</text>
-  <text class="s" x="462" y="626" text-anchor="middle">p̃ · v</text>
+  <text class="s" x="462" y="626" text-anchor="middle">P̃<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> V</tspan><tspan dy="3.5" font-size="72%">j</tspan></text>
   <rect class="op" x="524" y="594" width="92" height="40" rx="6" stroke-dasharray="4 3"/>
   <text class="tb" x="570" y="611" text-anchor="middle">÷ ℓ</text>
-  <text class="s" x="570" y="626" text-anchor="middle">acc / ℓ</text>
+  <text class="s" x="570" y="626" text-anchor="middle">O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> / ℓ</tspan></text>
   <line x1="185" y1="614" x2="198" y2="614" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-2-m0)"/>
   <line x1="293" y1="614" x2="306" y2="614" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-2-m0)"/>
   <line x1="401" y1="614" x2="414" y2="614" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-2-m0)"/>
   <path d="M138.0,592 V580 H462.0 V592" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.5"/>
   <text class="s" x="300" y="576" text-anchor="middle" style="fill: var(--fig-hi); opacity: 1">第 j 轮</text>
   <rect x="96" y="665" width="52" height="24" rx="5" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="1.2"/>
-  <text class="s" x="122" y="681" text-anchor="middle" style="opacity: 1">q  B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5">×d</tspan></text>
+  <text class="s" x="122" y="681" text-anchor="middle" style="opacity: 1">Q<tspan dy="3.5" font-size="72%">i</tspan></text>
   <rect x="200" y="665" width="92" height="24" rx="5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
-  <text class="s" x="246" y="681" text-anchor="middle" style="opacity: 1">s、p̃  B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5">×B</tspan><tspan dy="3.5" font-size="72%">k</tspan></text>
+  <text class="s" x="246" y="681" text-anchor="middle" style="opacity: 1">S<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">、P̃</tspan><tspan dy="3.5" font-size="72%">ij</tspan></text>
   <rect x="308" y="665" width="92" height="24" rx="5" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="1.2"/>
-  <text class="s" x="354" y="681" text-anchor="middle" style="opacity: 1">m、ℓ  B<tspan dy="3.5" font-size="72%">q</tspan></text>
+  <text class="s" x="354" y="681" text-anchor="middle" style="opacity: 1">m、ℓ</text>
   <rect x="438" y="665" width="70" height="24" rx="5" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="1.2"/>
-  <text class="s" x="473" y="681" text-anchor="middle" style="opacity: 1">acc  B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5">×d</tspan></text>
+  <text class="s" x="473" y="681" text-anchor="middle" style="opacity: 1">O<tspan dy="3.5" font-size="72%">i</tspan></text>
   <line x1="122" y1="665" x2="122" y2="635" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-end="url(#fig-1-2-m0)"/>
   <line x1="246.0" y1="664" x2="246.0" y2="635" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-start="url(#fig-1-2-mb)" marker-end="url(#fig-1-2-mb)"/>
   <line x1="354.0" y1="664" x2="354.0" y2="635" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" marker-start="url(#fig-1-2-mb)" marker-end="url(#fig-1-2-mb)"/>
@@ -488,9 +488,9 @@ softmax 对 $S$ 的每一行单独做。取一行，记作 $s_1, \dots, s_{N_k}$
   <text class="lab" x="92" y="914">① m<tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5"> = max(m, rowmax(S</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">))</tspan></text>
   <text class="lab" x="92" y="938">② P̃<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> = exp(S</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> − m</tspan><tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">)</tspan></text>
   <text class="lab" x="92" y="962">③ ℓ ← exp(m − m<tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">)·ℓ + rowsum(P̃</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">)</tspan></text>
-  <text class="lab" x="364" y="914">④ acc ← exp(m − m<tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">)·acc + P̃</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">V</tspan><tspan dy="3.5" font-size="72%">j</tspan></text>
+  <text class="lab" x="364" y="914">④ O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> ← exp(m − m</tspan><tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">)·O</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> + P̃</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">V</tspan><tspan dy="3.5" font-size="72%">j</tspan></text>
   <text class="lab" x="364" y="938">⑤ m ← m<tspan dy="3.5" font-size="72%">new</tspan></text>
-  <text class="lab" x="364" y="962">循环后：O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> = acc / ℓ</tspan></text>
+  <text class="lab" x="364" y="962">循环后：O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> ← O</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> / ℓ</tspan></text>
 </svg>
 <figcaption><strong>图 1-2</strong> FlashAttention 的 tiling 按 Triton program 看，画法同 GPU 与 Triton 入门的<a href="/blog/gpu-triton-intro/#fig-o-1">图 2-1</a>和<a href="/blog/gpu-triton-intro/#fig-t-4">图 2-5</a>，循环顺序按 FA2。上：pid_i = 2 的 program 读写哪些 block；中：每个 program 算哪些 block；下：pid_i = 2 这个 program 在部分 mask 的 $j = 4$ 这一轮。第 0 个 block 没有整行被 mask 的行，所以 $m$ 不会停在 $-\infty$。</figcaption>
 </figure>
