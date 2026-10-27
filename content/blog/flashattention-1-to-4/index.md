@@ -167,10 +167,10 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 
 如果没有 softmax，$O_i = \sum_j S_{ij}V_j$ 可以每读一对 $K_j$、$V_j$ 就累加一次，$S$ 不用写进 HBM。
 
-softmax 挡住了这一步：$P_{ij}$ 的最大值 $m$ 和分母 $\ell$ 要看完全部 $T_k$ 个 block，读到第 $j$ 个时还不知道，按定义要扫三遍（[图 1-2](#fig-1-2)）。减 $m$ 是为了不溢出，结果不变。
+softmax 挡住了这一步：按定义，$S$ 的每一行要扫三遍，先求最大值 $m$，再求分母 $\ell$，最后才能算 $P$（[图 1-2](#fig-1-2)），所以分块读到第 $j$ 个 block 时 $P_{ij}$ 还算不出来。减 $m$ 是为了不溢出，结果不变。
 
 <figure id="fig-1-2">
-<svg viewBox="0 0 860 224" width="100%" role="img" aria-label="第一行：softmax 的公式；第 i 个 query block 的 S 分在 T_k 个 block 里，读到第 j 个时后面的还没读，m 和 ℓ 不知道，P_ij 算不出来。第二行：按定义要扫三遍，求 m、求 ℓ、算 P_ij 乘 V_j">
+<svg viewBox="0 0 860 224" width="100%" role="img" aria-label="按定义算 S 的一行 softmax，不分 block：第 1 遍扫整行求最大值 m，第 2 遍求分母 ℓ，第 3 遍算每个 p_j。m 和 ℓ 都要看完整行">
   <style>
     .os2 { font-size: 11px; fill: currentColor; }
     .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
@@ -183,56 +183,76 @@ softmax 挡住了这一步：$P_{ij}$ 的最大值 $m$ 和分母 $\ell$ 要看�
 <text class="os2-s" x="262" y="18">示意</text>
 <text class="os2-s" x="660" y="18">解释</text>
 <line x1="8" y1="28" x2="852" y2="28" stroke="currentColor" stroke-opacity=".14"/>
-<text class="os2-m" x="16" y="57">P<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> = e</tspan><tspan dy="-5" font-size="72%">S</tspan><tspan dy="3" font-size="58%">ij</tspan><tspan dy="-3" font-size="72%"> − m</tspan><tspan dy="5"> / ℓ</tspan></text>
-<text class="os2-m" x="16" y="79">m = max<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> rowmax(S</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">)</tspan></text>
-<text class="os2-m" x="16" y="101">ℓ = Σ<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> rowsum(e</tspan><tspan dy="-5" font-size="72%">S</tspan><tspan dy="3" font-size="58%">ij</tspan><tspan dy="-3" font-size="72%"> − m</tspan><tspan dy="5">)</tspan></text>
-<rect x="262" y="54" width="12" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-mute) 24%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
-<rect x="274" y="54" width="12" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-mute) 24%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
-<rect x="286" y="54" width="12" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-mute) 24%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
-<text class="os2" x="280" y="88" text-anchor="middle">1</text>
-<rect x="304" y="54" width="12" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-mute) 24%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
-<rect x="316" y="54" width="12" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-mute) 24%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
-<rect x="328" y="54" width="12" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-mute) 24%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
-<text class="os2" x="322" y="88" text-anchor="middle">⋯</text>
-<rect x="346" y="54" width="12" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-mute) 24%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
-<rect x="358" y="54" width="12" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-mute) 24%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
-<rect x="370" y="54" width="12" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-mute) 24%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
-<text class="os2" x="364" y="88" text-anchor="middle">j − 1</text>
-<rect x="388" y="54" width="12" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-<rect x="400" y="54" width="12" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-<rect x="412" y="54" width="12" height="20" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-<text class="os2" x="406" y="88" text-anchor="middle">j</text>
-<rect x="430" y="54" width="12" height="20" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-<rect x="442" y="54" width="12" height="20" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-<rect x="454" y="54" width="12" height="20" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-<text class="os2" x="448" y="88" text-anchor="middle">j + 1</text>
-<rect x="472" y="54" width="12" height="20" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-<rect x="484" y="54" width="12" height="20" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-<rect x="496" y="54" width="12" height="20" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-<text class="os2" x="490" y="88" text-anchor="middle">⋯</text>
-<rect x="514" y="54" width="12" height="20" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-<rect x="526" y="54" width="12" height="20" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-<rect x="538" y="54" width="12" height="20" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-<text class="os2" x="532" y="88" text-anchor="middle">T<tspan dy="3.5" font-size="72%">k</tspan></text>
-<text class="os2-s" x="256" y="88" text-anchor="end">j =</text>
-<text class="os2-b" x="406" y="48" text-anchor="middle">这一轮</text>
-<text class="os2-s" x="322" y="104" text-anchor="middle">已经读过</text>
-<text class="os2-s" x="490" y="104" text-anchor="middle">还没读</text>
-<text class="os2" x="660" y="69">读到第 j 个 block 时后面还没读，</text>
-<text class="os2" x="660" y="87">m、ℓ 未知，P<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> 算不出来。</tspan></text>
-<line x1="8" y1="120" x2="852" y2="120" stroke="currentColor" stroke-opacity=".14"/>
-<text class="os2-m" x="16" y="153">第 1 遍：求 m</text>
-<text class="os2-m" x="16" y="175">第 2 遍：求 ℓ</text>
-<text class="os2-m" x="16" y="197">第 3 遍：O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> = Σ</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> P</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> V</tspan><tspan dy="3.5" font-size="72%">j</tspan></text>
-<line x1="262" y1="148" x2="550" y2="148" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#fig-1-2-ar)"/>
-<text class="os2-s" x="406" y="143" text-anchor="middle">求 m</text>
-<line x1="262" y1="176" x2="550" y2="176" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#fig-1-2-ar)"/>
-<text class="os2-s" x="406" y="171" text-anchor="middle">求 ℓ</text>
-<line x1="262" y1="204" x2="550" y2="204" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#fig-1-2-ar)"/>
-<text class="os2-s" x="406" y="199" text-anchor="middle">算 P<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">，乘 V</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> 加进 O</tspan><tspan dy="3.5" font-size="72%">i</tspan></text>
-<text class="os2" x="660" y="174">按定义要把 K、V 扫三遍。</text>
+<text class="os2-m" x="16" y="65">m = max<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> s</tspan><tspan dy="3.5" font-size="72%">j</tspan></text>
+<rect x="262" y="46" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="280" y="61" text-anchor="middle">s<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="298" y="46" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="316" y="61" text-anchor="middle">s<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="334" y="46" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="352" y="61" text-anchor="middle">s<tspan dy="3.5" font-size="72%">3</tspan></text>
+<rect x="370" y="46" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="388" y="61" text-anchor="middle">s<tspan dy="3.5" font-size="72%">4</tspan></text>
+<rect x="406" y="46" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="424" y="61" text-anchor="middle">s<tspan dy="3.5" font-size="72%">5</tspan></text>
+<rect x="442" y="46" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="460" y="61" text-anchor="middle">s<tspan dy="3.5" font-size="72%">6</tspan></text>
+<rect x="478" y="46" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="496" y="61" text-anchor="middle">s<tspan dy="3.5" font-size="72%">7</tspan></text>
+<rect x="514" y="46" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="532" y="61" text-anchor="middle">s<tspan dy="3.5" font-size="72%">8</tspan></text>
+<line x1="262" y1="78" x2="550" y2="78" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#fig-1-2-ar)"/>
+<line x1="556" y1="57" x2="582" y2="57" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#fig-1-2-ar)"/>
+<text class="os2-s" x="569" y="51" text-anchor="middle">max</text>
+<rect x="586" y="46" width="26" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
+<text class="os2" x="599" y="61" text-anchor="middle">m</text>
+<text class="os2" x="660" y="64">第 1 遍：扫整行求最大值。</text>
+<line x1="8" y1="92" x2="852" y2="92" stroke="currentColor" stroke-opacity=".14"/>
+<text class="os2-m" x="16" y="129">ℓ = Σ<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> e</tspan><tspan dy="-5" font-size="72%">s</tspan><tspan dy="3" font-size="58%">j</tspan><tspan dy="-3" font-size="72%"> − m</tspan></text>
+<rect x="262" y="110" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="280" y="125" text-anchor="middle">e<tspan dy="-5" font-size="72%">s</tspan><tspan dy="3" font-size="58%">1</tspan><tspan dy="-3" font-size="72%"> − m</tspan></text>
+<rect x="298" y="110" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="316" y="125" text-anchor="middle">e<tspan dy="-5" font-size="72%">s</tspan><tspan dy="3" font-size="58%">2</tspan><tspan dy="-3" font-size="72%"> − m</tspan></text>
+<rect x="334" y="110" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="352" y="125" text-anchor="middle">e<tspan dy="-5" font-size="72%">s</tspan><tspan dy="3" font-size="58%">3</tspan><tspan dy="-3" font-size="72%"> − m</tspan></text>
+<rect x="370" y="110" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="388" y="125" text-anchor="middle">e<tspan dy="-5" font-size="72%">s</tspan><tspan dy="3" font-size="58%">4</tspan><tspan dy="-3" font-size="72%"> − m</tspan></text>
+<rect x="406" y="110" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="424" y="125" text-anchor="middle">e<tspan dy="-5" font-size="72%">s</tspan><tspan dy="3" font-size="58%">5</tspan><tspan dy="-3" font-size="72%"> − m</tspan></text>
+<rect x="442" y="110" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="460" y="125" text-anchor="middle">e<tspan dy="-5" font-size="72%">s</tspan><tspan dy="3" font-size="58%">6</tspan><tspan dy="-3" font-size="72%"> − m</tspan></text>
+<rect x="478" y="110" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="496" y="125" text-anchor="middle">e<tspan dy="-5" font-size="72%">s</tspan><tspan dy="3" font-size="58%">7</tspan><tspan dy="-3" font-size="72%"> − m</tspan></text>
+<rect x="514" y="110" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="532" y="125" text-anchor="middle">e<tspan dy="-5" font-size="72%">s</tspan><tspan dy="3" font-size="58%">8</tspan><tspan dy="-3" font-size="72%"> − m</tspan></text>
+<line x1="262" y1="142" x2="550" y2="142" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#fig-1-2-ar)"/>
+<line x1="556" y1="121" x2="582" y2="121" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#fig-1-2-ar)"/>
+<text class="os2-s" x="569" y="115" text-anchor="middle">Σ</text>
+<rect x="586" y="110" width="26" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
+<text class="os2" x="599" y="125" text-anchor="middle">ℓ</text>
+<text class="os2" x="660" y="128">第 2 遍：再扫一遍求分母，要用 m。</text>
+<line x1="8" y1="156" x2="852" y2="156" stroke="currentColor" stroke-opacity=".14"/>
+<text class="os2-m" x="16" y="193">p<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> = e</tspan><tspan dy="-5" font-size="72%">s</tspan><tspan dy="3" font-size="58%">j</tspan><tspan dy="-3" font-size="72%"> − m</tspan><tspan dy="5"> / ℓ</tspan></text>
+<rect x="262" y="174" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="280" y="189" text-anchor="middle">p<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="298" y="174" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="316" y="189" text-anchor="middle">p<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="334" y="174" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="352" y="189" text-anchor="middle">p<tspan dy="3.5" font-size="72%">3</tspan></text>
+<rect x="370" y="174" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="388" y="189" text-anchor="middle">p<tspan dy="3.5" font-size="72%">4</tspan></text>
+<rect x="406" y="174" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="424" y="189" text-anchor="middle">p<tspan dy="3.5" font-size="72%">5</tspan></text>
+<rect x="442" y="174" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="460" y="189" text-anchor="middle">p<tspan dy="3.5" font-size="72%">6</tspan></text>
+<rect x="478" y="174" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="496" y="189" text-anchor="middle">p<tspan dy="3.5" font-size="72%">7</tspan></text>
+<rect x="514" y="174" width="36" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="532" y="189" text-anchor="middle">p<tspan dy="3.5" font-size="72%">8</tspan></text>
+<line x1="262" y1="206" x2="550" y2="206" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#fig-1-2-ar)"/>
+<text class="os2" x="660" y="183">第 3 遍：再扫一遍算 p<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">，</tspan></text>
+<text class="os2" x="660" y="201">要用 m 和 ℓ。</text>
 </svg>
-<figcaption><strong>图 1-2</strong> 第 $i$ 个 query block 的 $S$ 分在 $T_k$ 个 block 里。读到第 $j$ 个 block 时后面的还没读，$m$、$\ell$ 都不知道，$P_{ij}$ 算不出来；按定义要扫三遍。</figcaption>
+<figcaption><strong>图 1-2</strong> 按定义算 $S$ 一行的 softmax：扫三遍，依次求 $m$、求 $\ell$、算 $p_j$，$m$ 和 $\ell$ 都要看完整行。</figcaption>
 </figure>
 
 ### 1.2 FlashAttention-2 的前向推导 {#online-softmax}

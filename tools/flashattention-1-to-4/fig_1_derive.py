@@ -157,29 +157,23 @@ def seq(F, x, y, parts, cs, hl=None):
 FIGS = {}
 LEG = [('state', '状态：留到下一个 tile'), ('tmp', '临时：这一轮用完就丢'), ('fac', '修正因子（临时）'), ('new', '这一轮从 HBM 读的'), ('row', '同一行（一个 query）')]
 
-# ===================== 图 1-2：softmax 要看完全部 block =====================
-BW, CW = 36, 12
-labs = ['1', '⋯', 'j − 1', 'j', 'j + 1', '⋯', 'T_{k}']
-def strip(F, x, y):
-    for b in range(7):
-        kind = 'old' if b < 3 else ('new' if b == 3 else 'skip')
-        for e in range(3):
-            F.rect(x + b * (BW + 6) + e * CW, y + 14, CW, 20, kind)
-        F.T('os2', x + b * (BW + 6) + BW / 2, y + 48, labs[b], 'middle')
-    F.T('os2-s', x - 6, y + 48, 'j =', 'end')
-    F.T('os2-b', x + 3 * (BW + 6) + BW / 2, y + 8, '这一轮', 'middle')
-    F.T('os2-s', x + (3 * BW + 12) / 2, y + 64, '已经读过', 'middle')
-    F.T('os2-s', x + 4 * (BW + 6) + (3 * BW + 12) / 2, y + 64, '还没读', 'middle')
-def passes(F, x, y):
-    for k, t in enumerate(['求 m', '求 ℓ', '算 P_{ij}，乘 V_{j} 加进 O_{i}']):
-        F.arrow(x, y + 16 + k * 28, x + 7 * BW + 36, y + 16 + k * 28)
-        F.T('os2-s', x + (7 * BW + 36) / 2, y + 11 + k * 28, t, 'middle')
+# ===================== 图 1-2：按定义算 softmax（不分 block） =====================
+NC, CW2 = 8, 36
+def naive(lab, out, op):
+    def draw(F, x, y):
+        for j in range(NC):
+            F.rect(x + j * CW2, y + 6, CW2, 22, 'tmp', lab.format(j=j + 1), 'os2-s')
+        F.arrow(x, y + 38, x + NC * CW2, y + 38)           # 扫一遍整行
+        if out:
+            F.arrow(x + NC * CW2 + 6, y + 17, x + NC * CW2 + 32, y + 17)
+            F.T('os2-s', x + NC * CW2 + 19, y + 11, op, 'middle')
+            F.rect(x + NC * CW2 + 36, y + 6, 26, 22, 'state', out)
+    return draw
 FIGS['fig-1-2'] = rows('fig-1-2', [
-    (68, ['P_{ij} = e^{S_{ij} − m} / ℓ', 'm = max_{j} rowmax(S_{ij})', 'ℓ = Σ_{j} rowsum(e^{S_{ij} − m})'], strip,
-     ['读到第 j 个 block 时后面还没读，', 'm、ℓ 未知，P_{ij} 算不出来。']),
-    (76, ['第 1 遍：求 m', '第 2 遍：求 ℓ', '第 3 遍：O_{i} = Σ_{j} P_{ij} V_{j}'], passes,
-     ['按定义要把 K、V 扫三遍。']),
-], '第一行：softmax 的公式；第 i 个 query block 的 S 分在 T_k 个 block 里，读到第 j 个时后面的还没读，m 和 ℓ 不知道，P_ij 算不出来。第二行：按定义要扫三遍，求 m、求 ℓ、算 P_ij 乘 V_j')
+    (40, ['m = max_{j} s_{j}'], naive('s_{{{j}}}', 'm', 'max'), ['第 1 遍：扫整行求最大值。']),
+    (40, ['ℓ = Σ_{j} e^{s_{j} − m}'], naive('e^{{s_{{{j}}} − m}}', 'ℓ', 'Σ'), ['第 2 遍：再扫一遍求分母，要用 m。']),
+    (40, ['p_{j} = e^{s_{j} − m} / ℓ'], naive('p_{{{j}}}', None, ''), ['第 3 遍：再扫一遍算 p_{j}，', '要用 m 和 ℓ。']),
+], '按定义算 S 的一行 softmax，不分 block：第 1 遍扫整行求最大值 m，第 2 遍求分母 ℓ，第 3 遍算每个 p_j。m 和 ℓ 都要看完整行')
 
 # ===================== 图 1-3：两段合并 =====================
 SC, SG = 40, 14
