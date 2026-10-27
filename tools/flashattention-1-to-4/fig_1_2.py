@@ -116,7 +116,33 @@ VX = SX + TK * CW + 44
 OX = VX + DW + 40
 SW, SH = TK * CW, TQ * RH
 
-w(f'<rect class="band" x="4" y="4" width="632" height="{SY + SH + 34}" rx="10"/>')
+# 整块都算 / 部分 mask / 整块跳过
+FULL = 'fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)'          # 要算的部分
+MASKED = 'fill: color-mix(in srgb, var(--fig-mute) 92%, transparent)'                             # 被 mask 成 −∞
+def clip(poly, keep):                      # 多边形和半平面 keep(x, y) >= 0 的交（Sutherland–Hodgman，只切一刀）
+    out = []
+    for k in range(len(poly)):
+        p, q = poly[k], poly[(k + 1) % len(poly)]
+        fp, fq = keep(*p), keep(*q)
+        if fp >= 0: out.append(p)
+        if (fp >= 0) != (fq >= 0):
+            t = fp / (fp - fq); out.append((p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])))
+    return out
+def poly(pts, st):
+    w('<path d="M' + ' L'.join(f'{x:g},{y:g}' for x, y in pts) + f' Z" style="{st}" stroke-width="0"/>')
+def block(x, y, bw, bh, ox, oy):
+    """(ox, oy) 是对角线的起点：key 下标大于 query 下标，也就是 (y − oy) < (x − ox) 的部分被 mask。"""
+    rect = [(x, y), (x + bw, y), (x + bw, y + bh), (x, y + bh)]
+    masked = clip(rect, lambda px, py: (px - ox) - (py - oy))
+    kept = clip(rect, lambda px, py: (py - oy) - (px - ox))
+    if len(kept) < 3:                                    # 整块跳过：空框加 ×
+        cell(x, y, bw, bh, 'skip')
+        w(f'<path d="M{x + 3},{y + 3} L{x + bw - 3},{y + bh - 3} M{x + bw - 3},{y + 3} L{x + 3},{y + bh - 3}" stroke="currentColor" stroke-opacity=".45" stroke-width="1"/>')
+        return
+    w(f'<rect x="{x}" y="{y}" width="{bw}" height="{bh}" rx="1.5" style="{FULL}" stroke-width="1"/>')
+    if len(masked) >= 3: poly(masked, MASKED)            # 部分 mask
+
+w(f'<rect class="band" x="4" y="4" width="632" height="{SY + SH + 46 + 80 + 26}" rx="10"/>')
 T('s', 624, 26, 'causal', 'end', 'fill: var(--fig-hi)')
 T('t', 16, 26, 'S_{ij} = Q_{i} K_{j}^{ᵀ}，   O_{i} = Σ_{j} P_{ij} V_{j}')
 
@@ -135,17 +161,15 @@ T('tb', QX + DW / 2, SY - 20, 'Q', 'middle')
 arrow(24, SY, 24, SY + SH - 2)                                   # 竖着：i = 0 … 3，每个 i 一个 program
 T('s', 0, 0, 'i = 0 … 3', 'middle', '', f' transform="translate(16 {SY + SH / 2}) rotate(-90)"')
 T('s', QX + DW / 2, SY - 7, 'N_{q} × d', 'middle')
-# S：虚线框，只在片上
+# S：每个 block 按整块都算 / 部分 mask / 整块跳过画，当前 program 那一行加框，其余行淡一点
 w(f'<rect x="{SX - 3}" y="{SY - 3}" width="{SW + 4}" height="{SH + 4}" rx="4" fill="none" stroke="currentColor" stroke-opacity=".4" stroke-dasharray="4 3"/>')
 for i in range(TQ):
+    if i != I: w('<g opacity=".45">')
     for j in range(TK):
-        full_masked = j * CW >= (i + 1) * RH / 1 and False
-        if i == I:
-            kind = 'chip' if j < NJ else 'skip'
-        else:
-            kind = 'skip' if j * CW >= (i + 1) * RH else 'mute'
-        cell(SX + j * CW, SY + i * RH, CW - 2, RH - 2, kind)
-w(f'<line x1="{SX}" y1="{SY}" x2="{SX + SW}" y2="{SY + SH}" stroke="currentColor" stroke-opacity=".45" stroke-dasharray="4 3"/>')
+        block(SX + j * CW, SY + i * RH, CW - 2, RH - 2, SX, SY)
+    if i != I: w('</g>')
+w(f'<line x1="{SX}" y1="{SY}" x2="{SX + SW}" y2="{SY + SH}" stroke="currentColor" stroke-opacity=".55" stroke-dasharray="4 3"/>')
+w(f'<rect x="{SX - 2}" y="{SY + I * RH - 2}" width="{SW + 2}" height="{RH + 2}" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/>')
 arrow(SX - 20, SY + I * RH + RH / 2 - 1, SX - 4, SY + I * RH + RH / 2 - 1)
 # V（N_k × d）
 for j in range(TK):
@@ -164,46 +188,24 @@ arrow(VX + DW + 4, SY + I * RH + RH / 2 - 1, OX - 4, SY + I * RH + RH / 2 - 1)
 T('s', (VX + DW + OX) / 2, SY + I * RH + RH / 2 - 6, '=', 'middle')
 # 图例
 LX, LY = OX + DW + 18, SY + 4
-for k, (kind, txt) in enumerate([('read', '这一轮读的（j = 0）'), ('later', '之后几轮读的'), ('write', '写回的输出'),
-                                  ('chip', '片上算的 S 块'), ('skip', 'causal 跳过'), ('mute', '别的 program 的')]):
-    cell(LX, LY + k * 20, 12, 12, kind)
-    T('s', LX + 18, LY + k * 20 + 10, txt)
+items = [('read', '这一轮读的（j = 0）'), ('later', '之后几轮读的'), ('write', '写回的输出'), ('mute', '别的 program 的'),
+         ('full', '整块都算'), ('part', '部分 mask（−∞）'), ('skip', '整块跳过')]
+for k, (kind, txt) in enumerate(items):
+    x, y = LX, LY + k * 20
+    if kind == 'full': block(x, y, 12, 12, x + 100, y)
+    elif kind == 'part': block(x, y, 12, 12, x, y)
+    elif kind == 'skip': block(x, y, 12, 12, x - 100, y)
+    else: cell(x, y, 12, 12, kind)
+    T('s', x + 18, y + 10, txt)
 
-SPLIT = len(B)                 # 这之前是图 1-8，之后是图 1-9
-
-# ===================== 中间：每个 program 干什么，以及部分 mask 的 block =====================
-Y1 = SY + SH + 46
-HB = 182
-w(f'<rect class="band" x="4" y="{Y1}" width="632" height="{HB}" rx="10"/>')
-T('tb', 16, Y1 + 22, '每个 program 干什么（causal，B_{q} = 2B_{k}）')
-FULL = 'fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)'          # 整块都算
-MASKED = 'fill: color-mix(in srgb, var(--fig-mute) 75%, transparent)'                             # 被 mask 成 −∞
-def full(x, y, sz):
-    w(f'<rect x="{x}" y="{y}" width="{sz}" height="{sz}" rx="1.5" style="{FULL}" stroke-width="1"/>')
-def part(x, y, sz):                        # 左下三角要算，右上三角被 mask
-    w(f'<rect x="{x}" y="{y}" width="{sz}" height="{sz}" rx="1.5" style="fill: none; stroke: var(--fig-1)" stroke-width="1"/>')
-    w(f'<path d="M{x},{y} L{x},{y + sz} L{x + sz},{y + sz} Z" style="{FULL}" stroke-width="0"/>')
-    w(f'<path d="M{x},{y} L{x + sz},{y} L{x + sz},{y + sz} Z" style="{MASKED}"/>')
-    w(f'<line x1="{x}" y1="{y}" x2="{x + sz}" y2="{y + sz}" stroke="currentColor" stroke-opacity=".7" stroke-width="1"/>')
-def skip(x, y, sz):                        # 整块跳过：空框加 ×
-    cell(x, y, sz, sz, 'skip')
-    w(f'<path d="M{x + 3},{y + 3} L{x + sz - 3},{y + sz - 3} M{x + sz - 3},{y + 3} L{x + 3},{y + sz - 3}" stroke="currentColor" stroke-opacity=".45" stroke-width="1"/>')
-for i in range(TQ):
-    y = Y1 + 40 + i * 28
-    T('s', 16, y + 13, f'pid_i = {i}', 'start', 'opacity: 1; font-weight: 600' if i == I else '')
-    for j in range(TK):
-        x = 74 + j * 18
-        if j < 2 * i: full(x, y, 16)
-        elif j < 2 * i + 2: part(x, y, 16)
-        else: skip(x, y, 16)
-if True:
-    lx = 74
-    for k, (fn, txt) in enumerate([(full, '整块都算'), (part, '部分 mask：右上三角设成 −∞'), (skip, '整块跳过')]):
-        fn(lx + [0, 90, 290][k], Y1 + 156, 12); T('s', lx + [0, 90, 290][k] + 18, Y1 + 166, txt)
-# 放大 pid_m = 2 的两个部分 mask 的 block
-ZX, ZY, ZC = 454, Y1 + 50, 10
+# 放大 pid_i = 2 的两个部分 mask 的 block，放在 S 下面，用虚线连回去
+ZC = 10
+ZY = SY + SH + 46
+ZX = SX + 2 * I * CW - 8
 for b, j in enumerate((2 * I, 2 * I + 1)):
     x0 = ZX + b * 62
+    cx = SX + j * CW + (CW - 2) / 2
+    w(f'<line x1="{cx}" y1="{SY + I * RH + RH - 2}" x2="{x0 + 20}" y2="{ZY - 20}" stroke="currentColor" stroke-opacity=".4" stroke-dasharray="3 2"/>')
     T('s', x0 + 20, ZY - 8, 'S_{' + f'{I},{j}' + '}', 'middle', 'opacity: 1; font-weight: 600')
     for r in range(8):
         for c in range(4):
@@ -214,8 +216,11 @@ w(f'<path d="M{ZX + 62 + 42},{ZY} h4 v{4 * ZC - 1} h-4" fill="none" stroke="curr
 T('s', ZX + 62 + 50, ZY + 17, '整行', 'start'); T('s', ZX + 62 + 50, ZY + 30, '都是 −∞', 'start')
 T('s', ZX - 6, ZY + 4, 'query', 'end'); T('s', ZX - 6, ZY + 16, '↓', 'end')
 T('s', ZX + 20, ZY + 8 * ZC + 13, 'key →', 'middle')
+T('s', ZX + 190, ZY + 34, '对角线穿过的 block 在块内 mask：', 'start')
+T('s', ZX + 190, ZY + 50, 'key 下标 > query 下标的位置设成 −∞', 'start')
 
-SPLIT2 = len(B)                # 图 1-9 只要中栏（causal mask），下半的一轮数据流不画
+SPLIT2 = len(B)
+Y1, HB = SY + SH + 46, 182          # 下面那栏（一轮的数据流）还在算坐标，但不输出
 
 # ===================== 下半：pid_m = 2 这个 program 的一轮（泳道同图 2-5，不画 grid） =====================
 Y0 = Y1 + HB + 16
@@ -317,12 +322,9 @@ LABEL_BOT = ("causal 时每个 Q block 一个 program，各自算的 block 数�
 defs = ''.join(m for _, m in MK.values())
 DEFS = (f'\n  <defs>{defs}<pattern id="{FID}-hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
         f'<line x1="0" y1="0" x2="0" y2="5" style="stroke: var(--fig-1)" stroke-opacity=".55" stroke-width="1.3"/></pattern></defs>\n')
-HT = SY + SH + 42
-Y1T = Y1 - 4
-svg_top = (f'<svg class="fg" viewBox="0 0 640 {Y1 + HB + 4}" width="100%" role="img" aria-label="{LABEL_TOP}{LABEL_BOT}">\n' + CSS + DEFS
-           + '\n'.join('  ' + x for x in B[:SPLIT2]) + '\n</svg>').replace(f'{FID}-', 'fig-1-8-')   # 上栏 tiling + 中栏 causal mask
-svg_bot = (f'<svg class="fg" viewBox="0 0 640 {HB + 8}" width="100%" role="img" aria-label="{LABEL_BOT}">\n' + CSS + DEFS
-           + f'  <g transform="translate(0 {-Y1T})">\n' + '\n'.join('  ' + x for x in B[SPLIT:SPLIT2]) + '\n  </g>\n</svg>').replace(f'{FID}-', 'fig-1-9-')
+HTOT = SY + SH + 46 + 80 + 34
+svg_top = (f'<svg class="fg" viewBox="0 0 640 {HTOT}" width="100%" role="img" aria-label="{LABEL_TOP}{LABEL_BOT}">\n' + CSS + DEFS
+           + '\n'.join('  ' + x for x in B[:SPLIT2]) + '\n</svg>').replace(f'{FID}-', 'fig-1-8-')
 
 if __name__ == '__main__':
     p = sys.argv[1]
@@ -331,4 +333,4 @@ if __name__ == '__main__':
         s, n = re.subn(r'(<figure id="' + fid + r'"[^>]*>\n)<svg.*?</svg>', lambda m: m.group(1) + svg, s, count=1, flags=re.S)
         assert n == 1, fid
     open(p, 'w').write(s)
-    print('H =', Y1 + HB + 4)
+    print('H =', HTOT)
