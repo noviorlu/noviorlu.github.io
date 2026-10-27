@@ -114,6 +114,7 @@ SW, SH = TK * CW, TQ * RH
 
 w(f'<rect class="band" x="4" y="4" width="632" height="{SY + SH + 34}" rx="10"/>')
 T('s', 624, 26, 'causal', 'end', 'fill: var(--fig-hi)')
+T('t', 16, 26, 'S_{ij} = Q_{i} K_{j}^{ᵀ}，   O_{i} = Σ_{j} P_{ij} V_{j}')
 
 # Kᵀ（d × N_k），在 S 上面
 for j in range(TK):

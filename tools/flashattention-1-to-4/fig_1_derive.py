@@ -1,4 +1,5 @@
-"""1.1–1.2 推导用的示意图：图 1-2、1-3、1-4、1-6、1-7、1-8。每张图对应正文里的一个公式块。
+"""1.1–1.2 推导用的示意图：图 1-2、1-3、1-4、1-6、1-7、1-8。每张图对应正文里的一个公式块，
+一行一个操作，分三栏：左边是数学公式，中间是这个操作的示意，右边是解释。
 配色和图 1-1 一致：深蓝 = 这一轮新读的 block，灰 = 前面的 block 留下的，浅蓝 = 这一轮算出来的，红 = 输出；红框标同一行（一个 query）。
 用法：python3 tools/flashattention-1-to-4/fig_1_derive.py content/blog/flashattention-1-to-4/index.md
 会把文中对应 <figure id="..."> 里的 <svg> 换掉，figcaption 不动。
@@ -91,7 +92,7 @@ class Fig:
         v = 5 if up else -5
         st = 'style="stroke: var(--fig-hi)"' if hi else 'stroke="currentColor" stroke-opacity=".5"'
         self.w(f'<path d="M{x1:g},{y + v:g} V{y:g} H{x2:g} V{y + v:g}" fill="none" {st} stroke-width="1.2"/>')
-    def svg(self, H, label, W=680):
+    def svg(self, H, label):
         f = self.fid
         defs = (f'<defs><marker id="{f}-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">'
                 f'<path d="M0,0 L10,5 L0,10 z" fill="currentColor" fill-opacity=".6"/></marker>'
@@ -99,6 +100,27 @@ class Fig:
                 f'<path d="M0,0 L10,5 L0,10 z" style="fill: var(--fig-hi)"/></marker></defs>\n')
         return (f'<svg viewBox="0 0 {W} {H}" width="100%" role="img" aria-label="{label}">\n' + CSS + defs
                 + '\n'.join(self.B) + '\n</svg>')
+
+# ---- 三栏：公式 | 示意 | 解释 ----
+W, FX, DX, EX = 860, 16, 262, 660           # 三栏的左边界
+def rows(fid, spec, label, leg=None):
+    """spec：[(行高, [公式...], 画示意的函数 draw(F, x0, y0), [解释...]), ...]"""
+    F = Fig(fid)
+    F.T('os2-s', FX, 18, '公式'); F.T('os2-s', DX, 18, '示意'); F.T('os2-s', EX, 18, '解释')
+    y = 28
+    for k, (h, fm, draw, ex) in enumerate(spec):
+        F.w(f'<line x1="8" y1="{y:g}" x2="{W - 8}" y2="{y:g}" stroke="currentColor" stroke-opacity=".14"/>')
+        y += 12
+        for n, t in enumerate(fm):
+            F.T('os2-m', FX, y + h / 2 - (len(fm) - 1) * 11 + n * 22 + 5, t)
+        draw(F, DX, y)
+        for n, t in enumerate(ex):
+            F.T('os2', EX, y + h / 2 - (len(ex) - 1) * 9 + n * 18 + 4, t)
+        y += h + 12
+    if leg:
+        F.w(f'<line x1="8" y1="{y:g}" x2="{W - 8}" y2="{y:g}" stroke="currentColor" stroke-opacity=".14"/>')
+        legend(F, DX, y + 20, leg); y += 30
+    return F.svg(y + 4, label)
 
 def legend(F, x, y, items):
     for k, (kind, txt) in enumerate(items):
@@ -110,164 +132,139 @@ def legend(F, x, y, items):
         t = txt.replace('_{', '').replace('}', '')
         x += 17 + sum(10.5 if ord(ch) > 0x2E80 else 4.6 for ch in t) + 20
 
-FIGS = {}
-
-# ===================== 图 1-2：一行要看完 =====================
-F = Fig('fig-1-2')
-labs = ['1', '⋯', 'j − 1', 'j', 'j + 1', '⋯', 'T_{k}']
-CW, CH, BG = 20, 24, 10
-X0, Y0 = 104, 64
-bx = lambda b: X0 + b * (3 * CW + BG)
-for b in range(7):
-    kind = 'old' if b < 3 else ('new' if b == 3 else 'skip')
-    for e in range(3):
-        F.rect(bx(b) + e * CW, Y0, CW, CH, kind)
-    F.T('os2', bx(b) + 1.5 * CW, Y0 + CH + 15, labs[b], 'middle')
-F.T('os2-s', X0 - 10, Y0 + CH + 15, 'j =', 'end')
-F.T('os2-b', X0 - 10, Y0 + 10, 'S 的第 i 个', 'end'); F.T('os2-b', X0 - 10, Y0 + 24, 'block 行', 'end')
-XE = bx(6) + 3 * CW
-F.bracket(X0, XE, Y0 - 8)
-F.T('os2', (X0 + XE) / 2, Y0 - 18, 'm = max_{j} rowmax(S_{ij})，ℓ = Σ_{j} rowsum(e^{S_{ij} − m})：要看完全部 T_{k} 个 block', 'middle')
-F.T('os2-s', (bx(0) + bx(3) - BG) / 2, Y0 + CH + 32, '已经读过', 'middle')
-F.T('os2-s', (bx(4) + XE) / 2, Y0 + CH + 32, '还没读，也还没算', 'middle')
-cx = bx(3) + 1.5 * CW
-F.arrow(cx, Y0 + CH + 40, cx, Y0 + CH + 66, hi=True)
-F.T('os2', cx, Y0 + CH + 82, '这一轮想算 P_{ij} = e^{S_{ij} − m} / ℓ，但 m、ℓ 都要等最后一个 block 读完才知道', 'middle', 'fill: var(--fig-hi)')
-Y1 = Y0 + CH + 116
-F.T('os2-b', 16, Y1, '按定义算要扫三遍')
-for k, t in enumerate(['求 m', '求 ℓ，要用 m', '算 P_{ij}，乘 V_{j} 加进 O_{i}，要用 m 和 ℓ']):
-    y = Y1 + 28 + k * 30
-    F.T('os2-s', X0 - 10, y + 4, f'第 {k + 1} 遍', 'end')
-    F.arrow(X0, y, XE, y)
-    F.T('os2', (X0 + XE) / 2, y - 5, t, 'middle')
-FIGS['fig-1-2'] = F.svg(Y1 + 28 + 2 * 30 + 16,
-    '第 i 个 query block 的 S 分在 T_k 个 block 里：前面几个已经读过，第 j 个是这一轮读的，后面的还没读。m 和 ℓ 要看完全部 block，所以这一轮算不出 P_ij。按定义要扫三遍：求 m、求 ℓ、算 P_ij 并乘 V_j')
-
-# ===================== 图 1-3：两段合并 =====================
-F = Fig('fig-1-3')
-CW, CH, G = 58, 26, 16
-X0 = (680 - (8 * CW + G)) / 2
-cxk = lambda k: X0 + k * CW + (G if k >= 4 else 0)
-A0, A1, B0, B1 = cxk(0), cxk(3) + CW, cxk(4), cxk(7) + CW
-YS, YE, YC = 40, 92, 220
-for k in range(8):
-    kind = 'old' if k < 4 else 'new'
-    seg = 'A' if k < 4 else 'B'
-    F.rect(cxk(k), YS, CW, CH, kind, 's')
-    F.rect(cxk(k), YE, CW, CH, kind, f'e^{{s − m_{{{seg}}}}}')
-    F.rect(cxk(k), YC, CW, CH, 'res', 'e^{s − m}')
-F.T('os2-b', (A0 + A1) / 2, YS - 8, 'A 段', 'middle'); F.T('os2-b', (B0 + B1) / 2, YS - 8, 'B 段', 'middle')
-F.T('os2-s', X0 - 8, YS + 17, 'score', 'end')
-F.T('os2-s', X0 - 8, YE + 12, '各按', 'end'); F.T('os2-s', X0 - 8, YE + 25, '各的 m', 'end')
-F.T('os2-s', X0 - 8, YC + 12, '换到', 'end'); F.T('os2-s', X0 - 8, YC + 25, '同一个 m', 'end')
-for a, b, s in ((A0, A1, 'A'), (B0, B1, 'B')):
-    F.bracket(a, b, YE + CH + 8, up=False)
-    F.w(f'<path d="M{a:g},{YE + CH + 3:g} V{YE + CH + 8:g} H{b:g} V{YE + CH + 3:g}" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-width="1.2"/>')
-    F.T('os2', (a + b) / 2, YE + CH + 24, f'm_{{{s}}} = {s} 段的最大值', 'middle')
-    F.T('os2', (a + b) / 2, YE + CH + 40, f'ℓ_{{{s}}} = 这四项之和', 'middle')
-    F.arrow((a + b) / 2, YE + CH + 48, (a + b) / 2, YC - 4, hi=True)
-    F.T('os2', (a + b) / 2 + 8, YC - 22, f'× e^{{m_{{{s}}} − m}}', 'start', 'fill: var(--fig-hi)')
-F.T('os2-b', (A1 + B0) / 2, YC - 36, 'm = max(m_{A}, m_{B})', 'middle')
-F.w(f'<path d="M{A0:g},{YC + CH + 3:g} V{YC + CH + 8:g} H{B1:g} V{YC + CH + 3:g}" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-width="1.2"/>')
-F.T('os2', (A0 + B1) / 2, YC + CH + 26, 'ℓ = e^{m_{A} − m} ℓ_{A} + e^{m_{B} − m} ℓ_{B}：每一项都是 e^{s − m}，就是按定义算的整行分母', 'middle')
-FIGS['fig-1-3'] = F.svg(YC + CH + 40,
-    '一行 8 个 score s 分成 A、B 两段。各段先按自己的最大值 m_A、m_B 算指数并求和，得到 ℓ_A、ℓ_B。再各乘修正因子 e 的 m_A 减 m 次方和 e 的 m_B 减 m 次方，换到同一个最大值 m，相加就是整行的分母')
-
-# ===================== 图 1-4：第 j 轮的 m、ℓ =====================
-F = Fig('fig-1-4')
-CS, R = 16, 1
-legend(F, 24, 18, [('old', '前 j − 1 个 block 留下的'), ('new', '这一轮的 S_{ij}'), ('res', '这一轮算出来的'), ('row', '同一行（一个 query）')])
-def line(y, parts, note):
-    x = 24
+def seq(F, x, y, parts, cs, hl=None):
+    """把公式画成一排形状：字符串是运算符，(kind, 行, 列, 名字) 是矩阵。"""
     for p in parts:
         if isinstance(p, str):
-            F.T('os2-m', x + 2, y + 2 * CS + 5, p); x += len(p) * 7.2 + 8 if p.isascii() else len(p) * 13 + 8
+            F.T('os2-m', x + 2, y + 2 * cs + 5, p); x += len(p) * 7.2 + 8
         else:
             kind, r, c, name = p
-            x = F.mat(x, y, r, c, kind, CS, name, hl=R) + 10
-    for k, t in enumerate(note):
-        F.T('os2' if k == 0 else 'os2-s', 360, y + 18 + k * 17, t)
-line(48, [('res', 4, 1, 'm_{j}'), '=', 'max(', ('old', 4, 1, 'm_{j−1}'), ',', 'rowmax(', ('new', 4, 4, 'S_{ij}'), '))'],
-     ['m_{j}：前 j 个 block 里每一行的最大值', '第 r 行只看 S_{ij} 的第 r 行'])
-line(148, [('res', 4, 4, 'P̃_{ij}'), '=', 'exp(', ('new', 4, 4, 'S_{ij}'), '−', ('res', 4, 1, 'm_{j}'), ')'],
-     ['m_{j} 的第 r 个数从 S_{ij} 第 r 行的每个元素里减掉', 'P̃_{ij}：还没除以分母的 softmax'])
-line(248, [('res', 4, 1, 'ℓ_{j}'), '=', ('res', 4, 1, 'e^{m_{j−1} − m_{j}}'), '·', ('old', 4, 1, 'ℓ_{j−1}'), '+', 'rowsum(', ('res', 4, 4, 'P̃_{ij}'), ')'],
-     ['第一项：旧的和每行乘自己的修正因子，换到新的最大值', '第二项：新 block 每行加起来'])
-FIGS['fig-1-4'] = F.svg(248 + 4 * CS + 28,
-    '第 j 轮 m 和 ℓ 的更新，B_q 等于 4。m_j 等于 m_{j−1} 和 S_ij 每行最大值中大的那个；P̃_ij 等于 S_ij 每行减去 m_j 的对应数再取 exp；ℓ_j 等于修正因子乘 ℓ_{j−1} 加上 P̃_ij 每行之和。红框标出同一行，每一行只和自己的那个数运算')
+            x = F.mat(x, y, r, c, kind, cs, name, hl=hl) + 10
+    return x
+
+FIGS = {}
+LEG = [('old', '前 j − 1 个 block 留下的'), ('new', '这一轮读的'), ('res', '这一轮算出来的'), ('row', '同一行（一个 query）')]
+
+# ===================== 图 1-2：softmax 要看完全部 block =====================
+BW, CW = 36, 12
+labs = ['1', '⋯', 'j − 1', 'j', 'j + 1', '⋯', 'T_{k}']
+def strip(F, x, y):
+    for b in range(7):
+        kind = 'old' if b < 3 else ('new' if b == 3 else 'skip')
+        for e in range(3):
+            F.rect(x + b * (BW + 6) + e * CW, y + 14, CW, 20, kind)
+        F.T('os2', x + b * (BW + 6) + BW / 2, y + 48, labs[b], 'middle')
+    F.T('os2-s', x - 6, y + 48, 'j =', 'end')
+    F.T('os2', x + 3 * (BW + 6) + BW / 2, y + 8, '这一轮', 'middle', 'fill: var(--fig-hi)')
+    F.T('os2-s', x + (3 * BW + 12) / 2, y + 64, '已经读过', 'middle')
+    F.T('os2-s', x + 4 * (BW + 6) + (3 * BW + 12) / 2, y + 64, '还没读', 'middle')
+def passes(F, x, y):
+    for k, t in enumerate(['求 m', '求 ℓ', '算 P_{ij}，乘 V_{j} 加进 O_{i}']):
+        F.arrow(x, y + 16 + k * 28, x + 7 * BW + 36, y + 16 + k * 28)
+        F.T('os2-s', x + (7 * BW + 36) / 2, y + 11 + k * 28, t, 'middle')
+FIGS['fig-1-2'] = rows('fig-1-2', [
+    (68, ['P_{ij} = e^{S_{ij} − m} / ℓ', 'm = max_{j} rowmax(S_{ij})', 'ℓ = Σ_{j} rowsum(e^{S_{ij} − m})'], strip,
+     ['读到第 j 个 block 时后面还没读，', 'm、ℓ 未知，P_{ij} 算不出来。']),
+    (76, ['第 1 遍：求 m', '第 2 遍：求 ℓ', '第 3 遍：O_{i} = Σ_{j} P_{ij} V_{j}'], passes,
+     ['按定义要把 K、V 扫三遍。']),
+], '第一行：softmax 的公式；第 i 个 query block 的 S 分在 T_k 个 block 里，读到第 j 个时后面的还没读，m 和 ℓ 不知道，P_ij 算不出来。第二行：按定义要扫三遍，求 m、求 ℓ、算 P_ij 乘 V_j')
+
+# ===================== 图 1-3：两段合并 =====================
+SC, SG = 40, 14
+sx = lambda x, k: x + k * SC + (SG if k >= 4 else 0)
+def seg_own(F, x, y):
+    F.T('os2-b', sx(x, 0) + 2 * SC, y + 8, 'A 段', 'middle'); F.T('os2-b', sx(x, 4) + 2 * SC, y + 8, 'B 段', 'middle')
+    for k in range(8):
+        kind, s = ('old', 'A') if k < 4 else ('new', 'B')
+        F.rect(sx(x, k), y + 14, SC, 20, kind, 's', 'os2-s')
+        F.rect(sx(x, k), y + 40, SC, 22, kind, f'e^{{s − m_{{{s}}}}}', 'os2-s')
+    for a, s in ((0, 'A'), (4, 'B')):
+        F.bracket(sx(x, a), sx(x, a + 3) + SC, y + 70)
+        F.T('os2', sx(x, a) + 2 * SC, y + 86, f'加起来 = ℓ_{{{s}}}', 'middle')
+def seg_merge(F, x, y):
+    for a, s in ((0, 'A'), (4, 'B')):
+        cx = sx(x, a) + 2 * SC
+        F.arrow(cx, y, cx, y + 34, hi=True)
+        F.T('os2', cx + 6, y + 21, f'× e^{{m_{{{s}}} − m}}', 'start', 'fill: var(--fig-hi)')
+    for k in range(8):
+        F.rect(sx(x, k), y + 38, SC, 22, 'res', 'e^{s − m}', 'os2-s')
+    F.bracket(sx(x, 0), sx(x, 7) + SC, y + 68)
+    F.T('os2', sx(x, 0) + 4 * SC + SG / 2, y + 84, '加起来 = ℓ（整行的分母）', 'middle')
+FIGS['fig-1-3'] = rows('fig-1-3', [
+    (90, ['m_{A} = rowmax(S_{A})', 'ℓ_{A} = rowsum(e^{S_{A} − m_{A}})', 'B 段同理'], seg_own,
+     ['各段按自己的最大值求指数和。']),
+    (88, ['m = max(m_{A}, m_{B})', 'ℓ = e^{m_{A} − m} ℓ_{A} + e^{m_{B} − m} ℓ_{B}'], seg_merge,
+     ['乘修正因子换到同一个 m，再相加。']),
+], '两段合并。第一行：A、B 两段各按自己的最大值 m_A、m_B 算指数，加起来是 ℓ_A、ℓ_B。第二行：各乘修正因子换到同一个最大值 m，加起来就是整行的分母 ℓ')
+
+# ===================== 图 1-4：第 j 轮的 m、ℓ =====================
+CS = 16
+FIGS['fig-1-4'] = rows('fig-1-4', [
+    (82, ['m_{j} = max(m_{j−1}, rowmax(S_{ij}))'],
+     lambda F, x, y: seq(F, x, y, [('res', 4, 1, 'm_{j}'), '=', 'max(', ('old', 4, 1, 'm_{j−1}'), ',', 'rowmax(', ('new', 4, 4, 'S_{ij}'), '))'], CS, 1),
+     ['每行取旧最大值和新 block 最大值', '中大的那个。']),
+    (82, ['P̃_{ij} = exp(S_{ij} − m_{j})'],
+     lambda F, x, y: seq(F, x, y, [('res', 4, 4, 'P̃_{ij}'), '=', 'exp(', ('new', 4, 4, 'S_{ij}'), '−', ('res', 4, 1, 'm_{j}'), ')'], CS, 1),
+     ['每行减去自己的 m_{j} 再取 exp。']),
+    (82, ['ℓ_{j} = e^{m_{j−1} − m_{j}} ℓ_{j−1}', '        + rowsum(P̃_{ij})'],
+     lambda F, x, y: seq(F, x, y, [('res', 4, 1, 'ℓ_{j}'), '=', ('res', 4, 1, 'e^{m_{j−1} − m_{j}}'), '·', ('old', 4, 1, 'ℓ_{j−1}'), '+', 'rowsum(', ('res', 4, 4, 'P̃_{ij}'), ')'], CS, 1),
+     ['旧的和换到新最大值，', '加上新 block 每行的和。']),
+], '第 j 轮 m 和 ℓ 的更新，B_q 等于 4。m_j 等于 m_{j−1} 和 S_ij 每行最大值中大的那个；P̃_ij 等于 S_ij 每行减去 m_j 的对应数再取 exp；ℓ_j 等于修正因子乘 ℓ_{j−1} 加上 P̃_ij 每行之和。红框标出同一行', LEG)
 
 # ===================== 图 1-6：把分母提出来 =====================
-F = Fig('fig-1-6')
-WC, HC, VS = 68, 26, 20
-def row_eq(y, pre, cells, kind_w, post, res_kind, res_name, wname):
-    x = 24
+WC, VS = 40, 16
+def weights_v(F, x, y, pre, labels, res_pre, res_kind, res_name):
     if pre:
-        F.T('os2-m', x, y + 2 * VS + 5, pre); x += 46
-    wy = y + 2 * VS - HC / 2
-    for k, t in enumerate(cells):
-        F.rect(x + k * WC, wy, WC, HC, kind_w, t)
-    F.T('os2', x + 2 * WC, wy + HC + 15, wname, 'middle')
-    x += 4 * WC + 12
-    F.T('os2-m', x, y + 2 * VS + 5, '×'); x += 20
+        F.T('os2-m', x, y + 2 * VS + 5, pre); x += 32
+    for k, t in enumerate(labels):
+        F.rect(x + k * WC, y + 2 * VS - 11, WC, 22, 'res', t, 'os2-s')
+    x += 4 * WC + 8
+    F.T('os2-m', x, y + 2 * VS + 5, '×'); x += 16
     F.mat(x, y, 4, 3, 'new', VS, 'V')
-    for k in range(4): F.T('os2-s', x + 3 * VS + 5, y + k * VS + 14, f'V_{{{k + 1}}}')
-    x += 3 * VS + 28
-    F.T('os2-m', x, y + 2 * VS + 5, '='); x += 20
-    if post:
-        F.T('os2-m', x, y + 2 * VS + 5, post); x += 46
+    for k in range(4): F.T('os2-s', x + 3 * VS + 3, y + k * VS + 12, f'V_{{{k + 1}}}')
+    x += 3 * VS + 22
+    F.T('os2-m', x, y + 2 * VS + 5, '='); x += 16
+    if res_pre:
+        F.T('os2-m', x, y + 2 * VS + 5, res_pre); x += 32
     F.mat(x, y + 2 * VS - VS / 2, 1, 3, res_kind, VS, res_name)
-row_eq(20, '', [f'e^{{S_{{i{k}}} − m}} / ℓ' for k in range(1, 5)], 'res', '', 'out', 'O_{i}', 'P_{i1} … P_{i4}')
-F.arrow(150, 124, 150, 150, hi=True)
-F.T('os2', 160, 141, 'ℓ 对每一项都一样，提到外面', 'start', 'fill: var(--fig-hi)')
-row_eq(156, '1/ℓ ×', [f'e^{{S_{{i{k}}} − m}}' for k in range(1, 5)], 'res', '1/ℓ ×', 'res', 'Õ', '没除以 ℓ 的权重')
-F.T('os2', 24, 270, 'Õ = Σ_{j} e^{S_{ij} − m} V_{j}：没除以 ℓ 的输出。Õ 和 ℓ 分开算，最后 O_{i} = Õ / ℓ（按行除）')
-FIGS['fig-1-6'] = F.svg(284,
-    '上：O_i 等于 P 的第 i 个 block 行乘 V，每个 P_ij 是 e 的 S_ij 减 m 次方除以 ℓ。下：ℓ 对每一项都一样，提到外面，O_i 等于 1/ℓ 乘 Õ，Õ 是没除以 ℓ 的权重乘 V')
+FIGS['fig-1-6'] = rows('fig-1-6', [
+    (82, ['O_{i} = Σ_{j} P_{ij} V_{j}', 'P_{ij} = diag(ℓ)^{−1} e^{S_{ij} − m}'],
+     lambda F, x, y: weights_v(F, x, y, '', [f'P_{{i{k}}}' for k in range(1, 5)], '', 'out', 'O_{i}'),
+     ['O_{i} 是 V 各行的加权和，', '权重的分母都是 ℓ。']),
+    (82, ['O_{i} = diag(ℓ)^{−1} Σ_{j} e^{S_{ij} − m} V_{j}', '    = diag(ℓ)^{−1} Õ'],
+     lambda F, x, y: weights_v(F, x, y, '1/ℓ ×', [f'e^{{S_{{i{k}}} − m}}' for k in range(1, 5)], '1/ℓ ×', 'res', 'Õ'),
+     ['把 ℓ 提到外面，Õ 和 ℓ 分开累加。']),
+], '把分母提出来。第一行：O_i 等于 P 的第 i 个 block 行乘 V，每个 P_ij 是 e 的 S_ij 减 m 次方除以 ℓ。第二行：ℓ 对每一项都一样，提到外面，O_i 等于 1/ℓ 乘 Õ')
 
 # ===================== 图 1-7：ℓ 和 Õ 并排 =====================
-F = Fig('fig-1-7')
 CS = 14
-legend(F, 24, 18, [('old', '前 j − 1 个 block 留下的'), ('new', '这一轮读的 V_{j}'), ('res', '这一轮算出来的'), ('row', '同一行')])
-def eq(y, parts):
-    x = 24; pos = {}
-    for p in parts:
-        if isinstance(p, str):
-            F.T('os2-m', x + 2, y + 2 * CS + 5, p); x += len(p) * 7.2 + 8
-        else:
-            key, kind, r, c, name = p
-            pos[key] = (x, x + c * CS)
-            x = F.mat(x, y, r, c, kind, CS, name, hl=R) + 10
-    return pos
-p1 = eq(48, [('l', 'res', 4, 1, 'ℓ_{j}'), '=', ('f', 'res', 4, 1, 'e^{m_{j−1} − m_{j}}'), '·', ('o', 'old', 4, 1, 'ℓ_{j−1}'), '+', 'rowsum(', ('p', 'res', 4, 4, 'P̃_{ij}'), ')'])
-p2 = eq(150, [('l', 'res', 4, 3, 'Õ_{j}'), '=', 'diag(', ('f', 'res', 4, 1, 'e^{m_{j−1} − m_{j}}'), ')', ('o', 'old', 4, 3, 'Õ_{j−1}'), '+', ('p', 'res', 4, 4, 'P̃_{ij}'), ('v', 'new', 4, 3, 'V_{j}')])
-F.T('os2', 410, 66, '旧的和：每行乘自己的修正因子', 'start')
-F.T('os2-s', 410, 83, '新 block：P̃_{ij} 每行的元素加起来', 'start')
-F.T('os2', 410, 168, '旧的和：每行乘同一个修正因子，和 ℓ 用的一样', 'start')
-F.T('os2-s', 410, 185, '新 block：P̃_{ij} 每行当权重，组合 V_{j} 的各行', 'start')
-F.T('os2-s', 410, 200, '（图 1-1 (b) 的线性组合）', 'start')
-FIGS['fig-1-7'] = F.svg(150 + 4 * CS + 30,
-    '第 j 轮 ℓ 和 Õ 的更新放在一起。ℓ_j 等于修正因子乘 ℓ_{j−1} 加上 P̃_ij 每行之和；Õ_j 等于同一个修正因子按行乘 Õ_{j−1}，加上 P̃_ij 乘 V_j。两式只差新 block 那一项')
+FIGS['fig-1-7'] = rows('fig-1-7', [
+    (76, ['ℓ_{j} = e^{m_{j−1} − m_{j}} ℓ_{j−1}', '        + rowsum(P̃_{ij})'],
+     lambda F, x, y: seq(F, x, y, [('res', 4, 1, 'ℓ_{j}'), '=', ('res', 4, 1, 'e^{m_{j−1} − m_{j}}'), '·', ('old', 4, 1, 'ℓ_{j−1}'), '+', 'rowsum(', ('res', 4, 4, 'P̃_{ij}'), ')'], CS, 1),
+     ['旧的和乘修正因子，', '加上新 block 每行的和。']),
+    (76, ['Õ_{j} = diag(e^{m_{j−1} − m_{j}}) Õ_{j−1}', '        + P̃_{ij} V_{j}'],
+     lambda F, x, y: seq(F, x, y, [('res', 4, 3, 'Õ_{j}'), '=', 'diag(', ('res', 4, 1, 'e^{m_{j−1} − m_{j}}'), ')', ('old', 4, 3, 'Õ_{j−1}'), '+', ('res', 4, 4, 'P̃_{ij}'), ('new', 4, 3, 'V_{j}')], CS, 1),
+     ['同一个修正因子按行乘旧的 Õ，', '加上新 block 的 P̃_{ij}V_{j}。']),
+], '第 j 轮 ℓ 和 Õ 的更新放在一起。ℓ_j 等于修正因子乘 ℓ_{j−1} 加上 P̃_ij 每行之和；Õ_j 等于同一个修正因子按行乘 Õ_{j−1}，加上 P̃_ij 乘 V_j。两式只差新 block 那一项', LEG)
 
 # ===================== 图 1-8：两个 block 展开 =====================
-F = Fig('fig-1-8')
-BH, X0, BW = 30, 92, 200
-def bar(x, y, kind, t):
-    F.rect(x, y, BW, BH, kind, t, 'os2-m', rx=6)
-F.T('os2-b', 24, 40 + 20, 'j = 1')
-bar(X0, 40, 'old', 'e^{S_{i1} − m_{1}} V_{1}')
-F.T('os2', X0 + BW + 18, 52, '= Õ_{1}：第 1 个 block 按它自己的最大值 m_{1} 算')
-F.T('os2-s', X0 + BW + 18, 67, '这时还不知道后面有没有更大的数')
-F.arrow(X0 + BW / 2, 40 + BH + 4, X0 + BW / 2, 124, hi=True)
-F.T('os2', X0 + BW / 2 + 8, 103, '× e^{m_{1} − m}：换到整行的最大值 m = m_{2}', 'start', 'fill: var(--fig-hi)')
-F.T('os2-b', 24, 128 + 20, 'j = 2')
-bar(X0, 128, 'res', 'e^{S_{i1} − m} V_{1}')
-F.T('os2-m', X0 + BW + 8, 128 + 20, '+')
-bar(X0 + BW + 28, 128, 'new', 'e^{S_{i2} − m} V_{2}')
-F.T('os2-m', X0 + 2 * BW + 40, 128 + 20, '= Õ_{2}')
-F.w(f'<path d="M{X0:g},{128 + BH + 4:g} V{128 + BH + 9:g} H{X0 + 2 * BW + 28:g} V{128 + BH + 4:g}" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-width="1.2"/>')
-F.T('os2', X0 + BW + 14, 128 + BH + 27, '每一项都按整行的 m 算，就是 Õ 的定义；再每行除以 ℓ 就是 O_{i}', 'middle')
-FIGS['fig-1-8'] = F.svg(128 + BH + 42,
-    '两个 block 时 Õ 的展开。第 1 轮 Õ_1 等于 e 的 S_i1 减 m_1 次方乘 V_1。第 2 轮先乘 e 的 m_1 减 m 次方，变成 e 的 S_i1 减 m 次方乘 V_1，再加上 e 的 S_i2 减 m 次方乘 V_2，每一项都按整行的最大值 m 算')
+BH, BL = 28, 150
+def bar(F, x, y, kind, t):
+    F.rect(x, y, BL, BH, kind, t, 'os2', rx=6)
+def two1(F, x, y):
+    bar(F, x, y + 4, 'old', 'e^{S_{i1} − m_{1}} V_{1}')
+def two2(F, x, y):
+    F.arrow(x + BL / 2, y - 12, x + BL / 2, y + 26, hi=True)
+    F.T('os2', x + BL / 2 + 8, y + 12, '× e^{m_{1} − m}', 'start', 'fill: var(--fig-hi)')
+    bar(F, x, y + 30, 'res', 'e^{S_{i1} − m} V_{1}')
+    F.T('os2-m', x + BL + 7, y + 30 + 19, '+')
+    bar(F, x + BL + 24, y + 30, 'new', 'e^{S_{i2} − m} V_{2}')
+FIGS['fig-1-8'] = rows('fig-1-8', [
+    (36, ['Õ_{1} = e^{S_{i1} − m_{1}} V_{1}'], two1,
+     ['第 1 个 block 按 m_{1} 算。']),
+    (58, ['Õ_{2} = e^{m_{1} − m} Õ_{1} + e^{S_{i2} − m} V_{2}', '    = e^{S_{i1} − m} V_{1} + e^{S_{i2} − m} V_{2}'], two2,
+     ['乘 e^{m_{1} − m} 以后，', '每一项都按整行的 m 算。']),
+], '两个 block 时 Õ 的展开。第一行：Õ_1 等于 e 的 S_i1 减 m_1 次方乘 V_1。第二行：先乘 e 的 m_1 减 m 次方，变成 e 的 S_i1 减 m 次方乘 V_1，再加上 e 的 S_i2 减 m 次方乘 V_2，每一项都按整行的最大值 m 算', [('old', '按旧的最大值算的'), ('new', '这一轮读的'), ('res', '换到新的最大值以后')])
 
 if __name__ == '__main__':
     p = sys.argv[1]
