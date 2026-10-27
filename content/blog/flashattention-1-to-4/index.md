@@ -38,6 +38,9 @@ series_order: 4
 .fa-algo .c.o{border:3px double var(--c);background:color-mix(in srgb,var(--c) 30%,transparent)}
 .fa-algo .vQ{--c:#E07A2E}.fa-algo .vK{--c:#2A9D8F}.fa-algo .vV{--c:#8E6CC7}.fa-algo .vS{--c:#E3A33B}.fa-algo .vP{--c:#8E6CC7}
 .fa-algo .vm{--c:#6A9F3A}.fa-algo .vl{--c:#C2508A}.fa-algo .vO{--c:#3B82C4}.fa-algo .vL{--c:#9C7A4F}.fa-algo .vf{--c:var(--fig-hi)}.fa-algo .vn{--c:var(--fig-mute)}
+.fa-algo .c.mat::before,.fa-algo .c.vec::before{content:"";display:inline-block;height:.78em;margin-right:.22em;vertical-align:-.06em;border:1px solid var(--c)}
+.fa-algo .c.mat::before{width:.78em;background:linear-gradient(var(--c),var(--c)) center/1px 100% no-repeat,linear-gradient(var(--c),var(--c)) center/100% 1px no-repeat}
+.fa-algo .c.vec::before{width:.3em;background:linear-gradient(var(--c),var(--c)) center/100% 1px no-repeat}
 .fa-algo-leg{margin-top:.5em;padding-top:.45em;border-top:1px solid rgba(128,128,128,.25);font-size:.82em;opacity:.85}
 .fa-algo-leg .c{min-width:1.1em;margin-right:.25em}
 .fa-algo-leg>span{margin-right:1.1em;white-space:nowrap}
@@ -1320,22 +1323,22 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 <text class="os2-s" x="250" y="60">每段长 B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5">；第 13 行算出，给反向用</tspan></text>
 </svg></li>
 <li><span class="kw">for</span> $1 \le i \le T_q$ <span class="kw">do</span></li>
-<li class="i1"><span class="hbm">HBM</span>从 HBM 读 <span class="c h vQ">$Q_i$</span> 到片上 SRAM</li>
-<li class="i1">片上初始化 <span class="c s vO">$\tilde O_i^{(0)}$</span> $= 0 \in \mathbb{R}^{B_q\times d}$，<span class="c s vl">$\ell_i^{(0)}$</span> $= 0 \in \mathbb{R}^{B_q}$，<span class="c s vm">$m_i^{(0)}$</span> $= -\infty \in \mathbb{R}^{B_q}$</li>
+<li class="i1"><span class="hbm">HBM</span>从 HBM 读 <span class="c h vQ mat">$Q_i$</span> 到片上 SRAM</li>
+<li class="i1">片上初始化 <span class="c s vO mat">$\tilde O_i^{(0)}$</span> $= 0 \in \mathbb{R}^{B_q\times d}$，<span class="c s vl vec">$\ell_i^{(0)}$</span> $= 0 \in \mathbb{R}^{B_q}$，<span class="c s vm vec">$m_i^{(0)}$</span> $= -\infty \in \mathbb{R}^{B_q}$</li>
 <li class="i1"><span class="kw">for</span> $1 \le j \le T_k$ <span class="kw">do</span></li>
-<li class="i2"><span class="hbm">HBM</span>从 HBM 读 <span class="c h vK">$K_j$</span>、<span class="c h vV">$V_j$</span> 到片上 SRAM</li>
-<li class="i2"><span class="ref"><a href="#fig-1-1">图 1-1</a> (a)</span>片上算 <span class="c t vS">$S_i^{(j)}$</span> $=$ <span class="c h vQ">$Q_i$</span> <span class="c h vK">$K_j^\top$</span> $\in \mathbb{R}^{B_q\times B_k}$</li>
-<li class="i2"><span class="ref"><a href="#fig-1-4">图 1-4</a></span>片上算 <span class="c s vm">$m_i^{(j)}$</span> $= \max\big($ <span class="c s vm">$m_i^{(j-1)}$</span>, $\mathrm{rowmax}($ <span class="c t vS">$S_i^{(j)}$</span> $)\big)$，<span class="cont"><span class="c t vP">$\tilde P_i^{(j)}$</span> $= \exp\big($ <span class="c t vS">$S_i^{(j)}$</span> $-$ <span class="c s vm">$m_i^{(j)}$</span> $\big)$（逐元素），</span><span class="cont"><span class="c s vl">$\ell_i^{(j)}$</span> $=$ <span class="c f vf">$\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}$</span> <span class="c s vl">$\ell_i^{(j-1)}$</span> $+\ \mathrm{rowsum}($ <span class="c t vP">$\tilde P_i^{(j)}$</span> $)$</span></li>
-<li class="i2"><span class="ref"><a href="#fig-1-7">图 1-7</a></span>片上算 <span class="c s vO">$\tilde O_i^{(j)}$</span> $= \mathrm{diag}($ <span class="c f vf">$\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}$</span> $)$ <span class="c s vO">$\tilde O_i^{(j-1)}$</span> $+$ <span class="c t vP">$\tilde P_i^{(j)}$</span> <span class="c h vV">$V_j$</span></li>
+<li class="i2"><span class="hbm">HBM</span>从 HBM 读 <span class="c h vK mat">$K_j$</span>、<span class="c h vV mat">$V_j$</span> 到片上 SRAM</li>
+<li class="i2"><span class="ref"><a href="#fig-1-1">图 1-1</a> (a)</span>片上算 <span class="c t vS mat">$S_i^{(j)}$</span> $=$ <span class="c h vQ mat">$Q_i$</span> <span class="c h vK mat">$K_j^\top$</span> $\in \mathbb{R}^{B_q\times B_k}$</li>
+<li class="i2"><span class="ref"><a href="#fig-1-4">图 1-4</a></span>片上算 <span class="c s vm vec">$m_i^{(j)}$</span> $= \max\big($ <span class="c s vm vec">$m_i^{(j-1)}$</span>, $\mathrm{rowmax}($ <span class="c t vS mat">$S_i^{(j)}$</span> $)\big)$，<span class="cont"><span class="c t vP mat">$\tilde P_i^{(j)}$</span> $= \exp\big($ <span class="c t vS mat">$S_i^{(j)}$</span> $-$ <span class="c s vm vec">$m_i^{(j)}$</span> $\big)$（逐元素），</span><span class="cont"><span class="c s vl vec">$\ell_i^{(j)}$</span> $=$ <span class="c f vf vec">$\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}$</span> <span class="c s vl vec">$\ell_i^{(j-1)}$</span> $+\ \mathrm{rowsum}($ <span class="c t vP mat">$\tilde P_i^{(j)}$</span> $)$</span></li>
+<li class="i2"><span class="ref"><a href="#fig-1-7">图 1-7</a></span>片上算 <span class="c s vO mat">$\tilde O_i^{(j)}$</span> $= \mathrm{diag}($ <span class="c f vf vec">$\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}$</span> $)$ <span class="c s vO mat">$\tilde O_i^{(j-1)}$</span> $+$ <span class="c t vP mat">$\tilde P_i^{(j)}$</span> <span class="c h vV mat">$V_j$</span></li>
 <li class="i1"><span class="kw">end for</span></li>
-<li class="i1"><span class="ref"><a href="#fig-1-6">图 1-6</a></span>片上算 <span class="c o vO">$O_i$</span> $= \mathrm{diag}($ <span class="c s vl">$\ell_i^{(T_k)}$</span> $)^{-1}$ <span class="c s vO">$\tilde O_i^{(T_k)}$</span></li>
-<li class="i1">片上算 <span class="c o vL">$L_i$</span> $=$ <span class="c s vm">$m_i^{(T_k)}$</span> $+ \log$ <span class="c s vl">$\ell_i^{(T_k)}$</span></li>
-<li class="i1"><span class="hbm">HBM</span>把 <span class="c o vO">$O_i$</span> 写回 HBM，作为 $O$ 的第 $i$ 个 block</li>
-<li class="i1"><span class="hbm">HBM</span>把 <span class="c o vL">$L_i$</span> 写回 HBM，作为 $L$ 的第 $i$ 个 block</li>
+<li class="i1"><span class="ref"><a href="#fig-1-6">图 1-6</a></span>片上算 <span class="c o vO mat">$O_i$</span> $= \mathrm{diag}($ <span class="c s vl vec">$\ell_i^{(T_k)}$</span> $)^{-1}$ <span class="c s vO mat">$\tilde O_i^{(T_k)}$</span></li>
+<li class="i1">片上算 <span class="c o vL vec">$L_i$</span> $=$ <span class="c s vm vec">$m_i^{(T_k)}$</span> $+ \log$ <span class="c s vl vec">$\ell_i^{(T_k)}$</span></li>
+<li class="i1"><span class="hbm">HBM</span>把 <span class="c o vO mat">$O_i$</span> 写回 HBM，作为 $O$ 的第 $i$ 个 block</li>
+<li class="i1"><span class="hbm">HBM</span>把 <span class="c o vL vec">$L_i$</span> 写回 HBM，作为 $L$ 的第 $i$ 个 block</li>
 <li><span class="kw">end for</span></li>
 <li>返回 $O$ 和 $L$</li>
 </ol>
-<div class="fa-algo-leg">颜色区分变量，边框区分用途：<span><span class="c h vn">&nbsp;</span>细实线：从 HBM 读的</span><span><span class="c s vn">&nbsp;</span>粗实线：状态，留在片上给下一个 block 用</span><span><span class="c t">&nbsp;</span>浅色虚线：片上临时量，这个 block 用完就丢</span><span><span class="c o vn">&nbsp;</span>双线：写回 HBM 的输出</span></div>
+<div class="fa-algo-leg">颜色区分变量，图标区分形状，边框区分用途：<span><span class="c vn mat">&nbsp;</span>矩阵，如 $B_q\times d$</span><span><span class="c vn vec">&nbsp;</span>向量，长 $B_q$，一行一个数</span><span><span class="c h vn">&nbsp;</span>细实线：从 HBM 读的</span><span><span class="c s vn">&nbsp;</span>粗实线：状态，留在片上给下一个 block 用</span><span><span class="c t">&nbsp;</span>浅色虚线：片上临时量，这个 block 用完就丢</span><span><span class="c o vn">&nbsp;</span>双线：写回 HBM 的输出</span></div>
 </div>
 
 论文第 10 行没有波浪号，而且 $\mathrm{diag}(\cdot)$ 后面多写了 $^{-1}$，按论文 3.1.1 节的推导应该没有。
