@@ -82,10 +82,42 @@ T('os2-b', 512, 198, 'v', 'middle'); T('os2-s', 512, 212, '4 × 1', 'middle')
 T('os2-b', 584, 190, 'o', 'middle'); T('os2-s', 584, 204, '3 × 1', 'middle')
 T('os2-b', 330, 240, 'o = v_{1} · P_{:,1} + v_{2} · P_{:,2} + v_{3} · P_{:,3} + v_{4} · P_{:,4}')
 
+# ---------- (c) C = diag(v) A ----------
+Y3 = 268
+w(f'<line x1="8" y1="{Y3 - 14}" x2="672" y2="{Y3 - 14}" stroke="currentColor" stroke-opacity=".14"/>')
+T('os2-b', 8, Y3 + 6, '(c) 对角矩阵乘矩阵 C = diag(v) A：C 的第 r 行是 A 的第 r 行乘 v_{r}')
+ROW = ['fill: color-mix(in srgb, var(--fig-1) 34%, transparent); stroke: var(--fig-1)',
+       'fill: color-mix(in srgb, var(--fig-2) 45%, transparent); stroke: var(--fig-2)',
+       'fill: color-mix(in srgb, var(--fig-3) 75%, transparent); stroke: var(--fig-2)']
+ZERO = 'fill: none; stroke: var(--fig-mute)'
+def box(x, y, cw, st, label, dash=False):
+    d = ' stroke-dasharray="3 2"' if dash else ''
+    w(f'<rect x="{x}" y="{y}" width="{cw}" height="{C}" rx="1.5" style="{st}" stroke-width="1"{d}/>')
+    T('os2', x + cw / 2, y + 16, label, 'middle')
+dx, ax, cx3, y3 = 40, 172, 330, Y3 + 30
+for r in range(3):
+    for c in range(3):
+        box(dx + c * 28, y3 + r * C, 28, ROW[r] if r == c else ZERO, 'v_{%d}' % (r + 1) if r == c else '0', r != c)
+    for c in range(4):
+        box(ax + c * C, y3 + r * C, C, ROW[r], 'a_{%d%d}' % (r + 1, c + 1))
+        box(cx3 + c * 44, y3 + r * C, 44, ROW[r], 'v_{%d}a_{%d%d}' % (r + 1, r + 1, c + 1))
+    yc = y3 + r * C + 12
+    xs = dx + r * 28 + 28                    # 从对角线上的 v_r 指到 A 的第 r 行
+    arc(f'M{xs},{yc} H{ax - 1}')
+T('os2-b', 152, y3 + 53, '×', 'middle'); T('os2-b', 312, y3 + 41, '=', 'middle')
+T('os2-b', dx + 42, y3 + 88, 'diag(v)', 'middle'); T('os2-s', dx + 42, y3 + 102, '3 × 3，只有对角线非 0', 'middle')
+T('os2-b', ax + 48, y3 + 88, 'A', 'middle'); T('os2-s', ax + 48, y3 + 102, '3 × 4', 'middle')
+T('os2-b', cx3 + 88, y3 + 88, 'C', 'middle'); T('os2-s', cx3 + 88, y3 + 102, '3 × 4', 'middle')
+T('os2-b', 520, y3 + 22, '第 r 行只乘 v_{r}，')
+T('os2-b', 520, y3 + 40, '行与行互不影响')
+T('os2-s', 520, y3 + 62, '1.2 里 diag(修正因子) Õ、')
+T('os2-s', 520, y3 + 78, 'Õ / ℓ 都是这种按行缩放')
+
 LABEL = ("(a) 列向量 q 乘行向量 k 转置等于 3 乘 4 的矩阵 S，箭头从 k 的每个元素 k_j 指向 q，S 的第 j 列等于 k_j 乘 q。"
          "(b) 3 乘 4 的矩阵 P 乘 4 乘 1 的列向量 v 等于 3 乘 1 的列向量 o，箭头从 v 的每个元素 v_j 指向 P 的第 j 列，o 等于 v_j 乘 P 第 j 列之和。"
-         "格子换成 block：(a) 是 S_ij = Q_i K_j 转置，(b) 是 O_i 等于 P_ij V_j 之和。")
-svg = (f'<figure id="{FID}">\n<svg viewBox="0 0 680 252" width="100%" role="img" aria-label="{LABEL}">\n'
+         "(c) 对角矩阵 diag(v) 乘 3 乘 4 的矩阵 A 等于 C，C 的第 r 行等于 v_r 乘 A 的第 r 行。"
+         "格子换成 block：(a) 是 S_ij = Q_i K_j 转置，(b) 是 O_i 等于 P_ij V_j 之和，(c) 是按行乘修正因子或除以 ℓ。")
+svg = (f'<figure id="{FID}">\n<svg viewBox="0 0 680 410" width="100%" role="img" aria-label="{LABEL}">\n'
        '  <style>\n    .os2 { font-size: 11px; fill: currentColor; }\n    .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }\n'
        '    .os2-s { font-size: 10.5px; fill: currentColor; opacity: .72; }\n  </style>\n'
        f'<defs><marker id="{FID}-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" fill-opacity=".6"/></marker>'
@@ -101,5 +133,5 @@ if __name__ == '__main__':
     assert n == 1
     s = re.sub(r'(<figcaption><strong>图 1-1</strong>)(.*?)(</figcaption>)', lambda m: m.group(1) +
 
-        r' 两种看矩阵乘法的方式；格子换成 block 就是 $S_{ij} = Q_iK_j^\top$ 和 $O_i = \sum_j P_{ij}V_j$，配色和后面的图相同。' + m.group(3), s, count=1, flags=re.S)
+        r' 三种看矩阵乘法的方式；格子换成 block，(a) 是 $S_{ij} = Q_iK_j^\top$，(b) 是 $O_i = \sum_j P_{ij}V_j$，(c) 是后面按行乘修正因子、按行除以 $\ell$ 用的 $\mathrm{diag}$。' + m.group(3), s, count=1, flags=re.S)
     open(p, 'w').write(s)
