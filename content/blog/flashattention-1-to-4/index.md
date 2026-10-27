@@ -413,7 +413,7 @@ online softmax（Milakov 和 Gimelshein 2018）的办法是把一行分成几段
 <rect x="56" y="196" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
 <rect x="72" y="196" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
 <rect x="22.5" y="162.5" width="67" height="19" rx="2" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/>
-<text class="os2" x="56" y="227" text-anchor="middle">P̃<tspan dy="3.5" font-size="72%">ij</tspan></text>
+<text class="os2" x="56" y="227" text-anchor="middle">P<tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">ij</tspan></text>
 <text class="os2-m" x="100" y="185">=</text>
 <text class="os2-m" x="115.2" y="185">exp(</text>
 <rect x="150" y="148" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 32%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
@@ -443,7 +443,7 @@ online softmax（Milakov 和 Gimelshein 2018）的办法是把一行分成几段
 <text class="os2" x="253" y="227" text-anchor="middle">m<tspan dy="3.5" font-size="72%">j</tspan></text>
 <text class="os2-m" x="273" y="185">)</text>
 <text class="os2" x="360" y="166">m<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> 的第 r 个数从 S</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> 第 r 行的每个元素里减掉</tspan></text>
-<text class="os2-s" x="360" y="183">P̃<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">：还没除以分母的 softmax</tspan></text>
+<text class="os2-s" x="360" y="183">P<tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">ij</tspan><tspan dy="-3.5">：还没除以分母的 softmax</tspan></text>
 <rect x="24" y="248" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
 <rect x="24" y="264" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
 <rect x="24" y="280" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
@@ -483,7 +483,7 @@ online softmax（Milakov 和 Gimelshein 2018）的办法是把一行分成几段
 <rect x="243.8" y="296" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
 <rect x="259.8" y="296" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
 <rect x="210.3" y="262.5" width="67" height="19" rx="2" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/>
-<text class="os2" x="243.8" y="327" text-anchor="middle">P̃<tspan dy="3.5" font-size="72%">ij</tspan></text>
+<text class="os2" x="243.8" y="327" text-anchor="middle">P<tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">ij</tspan></text>
 <text class="os2-m" x="287.8" y="285">)</text>
 <text class="os2" x="360" y="266">第一项：旧的和每行乘自己的修正因子，换到新的最大值</text>
 <text class="os2-s" x="360" y="283">第二项：新 block 每行加起来</text>
@@ -824,7 +824,7 @@ $\tilde O_0 = 0$。两式只差最后一项：$\ell$ 把 $\tilde P_{ij}$ 每一�
 <rect x="228" y="90" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
 <rect x="242" y="90" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
 <rect x="198.5" y="60.5" width="59" height="17" rx="2" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/>
-<text class="os2" x="228" y="119" text-anchor="middle">P̃<tspan dy="3.5" font-size="72%">ij</tspan></text>
+<text class="os2" x="228" y="119" text-anchor="middle">P<tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">ij</tspan></text>
 <text class="os2-m" x="268" y="81">)</text>
 <rect x="24" y="150" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
 <rect x="38" y="150" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
@@ -881,7 +881,7 @@ $\tilde O_0 = 0$。两式只差最后一项：$\ell$ 把 $\tilde P_{ij}$ 每一�
 <rect x="269.6" y="192" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
 <rect x="283.6" y="192" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
 <rect x="240.1" y="162.5" width="59" height="17" rx="2" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/>
-<text class="os2" x="269.6" y="221" text-anchor="middle">P̃<tspan dy="3.5" font-size="72%">ij</tspan></text>
+<text class="os2" x="269.6" y="221" text-anchor="middle">P<tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">ij</tspan></text>
 <rect x="307.6" y="150" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 32%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
 <rect x="321.6" y="150" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 32%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
 <rect x="335.6" y="150" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 32%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
@@ -897,9 +897,9 @@ $\tilde O_0 = 0$。两式只差最后一项：$\ell$ 把 $\tilde P_{ij}$ 每一�
 <rect x="306.1" y="162.5" width="45" height="17" rx="2" fill="none" style="stroke: var(--fig-hi)" stroke-width="1.6"/>
 <text class="os2" x="328.6" y="221" text-anchor="middle">V<tspan dy="3.5" font-size="72%">j</tspan></text>
 <text class="os2" x="410" y="66">旧的和：每行乘自己的修正因子</text>
-<text class="os2-s" x="410" y="83">新 block：P̃<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> 每行的元素加起来</tspan></text>
+<text class="os2-s" x="410" y="83">新 block：P<tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">ij</tspan><tspan dy="-3.5"> 每行的元素加起来</tspan></text>
 <text class="os2" x="410" y="168">旧的和：每行乘同一个修正因子，和 ℓ 用的一样</text>
-<text class="os2-s" x="410" y="185">新 block：P̃<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> 每行当权重，组合 V</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> 的各行</tspan></text>
+<text class="os2-s" x="410" y="185">新 block：P<tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">ij</tspan><tspan dy="-3.5"> 每行当权重，组合 V</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> 的各行</tspan></text>
 <text class="os2-s" x="410" y="200">（图 1-1 (b) 的线性组合）</text>
 </svg>
 <figcaption><strong>图 1-7</strong> 第 $j$ 轮 $\ell$ 和 $\tilde O$ 的更新放在一起：修正因子相同，只差新 block 那一项。</figcaption>
@@ -1246,7 +1246,7 @@ causal attention 里，key 下标大于 query 下标的位置要设成 $-\infty$
   <text class="s" x="354" y="626" text-anchor="middle">max·exp2·sum</text>
   <rect class="op" x="416" y="594" width="92" height="40" rx="6"/>
   <text class="tb" x="462" y="611" text-anchor="middle">dot  ④</text>
-  <text class="s" x="462" y="626" text-anchor="middle">P̃<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> V</tspan><tspan dy="3.5" font-size="72%">j</tspan></text>
+  <text class="s" x="462" y="626" text-anchor="middle">P<tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">ij</tspan><tspan dy="-3.5"> V</tspan><tspan dy="3.5" font-size="72%">j</tspan></text>
   <rect class="op" x="524" y="594" width="92" height="40" rx="6" stroke-dasharray="4 3"/>
   <text class="tb" x="570" y="611" text-anchor="middle">÷ ℓ</text>
   <text class="s" x="570" y="626" text-anchor="middle">O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> / ℓ</tspan></text>
@@ -1258,7 +1258,7 @@ causal attention 里，key 下标大于 query 下标的位置要设成 $-\infty$
   <rect x="96" y="665" width="52" height="24" rx="5" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="1.2"/>
   <text class="s" x="122" y="681" text-anchor="middle" style="opacity: 1">Q<tspan dy="3.5" font-size="72%">i</tspan></text>
   <rect x="200" y="665" width="92" height="24" rx="5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1.2"/>
-  <text class="s" x="246" y="681" text-anchor="middle" style="opacity: 1">S<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">、P̃</tspan><tspan dy="3.5" font-size="72%">ij</tspan></text>
+  <text class="s" x="246" y="681" text-anchor="middle" style="opacity: 1">S<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">、P</tspan><tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">ij</tspan></text>
   <rect x="308" y="665" width="92" height="24" rx="5" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="1.2"/>
   <text class="s" x="354" y="681" text-anchor="middle" style="opacity: 1">m、ℓ</text>
   <rect x="438" y="665" width="70" height="24" rx="5" style="fill: color-mix(in srgb, var(--fig-1) 18%, transparent); stroke: var(--fig-1)" stroke-width="1.2"/>
@@ -1313,9 +1313,9 @@ causal attention 里，key 下标大于 query 下标的位置要设成 $-\infty$
   <text class="s" x="18" y="920">Algorithm 1</text>
   <text class="s" x="18" y="934">第 9–10 行</text>
   <text class="lab" x="92" y="914">① m<tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5"> = max(m, rowmax(S</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">))</tspan></text>
-  <text class="lab" x="92" y="938">② P̃<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> = exp(S</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> − m</tspan><tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">)</tspan></text>
-  <text class="lab" x="92" y="962">③ ℓ ← exp(m − m<tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">)·ℓ + rowsum(P̃</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">)</tspan></text>
-  <text class="lab" x="364" y="914">④ O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> ← exp(m − m</tspan><tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">)·O</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> + P̃</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">V</tspan><tspan dy="3.5" font-size="72%">j</tspan></text>
+  <text class="lab" x="92" y="938">② P<tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">ij</tspan><tspan dy="-3.5"> = exp(S</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> − m</tspan><tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">)</tspan></text>
+  <text class="lab" x="92" y="962">③ ℓ ← exp(m − m<tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">)·ℓ + rowsum(P</tspan><tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">ij</tspan><tspan dy="-3.5">)</tspan></text>
+  <text class="lab" x="364" y="914">④ O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> ← exp(m − m</tspan><tspan dy="3.5" font-size="72%">new</tspan><tspan dy="-3.5">)·O</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> + P</tspan><tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">ij</tspan><tspan dy="-3.5">V</tspan><tspan dy="3.5" font-size="72%">j</tspan></text>
   <text class="lab" x="364" y="938">⑤ m ← m<tspan dy="3.5" font-size="72%">new</tspan></text>
   <text class="lab" x="364" y="962">循环后：O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> ← O</tspan><tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> / ℓ</tspan></text>
   </g>

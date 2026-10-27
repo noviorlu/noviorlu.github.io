@@ -29,7 +29,10 @@ def parse(t):
     out, buf, i = [], '', 0
     def add(x, l):
         if x: out.append((x, l))
+    t = t.replace('P̃', 'P\x01')
     while i < len(t):
+        if t[i] == '\x01':                     # P̃ 的波浪号单独画：网站字体不渲染组合字符
+            add(buf, 'n'); buf = ''; add('~', 'tilde'); i += 1; continue
         if t[i] in '_^' and i + 1 < len(t) and t[i + 1] == '{':
             add(buf, 'n'); buf = ''
             j, d = i + 2, 1
@@ -53,13 +56,17 @@ def parse(t):
     add(buf, 'n')
     return out
 def T(cls, x, y, t, anchor='start', style='', extra=''):
-    cur, h = 0, ''
+    cur, h, pend = 0, '', ''
     for k, (s, l) in enumerate(parse(t)):
         s = s.replace('&', '&amp;').replace('<', '&lt;')
         if k == 0 and l == 'n':
             h += s; continue
+        if l == 'tilde':
+            h += '<tspan dx="-5.6" dy="-7" font-size="80%">~</tspan>'
+            cur -= 7; pend = ' dx="1.2"'
+            continue
         dy = OFF[l] - cur; cur = OFF[l]
-        a = f' dy="{dy:g}"' if dy else ''
+        a = (f' dy="{dy:g}"' if dy else '') + pend; pend = ''
         f = f' font-size="{FS[l]}"' if l in FS else ''
         h += f'<tspan{a}{f}>{s}</tspan>'
     st = f' style="{style}"' if style else ''
