@@ -60,11 +60,11 @@ STYLE = {
     'state': 'fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)',     # 跨 tile 保留的状态
     'tmp': 'fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)',       # 这一轮的临时量
     # Algorithm 1 第 1、2 行：每个变量一个颜色，和算法框里的色块一致
-    'vQ': 'fill: color-mix(in srgb, #E07A2E 40%, transparent); stroke: #E07A2E',
-    'vK': 'fill: color-mix(in srgb, #2A9D8F 40%, transparent); stroke: #2A9D8F',
-    'vV': 'fill: color-mix(in srgb, #8E6CC7 40%, transparent); stroke: #8E6CC7',
-    'vO': 'fill: color-mix(in srgb, #3B82C4 30%, transparent); stroke: #3B82C4',
-    'vL': 'fill: color-mix(in srgb, #9C7A4F 30%, transparent); stroke: #9C7A4F',
+    'vQ': 'fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)',
+    'vK': 'fill: color-mix(in srgb, var(--fig-2) 45%, transparent); stroke: var(--fig-2)',
+    'vV': 'fill: color-mix(in srgb, var(--fig-3) 70%, transparent); stroke: var(--fig-2)',
+    'vO': 'fill: color-mix(in srgb, var(--fig-hi) 30%, transparent); stroke: var(--fig-hi)',
+    'vL': 'fill: color-mix(in srgb, var(--fig-mute) 20%, transparent); stroke: var(--fig-mute)',
 }
 DASH = {'skip', 'tmp', 'fac'}                 # 虚线框 = 用完就丢
 CSS = ('  <style>\n    .os2 { font-size: 11px; fill: currentColor; }\n    .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }\n'
@@ -317,21 +317,27 @@ FIGS['fig-1-7'] = rows('fig-1-7', [
 ], 'Õ 一个 block 一个 block 地累加，画法同图 1-6。第 1 轮只有第 1 个 block，按 m_1 算。第 2 轮旧的一项乘 e 的 m_1 减 m_2 次方，换成按 m_2 算，再加第 2 个 block；下面是同一个更新写成矩阵形式，一般的第 j 轮把 1、2 换成 j − 1、j。扫完以后每一项都按整行的最大值 m 算，就是图 1-6 的 Õ', LEG)
 
 # ===================== Algorithm 1 第 1、2 行：切 block =====================
+# 块的大小按在显存里的形状画（B_q、B_k、d 各取一个长度），符号写在块外面
+UBQ, UBK, UD, UV, GAP = 26, 22, 18, 6, 3
 def split_col(F, x, name, labs, kind, w, annot):
+    """竖着一摞：Q、O（每块 B_q × d）、L（每段长 B_q）。标签写在左边。"""
     F.T('os2-b', x + w / 2, 12, name, 'middle')
     for k, t in enumerate(labs):
-        F.rect(x, 18 + k * 20, w, 18, kind if t != '⋯' else 'skip', t if w > 20 else None, 'os2-s')
-        if t == '⋯': F.T('os2-s', x + w / 2, 18 + k * 20 + 12, '⋯', 'middle')
+        y = 18 + k * (UBQ + GAP)
+        F.rect(x, y, w, UBQ, 'skip' if t == '⋯' else kind)
+        F.T('os2-s', x - 4, y + UBQ / 2 + 4, t, 'end', 'opacity: 1')
     for n, t in enumerate(annot):
-        F.T('os2' if n == 0 else 'os2-s', x + w + 10, 42 + n * 18, t)
-def split_row(F, x, name, labs, kind, w, annot):
-    F.T('os2-b', x - 8, 34, name, 'end')
+        F.T('os2' if n == 0 else 'os2-s', x + w + 10, 48 + n * 18, t)
+def split_row(F, x, name, labs, kind, annot):
+    """横着一排：K、V（每块 B_k × d，横放）。标签写在下面。"""
+    F.T('os2-b', x - 8, 18 + UD / 2 + 4, name, 'end')
     for k, t in enumerate(labs):
-        F.rect(x + k * (w + 2), 20, w, 22, kind if t != '⋯' else 'skip', t if t != '⋯' else None, 'os2-s')
-        if t == '⋯': F.T('os2-s', x + k * (w + 2) + w / 2, 35, '⋯', 'middle')
+        bx = x + k * (UBK + GAP)
+        F.rect(bx, 18, UBK, UD, 'skip' if t == '⋯' else kind)
+        F.T('os2-s', bx + UBK / 2, 18 + UD + 13, t, 'middle', 'opacity: 1')
     for n, t in enumerate(annot):
-        F.T('os2' if n == 0 else 'os2-s', x, 62 + n * 18, t)
-def algo_svg(fid, cols, W=640, H=102):
+        F.T('os2' if n == 0 else 'os2-s', x, 74 + n * 18, t)
+def algo_svg(fid, cols, W=640, H=136):
     F = Fig(fid)
     for c in cols:
         if c[0] == 'row': split_row(F, *c[1:])     # 横着放：K、V
@@ -341,12 +347,12 @@ def algo_svg(fid, cols, W=640, H=102):
 QL = lambda n, T: [f'{n}_{{1}}', f'{n}_{{2}}', '⋯', f'{n}_{{{T}}}']
 ALGO = {
     'algo-l1': algo_svg('algo-l1', [
-        (10, 'Q', QL('Q', 'T_{q}'), 'vQ', 46, ['T_{q} = ⌈N / B_{q}⌉ 个 block', '每个 B_{q} × d']),
-        ('row', 236, 'K', QL('K', 'T_{k}'), 'vK', 40, ['T_{k} = ⌈N / B_{k}⌉ 个 block', '每个 B_{k} × d']),
-        ('row', 460, 'V', QL('V', 'T_{k}'), 'vV', 40, ['和 K 一样切', '每个 B_{k} × d'])]),
+        (44, 'Q', QL('Q', 'T_{q}'), 'vQ', UD, ['T_{q} = ⌈N / B_{q}⌉ 个 block', '每个 B_{q} × d']),
+        ('row', 250, 'K', QL('K', 'T_{k}'), 'vK', ['T_{k} = ⌈N / B_{k}⌉ 个 block', '每个 B_{k} × d（横放）']),
+        ('row', 470, 'V', QL('V', 'T_{k}'), 'vV', ['和 K 一样切', '每个 B_{k} × d（横放）'])]),
     'algo-l2': algo_svg('algo-l2', [
-        (10, 'O', QL('O', 'T_{q}'), 'vO', 46, ['输出，和 Q 一样切', '每个 B_{q} × d']),
-        (226, 'L', ['', '', '⋯', ''], 'vL', 14, ['L = m + log ℓ（logsumexp），T_{q} 段', '每段长 B_{q}；第 13 行算出，给反向用'])]),
+        (44, 'O', QL('O', 'T_{q}'), 'vO', UD, ['输出，和 Q 一样切', '每个 B_{q} × d']),
+        (290, 'L', QL('L', 'T_{q}'), 'vL', UV, ['L = m + log ℓ（logsumexp），T_{q} 段', '每段长 B_{q}；第 13 行算出，给反向用'])]),
 }
 
 if __name__ == '__main__':

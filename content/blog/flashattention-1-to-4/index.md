@@ -29,20 +29,15 @@ series_order: 4
 .fa-algo .kw{font-weight:700;color:var(--fig-1)}
 .fa-algo .hbm{display:inline-block;font-size:.72em;line-height:1.5;padding:0 .45em;border-radius:4px;background:color-mix(in srgb,var(--fig-1) 22%,transparent);color:var(--fig-1);font-weight:600;margin-right:.45em;vertical-align:.12em}
 .fa-algo .ref{float:right;font-size:.8em;opacity:.75;margin-left:1em}
-.fa-algo .cont{display:block;padding-left:3.4em}
-.fa-algo .c{--c:var(--fig-1);display:inline-block;padding:0 .2em;margin:0 .06em;border-radius:4px;line-height:1.4;border:1px solid var(--c);background:color-mix(in srgb,var(--c) 22%,transparent)}
-.fa-algo .c.h{background:color-mix(in srgb,var(--c) 40%,transparent)}
-.fa-algo .c.s{border-width:2px;background:color-mix(in srgb,var(--c) 12%,transparent)}
-.fa-algo .c.t,.fa-algo .c.f{--c:var(--fig-2);border-style:dashed;background:color-mix(in srgb,var(--fig-3) 35%,transparent)}
-.fa-algo .c.t.vS{background:repeating-linear-gradient(135deg,color-mix(in srgb,#E07A2E 38%,transparent) 0 4px,color-mix(in srgb,#2A9D8F 38%,transparent) 4px 8px)}
-.fa-algo .c.o{border:3px double var(--c);background:color-mix(in srgb,var(--c) 30%,transparent)}
-.fa-algo .vQ{--c:#E07A2E}.fa-algo .vK{--c:#2A9D8F}.fa-algo .vV{--c:#8E6CC7}.fa-algo .vS{--c:#E3A33B}.fa-algo .vP{--c:#8E6CC7}
-.fa-algo .vm{--c:#6A9F3A}.fa-algo .vl{--c:#C2508A}.fa-algo .vO{--c:#3B82C4}.fa-algo .vL{--c:#9C7A4F}.fa-algo .vf{--c:var(--fig-hi)}.fa-algo .vn{--c:var(--fig-mute)}
-.fa-algo .c.mat::before,.fa-algo .c.vec::before{content:"";display:inline-block;height:.78em;margin-right:.22em;vertical-align:-.06em;border:1px solid var(--c)}
-.fa-algo .c.mat::before{width:.78em;background:linear-gradient(var(--c),var(--c)) center/1px 100% no-repeat,linear-gradient(var(--c),var(--c)) center/100% 1px no-repeat}
-.fa-algo .c.vec::before{width:.3em;background:linear-gradient(var(--c),var(--c)) center/100% 1px no-repeat}
+.fa-algo .b{--c:var(--fig-mute);display:inline-block;vertical-align:-.22em;margin:0 .14em 0 .3em;border:1px solid var(--c);background:color-mix(in srgb,var(--c) 18%,transparent);box-sizing:border-box}
+.fa-algo .b.qd{width:.8em;height:1.1em}.fa-algo .b.kt{width:.95em;height:.8em}.fa-algo .b.kd{width:.8em;height:.95em}.fa-algo .b.qk{width:.95em;height:1.1em}.fa-algo .b.vec{width:.28em;height:1.1em}
+.fa-algo .b.h{background:color-mix(in srgb,var(--c) 45%,transparent)}
+.fa-algo .b.s{border-width:2px;background:color-mix(in srgb,var(--c) 10%,transparent)}
+.fa-algo .b.t{border-style:dashed;background:color-mix(in srgb,var(--fig-mute) 14%,transparent)}
+.fa-algo .b.o{border:3px double var(--c);background:color-mix(in srgb,var(--c) 30%,transparent)}
+.fa-algo .vQ{--c:var(--fig-1)}.fa-algo .vK{--c:var(--fig-2)}.fa-algo .vV{--c:var(--fig-3)}.fa-algo .vO{--c:var(--fig-hi)}
+.fa-algo-leg .b{margin-left:0}
 .fa-algo-leg{margin-top:.5em;padding-top:.45em;border-top:1px solid rgba(128,128,128,.25);font-size:.82em;opacity:.85}
-.fa-algo-leg .c{min-width:1.1em;margin-right:.25em}
 .fa-algo-leg>span{margin-right:1.1em;white-space:nowrap}
 </style>
 
@@ -1250,7 +1245,7 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 <div class="fa-algo-h">Algorithm 1　FlashAttention-2 forward pass</div>
 <div><b>Require:</b> HBM 里的 $Q, K, V \in \mathbb{R}^{N\times d}$，block 大小 $B_q$、$B_k$</div>
 <ol>
-<li><svg id="algo-l1" viewBox="0 0 640 102" width="100%" role="img" aria-label="algo-l1" style="max-width: 640px; display: block">
+<li><svg id="algo-l1" viewBox="0 0 640 136" width="100%" role="img" aria-label="algo-l1" style="max-width: 640px; display: block">
   <style>
     .os2 { font-size: 11px; fill: currentColor; }
     .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
@@ -1258,42 +1253,41 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
     .os2-m { font-size: 13px; fill: currentColor; }
     .os2-hi { fill: var(--fig-hi); }
   </style>
-<text class="os2-b" x="33" y="12" text-anchor="middle">Q</text>
-<rect x="10" y="18" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, #E07A2E 40%, transparent); stroke: #E07A2E" stroke-width="1"/>
-<text class="os2-s" x="33" y="31" text-anchor="middle">Q<tspan dy="3.5" font-size="72%">1</tspan></text>
-<rect x="10" y="38" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, #E07A2E 40%, transparent); stroke: #E07A2E" stroke-width="1"/>
-<text class="os2-s" x="33" y="51" text-anchor="middle">Q<tspan dy="3.5" font-size="72%">2</tspan></text>
-<rect x="10" y="58" width="46" height="18" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-<text class="os2-s" x="33" y="71" text-anchor="middle">⋯</text>
-<text class="os2-s" x="33" y="70" text-anchor="middle">⋯</text>
-<rect x="10" y="78" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, #E07A2E 40%, transparent); stroke: #E07A2E" stroke-width="1"/>
-<text class="os2-s" x="33" y="91" text-anchor="middle">Q<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">q</tspan></text>
-<text class="os2" x="66" y="42">T<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> = ⌈N / B</tspan><tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5">⌉ 个 block</tspan></text>
-<text class="os2-s" x="66" y="60">每个 B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> × d</tspan></text>
-<text class="os2-b" x="228" y="34" text-anchor="end">K</text>
-<rect x="236" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, #2A9D8F 40%, transparent); stroke: #2A9D8F" stroke-width="1"/>
-<text class="os2-s" x="256" y="35" text-anchor="middle">K<tspan dy="3.5" font-size="72%">1</tspan></text>
-<rect x="278" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, #2A9D8F 40%, transparent); stroke: #2A9D8F" stroke-width="1"/>
-<text class="os2-s" x="298" y="35" text-anchor="middle">K<tspan dy="3.5" font-size="72%">2</tspan></text>
-<rect x="320" y="20" width="40" height="22" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-<text class="os2-s" x="340" y="35" text-anchor="middle">⋯</text>
-<rect x="362" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, #2A9D8F 40%, transparent); stroke: #2A9D8F" stroke-width="1"/>
-<text class="os2-s" x="382" y="35" text-anchor="middle">K<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">k</tspan></text>
-<text class="os2" x="236" y="62">T<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> = ⌈N / B</tspan><tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5">⌉ 个 block</tspan></text>
-<text class="os2-s" x="236" y="80">每个 B<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> × d</tspan></text>
-<text class="os2-b" x="452" y="34" text-anchor="end">V</text>
-<rect x="460" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, #8E6CC7 40%, transparent); stroke: #8E6CC7" stroke-width="1"/>
-<text class="os2-s" x="480" y="35" text-anchor="middle">V<tspan dy="3.5" font-size="72%">1</tspan></text>
-<rect x="502" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, #8E6CC7 40%, transparent); stroke: #8E6CC7" stroke-width="1"/>
-<text class="os2-s" x="522" y="35" text-anchor="middle">V<tspan dy="3.5" font-size="72%">2</tspan></text>
-<rect x="544" y="20" width="40" height="22" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-<text class="os2-s" x="564" y="35" text-anchor="middle">⋯</text>
-<rect x="586" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, #8E6CC7 40%, transparent); stroke: #8E6CC7" stroke-width="1"/>
-<text class="os2-s" x="606" y="35" text-anchor="middle">V<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">k</tspan></text>
-<text class="os2" x="460" y="62">和 K 一样切</text>
-<text class="os2-s" x="460" y="80">每个 B<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> × d</tspan></text>
+<text class="os2-b" x="53" y="12" text-anchor="middle">Q</text>
+<rect x="44" y="18" width="18" height="26" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="40" y="35" text-anchor="end" style="opacity: 1">Q<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="44" y="47" width="18" height="26" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="40" y="64" text-anchor="end" style="opacity: 1">Q<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="44" y="76" width="18" height="26" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="40" y="93" text-anchor="end" style="opacity: 1">⋯</text>
+<rect x="44" y="105" width="18" height="26" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="40" y="122" text-anchor="end" style="opacity: 1">Q<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">q</tspan></text>
+<text class="os2" x="72" y="48">T<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> = ⌈N / B</tspan><tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5">⌉ 个 block</tspan></text>
+<text class="os2-s" x="72" y="66">每个 B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> × d</tspan></text>
+<text class="os2-b" x="242" y="31" text-anchor="end">K</text>
+<rect x="250" y="18" width="22" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 45%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<text class="os2-s" x="261" y="49" text-anchor="middle" style="opacity: 1">K<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="275" y="18" width="22" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 45%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<text class="os2-s" x="286" y="49" text-anchor="middle" style="opacity: 1">K<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="300" y="18" width="22" height="18" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="311" y="49" text-anchor="middle" style="opacity: 1">⋯</text>
+<rect x="325" y="18" width="22" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 45%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<text class="os2-s" x="336" y="49" text-anchor="middle" style="opacity: 1">K<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">k</tspan></text>
+<text class="os2" x="250" y="74">T<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> = ⌈N / B</tspan><tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5">⌉ 个 block</tspan></text>
+<text class="os2-s" x="250" y="92">每个 B<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> × d（横放）</tspan></text>
+<text class="os2-b" x="462" y="31" text-anchor="end">V</text>
+<rect x="470" y="18" width="22" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 70%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<text class="os2-s" x="481" y="49" text-anchor="middle" style="opacity: 1">V<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="495" y="18" width="22" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 70%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<text class="os2-s" x="506" y="49" text-anchor="middle" style="opacity: 1">V<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="520" y="18" width="22" height="18" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="531" y="49" text-anchor="middle" style="opacity: 1">⋯</text>
+<rect x="545" y="18" width="22" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 70%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<text class="os2-s" x="556" y="49" text-anchor="middle" style="opacity: 1">V<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">k</tspan></text>
+<text class="os2" x="470" y="74">和 K 一样切</text>
+<text class="os2-s" x="470" y="92">每个 B<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> × d（横放）</tspan></text>
 </svg></li>
-<li><svg id="algo-l2" viewBox="0 0 640 102" width="100%" role="img" aria-label="algo-l2" style="max-width: 640px; display: block">
+<li><svg id="algo-l2" viewBox="0 0 640 136" width="100%" role="img" aria-label="algo-l2" style="max-width: 640px; display: block">
   <style>
     .os2 { font-size: 11px; fill: currentColor; }
     .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
@@ -1301,49 +1295,51 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
     .os2-m { font-size: 13px; fill: currentColor; }
     .os2-hi { fill: var(--fig-hi); }
   </style>
-<text class="os2-b" x="33" y="12" text-anchor="middle">O</text>
-<rect x="10" y="18" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, #3B82C4 30%, transparent); stroke: #3B82C4" stroke-width="1"/>
-<text class="os2-s" x="33" y="31" text-anchor="middle">O<tspan dy="3.5" font-size="72%">1</tspan></text>
-<rect x="10" y="38" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, #3B82C4 30%, transparent); stroke: #3B82C4" stroke-width="1"/>
-<text class="os2-s" x="33" y="51" text-anchor="middle">O<tspan dy="3.5" font-size="72%">2</tspan></text>
-<rect x="10" y="58" width="46" height="18" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-<text class="os2-s" x="33" y="71" text-anchor="middle">⋯</text>
-<text class="os2-s" x="33" y="70" text-anchor="middle">⋯</text>
-<rect x="10" y="78" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, #3B82C4 30%, transparent); stroke: #3B82C4" stroke-width="1"/>
-<text class="os2-s" x="33" y="91" text-anchor="middle">O<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">q</tspan></text>
-<text class="os2" x="66" y="42">输出，和 Q 一样切</text>
-<text class="os2-s" x="66" y="60">每个 B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> × d</tspan></text>
-<text class="os2-b" x="233" y="12" text-anchor="middle">L</text>
-<rect x="226" y="18" width="14" height="18" rx="1.5" style="fill: color-mix(in srgb, #9C7A4F 30%, transparent); stroke: #9C7A4F" stroke-width="1"/>
-<rect x="226" y="38" width="14" height="18" rx="1.5" style="fill: color-mix(in srgb, #9C7A4F 30%, transparent); stroke: #9C7A4F" stroke-width="1"/>
-<rect x="226" y="58" width="14" height="18" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-<text class="os2-s" x="233" y="70" text-anchor="middle">⋯</text>
-<rect x="226" y="78" width="14" height="18" rx="1.5" style="fill: color-mix(in srgb, #9C7A4F 30%, transparent); stroke: #9C7A4F" stroke-width="1"/>
-<text class="os2" x="250" y="42">L = m + log ℓ（logsumexp），T<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> 段</tspan></text>
-<text class="os2-s" x="250" y="60">每段长 B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5">；第 13 行算出，给反向用</tspan></text>
+<text class="os2-b" x="53" y="12" text-anchor="middle">O</text>
+<rect x="44" y="18" width="18" height="26" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 30%, transparent); stroke: var(--fig-hi)" stroke-width="1"/>
+<text class="os2-s" x="40" y="35" text-anchor="end" style="opacity: 1">O<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="44" y="47" width="18" height="26" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 30%, transparent); stroke: var(--fig-hi)" stroke-width="1"/>
+<text class="os2-s" x="40" y="64" text-anchor="end" style="opacity: 1">O<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="44" y="76" width="18" height="26" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="40" y="93" text-anchor="end" style="opacity: 1">⋯</text>
+<rect x="44" y="105" width="18" height="26" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 30%, transparent); stroke: var(--fig-hi)" stroke-width="1"/>
+<text class="os2-s" x="40" y="122" text-anchor="end" style="opacity: 1">O<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">q</tspan></text>
+<text class="os2" x="72" y="48">输出，和 Q 一样切</text>
+<text class="os2-s" x="72" y="66">每个 B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> × d</tspan></text>
+<text class="os2-b" x="293" y="12" text-anchor="middle">L</text>
+<rect x="290" y="18" width="6" height="26" rx="1.5" style="fill: color-mix(in srgb, var(--fig-mute) 20%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+<text class="os2-s" x="286" y="35" text-anchor="end" style="opacity: 1">L<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="290" y="47" width="6" height="26" rx="1.5" style="fill: color-mix(in srgb, var(--fig-mute) 20%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+<text class="os2-s" x="286" y="64" text-anchor="end" style="opacity: 1">L<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="290" y="76" width="6" height="26" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="286" y="93" text-anchor="end" style="opacity: 1">⋯</text>
+<rect x="290" y="105" width="6" height="26" rx="1.5" style="fill: color-mix(in srgb, var(--fig-mute) 20%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+<text class="os2-s" x="286" y="122" text-anchor="end" style="opacity: 1">L<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">q</tspan></text>
+<text class="os2" x="306" y="48">L = m + log ℓ（logsumexp），T<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> 段</tspan></text>
+<text class="os2-s" x="306" y="66">每段长 B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5">；第 13 行算出，给反向用</tspan></text>
 </svg></li>
 <li><span class="kw">for</span> $1 \le i \le T_q$ <span class="kw">do</span></li>
-<li class="i1"><span class="hbm">HBM</span>从 HBM 读 <span class="c h vQ mat">$Q_i$</span> 到片上 SRAM</li>
-<li class="i1">片上初始化 <span class="c s vO mat">$\tilde O_i^{(0)}$</span> $= 0 \in \mathbb{R}^{B_q\times d}$，<span class="c s vl vec">$\ell_i^{(0)}$</span> $= 0 \in \mathbb{R}^{B_q}$，<span class="c s vm vec">$m_i^{(0)}$</span> $= -\infty \in \mathbb{R}^{B_q}$</li>
+<li class="i1"><span class="hbm">HBM</span>从 HBM 读 <span class="b h qd vQ"></span>$Q_i$ 到片上 SRAM</li>
+<li class="i1">片上初始化 <span class="b s qd"></span>$\tilde O_i^{(0)}$ $= 0$，<span class="b s vec"></span>$\ell_i^{(0)}$ $= 0$，<span class="b s vec"></span>$m_i^{(0)}$ $= -\infty$</li>
 <li class="i1"><span class="kw">for</span> $1 \le j \le T_k$ <span class="kw">do</span></li>
-<li class="i2"><span class="hbm">HBM</span>从 HBM 读 <span class="c h vK mat">$K_j$</span>、<span class="c h vV mat">$V_j$</span> 到片上 SRAM</li>
-<li class="i2"><span class="ref"><a href="#fig-1-1">图 1-1</a> (a)</span>片上算 <span class="c t vS mat">$S_i^{(j)}$</span> $=$ <span class="c h vQ mat">$Q_i$</span> <span class="c h vK mat">$K_j^\top$</span> $\in \mathbb{R}^{B_q\times B_k}$</li>
-<li class="i2"><span class="ref"><a href="#fig-1-4">图 1-4</a></span>片上算 <span class="c s vm vec">$m_i^{(j)}$</span> $= \max\big($ <span class="c s vm vec">$m_i^{(j-1)}$</span>, $\mathrm{rowmax}($ <span class="c t vS mat">$S_i^{(j)}$</span> $)\big)$，<span class="cont"><span class="c t vP mat">$\tilde P_i^{(j)}$</span> $= \exp\big($ <span class="c t vS mat">$S_i^{(j)}$</span> $-$ <span class="c s vm vec">$m_i^{(j)}$</span> $\big)$（逐元素），</span><span class="cont"><span class="c s vl vec">$\ell_i^{(j)}$</span> $=$ <span class="c f vf vec">$\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}$</span> <span class="c s vl vec">$\ell_i^{(j-1)}$</span> $+\ \mathrm{rowsum}($ <span class="c t vP mat">$\tilde P_i^{(j)}$</span> $)$</span></li>
-<li class="i2"><span class="ref"><a href="#fig-1-7">图 1-7</a></span>片上算 <span class="c s vO mat">$\tilde O_i^{(j)}$</span> $= \mathrm{diag}($ <span class="c f vf vec">$\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}$</span> $)$ <span class="c s vO mat">$\tilde O_i^{(j-1)}$</span> $+$ <span class="c t vP mat">$\tilde P_i^{(j)}$</span> <span class="c h vV mat">$V_j$</span></li>
+<li class="i2"><span class="hbm">HBM</span>从 HBM 读 <span class="b h kd vK"></span>$K_j$、<span class="b h kd vV"></span>$V_j$ 到片上 SRAM</li>
+<li class="i2"><span class="ref"><a href="#fig-1-1">图 1-1</a> (a)</span>片上算 <span class="b t qk"></span>$S_i^{(j)}$ $=$ <span class="b h qd vQ"></span>$Q_i$ <span class="b h kt vK"></span>$K_j^\top$</li>
+<li class="i2"><span class="ref"><a href="#fig-1-4">图 1-4</a></span>片上算 <span class="b s vec"></span>$m_i^{(j)}$ $= \max\big($ <span class="b s vec"></span>$m_i^{(j-1)}$, $\mathrm{rowmax}($ <span class="b t qk"></span>$S_i^{(j)}$ $)\big)$，<span class="cont"><span class="b t qk"></span>$\tilde P_i^{(j)}$ $= \exp\big($ <span class="b t qk"></span>$S_i^{(j)}$ $-$ <span class="b s vec"></span>$m_i^{(j)}$ $\big)$（逐元素），</span><span class="cont"><span class="b s vec"></span>$\ell_i^{(j)}$ $=$ <span class="b t vec"></span>$\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}$ <span class="b s vec"></span>$\ell_i^{(j-1)}$ $+\ \mathrm{rowsum}($ <span class="b t qk"></span>$\tilde P_i^{(j)}$ $)$</span></li>
+<li class="i2"><span class="ref"><a href="#fig-1-7">图 1-7</a></span>片上算 <span class="b s qd"></span>$\tilde O_i^{(j)}$ $= \mathrm{diag}($ <span class="b t vec"></span>$\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}$ $)$ <span class="b s qd"></span>$\tilde O_i^{(j-1)}$ $+$ <span class="b t qk"></span>$\tilde P_i^{(j)}$ <span class="b h kd vV"></span>$V_j$</li>
 <li class="i1"><span class="kw">end for</span></li>
-<li class="i1"><span class="ref"><a href="#fig-1-6">图 1-6</a></span>片上算 <span class="c o vO mat">$O_i$</span> $= \mathrm{diag}($ <span class="c s vl vec">$\ell_i^{(T_k)}$</span> $)^{-1}$ <span class="c s vO mat">$\tilde O_i^{(T_k)}$</span></li>
-<li class="i1">片上算 <span class="c o vL vec">$L_i$</span> $=$ <span class="c s vm vec">$m_i^{(T_k)}$</span> $+ \log$ <span class="c s vl vec">$\ell_i^{(T_k)}$</span></li>
-<li class="i1"><span class="hbm">HBM</span>把 <span class="c o vO mat">$O_i$</span> 写回 HBM，作为 $O$ 的第 $i$ 个 block</li>
-<li class="i1"><span class="hbm">HBM</span>把 <span class="c o vL vec">$L_i$</span> 写回 HBM，作为 $L$ 的第 $i$ 个 block</li>
+<li class="i1"><span class="ref"><a href="#fig-1-6">图 1-6</a></span>片上算 <span class="b o qd vO"></span>$O_i$ $= \mathrm{diag}($ <span class="b s vec"></span>$\ell_i^{(T_k)}$ $)^{-1}$ <span class="b s qd"></span>$\tilde O_i^{(T_k)}$</li>
+<li class="i1">片上算 <span class="b o vec"></span>$L_i$ $=$ <span class="b s vec"></span>$m_i^{(T_k)}$ $+ \log$ <span class="b s vec"></span>$\ell_i^{(T_k)}$</li>
+<li class="i1"><span class="hbm">HBM</span>把 <span class="b o qd vO"></span>$O_i$ 写回 HBM，作为 $O$ 的第 $i$ 个 block</li>
+<li class="i1"><span class="hbm">HBM</span>把 <span class="b o vec"></span>$L_i$ 写回 HBM，作为 $L$ 的第 $i$ 个 block</li>
 <li><span class="kw">end for</span></li>
 <li>返回 $O$ 和 $L$</li>
 </ol>
-<div class="fa-algo-leg">颜色区分变量，图标区分形状，边框区分用途：<span><span class="c vn mat">&nbsp;</span>矩阵，如 $B_q\times d$</span><span><span class="c vn vec">&nbsp;</span>向量，长 $B_q$，一行一个数</span><span><span class="c h vn">&nbsp;</span>细实线：从 HBM 读的</span><span><span class="c s vn">&nbsp;</span>粗实线：状态，留在片上给下一个 block 用</span><span><span class="c t">&nbsp;</span>浅色虚线：片上临时量，这个 block 用完就丢</span><span><span class="c o vn">&nbsp;</span>双线：写回 HBM 的输出</span></div>
+<div class="fa-algo-leg">块的形状按大小画：<span><span class="b s qd"></span> $B_q\times d$</span><span><span class="b s qk"></span> $B_q\times B_k$</span><span><span class="b s kt"></span> $d\times B_k$</span><span><span class="b s vec"></span> 长 $B_q$ 的向量</span><br>颜色：<span><span class="b h qd vQ"></span> $Q$</span><span><span class="b h qd vK"></span> $K$</span><span><span class="b h qd vV"></span> $V$</span><span><span class="b o qd vO"></span> $O$</span>边框：<span><span class="b h qd"></span> 细实线：从 HBM 读</span><span><span class="b s qd"></span> 粗实线：状态，留给下一个 block</span><span><span class="b t qd"></span> 虚线：片上临时量</span><span><span class="b o qd"></span> 双线：写回 HBM</span></div>
 </div>
 
 论文第 10 行没有波浪号，而且 $\mathrm{diag}(\cdot)$ 后面多写了 $^{-1}$，按论文 3.1.1 节的推导应该没有。
 
-色块的颜色区分变量，边框区分用途，见框底的图例；右边标的是每一行对应的图，标 HBM 的四行是全部的显存读写。$K_j$、$V_j$ 只在第 7 行读一次，$S$ 和 $\tilde P$ 不离开片上。额外显存只有 $L$，是 $O(N)$。
+块的大小按形状画，颜色标出 $Q$、$K$、$V$、$O$，边框区分用途，见框底的图例；右边标的是每一行对应的图，标 HBM 的四行是全部的显存读写。$K_j$、$V_j$ 只在第 7 行读一次，$S$ 和 $\tilde P$ 不离开片上。额外显存只有 $L$，是 $O(N)$。
 
 causal 时对角线右上方的 block 整块跳过，对角线上的 block 在块内 mask，论文测得快 1.7–1.8 倍。[图 1-9](#fig-1-9) 是 Triton 里一个 program 的执行，①–⑤ 对应第 9、10 行。
 
