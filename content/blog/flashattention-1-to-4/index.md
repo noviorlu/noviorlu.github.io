@@ -30,6 +30,15 @@ series_order: 4
 .fa-algo .hbm{display:inline-block;font-size:.72em;line-height:1.5;padding:0 .45em;border-radius:4px;background:color-mix(in srgb,var(--fig-1) 22%,transparent);color:var(--fig-1);font-weight:600;margin-right:.45em;vertical-align:.12em}
 .fa-algo .ref{float:right;font-size:.8em;opacity:.75;margin-left:1em}
 .fa-algo .cont{display:block;padding-left:3.4em}
+.fa-algo .c{display:inline-block;padding:0 .2em;margin:0 .06em;border-radius:4px;border:1px solid transparent;line-height:1.4}
+.fa-algo .c.h{background:color-mix(in srgb,var(--fig-1) 30%,transparent);border-color:var(--fig-1)}
+.fa-algo .c.s{background:color-mix(in srgb,var(--fig-1) 6%,transparent);border:1.6px solid var(--fig-1)}
+.fa-algo .c.t{background:color-mix(in srgb,var(--fig-3) 40%,transparent);border:1px dashed var(--fig-2)}
+.fa-algo .c.f{background:color-mix(in srgb,var(--fig-hi) 16%,transparent);border:1px dashed var(--fig-hi)}
+.fa-algo .c.o{background:color-mix(in srgb,var(--fig-2) 32%,transparent);border-color:var(--fig-2)}
+.fa-algo-leg{margin-top:.5em;padding-top:.45em;border-top:1px solid rgba(128,128,128,.25);font-size:.82em;opacity:.85}
+.fa-algo-leg .c{min-width:1.1em;margin-right:.25em}
+.fa-algo-leg>span{margin-right:1.1em;white-space:nowrap}
 </style>
 
 > **前置阅读：**[GPU 与 Triton 入门](/blog/gpu-triton-intro/)讲 GPU 的存储层级和 Triton 基础；[单卡 GPU 优化方法](/blog/gpu-single-gpu-optimization/)讲单卡上常用的优化方法：divergence、低精度、fusion、recomputation、coalescing、bank conflict、tiling；[谁偷走了 5090 的算力和显存](/blog/gpu-training-analysis/)讲 FLOPs、算术强度、roofline 模型和峰值显存，并在 RTX 5090 上实测了标准 attention 的运行时间和激活显存为什么都由 $N\times N$ 的 score 矩阵主导。这篇就从这两个问题出发。
@@ -51,7 +60,7 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 
 <p align="center">$S = \dfrac{QK^\top}{\sqrt d}, \qquad P = \mathrm{softmax}(S), \qquad O = PV, \qquad Q \in \mathbb{R}^{N_q \times d},\ K, V \in \mathbb{R}^{N_k \times d}$</p>
 
-### 1.1 Tiling {#fa1-tiling}
+### 1.1 Background {#fa1-tiling}
 
 把 $Q$ 按 $B_q$ 行切成 $T_q$ 个 block $Q_i$，$K$、$V$ 按 $B_k$ 行切成 $T_k$ 个 block $K_j$、$V_j$（$d$ 方向不切），[图 1-1](#fig-1-1) 的格子换成 block，$S_{ij} = Q_iK_j^\top$ 就是 (a) 的外积，$O_i = \sum_j P_{ij}V_j$ 就是 (b) 的列组合；(c) 的 $\mathrm{diag}$ 是按行缩放，1.2 里按行乘修正因子、按行除以 $\ell$ 都是这种乘法。
 
@@ -1122,7 +1131,7 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 
 ### 1.3 FlashAttention-2 的 Algorithm 1 {#fa-algorithm}
 
-把这三个递推放进两层循环，外层走 $i$，内层走 $j$，就是 FlashAttention-2 论文的 Algorithm 1（[图 1-8](#fig-1-8)）。下面照抄，记号换成本文的：论文的 $B_r$、$B_c$、$T_r$、$T_c$ 是这里的 $B_q$、$B_k$、$T_q$、$T_k$，$m_i^{(j)}$ 是 1.2 的 $m_j$，$1/\sqrt d$ 已乘进 $Q$。
+把这三个递推放进两层循环，外层走 $i$，内层走 $j$，就是 FlashAttention-2 论文的 Algorithm 1（[图 1-8](#fig-1-8)）。下面照抄，$m_i^{(j)}$ 是 1.2 的 $m_j$，$1/\sqrt d$ 已乘进 $Q$。
 
 <figure id="fig-1-8" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 334" width="100%" role="img" aria-label="FlashAttention 的 tiling，按 Triton program 看：i = 2 的 program 读 Q 的第 2 个 block，沿 j 依次读 K、V 的 block，S 只在片上算，乘 V 以后累加进 O 的第 2 个 block，最后写回；causal 时对角线右上的 block 跳过。">
@@ -1311,26 +1320,27 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 <text class="os2-s" x="250" y="60">每段长 B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5">，给反向用</tspan></text>
 </svg></li>
 <li><span class="kw">for</span> $1 \le i \le T_q$ <span class="kw">do</span></li>
-<li class="i1"><span class="hbm">HBM</span>从 HBM 读 $Q_i$ 到片上 SRAM</li>
-<li class="i1">片上初始化 $\tilde O_i^{(0)} = 0 \in \mathbb{R}^{B_q\times d}$，$\ell_i^{(0)} = 0 \in \mathbb{R}^{B_q}$，$m_i^{(0)} = -\infty \in \mathbb{R}^{B_q}$</li>
+<li class="i1"><span class="hbm">HBM</span>从 HBM 读 <span class="c h">$Q_i$</span> 到片上 SRAM</li>
+<li class="i1">片上初始化 <span class="c s">$\tilde O_i^{(0)}$</span> $= 0 \in \mathbb{R}^{B_q\times d}$，<span class="c s">$\ell_i^{(0)}$</span> $= 0 \in \mathbb{R}^{B_q}$，<span class="c s">$m_i^{(0)}$</span> $= -\infty \in \mathbb{R}^{B_q}$</li>
 <li class="i1"><span class="kw">for</span> $1 \le j \le T_k$ <span class="kw">do</span></li>
-<li class="i2"><span class="hbm">HBM</span>从 HBM 读 $K_j$、$V_j$ 到片上 SRAM</li>
-<li class="i2"><span class="ref"><a href="#fig-1-1">图 1-1</a> (a)</span>片上算 $S_i^{(j)} = Q_i K_j^\top \in \mathbb{R}^{B_q\times B_k}$</li>
-<li class="i2"><span class="ref"><a href="#fig-1-4">图 1-4</a></span>片上算 $m_i^{(j)} = \max\big(m_i^{(j-1)}, \mathrm{rowmax}(S_i^{(j)})\big)$，<span class="cont">$\tilde P_i^{(j)} = \exp\big(S_i^{(j)} - m_i^{(j)}\big)$（逐元素），</span><span class="cont">$\ell_i^{(j)} = \textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}\,\ell_i^{(j-1)} + \mathrm{rowsum}\big(\tilde P_i^{(j)}\big)$</span></li>
-<li class="i2"><span class="ref"><a href="#fig-1-7">图 1-7</a></span>片上算 $\tilde O_i^{(j)} = \mathrm{diag}\big(\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}\big)\,\tilde O_i^{(j-1)} + \tilde P_i^{(j)} V_j$</li>
+<li class="i2"><span class="hbm">HBM</span>从 HBM 读 <span class="c h">$K_j$</span>、<span class="c h">$V_j$</span> 到片上 SRAM</li>
+<li class="i2"><span class="ref"><a href="#fig-1-1">图 1-1</a> (a)</span>片上算 <span class="c t">$S_i^{(j)}$</span> $=$ <span class="c h">$Q_i$</span> <span class="c h">$K_j^\top$</span> $\in \mathbb{R}^{B_q\times B_k}$</li>
+<li class="i2"><span class="ref"><a href="#fig-1-4">图 1-4</a></span>片上算 <span class="c s">$m_i^{(j)}$</span> $= \max\big($ <span class="c s">$m_i^{(j-1)}$</span>, $\mathrm{rowmax}($ <span class="c t">$S_i^{(j)}$</span> $)\big)$，<span class="cont"><span class="c t">$\tilde P_i^{(j)}$</span> $= \exp\big($ <span class="c t">$S_i^{(j)}$</span> $-$ <span class="c s">$m_i^{(j)}$</span> $\big)$（逐元素），</span><span class="cont"><span class="c s">$\ell_i^{(j)}$</span> $=$ <span class="c f">$\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}$</span> <span class="c s">$\ell_i^{(j-1)}$</span> $+\ \mathrm{rowsum}($ <span class="c t">$\tilde P_i^{(j)}$</span> $)$</span></li>
+<li class="i2"><span class="ref"><a href="#fig-1-7">图 1-7</a></span>片上算 <span class="c s">$\tilde O_i^{(j)}$</span> $= \mathrm{diag}($ <span class="c f">$\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}$</span> $)$ <span class="c s">$\tilde O_i^{(j-1)}$</span> $+$ <span class="c t">$\tilde P_i^{(j)}$</span> <span class="c h">$V_j$</span></li>
 <li class="i1"><span class="kw">end for</span></li>
-<li class="i1"><span class="ref"><a href="#fig-1-6">图 1-6</a></span>片上算 $O_i = \mathrm{diag}\big(\ell_i^{(T_k)}\big)^{-1}\,\tilde O_i^{(T_k)}$</li>
-<li class="i1">片上算 $L_i = m_i^{(T_k)} + \log \ell_i^{(T_k)}$</li>
-<li class="i1"><span class="hbm">HBM</span>把 $O_i$ 写回 HBM，作为 $O$ 的第 $i$ 个 block</li>
-<li class="i1"><span class="hbm">HBM</span>把 $L_i$ 写回 HBM，作为 $L$ 的第 $i$ 个 block</li>
+<li class="i1"><span class="ref"><a href="#fig-1-6">图 1-6</a></span>片上算 <span class="c o">$O_i$</span> $= \mathrm{diag}($ <span class="c s">$\ell_i^{(T_k)}$</span> $)^{-1}$ <span class="c s">$\tilde O_i^{(T_k)}$</span></li>
+<li class="i1">片上算 <span class="c o">$L_i$</span> $=$ <span class="c s">$m_i^{(T_k)}$</span> $+ \log$ <span class="c s">$\ell_i^{(T_k)}$</span></li>
+<li class="i1"><span class="hbm">HBM</span>把 <span class="c o">$O_i$</span> 写回 HBM，作为 $O$ 的第 $i$ 个 block</li>
+<li class="i1"><span class="hbm">HBM</span>把 <span class="c o">$L_i$</span> 写回 HBM，作为 $L$ 的第 $i$ 个 block</li>
 <li><span class="kw">end for</span></li>
 <li>返回 $O$ 和 $L$</li>
 </ol>
+<div class="fa-algo-leg"><span><span class="c h">&nbsp;</span>从 HBM 读的</span><span><span class="c s">&nbsp;</span>状态：留在片上，给下一个 block 用</span><span><span class="c t">&nbsp;</span>临时：这个 block 用完就丢</span><span><span class="c f">&nbsp;</span>修正因子</span><span><span class="c o">&nbsp;</span>写回 HBM 的输出</span></div>
 </div>
 
 论文第 10 行没有波浪号，而且 $\mathrm{diag}(\cdot)$ 后面多写了 $^{-1}$，按论文 3.1.1 节的推导应该没有。
 
-右边标的是每一行对应的图；红色是修正因子，标 HBM 的四行是全部的显存读写。$K_j$、$V_j$ 只在第 7 行读一次，$S$ 和 $\tilde P$ 不离开片上。第 13 行的 $L_i = m + \log \ell$ 留给反向重算 $P$，$P_{ij} = e^{S_{ij} - L_i}$，额外显存是 $O(N)$。
+色块的含义见框底的图例，和图 1-4、图 1-7 一样；右边标的是每一行对应的图，标 HBM 的四行是全部的显存读写。$K_j$、$V_j$ 只在第 7 行读一次，$S$ 和 $\tilde P$ 不离开片上。第 13 行的 $L_i = m + \log \ell$ 留给反向重算 $P$，$P_{ij} = e^{S_{ij} - L_i}$，额外显存是 $O(N)$。
 
 causal 时对角线右上方的 block 整块跳过，对角线上的 block 在块内 mask，论文测得快 1.7–1.8 倍。[图 1-9](#fig-1-9) 是 Triton 里一个 program 的执行，①–⑤ 对应第 9、10 行。
 
