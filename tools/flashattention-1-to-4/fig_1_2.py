@@ -206,6 +206,8 @@ T('s', ZX + 62 + 50, ZY + 17, '整行', 'start'); T('s', ZX + 62 + 50, ZY + 30, 
 T('s', ZX - 6, ZY + 4, 'query', 'end'); T('s', ZX - 6, ZY + 16, '↓', 'end')
 T('s', ZX + 20, ZY + 8 * ZC + 13, 'key →', 'middle')
 
+SPLIT2 = len(B)                # 图 1-9 只要中栏（causal mask），下半的一轮数据流不画
+
 # ===================== 下半：pid_m = 2 这个 program 的一轮（泳道同图 2-5，不画 grid） =====================
 Y0 = Y1 + HB + 16
 T('ttl', 10, Y0 + 16, 'pid_i = 2 这个 program，j = 4 这一轮')
@@ -301,9 +303,8 @@ H = yT + 104
 
 LABEL_TOP = ("FlashAttention 的 tiling，按 Triton program 看：i = 2 的 program 读 Q 的第 2 个 block，沿 j 依次读 K、V 的 block，"
              "S 只在片上算，乘 V 以后累加进 O 的第 2 个 block，最后写回；causal 时对角线右上的 block 跳过。")
-LABEL_BOT = ("上：grid 里每个 Q block 一个 program，causal 时每个 program 算的 block 数不同，对角线上的 block 部分 mask。"
-             "下：一个 program 的一轮，dot 算 S，online softmax 更新 m、ℓ，再 dot 乘 V 累加进 O_i；K、V 经 shared memory 轮流搬，"
-             "Q_i、O_i、m、ℓ 一直在 register，扫完除以 ℓ 写回 O。")
+LABEL_BOT = ("causal 时每个 Q block 一个 program，各自算的 block 数不同：对角线右上方的 block 整块跳过，对角线上的 block 部分 mask。"
+             "右边放大了 pid_i = 2 的两个部分 mask 的 block。")
 defs = ''.join(m for _, m in MK.values())
 DEFS = (f'\n  <defs>{defs}<pattern id="{FID}-hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
         f'<line x1="0" y1="0" x2="0" y2="5" style="stroke: var(--fig-1)" stroke-opacity=".55" stroke-width="1.3"/></pattern></defs>\n')
@@ -311,8 +312,8 @@ HT = SY + SH + 42
 Y1T = Y1 - 4
 svg_top = (f'<svg class="fg" viewBox="0 0 640 {HT}" width="100%" role="img" aria-label="{LABEL_TOP}">\n' + CSS + DEFS
            + '\n'.join('  ' + x for x in B[:SPLIT]) + '\n</svg>').replace(f'{FID}-', 'fig-1-8-')
-svg_bot = (f'<svg class="fg" viewBox="0 0 640 {H - Y1T}" width="100%" role="img" aria-label="{LABEL_BOT}">\n' + CSS + DEFS
-           + f'  <g transform="translate(0 {-Y1T})">\n' + '\n'.join('  ' + x for x in B[SPLIT:]) + '\n  </g>\n</svg>').replace(f'{FID}-', 'fig-1-9-')
+svg_bot = (f'<svg class="fg" viewBox="0 0 640 {HB + 8}" width="100%" role="img" aria-label="{LABEL_BOT}">\n' + CSS + DEFS
+           + f'  <g transform="translate(0 {-Y1T})">\n' + '\n'.join('  ' + x for x in B[SPLIT:SPLIT2]) + '\n  </g>\n</svg>').replace(f'{FID}-', 'fig-1-9-')
 
 if __name__ == '__main__':
     p = sys.argv[1]
@@ -321,4 +322,4 @@ if __name__ == '__main__':
         s, n = re.subn(r'(<figure id="' + fid + r'"[^>]*>\n)<svg.*?</svg>', lambda m: m.group(1) + svg, s, count=1, flags=re.S)
         assert n == 1, fid
     open(p, 'w').write(s)
-    print('H =', HT, H - Y1T)
+    print('H =', HT, HB + 8)
