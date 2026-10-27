@@ -33,7 +33,7 @@ series_order: 4
 .fa-algo .c{--c:var(--fig-1);display:inline-block;padding:0 .2em;margin:0 .06em;border-radius:4px;line-height:1.4;border:1px solid var(--c);background:color-mix(in srgb,var(--c) 22%,transparent)}
 .fa-algo .c.h{background:color-mix(in srgb,var(--c) 40%,transparent)}
 .fa-algo .c.s{border-width:2px;background:color-mix(in srgb,var(--c) 12%,transparent)}
-.fa-algo .c.t,.fa-algo .c.f{border-style:dashed}
+.fa-algo .c.t,.fa-algo .c.f{--c:var(--fig-2);border-style:dashed;background:color-mix(in srgb,var(--fig-3) 35%,transparent)}
 .fa-algo .c.o{border:3px double var(--c);background:color-mix(in srgb,var(--c) 30%,transparent)}
 .fa-algo .vQ{--c:var(--fig-1)}.fa-algo .vK{--c:var(--fig-2)}.fa-algo .vV{--c:#2A9D8F}.fa-algo .vS{--c:#E3A33B}.fa-algo .vP{--c:#8E6CC7}
 .fa-algo .vm{--c:#4E9F5B}.fa-algo .vl{--c:#C2508A}.fa-algo .vO{--c:#3B82C4}.fa-algo .vL{--c:#9C7A4F}.fa-algo .vf{--c:var(--fig-hi)}.fa-algo .vn{--c:var(--fig-mute)}
@@ -1334,7 +1334,7 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 <li><span class="kw">end for</span></li>
 <li>返回 $O$ 和 $L$</li>
 </ol>
-<div class="fa-algo-leg">颜色区分变量，边框区分用途：<span><span class="c h vn">&nbsp;</span>细实线：从 HBM 读的</span><span><span class="c s vn">&nbsp;</span>粗实线：状态，留在片上给下一个 block 用</span><span><span class="c t vn">&nbsp;</span>虚线：临时，这个 block 用完就丢</span><span><span class="c o vn">&nbsp;</span>双线：写回 HBM 的输出</span></div>
+<div class="fa-algo-leg">颜色区分变量，边框区分用途：<span><span class="c h vn">&nbsp;</span>细实线：从 HBM 读的</span><span><span class="c s vn">&nbsp;</span>粗实线：状态，留在片上给下一个 block 用</span><span><span class="c t">&nbsp;</span>浅色虚线：片上临时量，这个 block 用完就丢</span><span><span class="c o vn">&nbsp;</span>双线：写回 HBM 的输出</span></div>
 </div>
 
 论文第 10 行没有波浪号，而且 $\mathrm{diag}(\cdot)$ 后面多写了 $^{-1}$，按论文 3.1.1 节的推导应该没有。
