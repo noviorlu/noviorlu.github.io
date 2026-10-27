@@ -1315,8 +1315,8 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 <rect x="226" y="58" width="14" height="18" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
 <text class="os2-s" x="233" y="70" text-anchor="middle">⋯</text>
 <rect x="226" y="78" width="14" height="18" rx="1.5" style="fill: color-mix(in srgb, #9C7A4F 30%, transparent); stroke: #9C7A4F" stroke-width="1"/>
-<text class="os2" x="250" y="42">logsumexp，T<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> 段</tspan></text>
-<text class="os2-s" x="250" y="60">每段长 B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5">，给反向用</tspan></text>
+<text class="os2" x="250" y="42">L = m + log ℓ（logsumexp），T<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> 段</tspan></text>
+<text class="os2-s" x="250" y="60">每段长 B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5">；第 13 行算出，给反向用</tspan></text>
 </svg></li>
 <li><span class="kw">for</span> $1 \le i \le T_q$ <span class="kw">do</span></li>
 <li class="i1"><span class="hbm">HBM</span>从 HBM 读 <span class="c h vQ">$Q_i$</span> 到片上 SRAM</li>
