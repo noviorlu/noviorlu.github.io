@@ -37,6 +37,7 @@ series_order: 4
 .fa-algo .b.o{border:3px double var(--c);background:color-mix(in srgb,var(--c) 30%,transparent)}
 .fa-algo .vQ{--c:var(--fig-1)}.fa-algo .vK{--c:var(--fig-2)}.fa-algo .vV{--c:var(--fig-3)}.fa-algo .vO{--c:var(--fig-hi)}
 .fa-algo-leg .b{margin-left:0}
+.fa-algo .cont{display:block;padding-left:3.4em}
 .fa-algo-leg{margin-top:.5em;padding-top:.45em;border-top:1px solid rgba(128,128,128,.25);font-size:.82em;opacity:.85}
 .fa-algo-leg>span{margin-right:1.1em;white-space:nowrap}
 </style>
