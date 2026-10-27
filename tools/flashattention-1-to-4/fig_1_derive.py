@@ -7,8 +7,8 @@
 import re, sys
 
 # ---- 文字：_{下标}、^{上标}，上标里可以再套 _{} ----
-OFF = {'n': 0, 'sub': 3.5, 'sup': -5, 'supsub': -2}
-FS = {'sub': '72%', 'sup': '72%', 'supsub': '58%'}
+OFF = {'n': 0, 'sub': 3.5, 'sup': -5, 'supsub': -2, 'subsub': 5.5}
+FS = {'sub': '72%', 'sup': '72%', 'supsub': '58%', 'subsub': '58%'}
 def parse(t):
     out, buf, i = [], '', 0
     hl = [False]                              # «…» 包住的是修正因子，单独着色
@@ -27,7 +27,14 @@ def parse(t):
                 d += {'{': 1, '}': -1}.get(t[j], 0); j += 1
             inner = t[i + 2:j - 1]
             if t[i] == '_':
-                add(inner, 'sub')
+                k, b = 0, ''                          # 下标里可以再套 _{}，例如 Q_{T_{q}}
+                while k < len(inner):
+                    if inner[k] == '_' and inner[k + 1] == '{':
+                        add(b, 'sub'); b = ''
+                        e = inner.index('}', k); add(inner[k + 2:e], 'subsub'); k = e + 1
+                    else:
+                        b += inner[k]; k += 1
+                add(b, 'sub')
             else:
                 k, b = 0, ''
                 while k < len(inner):
@@ -303,11 +310,38 @@ FIGS['fig-1-7'] = rows('fig-1-7', [
      ['扫完以后每一格都按整行的 m 算，', '就是图 1-6 第二行的 Õ。']),
 ], 'Õ 一个 block 一个 block 地累加，画法同图 1-6。第 1 轮只有第 1 个 block，按 m_1 算。第 2 轮旧的一项乘 e 的 m_1 减 m_2 次方，换成按 m_2 算，再加第 2 个 block；下面是同一个更新写成矩阵形式，一般的第 j 轮把 1、2 换成 j − 1、j。扫完以后每一项都按整行的最大值 m 算，就是图 1-6 的 Õ', LEG)
 
+# ===================== Algorithm 1 第 1、2 行：切 block =====================
+def split_col(F, x, name, labs, kind, w, annot):
+    F.T('os2-b', x + w / 2, 12, name, 'middle')
+    for k, t in enumerate(labs):
+        F.rect(x, 18 + k * 20, w, 18, kind if t != '⋯' else 'skip', t if w > 20 else None, 'os2-s')
+        if t == '⋯': F.T('os2-s', x + w / 2, 18 + k * 20 + 12, '⋯', 'middle')
+    for n, t in enumerate(annot):
+        F.T('os2' if n == 0 else 'os2-s', x + w + 10, 42 + n * 18, t)
+def algo_svg(fid, cols, W=640, H=102):
+    F = Fig(fid)
+    for c in cols: split_col(F, *c)
+    return (f'<svg id="{fid}" viewBox="0 0 {W} {H}" width="100%" role="img" aria-label="{fid}" style="max-width: {W}px; display: block">\n'
+            + CSS + '\n'.join(F.B) + '\n</svg>')
+QL = lambda n, T: [f'{n}_{{1}}', f'{n}_{{2}}', '⋯', f'{n}_{{{T}}}']
+ALGO = {
+    'algo-l1': algo_svg('algo-l1', [
+        (10, 'Q', QL('Q', 'T_{q}'), 'new', 46, ['T_{q} = ⌈N / B_{q}⌉ 个 block', '每个 B_{q} × d']),
+        (226, 'K', QL('K', 'T_{k}'), 'new', 46, ['T_{k} = ⌈N / B_{k}⌉ 个 block', '每个 B_{k} × d']),
+        (442, 'V', QL('V', 'T_{k}'), 'new', 46, ['和 K 一样切', '每个 B_{k} × d'])]),
+    'algo-l2': algo_svg('algo-l2', [
+        (10, 'O', QL('O', 'T_{q}'), 'state', 46, ['输出，和 Q 一样切', '每个 B_{q} × d']),
+        (226, 'L', ['', '', '⋯', ''], 'state', 14, ['logsumexp，T_{q} 段', '每段长 B_{q}，给反向用'])]),
+}
+
 if __name__ == '__main__':
     p = sys.argv[1]
     s = open(p).read()
     for fid, svg in FIGS.items():
         s, n = re.subn(r'(<figure id="' + fid + r'"[^>]*>\n)<svg.*?</svg>', lambda m: m.group(1) + svg, s, count=1, flags=re.S)
+        assert n == 1, fid
+    for fid, svg in ALGO.items():
+        s, n = re.subn(r'<svg id="' + fid + r'".*?</svg>', lambda m: svg, s, count=1, flags=re.S)
         assert n == 1, fid
     open(p, 'w').write(s)
     print('ok', list(FIGS))

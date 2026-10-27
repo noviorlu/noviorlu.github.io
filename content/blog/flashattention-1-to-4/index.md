@@ -1236,8 +1236,80 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 <div class="fa-algo-h">Algorithm 1　FlashAttention-2 forward pass</div>
 <div><b>Require:</b> HBM 里的 $Q, K, V \in \mathbb{R}^{N\times d}$，block 大小 $B_q$、$B_k$</div>
 <ol>
-<li>把 $Q$ 切成 $T_q = \lceil N/B_q \rceil$ 个 block $Q_1, \dots, Q_{T_q}$，每个 $B_q\times d$；把 $K$、$V$ 切成 $T_k = \lceil N/B_k \rceil$ 个 block $K_1, \dots, K_{T_k}$ 和 $V_1, \dots, V_{T_k}$，每个 $B_k\times d$</li>
-<li>把输出 $O \in \mathbb{R}^{N\times d}$ 切成 $T_q$ 个 block $O_1, \dots, O_{T_q}$，每个 $B_q\times d$；把 logsumexp $L$ 切成 $T_q$ 个 block $L_1, \dots, L_{T_q}$，每个长 $B_q$</li>
+<li><svg id="algo-l1" viewBox="0 0 640 102" width="100%" role="img" aria-label="algo-l1" style="max-width: 640px; display: block">
+  <style>
+    .os2 { font-size: 11px; fill: currentColor; }
+    .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .os2-s { font-size: 10.5px; fill: currentColor; opacity: .72; }
+    .os2-m { font-size: 13px; fill: currentColor; }
+    .os2-hi { fill: var(--fig-hi); }
+  </style>
+<text class="os2-b" x="33" y="12" text-anchor="middle">Q</text>
+<rect x="10" y="18" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="33" y="31" text-anchor="middle">Q<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="10" y="38" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="33" y="51" text-anchor="middle">Q<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="10" y="58" width="46" height="18" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="33" y="71" text-anchor="middle">⋯</text>
+<text class="os2-s" x="33" y="70" text-anchor="middle">⋯</text>
+<rect x="10" y="78" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="33" y="91" text-anchor="middle">Q<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">q</tspan></text>
+<text class="os2" x="66" y="42">T<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> = ⌈N / B</tspan><tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5">⌉ 个 block</tspan></text>
+<text class="os2-s" x="66" y="60">每个 B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> × d</tspan></text>
+<text class="os2-b" x="249" y="12" text-anchor="middle">K</text>
+<rect x="226" y="18" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="249" y="31" text-anchor="middle">K<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="226" y="38" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="249" y="51" text-anchor="middle">K<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="226" y="58" width="46" height="18" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="249" y="71" text-anchor="middle">⋯</text>
+<text class="os2-s" x="249" y="70" text-anchor="middle">⋯</text>
+<rect x="226" y="78" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="249" y="91" text-anchor="middle">K<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">k</tspan></text>
+<text class="os2" x="282" y="42">T<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> = ⌈N / B</tspan><tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5">⌉ 个 block</tspan></text>
+<text class="os2-s" x="282" y="60">每个 B<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> × d</tspan></text>
+<text class="os2-b" x="465" y="12" text-anchor="middle">V</text>
+<rect x="442" y="18" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="465" y="31" text-anchor="middle">V<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="442" y="38" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="465" y="51" text-anchor="middle">V<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="442" y="58" width="46" height="18" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="465" y="71" text-anchor="middle">⋯</text>
+<text class="os2-s" x="465" y="70" text-anchor="middle">⋯</text>
+<rect x="442" y="78" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="465" y="91" text-anchor="middle">V<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">k</tspan></text>
+<text class="os2" x="498" y="42">和 K 一样切</text>
+<text class="os2-s" x="498" y="60">每个 B<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> × d</tspan></text>
+</svg></li>
+<li><svg id="algo-l2" viewBox="0 0 640 102" width="100%" role="img" aria-label="algo-l2" style="max-width: 640px; display: block">
+  <style>
+    .os2 { font-size: 11px; fill: currentColor; }
+    .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .os2-s { font-size: 10.5px; fill: currentColor; opacity: .72; }
+    .os2-m { font-size: 13px; fill: currentColor; }
+    .os2-hi { fill: var(--fig-hi); }
+  </style>
+<text class="os2-b" x="33" y="12" text-anchor="middle">O</text>
+<rect x="10" y="18" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
+<text class="os2-s" x="33" y="31" text-anchor="middle">O<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="10" y="38" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
+<text class="os2-s" x="33" y="51" text-anchor="middle">O<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="10" y="58" width="46" height="18" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="33" y="71" text-anchor="middle">⋯</text>
+<text class="os2-s" x="33" y="70" text-anchor="middle">⋯</text>
+<rect x="10" y="78" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
+<text class="os2-s" x="33" y="91" text-anchor="middle">O<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">q</tspan></text>
+<text class="os2" x="66" y="42">输出，和 Q 一样切</text>
+<text class="os2-s" x="66" y="60">每个 B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> × d</tspan></text>
+<text class="os2-b" x="233" y="12" text-anchor="middle">L</text>
+<rect x="226" y="18" width="14" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
+<rect x="226" y="38" width="14" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
+<rect x="226" y="58" width="14" height="18" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="233" y="70" text-anchor="middle">⋯</text>
+<rect x="226" y="78" width="14" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
+<text class="os2" x="250" y="42">logsumexp，T<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> 段</tspan></text>
+<text class="os2-s" x="250" y="60">每段长 B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5">，给反向用</tspan></text>
+</svg></li>
 <li><span class="kw">for</span> $1 \le i \le T_q$ <span class="kw">do</span></li>
 <li class="i1"><span class="hbm">HBM</span>从 HBM 读 $Q_i$ 到片上 SRAM</li>
 <li class="i1">片上初始化 $\tilde O_i^{(0)} = 0 \in \mathbb{R}^{B_q\times d}$，$\ell_i^{(0)} = 0 \in \mathbb{R}^{B_q}$，$m_i^{(0)} = -\infty \in \mathbb{R}^{B_q}$</li>
