@@ -59,6 +59,12 @@ STYLE = {
     'fac': 'fill: color-mix(in srgb, var(--fig-hi) 22%, transparent); stroke: var(--fig-hi)',
     'state': 'fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)',     # 跨 tile 保留的状态
     'tmp': 'fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)',       # 这一轮的临时量
+    # Algorithm 1 第 1、2 行：每个变量一个颜色，和算法框里的色块一致
+    'vQ': 'fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)',
+    'vK': 'fill: color-mix(in srgb, var(--fig-2) 40%, transparent); stroke: var(--fig-2)',
+    'vV': 'fill: color-mix(in srgb, #2A9D8F 40%, transparent); stroke: #2A9D8F',
+    'vO': 'fill: color-mix(in srgb, #3B82C4 30%, transparent); stroke: #3B82C4',
+    'vL': 'fill: color-mix(in srgb, #9C7A4F 30%, transparent); stroke: #9C7A4F',
 }
 DASH = {'skip', 'tmp', 'fac'}                 # 虚线框 = 用完就丢
 CSS = ('  <style>\n    .os2 { font-size: 11px; fill: currentColor; }\n    .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }\n'
@@ -335,12 +341,12 @@ def algo_svg(fid, cols, W=640, H=102):
 QL = lambda n, T: [f'{n}_{{1}}', f'{n}_{{2}}', '⋯', f'{n}_{{{T}}}']
 ALGO = {
     'algo-l1': algo_svg('algo-l1', [
-        (10, 'Q', QL('Q', 'T_{q}'), 'new', 46, ['T_{q} = ⌈N / B_{q}⌉ 个 block', '每个 B_{q} × d']),
-        ('row', 236, 'K', QL('K', 'T_{k}'), 'new', 40, ['T_{k} = ⌈N / B_{k}⌉ 个 block', '每个 B_{k} × d']),
-        ('row', 460, 'V', QL('V', 'T_{k}'), 'new', 40, ['和 K 一样切', '每个 B_{k} × d'])]),
+        (10, 'Q', QL('Q', 'T_{q}'), 'vQ', 46, ['T_{q} = ⌈N / B_{q}⌉ 个 block', '每个 B_{q} × d']),
+        ('row', 236, 'K', QL('K', 'T_{k}'), 'vK', 40, ['T_{k} = ⌈N / B_{k}⌉ 个 block', '每个 B_{k} × d']),
+        ('row', 460, 'V', QL('V', 'T_{k}'), 'vV', 40, ['和 K 一样切', '每个 B_{k} × d'])]),
     'algo-l2': algo_svg('algo-l2', [
-        (10, 'O', QL('O', 'T_{q}'), 'state', 46, ['输出，和 Q 一样切', '每个 B_{q} × d']),
-        (226, 'L', ['', '', '⋯', ''], 'state', 14, ['logsumexp，T_{q} 段', '每段长 B_{q}，给反向用'])]),
+        (10, 'O', QL('O', 'T_{q}'), 'vO', 46, ['输出，和 Q 一样切', '每个 B_{q} × d']),
+        (226, 'L', ['', '', '⋯', ''], 'vL', 14, ['logsumexp，T_{q} 段', '每段长 B_{q}，给反向用'])]),
 }
 
 if __name__ == '__main__':
