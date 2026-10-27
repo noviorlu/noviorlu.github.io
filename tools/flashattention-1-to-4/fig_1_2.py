@@ -1,8 +1,8 @@
-"""图 1-8（FlashAttention 的 tiling，按 Triton program 看）：上栏是数据怎么分给 program，
-中栏是 causal 时每个 program 算哪些 block；下栏（一轮的数据流）现在不画（每个 program 算哪些 block，以及一轮里的数据流），两张图由同一份代码画出。画法和配色沿用 gpu-triton-intro 的图 2-1、2-5：
-深蓝 = 这个 program 读的数据，红 = 它写回的输出，斜线 = 之后几轮才读的 block，灰 = 别的 program 的。
+"""图 1-8（FlashAttention 的 tiling，按 Triton program 看）。上栏是数据怎么分给 program，下栏是 causal 时每个 program 算哪些 block。
+画法和配色沿用 gpu-triton-intro 的图 2-1、2-5：深蓝 = 这个 program 读的数据，红 = 它写回的输出，斜线 = 之后几轮才读的 block，灰 = 别的 program 的。
+原来还有一栏「一轮的数据流」（B[SPLIT2:]），现在不输出。
 用法：python3 tools/flashattention-1-to-4/fig_1_2.py content/blog/flashattention-1-to-4/index.md
-会把文中 <figure id="fig-1-8" ...> 和 <figure id="fig-1-9" ...> 里的 <svg> 换掉，figcaption 不动。
+会把文中 <figure id="fig-1-8" ...> 里的 <svg> 换掉，figcaption 不动。
 """
 import re, sys
 

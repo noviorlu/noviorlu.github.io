@@ -1132,7 +1132,7 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 
 ### 1.3 FlashAttention-2 的 Algorithm 1 {#fa-algorithm}
 
-把这三个递推放进两层循环，外层走 $i$，内层走 $j$，就是 FlashAttention-2 论文的 Algorithm 1（[图 1-8](#fig-1-8)）。causal 时对角线右上方的 block 整块跳过，对角线上的 block 在块内 mask（图 1-8 下栏），论文测得比不带 mask 快 1.7–1.8 倍。下面照抄，$m_i^{(j)}$ 是 1.2 的 $m_j$，$1/\sqrt d$ 已乘进 $Q$。算法里还多了一个 $L$：每行的 logsumexp $L = m + \log\ell$，扫完以后算出来写回 HBM，留给反向用，反向重算 $P$ 时直接 $P_{ij} = e^{S_{ij} - L_i}$，不用再存 $m$ 和 $\ell$。
+把这三个递推放进两层循环，外层走 $i$，内层走 $j$，就是 FlashAttention-2 论文的 Algorithm 1（[图 1-8](#fig-1-8)）。causal 时对角线右上方的 block 整块跳过，论文测得比不带 mask 快 1.7–1.8 倍；对角线穿过的 block 在算 rowmax 之前，把 key 下标大于 query 下标的位置设成 $-\infty$，第 $r$ 行第 $c$ 列比较的是 $iB_q + r$ 和 $jB_k + c$，exp 以后这些位置是 0，不进 $\ell$ 和 $\tilde O$（图 1-8 下栏）。下面照抄，$m_i^{(j)}$ 是 1.2 的 $m_j$，$1/\sqrt d$ 已乘进 $Q$。算法里还多了一个 $L$：每行的 logsumexp $L = m + \log\ell$，扫完以后算出来写回 HBM，留给反向用，反向重算 $P$ 时直接 $P_{ij} = e^{S_{ij} - L_i}$，不用再存 $m$ 和 $\ell$。
 
 <figure id="fig-1-8" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 524" width="100%" role="img" aria-label="FlashAttention 的 tiling，按 Triton program 看：i = 2 的 program 读 Q 的第 2 个 block，沿 j 依次读 K、V 的 block，S 只在片上算，乘 V 以后累加进 O 的第 2 个 block，最后写回；causal 时对角线右上的 block 跳过。causal 时每个 Q block 一个 program，各自算的 block 数不同：对角线右上方的 block 整块跳过，对角线上的 block 部分 mask。右边放大了 pid_i = 2 的两个部分 mask 的 block。">
