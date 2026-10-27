@@ -146,6 +146,19 @@ def seq(F, x, y, parts, cs, hl=None):
     for p in parts:
         if isinstance(p, str):
             F.T('os2-m', x + 2, y + 2 * cs + 5, p); x += len(p) * 7.2 + 8
+        elif p[0] == 'diag':
+            _, n, name = p
+            for a in range(n):
+                for b in range(n):
+                    F.rect(x + b * cs, y + a * cs, cs, cs, 'fac' if a == b else 'skip', None)
+            for b in range(n):
+                for a in range(n):
+                    if a != b: F.T('os2-s', x + b * cs + cs / 2, y + a * cs + cs / 2 + 3.5, '0', 'middle')
+            F.T('os2', x + n * cs / 2, y + n * cs + 15, name, 'middle')
+            for a in range(n):                      # 第 a 个对角元指向下一个矩阵的第 a 行
+                yc = y + a * cs + cs / 2
+                F.arrow(x + n * cs + 2, yc, x + n * cs + 17, yc)
+            x = x + n * cs + 18
         else:
             kind, r, c, name = p[:4]
             x1 = F.mat(x, y, r, c, kind, cs, name, hl=hl)
@@ -277,7 +290,7 @@ FIGS['fig-1-7'] = rows('fig-1-7', [
      acc([('res', f'e^{{S_{{i{j}}} − m}}') for j in range(1, 5)], ['', '', '', ''], 'Õ'),
      ['扫完以后每一格都按整行的 m 算，', '就是图 1-6 第二行的 Õ。']),
     (88, ['Õ_{j} = diag(«e^{m_{j−1} − m_{j}}») Õ_{j−1}', '        + P̃_{ij} V_{j}'],
-     lambda F, x, y: seq(F, x, y, [('state', 4, 3, 'Õ_{j}', '→ 给 j + 1 用'), '=', 'diag(', ('fac', 4, 1, '«e^{m_{j−1} − m_{j}}»'), ')', ('state', 4, 3, 'Õ_{j−1}', '来自 j − 1'), '+', ('tmp', 4, 4, 'P̃_{ij}'), ('new', 4, 3, 'V_{j}')], 14, 1),
+     lambda F, x, y: seq(F, x, y, [('state', 4, 3, 'Õ_{j}', '→ 给 j + 1 用'), '=', ('diag', 4, 'diag(«e^{m_{j−1} − m_{j}}»)'), ('state', 4, 3, 'Õ_{j−1}', '来自 j − 1'), '+', ('tmp', 4, 4, 'P̃_{ij}'), ('new', 4, 3, 'V_{j}')], 14, 1),
      ['一般的第 j 轮：旧的 Õ 第 r 行乘第 r 个', '«修正因子»（图 1-1 (c)），再加 P̃_{ij} V_{j}。']),
 ], 'Õ 一个 block 一个 block 地累加，画法同图 1-6。第 1 轮只有第 1 个 block，按 m_1 算。第 2 轮旧的一项乘 e 的 m_1 减 m_2 次方，换成按 m_2 算，再加第 2 个 block。扫完以后每一项都按整行的最大值 m 算，就是图 1-6 的 Õ。最后一行是一般的第 j 轮，写成矩阵形式', LEG)
 
