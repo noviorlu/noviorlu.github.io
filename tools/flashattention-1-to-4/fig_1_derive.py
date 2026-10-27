@@ -1,4 +1,4 @@
-"""1.1–1.2 推导用的示意图：图 1-2、1-3、1-4、1-6、1-7。每张图对应正文里的一个公式块，
+"""推导用的示意图：图 1-2、1-3、1-4、1-6、1-7、1-9。每张图对应正文里的一个公式块，
 一行一个操作，分三栏：左边是数学公式，中间是这个操作的示意，右边是解释。
 配色和图 1-1 一致：深蓝 = 这一轮新读的 block，灰 = 前面的 block 留下的，浅蓝 = 这一轮算出来的，红 = 输出；红框标同一行（一个 query）。
 用法：python3 tools/flashattention-1-to-4/fig_1_derive.py content/blog/flashattention-1-to-4/index.md
@@ -315,6 +315,34 @@ FIGS['fig-1-7'] = rows('fig-1-7', [
      acc([('res', f'e^{{S_{{i{j}}} − m}}') for j in range(1, 5)], ['', '', '', ''], 'Õ'),
      ['扫完以后每一格都按整行的 m 算，', '就是图 1-6 第二行的 Õ。']),
 ], 'Õ 一个 block 一个 block 地累加，画法同图 1-6。第 1 轮只有第 1 个 block，按 m_1 算。第 2 轮旧的一项乘 e 的 m_1 减 m_2 次方，换成按 m_2 算，再加第 2 个 block；下面是同一个更新写成矩阵形式，一般的第 j 轮把 1、2 换成 j − 1、j。扫完以后每一项都按整行的最大值 m 算，就是图 1-6 的 Õ', LEG)
+
+# ===================== 图 1-9：为什么 mask 只能在算完 S 之后做（对角线上的 3 × 3 tile） =====================
+F = Fig('fig-1-9')
+C9, QX9, SX9, SY9 = 34, 60, 110, 70
+MK9 = 'fill: color-mix(in srgb, var(--fig-mute) 80%, transparent); stroke: var(--fig-mute)'
+for r in range(3):
+    F.rect(QX9, SY9 + r * C9, 30, C9 - 2, 'new', f'q_{{{r + 1}}}')
+    F.rect(SX9 + r * C9, SY9 - 40, C9 - 2, 30, 'new', f'k_{{{r + 1}}}')
+    for c in range(3):
+        x, y = SX9 + c * C9, SY9 + r * C9
+        if c <= r: F.rect(x, y, C9 - 2, C9 - 2, 'res', f's_{{{r + 1}{c + 1}}}')
+        else:
+            F.w(f'<rect x="{x}" y="{y}" width="{C9 - 2}" height="{C9 - 2}" rx="1.5" style="{MK9}" stroke-width="1"/>')
+            F.T('os2', x + (C9 - 2) / 2, y + C9 / 2 + 3, '−∞', 'middle')
+F.T('os2-b', QX9 - 8, SY9 + 1.5 * C9 + 4, 'Q_{i}', 'end'); F.T('os2-b', SX9 + 1.5 * C9, SY9 - 48, 'K_{j}^{ᵀ}', 'middle')
+F.T('os2-b', SX9 + 1.5 * C9, SY9 + 3 * C9 + 16, 'S_{ij}（对角线上的 tile）', 'middle')
+# 第 2 列（k_2）加框
+F.w(f'<rect x="{SX9 + C9 - 3}" y="{SY9 - 43}" width="{C9 + 4}" height="{3 * C9 + 45}" rx="4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="4 3"/>')
+tx = SX9 + 3 * C9 + 30
+F.T('os2-b', tx, SY9 - 22, 'k_{2} 这一列：')
+F.T('os2', tx, SY9 - 4, 'q_{1} 要 mask（s_{12} = −∞），q_{2}、q_{3} 要保留')
+F.T('os2', tx, SY9 + 14, '所以 load K_{j} 时没法决定留不留 k_{2}')
+F.T('os2-b', tx, SY9 + 46, '把 k_{2} 填成 0 也不行：')
+F.T('os2', tx, SY9 + 64, 's_{12} = q_{1} · 0 = 0，e^{0 − m} 不是 0，还会加进 ℓ')
+F.T('os2-b', tx, SY9 + 96, '只能先算完 S_{ij}，再按 (r, c) 设成 −∞：')
+F.T('os2', tx, SY9 + 114, 'jB_{k} + c > iB_{q} + r 的位置是 −∞，exp 以后是 0')
+FIGS['fig-1-9'] = F.svg(SY9 + 3 * C9 + 26,
+    '对角线上的 3 乘 3 tile：q_1 到 q_3 是 Q_i 的行，k_1 到 k_3 是 K_j 的行，S_ij 的右上三角是 −∞。k_2 这一列对 q_1 要 mask，对 q_2、q_3 要保留，所以不能在 load K_j 时处理；把 k_2 填 0 得到的 score 是 0 不是 −∞。只能先算完 S_ij，再按位置设成 −∞')
 
 # ===================== Algorithm 1 第 1、2 行：切 block =====================
 # 块的大小按在显存里的形状画（B_q、B_k、d 各取一个长度），符号写在块外面

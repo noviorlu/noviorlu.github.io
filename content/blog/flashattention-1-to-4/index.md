@@ -1349,6 +1349,74 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 <figcaption><strong>图 1-8</strong> 按 Triton program 看的 tiling，画法同 GPU 与 Triton 入门的<a href="/blog/gpu-triton-intro/#fig-o-1">图 2-1</a>，循环顺序按 FA2，causal，$B_q = 2B_k$，下标按 Triton 从 0 数。$i = 2$ 的 program（加框的一行）读 $Q$ 的第 2 个 block，沿 $j$ 依次读 $K$、$V$ 的 block，$S$ 只在片上算，乘 $V$ 以后累加进 $O$ 的第 2 个 block；$S$ 里每个 block 标出整块都算、部分 mask、整块跳过，下面放大了这个 program 的两个部分 mask 的 block。第 0 个 block 没有整行被 mask 的行，所以 $m$ 不会停在 $-\infty$。</figcaption>
 </figure>
 
+<details class="fold doc aside">
+<summary>为什么 mask 只能在算完 S 之后做</summary>
+
+causal mask 管的是一对 (query, key)，也就是 $S$ 的一个元素，不是 $Q$ 的一行或 $K$ 的一行（[图 1-9](#fig-1-9)）。
+
+- $K_j$ 的第 $c$ 行同时给这个 tile 里所有 query 用：下标比它大的 query 要保留，比它小的要 mask，所以 load $K_j$ 时没法决定留不留这一行；$Q_i$ 的一行同理。
+- 就算 load 时把某一行填成 0，算出来的 score 是 0，不是 $-\infty$，$e^{0-m}$ 还是会加进 $\ell$ 和 $\tilde O$；load 时的 boundary_check 只管矩阵边缘越界，切出来的是长方形，也表达不了三角形的条件。
+- 所以先算完整的 $S_{ij} = Q_iK_j^\top$，再把 $jB_k + c > iB_q + r$ 的位置设成 $-\infty$，然后才做 rowmax 和 exp。
+
+多算的只有对角线上的一两个 block，其余 block 要么整块都算，要么整块跳过（[图 1-8](#fig-1-8)）。
+
+<figure id="fig-1-9">
+<svg viewBox="0 0 860 198" width="100%" role="img" aria-label="对角线上的 3 乘 3 tile：q_1 到 q_3 是 Q_i 的行，k_1 到 k_3 是 K_j 的行，S_ij 的右上三角是 −∞。k_2 这一列对 q_1 要 mask，对 q_2、q_3 要保留，所以不能在 load K_j 时处理；把 k_2 填 0 得到的 score 是 0 不是 −∞。只能先算完 S_ij，再按位置设成 −∞">
+  <style>
+    .os2 { font-size: 11px; fill: currentColor; }
+    .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
+    .os2-s { font-size: 10.5px; fill: currentColor; opacity: .72; }
+    .os2-m { font-size: 13px; fill: currentColor; }
+    .os2-hi { fill: var(--fig-hi); }
+  </style>
+<defs><marker id="fig-1-9-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" fill-opacity=".6"/></marker><marker id="fig-1-9-arh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--fig-hi)"/></marker></defs>
+<rect x="60" y="70" width="30" height="32" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2" x="75" y="90" text-anchor="middle">q<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="110" y="30" width="32" height="30" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2" x="126" y="49" text-anchor="middle">k<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="110" y="70" width="32" height="32" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<text class="os2" x="126" y="90" text-anchor="middle">s<tspan dy="3.5" font-size="72%">11</tspan></text>
+<rect x="144" y="70" width="32" height="32" rx="1.5" style="fill: color-mix(in srgb, var(--fig-mute) 80%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+<text class="os2" x="160" y="90" text-anchor="middle">−∞</text>
+<rect x="178" y="70" width="32" height="32" rx="1.5" style="fill: color-mix(in srgb, var(--fig-mute) 80%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+<text class="os2" x="194" y="90" text-anchor="middle">−∞</text>
+<rect x="60" y="104" width="30" height="32" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2" x="75" y="124" text-anchor="middle">q<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="144" y="30" width="32" height="30" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2" x="160" y="49" text-anchor="middle">k<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="110" y="104" width="32" height="32" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<text class="os2" x="126" y="124" text-anchor="middle">s<tspan dy="3.5" font-size="72%">21</tspan></text>
+<rect x="144" y="104" width="32" height="32" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<text class="os2" x="160" y="124" text-anchor="middle">s<tspan dy="3.5" font-size="72%">22</tspan></text>
+<rect x="178" y="104" width="32" height="32" rx="1.5" style="fill: color-mix(in srgb, var(--fig-mute) 80%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
+<text class="os2" x="194" y="124" text-anchor="middle">−∞</text>
+<rect x="60" y="138" width="30" height="32" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2" x="75" y="158" text-anchor="middle">q<tspan dy="3.5" font-size="72%">3</tspan></text>
+<rect x="178" y="30" width="32" height="30" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2" x="194" y="49" text-anchor="middle">k<tspan dy="3.5" font-size="72%">3</tspan></text>
+<rect x="110" y="138" width="32" height="32" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<text class="os2" x="126" y="158" text-anchor="middle">s<tspan dy="3.5" font-size="72%">31</tspan></text>
+<rect x="144" y="138" width="32" height="32" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<text class="os2" x="160" y="158" text-anchor="middle">s<tspan dy="3.5" font-size="72%">32</tspan></text>
+<rect x="178" y="138" width="32" height="32" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<text class="os2" x="194" y="158" text-anchor="middle">s<tspan dy="3.5" font-size="72%">33</tspan></text>
+<text class="os2-b" x="52" y="125" text-anchor="end">Q<tspan dy="3.5" font-size="72%">i</tspan></text>
+<text class="os2-b" x="161" y="22" text-anchor="middle">K<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-8.5" font-size="72%">ᵀ</tspan></text>
+<text class="os2-b" x="161" y="188" text-anchor="middle">S<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">（对角线上的 tile）</tspan></text>
+<rect x="141" y="27" width="38" height="147" rx="4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="4 3"/>
+<text class="os2-b" x="242" y="48">k<tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5"> 这一列：</tspan></text>
+<text class="os2" x="242" y="66">q<tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5"> 要 mask（s</tspan><tspan dy="3.5" font-size="72%">12</tspan><tspan dy="-3.5"> = −∞），q</tspan><tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5">、q</tspan><tspan dy="3.5" font-size="72%">3</tspan><tspan dy="-3.5"> 要保留</tspan></text>
+<text class="os2" x="242" y="84">所以 load K<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> 时没法决定留不留 k</tspan><tspan dy="3.5" font-size="72%">2</tspan></text>
+<text class="os2-b" x="242" y="116">把 k<tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5"> 填成 0 也不行：</tspan></text>
+<text class="os2" x="242" y="134">s<tspan dy="3.5" font-size="72%">12</tspan><tspan dy="-3.5"> = q</tspan><tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5"> · 0 = 0，e</tspan><tspan dy="-5" font-size="72%">0 − m</tspan><tspan dy="5"> 不是 0，还会加进 ℓ</tspan></text>
+<text class="os2-b" x="242" y="166">只能先算完 S<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5">，再按 (r, c) 设成 −∞：</tspan></text>
+<text class="os2" x="242" y="184">jB<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> + c > iB</tspan><tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> + r 的位置是 −∞，exp 以后是 0</tspan></text>
+</svg>
+<figcaption><strong>图 1-9</strong> 对角线上的一个 tile，$B_q = B_k = 3$。同一个 $k_2$ 对 $q_1$ 要 mask，对 $q_2$、$q_3$ 要保留，只有拿到 $S_{ij}$ 的每个元素才能决定。</figcaption>
+</figure>
+
+</details>
+
 <div class="fa-algo">
 <div class="fa-algo-h">Algorithm 1　FlashAttention-2 forward pass</div>
 <div><b>Require:</b> HBM 里的 $Q, K, V \in \mathbb{R}^{N\times d}$，block 大小 $B_q$、$B_k$</div>
