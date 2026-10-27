@@ -1241,122 +1241,153 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
   <rect class="band" x="4" y="338" width="632" height="182" rx="10"/>
   <text class="tb" x="16" y="360">每个 program 干什么（causal，B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> = 2B</tspan><tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5">）</tspan></text>
   <text class="s" x="16" y="391">pid_i = 0</text>
-  <rect x="74" y="378" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <path d="M74,378 L90,378 L90,394 Z" style="fill: color-mix(in srgb, var(--fig-mute) 45%, transparent)"/>
-  <rect x="92" y="378" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <path d="M92,378 L108,378 L108,394 Z" style="fill: color-mix(in srgb, var(--fig-mute) 45%, transparent)"/>
+  <rect x="74" y="378" width="16" height="16" rx="1.5" style="fill: none; stroke: var(--fig-1)" stroke-width="1"/>
+  <path d="M74,378 L74,394 L90,394 Z" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="0"/>
+  <path d="M74,378 L90,378 L90,394 Z" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent)"/>
+  <line x1="74" y1="378" x2="90" y2="394" stroke="currentColor" stroke-opacity=".7" stroke-width="1"/>
+  <rect x="92" y="378" width="16" height="16" rx="1.5" style="fill: none; stroke: var(--fig-1)" stroke-width="1"/>
+  <path d="M92,378 L92,394 L108,394 Z" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="0"/>
+  <path d="M92,378 L108,378 L108,394 Z" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent)"/>
+  <line x1="92" y1="378" x2="108" y2="394" stroke="currentColor" stroke-opacity=".7" stroke-width="1"/>
   <rect x="110" y="378" width="16" height="16" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <path d="M113,381 L123,391 M123,381 L113,391" stroke="currentColor" stroke-opacity=".45" stroke-width="1"/>
   <rect x="128" y="378" width="16" height="16" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <path d="M131,381 L141,391 M141,381 L131,391" stroke="currentColor" stroke-opacity=".45" stroke-width="1"/>
   <rect x="146" y="378" width="16" height="16" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <path d="M149,381 L159,391 M159,381 L149,391" stroke="currentColor" stroke-opacity=".45" stroke-width="1"/>
   <rect x="164" y="378" width="16" height="16" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <path d="M167,381 L177,391 M177,381 L167,391" stroke="currentColor" stroke-opacity=".45" stroke-width="1"/>
   <rect x="182" y="378" width="16" height="16" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <path d="M185,381 L195,391 M195,381 L185,391" stroke="currentColor" stroke-opacity=".45" stroke-width="1"/>
   <rect x="200" y="378" width="16" height="16" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <path d="M203,381 L213,391 M213,381 L203,391" stroke="currentColor" stroke-opacity=".45" stroke-width="1"/>
   <text class="s" x="16" y="419">pid_i = 1</text>
-  <rect x="74" y="406" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <rect x="92" y="406" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <rect x="110" y="406" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <path d="M110,406 L126,406 L126,422 Z" style="fill: color-mix(in srgb, var(--fig-mute) 45%, transparent)"/>
-  <rect x="128" y="406" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <path d="M128,406 L144,406 L144,422 Z" style="fill: color-mix(in srgb, var(--fig-mute) 45%, transparent)"/>
+  <rect x="74" y="406" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="92" y="406" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="110" y="406" width="16" height="16" rx="1.5" style="fill: none; stroke: var(--fig-1)" stroke-width="1"/>
+  <path d="M110,406 L110,422 L126,422 Z" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="0"/>
+  <path d="M110,406 L126,406 L126,422 Z" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent)"/>
+  <line x1="110" y1="406" x2="126" y2="422" stroke="currentColor" stroke-opacity=".7" stroke-width="1"/>
+  <rect x="128" y="406" width="16" height="16" rx="1.5" style="fill: none; stroke: var(--fig-1)" stroke-width="1"/>
+  <path d="M128,406 L128,422 L144,422 Z" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="0"/>
+  <path d="M128,406 L144,406 L144,422 Z" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent)"/>
+  <line x1="128" y1="406" x2="144" y2="422" stroke="currentColor" stroke-opacity=".7" stroke-width="1"/>
   <rect x="146" y="406" width="16" height="16" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <path d="M149,409 L159,419 M159,409 L149,419" stroke="currentColor" stroke-opacity=".45" stroke-width="1"/>
   <rect x="164" y="406" width="16" height="16" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <path d="M167,409 L177,419 M177,409 L167,419" stroke="currentColor" stroke-opacity=".45" stroke-width="1"/>
   <rect x="182" y="406" width="16" height="16" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <path d="M185,409 L195,419 M195,409 L185,419" stroke="currentColor" stroke-opacity=".45" stroke-width="1"/>
   <rect x="200" y="406" width="16" height="16" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <path d="M203,409 L213,419 M213,409 L203,419" stroke="currentColor" stroke-opacity=".45" stroke-width="1"/>
   <text class="s" x="16" y="447" style="opacity: 1; font-weight: 600">pid_i = 2</text>
-  <rect x="74" y="434" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <rect x="92" y="434" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <rect x="110" y="434" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <rect x="128" y="434" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <rect x="146" y="434" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <path d="M146,434 L162,434 L162,450 Z" style="fill: color-mix(in srgb, var(--fig-mute) 45%, transparent)"/>
-  <rect x="164" y="434" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <path d="M164,434 L180,434 L180,450 Z" style="fill: color-mix(in srgb, var(--fig-mute) 45%, transparent)"/>
+  <rect x="74" y="434" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="92" y="434" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="110" y="434" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="128" y="434" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="146" y="434" width="16" height="16" rx="1.5" style="fill: none; stroke: var(--fig-1)" stroke-width="1"/>
+  <path d="M146,434 L146,450 L162,450 Z" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="0"/>
+  <path d="M146,434 L162,434 L162,450 Z" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent)"/>
+  <line x1="146" y1="434" x2="162" y2="450" stroke="currentColor" stroke-opacity=".7" stroke-width="1"/>
+  <rect x="164" y="434" width="16" height="16" rx="1.5" style="fill: none; stroke: var(--fig-1)" stroke-width="1"/>
+  <path d="M164,434 L164,450 L180,450 Z" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="0"/>
+  <path d="M164,434 L180,434 L180,450 Z" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent)"/>
+  <line x1="164" y1="434" x2="180" y2="450" stroke="currentColor" stroke-opacity=".7" stroke-width="1"/>
   <rect x="182" y="434" width="16" height="16" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <path d="M185,437 L195,447 M195,437 L185,447" stroke="currentColor" stroke-opacity=".45" stroke-width="1"/>
   <rect x="200" y="434" width="16" height="16" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <path d="M203,437 L213,447 M213,437 L203,447" stroke="currentColor" stroke-opacity=".45" stroke-width="1"/>
   <text class="s" x="16" y="475">pid_i = 3</text>
-  <rect x="74" y="462" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <rect x="92" y="462" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <rect x="110" y="462" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <rect x="128" y="462" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <rect x="146" y="462" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <rect x="164" y="462" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <rect x="182" y="462" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <path d="M182,462 L198,462 L198,478 Z" style="fill: color-mix(in srgb, var(--fig-mute) 45%, transparent)"/>
-  <rect x="200" y="462" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <path d="M200,462 L216,462 L216,478 Z" style="fill: color-mix(in srgb, var(--fig-mute) 45%, transparent)"/>
-  <rect x="74" y="494" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+  <rect x="74" y="462" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="92" y="462" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="110" y="462" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="128" y="462" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="146" y="462" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="164" y="462" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+  <rect x="182" y="462" width="16" height="16" rx="1.5" style="fill: none; stroke: var(--fig-1)" stroke-width="1"/>
+  <path d="M182,462 L182,478 L198,478 Z" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="0"/>
+  <path d="M182,462 L198,462 L198,478 Z" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent)"/>
+  <line x1="182" y1="462" x2="198" y2="478" stroke="currentColor" stroke-opacity=".7" stroke-width="1"/>
+  <rect x="200" y="462" width="16" height="16" rx="1.5" style="fill: none; stroke: var(--fig-1)" stroke-width="1"/>
+  <path d="M200,462 L200,478 L216,478 Z" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="0"/>
+  <path d="M200,462 L216,462 L216,478 Z" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent)"/>
+  <line x1="200" y1="462" x2="216" y2="478" stroke="currentColor" stroke-opacity=".7" stroke-width="1"/>
+  <rect x="74" y="494" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
   <text class="s" x="92" y="504">整块都算</text>
-  <rect x="164" y="494" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
-  <path d="M164,494 L176,494 L176,506 Z" style="fill: color-mix(in srgb, var(--fig-mute) 45%, transparent)"/>
-  <text class="s" x="182" y="504">部分 mask</text>
-  <rect x="254" y="494" width="12" height="12" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-  <text class="s" x="272" y="504">整块跳过</text>
+  <rect x="164" y="494" width="12" height="12" rx="1.5" style="fill: none; stroke: var(--fig-1)" stroke-width="1"/>
+  <path d="M164,494 L164,506 L176,506 Z" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width="0"/>
+  <path d="M164,494 L176,494 L176,506 Z" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent)"/>
+  <line x1="164" y1="494" x2="176" y2="506" stroke="currentColor" stroke-opacity=".7" stroke-width="1"/>
+  <text class="s" x="182" y="504">部分 mask：右上三角设成 −∞</text>
+  <rect x="364" y="494" width="12" height="12" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+  <path d="M367,497 L373,503 M373,497 L367,503" stroke="currentColor" stroke-opacity=".45" stroke-width="1"/>
+  <text class="s" x="382" y="504">整块跳过</text>
   <text class="s" x="474" y="380" text-anchor="middle" style="opacity: 1; font-weight: 600">S<tspan dy="3.5" font-size="72%">2,4</tspan></text>
-  <rect x="454" y="388" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="464" y="388" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="474" y="388" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="484" y="388" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="454" y="398" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="464" y="398" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="474" y="398" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="484" y="398" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="454" y="408" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="464" y="408" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="474" y="408" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="484" y="408" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="454" y="418" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="464" y="418" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="474" y="418" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="484" y="418" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="454" y="428" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="464" y="428" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="474" y="428" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="484" y="428" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="454" y="438" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="464" y="438" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="474" y="438" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="484" y="438" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="454" y="448" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="464" y="448" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="474" y="448" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="484" y="448" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="454" y="458" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="464" y="458" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="474" y="458" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="484" y="458" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
+  <rect x="454" y="388" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="464" y="388" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="474" y="388" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="484" y="388" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="454" y="398" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="464" y="398" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="474" y="398" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="484" y="398" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="454" y="408" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="464" y="408" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="474" y="408" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="484" y="408" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="454" y="418" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="464" y="418" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="474" y="418" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="484" y="418" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="454" y="428" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="464" y="428" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="474" y="428" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="484" y="428" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="454" y="438" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="464" y="438" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="474" y="438" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="484" y="438" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="454" y="448" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="464" y="448" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="474" y="448" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="484" y="448" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="454" y="458" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="464" y="458" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="474" y="458" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="484" y="458" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
   <text class="s" x="536" y="380" text-anchor="middle" style="opacity: 1; font-weight: 600">S<tspan dy="3.5" font-size="72%">2,5</tspan></text>
-  <rect x="516" y="388" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="526" y="388" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="536" y="388" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="546" y="388" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="516" y="398" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="526" y="398" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="536" y="398" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="546" y="398" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="516" y="408" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="526" y="408" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="536" y="408" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="546" y="408" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="516" y="418" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="526" y="418" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="536" y="418" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="546" y="418" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="516" y="428" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="526" y="428" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="536" y="428" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="546" y="428" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="516" y="438" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="526" y="438" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="536" y="438" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="546" y="438" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="516" y="448" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="526" y="448" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="536" y="448" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="546" y="448" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
-  <rect x="516" y="458" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="526" y="458" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="536" y="458" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
-  <rect x="546" y="458" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width=".8"/>
+  <rect x="516" y="388" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="526" y="388" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="536" y="388" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="546" y="388" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="516" y="398" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="526" y="398" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="536" y="398" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="546" y="398" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="516" y="408" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="526" y="408" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="536" y="408" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="546" y="408" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="516" y="418" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="526" y="418" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="536" y="418" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="546" y="418" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="516" y="428" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="526" y="428" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="536" y="428" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="546" y="428" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="516" y="438" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="526" y="438" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="536" y="438" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="546" y="438" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="516" y="448" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="526" y="448" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="536" y="448" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="546" y="448" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-mute) 75%, transparent); stroke: var(--fig-mute)" stroke-width=".8"/>
+  <rect x="516" y="458" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="526" y="458" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="536" y="458" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
+  <rect x="546" y="458" width="9" height="9" rx="1" style="fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)" stroke-width=".8"/>
   <path d="M558,388 h4 v39 h-4" fill="none" stroke="currentColor" stroke-opacity=".6"/>
   <text class="s" x="566" y="405">整行</text>
   <text class="s" x="566" y="418">都是 −∞</text>

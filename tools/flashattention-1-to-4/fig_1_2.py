@@ -176,21 +176,30 @@ Y1 = SY + SH + 46
 HB = 182
 w(f'<rect class="band" x="4" y="{Y1}" width="632" height="{HB}" rx="10"/>')
 T('tb', 16, Y1 + 22, '每个 program 干什么（causal，B_{q} = 2B_{k}）')
-def part(x, y, sz):
-    cell(x, y, sz, sz, 'chip')
-    w(f'<path d="M{x},{y} L{x + sz},{y} L{x + sz},{y + sz} Z" style="fill: color-mix(in srgb, var(--fig-mute) 45%, transparent)"/>')
+FULL = 'fill: color-mix(in srgb, var(--fig-2) 70%, transparent); stroke: var(--fig-1)'          # 整块都算
+MASKED = 'fill: color-mix(in srgb, var(--fig-mute) 75%, transparent)'                             # 被 mask 成 −∞
+def full(x, y, sz):
+    w(f'<rect x="{x}" y="{y}" width="{sz}" height="{sz}" rx="1.5" style="{FULL}" stroke-width="1"/>')
+def part(x, y, sz):                        # 左下三角要算，右上三角被 mask
+    w(f'<rect x="{x}" y="{y}" width="{sz}" height="{sz}" rx="1.5" style="fill: none; stroke: var(--fig-1)" stroke-width="1"/>')
+    w(f'<path d="M{x},{y} L{x},{y + sz} L{x + sz},{y + sz} Z" style="{FULL}" stroke-width="0"/>')
+    w(f'<path d="M{x},{y} L{x + sz},{y} L{x + sz},{y + sz} Z" style="{MASKED}"/>')
+    w(f'<line x1="{x}" y1="{y}" x2="{x + sz}" y2="{y + sz}" stroke="currentColor" stroke-opacity=".7" stroke-width="1"/>')
+def skip(x, y, sz):                        # 整块跳过：空框加 ×
+    cell(x, y, sz, sz, 'skip')
+    w(f'<path d="M{x + 3},{y + 3} L{x + sz - 3},{y + sz - 3} M{x + sz - 3},{y + 3} L{x + 3},{y + sz - 3}" stroke="currentColor" stroke-opacity=".45" stroke-width="1"/>')
 for i in range(TQ):
     y = Y1 + 40 + i * 28
     T('s', 16, y + 13, f'pid_i = {i}', 'start', 'opacity: 1; font-weight: 600' if i == I else '')
     for j in range(TK):
         x = 74 + j * 18
-        if j < 2 * i: cell(x, y, 16, 16, 'chip')
+        if j < 2 * i: full(x, y, 16)
         elif j < 2 * i + 2: part(x, y, 16)
-        else: cell(x, y, 16, 16, 'skip')
+        else: skip(x, y, 16)
 if True:
     lx = 74
-    for k, (fn, txt) in enumerate([(lambda x, y: cell(x, y, 12, 12, 'chip'), '整块都算'), (lambda x, y: part(x, y, 12), '部分 mask'), (lambda x, y: cell(x, y, 12, 12, 'skip'), '整块跳过')]):
-        fn(lx + k * 90, Y1 + 156); T('s', lx + k * 90 + 18, Y1 + 166, txt)
+    for k, (fn, txt) in enumerate([(full, '整块都算'), (part, '部分 mask：右上三角设成 −∞'), (skip, '整块跳过')]):
+        fn(lx + [0, 90, 290][k], Y1 + 156, 12); T('s', lx + [0, 90, 290][k] + 18, Y1 + 166, txt)
 # 放大 pid_m = 2 的两个部分 mask 的 block
 ZX, ZY, ZC = 454, Y1 + 50, 10
 for b, j in enumerate((2 * I, 2 * I + 1)):
@@ -199,7 +208,7 @@ for b, j in enumerate((2 * I, 2 * I + 1)):
     for r in range(8):
         for c in range(4):
             keep = (c + 4 * (j - 2 * I)) <= r
-            st = 'fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)' if keep else 'fill: color-mix(in srgb, var(--fig-mute) 40%, transparent); stroke: var(--fig-mute)'
+            st = FULL if keep else MASKED + '; stroke: var(--fig-mute)'
             w(f'<rect x="{x0 + c * ZC}" y="{ZY + r * ZC}" width="{ZC - 1}" height="{ZC - 1}" rx="1" style="{st}" stroke-width=".8"/>')
 w(f'<path d="M{ZX + 62 + 42},{ZY} h4 v{4 * ZC - 1} h-4" fill="none" stroke="currentColor" stroke-opacity=".6"/>')
 T('s', ZX + 62 + 50, ZY + 17, '整行', 'start'); T('s', ZX + 62 + 50, ZY + 30, '都是 −∞', 'start')
