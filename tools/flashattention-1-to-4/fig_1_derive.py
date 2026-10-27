@@ -217,30 +217,31 @@ FIGS['fig-1-4'] = rows('fig-1-4', [
      ['旧的和乘«修正因子»换到新最大值，', '加上新 block 每行的和。']),
 ], '第 j 轮 m 和 ℓ 的更新，B_q 等于 4。m_j 等于 m_{j−1} 和 S_ij 每行最大值中大的那个；P̃_ij 等于 S_ij 每行减去 m_j 的对应数再取 exp；ℓ_j 等于修正因子乘 ℓ_{j−1} 加上 P̃_ij 每行之和。红框标出同一行', LEG)
 
-# ===================== 图 1-6：把分母提出来 =====================
-WC, VS = 40, 16
-def weights_v(F, x, y, pre, labels, res_pre, res_kind, res_name):
-    if pre:
-        F.T('os2-m', x, y + 2 * VS + 5, pre); x += 32
-    for k, t in enumerate(labels):
-        F.rect(x + k * WC, y + 2 * VS - 11, WC, 22, 'res', t, 'os2-s')
-    x += 4 * WC + 8
-    F.T('os2-m', x, y + 2 * VS + 5, '×'); x += 16
-    F.mat(x, y, 4, 3, 'new', VS, 'V')
-    for k in range(4): F.T('os2-s', x + 3 * VS + 3, y + k * VS + 12, f'V_{{{k + 1}}}')
-    x += 3 * VS + 22
-    F.T('os2-m', x, y + 2 * VS + 5, '='); x += 16
-    if res_pre:
-        F.T('os2-m', x, y + 2 * VS + 5, res_pre); x += 32
-    F.mat(x, y + 2 * VS - VS / 2, 1, 3, res_kind, VS, res_name)
+# ===================== 图 1-6：把分母提出来（画法同图 1-1 (b)） =====================
+PW6, C6 = 50, 24
+def pv(lab, res_name):
+    def draw(F, x, y):
+        py, vx, vy = y + 52, x + 4 * PW6 + 50, y + 16
+        for j in range(4):
+            F.rect(x + j * PW6, py, PW6, C6, 'tmp', lab.format(j=j + 1), 'os2-s')
+            F.rect(vx, vy + j * C6, C6, C6, 'new', f'V_{{{j + 1}}}')
+            yc, cx = vy + j * C6 + 12, x + j * PW6 + PW6 / 2
+            xj, ty = vx - 8 - 6 * j, y + 2 + 4 * j          # 先往左，再往上，再往左到第 j 格上方，互不交叉
+            F.w(f'<path d="M{vx:g},{yc:g} H{xj + 4:g} Q{xj:g},{yc:g} {xj:g},{yc - 4:g} V{ty + 4:g} Q{xj:g},{ty:g} {xj - 4:g},{ty:g} '
+                f'H{cx + 4:g} Q{cx:g},{ty:g} {cx:g},{ty + 4:g} V{py - 1:g}" fill="none" stroke="currentColor" stroke-opacity=".55" '
+                f'stroke-width="1.4" marker-end="url(#{F.fid}-ar)"/>')
+        F.T('os2-b', x + 4 * PW6 + 12, py + 17, '×', 'middle')
+        F.T('os2-b', vx + C6 + 14, py + 17, '=', 'middle')
+        F.rect(vx + C6 + 28, py, C6, C6, 'res', res_name)
+        F.T('os2', x + 2 * PW6, py + C6 + 15, 'P 的第 i 个 block 行' if 'P' in lab else '没除以 ℓ 的权重', 'middle')
+        F.T('os2', vx + C6 / 2, vy + 4 * C6 + 15, 'V', 'middle')
+    return draw
 FIGS['fig-1-6'] = rows('fig-1-6', [
-    (82, ['O_{i} = Σ_{j} P_{ij} V_{j}', 'P_{ij} = e^{S_{ij} − m} / ℓ'],
-     lambda F, x, y: weights_v(F, x, y, '', [f'P_{{i{k}}}' for k in range(1, 5)], '', 'res', 'O_{i}'),
-     ['O_{i} 是 V 各行的加权和；', '每行的权重除以这一行的 ℓ。']),
-    (82, ['O_{i} = (Σ_{j} e^{S_{ij} − m} V_{j}) / ℓ', '    = Õ / ℓ'],
-     lambda F, x, y: weights_v(F, x, y, '1/ℓ ×', [f'e^{{S_{{i{k}}} − m}}' for k in range(1, 5)], '1/ℓ ×', 'res', 'Õ'),
-     ['同一行的分母都一样，提到外面；', 'Õ 和 ℓ 分开累加，最后按行相除。']),
-], '把分母提出来。第一行：O_i 等于 P 的第 i 个 block 行乘 V，每个 P_ij 是 e 的 S_ij 减 m 次方除以 ℓ。第二行：ℓ 对每一项都一样，提到外面，O_i 等于 1/ℓ 乘 Õ')
+    (128, ['O_{i} = Σ_{j} P_{ij} V_{j}', 'P_{ij} = e^{S_{ij} − m} / ℓ'], pv('P_{{i{j}}}', 'O_{i}'),
+     ['V_{j} 乘 P 的第 j 个 block，', '加起来是 O_{i}（图 1-1 (b)）。']),
+    (128, ['O_{i} = (Σ_{j} e^{S_{ij} − m} V_{j}) / ℓ', '    = Õ / ℓ'], pv('e^{{S_{{i{j}}} − m}}', 'Õ'),
+     ['同一行的分母都是 ℓ，提到外面；', 'Õ 和 ℓ 分开累加，最后按行相除。']),
+], '把分母提出来，画法同图 1-1 (b)。第一行：V 的每个 block V_j 乘 P 第 i 个 block 行的第 j 个 block，加起来是 O_i。第二行：权重换成没除以 ℓ 的 e 的 S_ij 减 m 次方，结果是 Õ，最后按行除以 ℓ')
 
 # ===================== 图 1-7：ℓ 和 Õ 并排 =====================
 CS = 14
