@@ -124,24 +124,24 @@ for b in range(7):
         F.rect(bx(b) + e * CW, Y0, CW, CH, kind)
     F.T('os2', bx(b) + 1.5 * CW, Y0 + CH + 15, labs[b], 'middle')
 F.T('os2-s', X0 - 10, Y0 + CH + 15, 'j =', 'end')
-F.T('os2-b', X0 - 10, Y0 + 16, 'S 的一行', 'end')
+F.T('os2-b', X0 - 10, Y0 + 10, 'S 的第 i 个', 'end'); F.T('os2-b', X0 - 10, Y0 + 24, 'block 行', 'end')
 XE = bx(6) + 3 * CW
 F.bracket(X0, XE, Y0 - 8)
-F.T('os2', (X0 + XE) / 2, Y0 - 18, 'm = max_{k} s_{k}，ℓ = Σ_{k} e^{s_{k} − m}：要看完这一行的全部 N_{k} 个 score', 'middle')
+F.T('os2', (X0 + XE) / 2, Y0 - 18, 'm = max_{j} rowmax(S_{ij})，ℓ = Σ_{j} rowsum(e^{S_{ij} − m})：要看完全部 T_{k} 个 block', 'middle')
 F.T('os2-s', (bx(0) + bx(3) - BG) / 2, Y0 + CH + 32, '已经读过', 'middle')
 F.T('os2-s', (bx(4) + XE) / 2, Y0 + CH + 32, '还没读，也还没算', 'middle')
 cx = bx(3) + 1.5 * CW
 F.arrow(cx, Y0 + CH + 40, cx, Y0 + CH + 66, hi=True)
-F.T('os2', cx, Y0 + CH + 82, '这一轮想算 p_{k} = e^{s_{k} − m} / ℓ，但 m、ℓ 都要等最后一个 block 读完才知道', 'middle', 'fill: var(--fig-hi)')
+F.T('os2', cx, Y0 + CH + 82, '这一轮想算 P_{ij} = e^{S_{ij} − m} / ℓ，但 m、ℓ 都要等最后一个 block 读完才知道', 'middle', 'fill: var(--fig-hi)')
 Y1 = Y0 + CH + 116
 F.T('os2-b', 16, Y1, '按定义算要扫三遍')
-for k, t in enumerate(['求 m', '求 ℓ，要用 m', '算 p_{k}，乘 V 加进 O，要用 m 和 ℓ']):
+for k, t in enumerate(['求 m', '求 ℓ，要用 m', '算 P_{ij}，乘 V_{j} 加进 O_{i}，要用 m 和 ℓ']):
     y = Y1 + 28 + k * 30
     F.T('os2-s', X0 - 10, y + 4, f'第 {k + 1} 遍', 'end')
     F.arrow(X0, y, XE, y)
     F.T('os2', (X0 + XE) / 2, y - 5, t, 'middle')
 FIGS['fig-1-2'] = F.svg(Y1 + 28 + 2 * 30 + 16,
-    'S 的一行分在 T_k 个 block 里：前面几个已经读过，第 j 个是这一轮读的，后面的还没读。m 和 ℓ 要看完整行，所以这一轮算不出 p_k。按定义要扫三遍：求 m、求 ℓ、算 p_k 并乘 V')
+    '第 i 个 query block 的 S 分在 T_k 个 block 里：前面几个已经读过，第 j 个是这一轮读的，后面的还没读。m 和 ℓ 要看完全部 block，所以这一轮算不出 P_ij。按定义要扫三遍：求 m、求 ℓ、算 P_ij 并乘 V_j')
 
 # ===================== 图 1-3：两段合并 =====================
 F = Fig('fig-1-3')
@@ -153,9 +153,9 @@ YS, YE, YC = 40, 92, 220
 for k in range(8):
     kind = 'old' if k < 4 else 'new'
     seg = 'A' if k < 4 else 'B'
-    F.rect(cxk(k), YS, CW, CH, kind, f's_{{{k + 1}}}')
-    F.rect(cxk(k), YE, CW, CH, kind, f'e^{{s_{{{k + 1}}} − m_{{{seg}}}}}')
-    F.rect(cxk(k), YC, CW, CH, 'res', f'e^{{s_{{{k + 1}}} − m}}')
+    F.rect(cxk(k), YS, CW, CH, kind, 's')
+    F.rect(cxk(k), YE, CW, CH, kind, f'e^{{s − m_{{{seg}}}}}')
+    F.rect(cxk(k), YC, CW, CH, 'res', 'e^{s − m}')
 F.T('os2-b', (A0 + A1) / 2, YS - 8, 'A 段', 'middle'); F.T('os2-b', (B0 + B1) / 2, YS - 8, 'B 段', 'middle')
 F.T('os2-s', X0 - 8, YS + 17, 'score', 'end')
 F.T('os2-s', X0 - 8, YE + 12, '各按', 'end'); F.T('os2-s', X0 - 8, YE + 25, '各的 m', 'end')
@@ -169,9 +169,9 @@ for a, b, s in ((A0, A1, 'A'), (B0, B1, 'B')):
     F.T('os2', (a + b) / 2 + 8, YC - 22, f'× e^{{m_{{{s}}} − m}}', 'start', 'fill: var(--fig-hi)')
 F.T('os2-b', (A1 + B0) / 2, YC - 36, 'm = max(m_{A}, m_{B})', 'middle')
 F.w(f'<path d="M{A0:g},{YC + CH + 3:g} V{YC + CH + 8:g} H{B1:g} V{YC + CH + 3:g}" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-width="1.2"/>')
-F.T('os2', (A0 + B1) / 2, YC + CH + 26, 'ℓ = e^{m_{A} − m} ℓ_{A} + e^{m_{B} − m} ℓ_{B} = Σ_{k} e^{s_{k} − m}：就是按定义算的整行分母', 'middle')
+F.T('os2', (A0 + B1) / 2, YC + CH + 26, 'ℓ = e^{m_{A} − m} ℓ_{A} + e^{m_{B} − m} ℓ_{B}：每一项都是 e^{s − m}，就是按定义算的整行分母', 'middle')
 FIGS['fig-1-3'] = F.svg(YC + CH + 40,
-    '一行 8 个 score 分成 A、B 两段。各段先按自己的最大值 m_A、m_B 算指数并求和，得到 ℓ_A、ℓ_B。再各乘修正因子 e 的 m_A 减 m 次方和 e 的 m_B 减 m 次方，换到同一个最大值 m，相加就是整行的分母')
+    '一行 8 个 score s 分成 A、B 两段。各段先按自己的最大值 m_A、m_B 算指数并求和，得到 ℓ_A、ℓ_B。再各乘修正因子 e 的 m_A 减 m 次方和 e 的 m_B 减 m 次方，换到同一个最大值 m，相加就是整行的分母')
 
 # ===================== 图 1-4：第 j 轮的 m、ℓ =====================
 F = Fig('fig-1-4')
@@ -210,19 +210,19 @@ def row_eq(y, pre, cells, kind_w, post, res_kind, res_name, wname):
     x += 4 * WC + 12
     F.T('os2-m', x, y + 2 * VS + 5, '×'); x += 20
     F.mat(x, y, 4, 3, 'new', VS, 'V')
-    for k in range(4): F.T('os2-s', x + 3 * VS + 5, y + k * VS + 14, f'v_{{{k + 1}}}')
+    for k in range(4): F.T('os2-s', x + 3 * VS + 5, y + k * VS + 14, f'V_{{{k + 1}}}')
     x += 3 * VS + 28
     F.T('os2-m', x, y + 2 * VS + 5, '='); x += 20
     if post:
         F.T('os2-m', x, y + 2 * VS + 5, post); x += 46
     F.mat(x, y + 2 * VS - VS / 2, 1, 3, res_kind, VS, res_name)
-row_eq(20, '', [f'e^{{s_{{{k}}} − m}} / ℓ' for k in range(1, 5)], 'res', '', 'out', 'o', 'P 的一行：p_{1} … p_{4}')
+row_eq(20, '', [f'e^{{S_{{i{k}}} − m}} / ℓ' for k in range(1, 5)], 'res', '', 'out', 'O_{i}', 'P_{i1} … P_{i4}')
 F.arrow(150, 124, 150, 150, hi=True)
 F.T('os2', 160, 141, 'ℓ 对每一项都一样，提到外面', 'start', 'fill: var(--fig-hi)')
-row_eq(156, '1/ℓ ×', [f'e^{{s_{{{k}}} − m}}' for k in range(1, 5)], 'res', '1/ℓ ×', 'res', 'õ', '没除以 ℓ 的权重')
-F.T('os2', 24, 270, 'õ = Σ_{k} e^{s_{k} − m} v_{k}：没除以 ℓ 的输出。õ 和 ℓ 分开算，最后 o = õ / ℓ')
+row_eq(156, '1/ℓ ×', [f'e^{{S_{{i{k}}} − m}}' for k in range(1, 5)], 'res', '1/ℓ ×', 'res', 'Õ', '没除以 ℓ 的权重')
+F.T('os2', 24, 270, 'Õ = Σ_{j} e^{S_{ij} − m} V_{j}：没除以 ℓ 的输出。Õ 和 ℓ 分开算，最后 O_{i} = Õ / ℓ（按行除）')
 FIGS['fig-1-6'] = F.svg(284,
-    '上：o 等于 P 的一行乘 V，每个权重是 e 的 s_k 减 m 次方除以 ℓ。下：ℓ 对每一项都一样，提到外面，o 等于 1/ℓ 乘 õ，õ 是没除以 ℓ 的权重乘 V')
+    '上：O_i 等于 P 的第 i 个 block 行乘 V，每个 P_ij 是 e 的 S_ij 减 m 次方除以 ℓ。下：ℓ 对每一项都一样，提到外面，O_i 等于 1/ℓ 乘 Õ，Õ 是没除以 ℓ 的权重乘 V')
 
 # ===================== 图 1-7：ℓ 和 Õ 并排 =====================
 F = Fig('fig-1-7')
@@ -265,7 +265,7 @@ F.T('os2-m', X0 + BW + 8, 128 + 20, '+')
 bar(X0 + BW + 28, 128, 'new', 'e^{S_{i2} − m} V_{2}')
 F.T('os2-m', X0 + 2 * BW + 40, 128 + 20, '= Õ_{2}')
 F.w(f'<path d="M{X0:g},{128 + BH + 4:g} V{128 + BH + 9:g} H{X0 + 2 * BW + 28:g} V{128 + BH + 4:g}" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-width="1.2"/>')
-F.T('os2', X0 + BW + 14, 128 + BH + 27, '每一项都按整行的 m 算，就是 õ 的定义；再每行除以 ℓ 就是 O_{i}', 'middle')
+F.T('os2', X0 + BW + 14, 128 + BH + 27, '每一项都按整行的 m 算，就是 Õ 的定义；再每行除以 ℓ 就是 O_{i}', 'middle')
 FIGS['fig-1-8'] = F.svg(128 + BH + 42,
     '两个 block 时 Õ 的展开。第 1 轮 Õ_1 等于 e 的 S_i1 减 m_1 次方乘 V_1。第 2 轮先乘 e 的 m_1 减 m 次方，变成 e 的 S_i1 减 m 次方乘 V_1，再加上 e 的 S_i2 减 m 次方乘 V_2，每一项都按整行的最大值 m 算')
 
