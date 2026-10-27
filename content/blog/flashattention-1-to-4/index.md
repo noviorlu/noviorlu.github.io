@@ -778,7 +778,7 @@ $j = N$ 时就是 safe softmax 的分母。
 attention 不需要 $P$，只要 $O_i$，所以把公共分母 $\ell$ 提到外面，先算没除以 $\ell$ 的 $\tilde O$（[图 1-6](#fig-1-6)）。
 
 <figure id="fig-1-6">
-<svg viewBox="0 0 860 336" width="100%" role="img" aria-label="把分母提出来，画法同图 1-1 (b)。第一行：V 的每个 block V_j 乘 P 第 i 个 block 行的第 j 个 block，加起来是 O_i。第二行：权重换成没除以 ℓ 的 e 的 S_ij 减 m 次方，结果是 Õ，最后按行除以 ℓ">
+<svg viewBox="0 0 860 442" width="100%" role="img" aria-label="把分母提出来，画法同图 1-1 (b)。第一行：V 的每个 block V_j 乘 P 第 i 个 block 行的第 j 个 block，加起来是 O_i。第二行：权重换成没除以 ℓ 的 e 的 S_ij 减 m 次方，结果是 Õ。第三行：Õ 的第 r 行除以 ℓ 的第 r 个数，得到 O_i">
   <style>
     .os2 { font-size: 11px; fill: currentColor; }
     .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
@@ -822,8 +822,7 @@ attention 不需要 $P$，只要 $O_i$，所以把公共分母 $\ell$ 提到外�
 <text class="os2" x="660" y="99">V<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> 乘 P 的第 j 个 block，</tspan></text>
 <text class="os2" x="660" y="117">加起来是 O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5">（图 1-1 (b)）。</tspan></text>
 <line x1="8" y1="180" x2="852" y2="180" stroke="currentColor" stroke-opacity=".14"/>
-<text class="os2-m" x="16" y="250">O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> = (Σ</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> e</tspan><tspan dy="-5" font-size="72%">S</tspan><tspan dy="3" font-size="58%">ij</tspan><tspan dy="-3" font-size="72%"> − m</tspan><tspan dy="5"> V</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">) / ℓ</tspan></text>
-<text class="os2-m" x="16" y="272">    = Õ / ℓ</text>
+<text class="os2-m" x="16" y="261">Õ = Σ<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> e</tspan><tspan dy="-5" font-size="72%">S</tspan><tspan dy="3" font-size="58%">ij</tspan><tspan dy="-3" font-size="72%"> − m</tspan><tspan dy="5"> V</tspan><tspan dy="3.5" font-size="72%">j</tspan></text>
 <rect x="262" y="244" width="50" height="24" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
 <text class="os2-s" x="287" y="260" text-anchor="middle">e<tspan dy="-5" font-size="72%">S</tspan><tspan dy="3" font-size="58%">i1</tspan><tspan dy="-3" font-size="72%"> − m</tspan></text>
 <rect x="512" y="208" width="24" height="24" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
@@ -850,8 +849,48 @@ attention 不需要 $P$，只要 $O_i$，所以把公共分母 $\ell$ 提到外�
 <text class="os2" x="576" y="260" text-anchor="middle">Õ</text>
 <text class="os2" x="362" y="283" text-anchor="middle">没除以 ℓ 的权重</text>
 <text class="os2" x="524" y="319" text-anchor="middle">V</text>
-<text class="os2" x="660" y="251">同一行的分母都是 ℓ，提到外面；</text>
-<text class="os2" x="660" y="269">Õ 和 ℓ 分开累加，最后按行相除。</text>
+<text class="os2" x="660" y="251">权重换成没除以 ℓ 的 e<tspan dy="-5" font-size="72%">S</tspan><tspan dy="3" font-size="58%">ij</tspan><tspan dy="-3" font-size="72%"> − m</tspan><tspan dy="5">，</tspan></text>
+<text class="os2" x="660" y="269">结果是 Õ。</text>
+<line x1="8" y1="332" x2="852" y2="332" stroke="currentColor" stroke-opacity=".14"/>
+<text class="os2-m" x="16" y="390">O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> = Õ / ℓ</tspan></text>
+<rect x="262" y="344" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="278" y="344" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="294" y="344" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="262" y="360" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="278" y="360" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="294" y="360" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="262" y="376" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="278" y="376" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="294" y="376" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="262" y="392" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="278" y="392" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="294" y="392" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="260.5" y="358.5" width="51" height="19" rx="2" fill="currentColor" fill-opacity=".2" stroke="none"/>
+<text class="os2" x="286" y="423" text-anchor="middle">O<tspan dy="3.5" font-size="72%">i</tspan></text>
+<text class="os2-m" x="322" y="381">=</text>
+<rect x="335.2" y="344" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="351.2" y="344" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="367.2" y="344" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="335.2" y="360" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="351.2" y="360" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="367.2" y="360" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="335.2" y="376" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="351.2" y="376" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="367.2" y="376" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="335.2" y="392" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="351.2" y="392" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="367.2" y="392" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="333.7" y="358.5" width="51" height="19" rx="2" fill="currentColor" fill-opacity=".2" stroke="none"/>
+<text class="os2" x="359.2" y="423" text-anchor="middle">Õ</text>
+<text class="os2-m" x="395.2" y="381">÷</text>
+<rect x="408.4" y="344" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
+<rect x="408.4" y="360" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
+<rect x="408.4" y="376" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
+<rect x="408.4" y="392" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
+<rect x="406.9" y="358.5" width="19" height="19" rx="2" fill="currentColor" fill-opacity=".2" stroke="none"/>
+<text class="os2" x="416.4" y="423" text-anchor="middle">ℓ</text>
+<text class="os2" x="660" y="380">Õ 的第 r 行除以 ℓ 的第 r 个数</text>
+<text class="os2" x="660" y="398">（图 1-1 (c)），就是 O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5">。</tspan></text>
 </svg>
 <figcaption><strong>图 1-6</strong> 把分母提出来，画法同<a href="#fig-1-1">图 1-1</a> (b)：$V_j$ 乘 $P$ 第 $i$ 个 block 行的第 $j$ 个 block，加起来是 $O_i$；同一行的分母都是 $\ell$，提到外面以后 $O_i = \tilde O / \ell$。</figcaption>
 </figure>
