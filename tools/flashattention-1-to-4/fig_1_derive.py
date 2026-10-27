@@ -150,12 +150,12 @@ def seq(F, x, y, parts, cs, hl=None):
             kind, r, c, name = p[:4]
             x1 = F.mat(x, y, r, c, kind, cs, name, hl=hl)
             if len(p) > 4:                    # 名字下面再标一行：上一轮留下的 / 留到下一轮
-                F.T('os2-s', (x + x1) / 2, y + r * cs + 32, p[4], 'middle', 'opacity: 1; fill: var(--fig-1); font-weight: 600' if '下一轮' in p[4] else '')
+                F.T('os2-s', (x + x1) / 2, y + r * cs + 32, p[4], 'middle', 'opacity: 1; fill: var(--fig-1); font-weight: 600' if p[4].startswith('→') else '')
             x = x1 + 10
     return x
 
 FIGS = {}
-LEG = [('state', '状态：留到下一个 tile'), ('tmp', '临时：这一轮用完就丢'), ('fac', '修正因子（临时）'), ('new', '这一轮从 HBM 读的'), ('row', '同一行（一个 query）')]
+LEG = [('state', '状态：留在片上，给下一个 block 用'), ('tmp', '临时：这个 block 用完就丢'), ('fac', '修正因子（临时）'), ('new', '这一轮从 HBM 读的'), ('row', '同一行（一个 query）')]
 
 # ===================== 图 1-2：按定义算 softmax（不分 block） =====================
 NC, CW2 = 8, 36
@@ -207,13 +207,13 @@ FIGS['fig-1-3'] = rows('fig-1-3', [
 CS = 16
 FIGS['fig-1-4'] = rows('fig-1-4', [
     (92, ['m_{j} = max(m_{j−1}, rowmax(S_{ij}))'],
-     lambda F, x, y: seq(F, x, y, [('state', 4, 1, 'm_{j}', '→ 下一轮'), '=', 'max(', ('state', 4, 1, 'm_{j−1}', '上一轮的'), ',', 'rowmax(', ('tmp', 4, 4, 'S_{ij}'), '))'], CS, 1),
+     lambda F, x, y: seq(F, x, y, [('state', 4, 1, 'm_{j}', '→ 给 j + 1 用'), '=', 'max(', ('state', 4, 1, 'm_{j−1}', '来自 j − 1'), ',', 'rowmax(', ('tmp', 4, 4, 'S_{ij}'), '))'], CS, 1),
      ['每行取旧最大值和新 block 最大值', '中大的那个。']),
     (82, ['P̃_{ij} = exp(S_{ij} − m_{j})'],
      lambda F, x, y: seq(F, x, y, [('tmp', 4, 4, 'P̃_{ij}'), '=', 'exp(', ('tmp', 4, 4, 'S_{ij}'), '−', ('state', 4, 1, 'm_{j}'), ')'], CS, 1),
      ['每行减去自己的 m_{j} 再取 exp。']),
     (92, ['ℓ_{j} = «e^{m_{j−1} − m_{j}}» ℓ_{j−1}', '        + rowsum(P̃_{ij})'],
-     lambda F, x, y: seq(F, x, y, [('state', 4, 1, 'ℓ_{j}', '→ 下一轮'), '=', ('fac', 4, 1, '«e^{m_{j−1} − m_{j}}»'), '·', ('state', 4, 1, 'ℓ_{j−1}', '上一轮的'), '+', 'rowsum(', ('tmp', 4, 4, 'P̃_{ij}'), ')'], CS, 1),
+     lambda F, x, y: seq(F, x, y, [('state', 4, 1, 'ℓ_{j}', '→ 给 j + 1 用'), '=', ('fac', 4, 1, '«e^{m_{j−1} − m_{j}}»'), '·', ('state', 4, 1, 'ℓ_{j−1}', '来自 j − 1'), '+', 'rowsum(', ('tmp', 4, 4, 'P̃_{ij}'), ')'], CS, 1),
      ['旧的和乘«修正因子»换到新最大值，', '加上新 block 每行的和。']),
 ], '第 j 轮 m 和 ℓ 的更新，B_q 等于 4。m_j 等于 m_{j−1} 和 S_ij 每行最大值中大的那个；P̃_ij 等于 S_ij 每行减去 m_j 的对应数再取 exp；ℓ_j 等于修正因子乘 ℓ_{j−1} 加上 P̃_ij 每行之和。红框标出同一行', LEG)
 
@@ -277,7 +277,7 @@ FIGS['fig-1-7'] = rows('fig-1-7', [
      acc([('res', f'e^{{S_{{i{j}}} − m}}') for j in range(1, 5)], ['', '', '', ''], 'Õ'),
      ['扫完以后每一格都按整行的 m 算，', '就是图 1-6 第二行的 Õ。']),
     (88, ['Õ_{j} = diag(«e^{m_{j−1} − m_{j}}») Õ_{j−1}', '        + P̃_{ij} V_{j}'],
-     lambda F, x, y: seq(F, x, y, [('state', 4, 3, 'Õ_{j}', '→ 下一轮'), '=', 'diag(', ('fac', 4, 1, '«e^{m_{j−1} − m_{j}}»'), ')', ('state', 4, 3, 'Õ_{j−1}', '上一轮的'), '+', ('tmp', 4, 4, 'P̃_{ij}'), ('new', 4, 3, 'V_{j}')], 14, 1),
+     lambda F, x, y: seq(F, x, y, [('state', 4, 3, 'Õ_{j}', '→ 给 j + 1 用'), '=', 'diag(', ('fac', 4, 1, '«e^{m_{j−1} − m_{j}}»'), ')', ('state', 4, 3, 'Õ_{j−1}', '来自 j − 1'), '+', ('tmp', 4, 4, 'P̃_{ij}'), ('new', 4, 3, 'V_{j}')], 14, 1),
      ['一般的第 j 轮：旧的 Õ 第 r 行乘第 r 个', '«修正因子»（图 1-1 (c)），再加 P̃_{ij} V_{j}。']),
 ], 'Õ 一个 block 一个 block 地累加，画法同图 1-6。第 1 轮只有第 1 个 block，按 m_1 算。第 2 轮旧的一项乘 e 的 m_1 减 m_2 次方，换成按 m_2 算，再加第 2 个 block。扫完以后每一项都按整行的最大值 m 算，就是图 1-6 的 Õ。最后一行是一般的第 j 轮，写成矩阵形式', LEG)
 
