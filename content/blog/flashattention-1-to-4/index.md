@@ -21,6 +21,15 @@ series_order: 4
 .fa-step span{display:block}
 .fa-step span+span{margin-top:.45em;color:var(--fig-1)}
 @media (max-width:640px){.article-content figure{overflow-x:auto}.article-content figure>svg{min-width:520px}}
+.fa-algo{margin:1.4em 0;padding:.9em 1.1em;border-radius:12px;border:1px solid rgba(128,128,128,.3);background:color-mix(in srgb,var(--fig-3) 14%,transparent);font-size:.92em;line-height:1.75}
+.fa-algo-h{font-weight:600;padding-bottom:.35em;margin-bottom:.35em;border-bottom:1px solid rgba(128,128,128,.25)}
+.fa-algo ol{margin:.2em 0 0;padding-left:2.4em}
+.fa-algo li::marker{color:var(--fig-mute);font-size:.85em}
+.fa-algo li.i1{padding-left:1.6em}.fa-algo li.i2{padding-left:3.2em}
+.fa-algo .kw{font-weight:700;color:var(--fig-1)}
+.fa-algo .hbm{display:inline-block;font-size:.72em;line-height:1.5;padding:0 .45em;border-radius:4px;background:color-mix(in srgb,var(--fig-1) 22%,transparent);color:var(--fig-1);font-weight:600;margin-right:.45em;vertical-align:.12em}
+.fa-algo .ref{float:right;font-size:.8em;opacity:.75;margin-left:1em}
+.fa-algo .cont{display:block;padding-left:3.4em}
 </style>
 
 > **前置阅读：**[GPU 与 Triton 入门](/blog/gpu-triton-intro/)讲 GPU 的存储层级和 Triton 基础；[单卡 GPU 优化方法](/blog/gpu-single-gpu-optimization/)讲单卡上常用的优化方法：divergence、低精度、fusion、recomputation、coalescing、bank conflict、tiling；[谁偷走了 5090 的算力和显存](/blog/gpu-training-analysis/)讲 FLOPs、算术强度、roofline 模型和峰值显存，并在 RTX 5090 上实测了标准 attention 的运行时间和激活显存为什么都由 $N\times N$ 的 score 矩阵主导。这篇就从这两个问题出发。
@@ -1223,35 +1232,33 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 <figcaption><strong>图 1-8</strong> 按 Triton program 看的 tiling，画法同 GPU 与 Triton 入门的<a href="/blog/gpu-triton-intro/#fig-o-1">图 2-1</a>，循环顺序按 FA2，下标按 Triton 从 0 数。$i = 2$ 的 program 读 $Q$ 的第 2 个 block，沿 $j$ 依次读 $K$、$V$ 的 block，$S$ 只在片上算，乘 $V$ 以后累加进 $O$ 的第 2 个 block。causal 时对角线右上方的 block 整块跳过。</figcaption>
 </figure>
 
-```
-Algorithm 1  FlashAttention-2 forward pass
-Require: HBM 里的 Q, K, V ∈ ℝ^(N×d)，block 大小 B_q, B_k
- 1: 把 Q 切成 T_q = ⌈N/B_q⌉ 个 block Q_1 … Q_Tq，每个 B_q × d；
-    把 K、V 切成 T_k = ⌈N/B_k⌉ 个 block K_1 … K_Tk 和 V_1 … V_Tk，每个 B_k × d
- 2: 把输出 O ∈ ℝ^(N×d) 切成 T_q 个 block O_1 … O_Tq，每个 B_q × d；
-    把 logsumexp L 切成 T_q 个 block L_1 … L_Tq，每个长 B_q
- 3: for 1 ≤ i ≤ T_q do
- 4:     从 HBM 读 Q_i 到片上 SRAM
- 5:     片上初始化 Õ_i^(0) = 0 ∈ ℝ^(B_q×d)，ℓ_i^(0) = 0 ∈ ℝ^(B_q)，m_i^(0) = −∞ ∈ ℝ^(B_q)
- 6:     for 1 ≤ j ≤ T_k do
- 7:         从 HBM 读 K_j、V_j 到片上 SRAM
- 8:         片上算 S_i^(j) = Q_i K_jᵀ ∈ ℝ^(B_q×B_k)
- 9:         片上算 m_i^(j) = max(m_i^(j−1), rowmax(S_i^(j)))，
-                   P̃_i^(j) = exp(S_i^(j) − m_i^(j))（逐元素），
-                   ℓ_i^(j) = e^(m_i^(j−1) − m_i^(j)) · ℓ_i^(j−1) + rowsum(P̃_i^(j))
-10:         片上算 Õ_i^(j) = diag(e^(m_i^(j−1) − m_i^(j))) · Õ_i^(j−1) + P̃_i^(j) V_j
-11:     end for
-12:     片上算 O_i = diag(ℓ_i^(T_k))⁻¹ · Õ_i^(T_k)
-13:     片上算 L_i = m_i^(T_k) + log(ℓ_i^(T_k))
-14:     把 O_i 写回 HBM，作为 O 的第 i 个 block
-15:     把 L_i 写回 HBM，作为 L 的第 i 个 block
-16: end for
-17: 返回 O 和 L
-```
+<div class="fa-algo">
+<div class="fa-algo-h">Algorithm 1　FlashAttention-2 forward pass</div>
+<div><b>Require:</b> HBM 里的 $Q, K, V \in \mathbb{R}^{N\times d}$，block 大小 $B_q$、$B_k$</div>
+<ol>
+<li>把 $Q$ 切成 $T_q = \lceil N/B_q \rceil$ 个 block $Q_1, \dots, Q_{T_q}$，每个 $B_q\times d$；把 $K$、$V$ 切成 $T_k = \lceil N/B_k \rceil$ 个 block $K_1, \dots, K_{T_k}$ 和 $V_1, \dots, V_{T_k}$，每个 $B_k\times d$</li>
+<li>把输出 $O \in \mathbb{R}^{N\times d}$ 切成 $T_q$ 个 block $O_1, \dots, O_{T_q}$，每个 $B_q\times d$；把 logsumexp $L$ 切成 $T_q$ 个 block $L_1, \dots, L_{T_q}$，每个长 $B_q$</li>
+<li><span class="kw">for</span> $1 \le i \le T_q$ <span class="kw">do</span></li>
+<li class="i1"><span class="hbm">HBM</span>从 HBM 读 $Q_i$ 到片上 SRAM</li>
+<li class="i1">片上初始化 $\tilde O_i^{(0)} = 0 \in \mathbb{R}^{B_q\times d}$，$\ell_i^{(0)} = 0 \in \mathbb{R}^{B_q}$，$m_i^{(0)} = -\infty \in \mathbb{R}^{B_q}$</li>
+<li class="i1"><span class="kw">for</span> $1 \le j \le T_k$ <span class="kw">do</span></li>
+<li class="i2"><span class="hbm">HBM</span>从 HBM 读 $K_j$、$V_j$ 到片上 SRAM</li>
+<li class="i2"><span class="ref"><a href="#fig-1-1">图 1-1</a> (a)</span>片上算 $S_i^{(j)} = Q_i K_j^\top \in \mathbb{R}^{B_q\times B_k}$</li>
+<li class="i2"><span class="ref"><a href="#fig-1-4">图 1-4</a></span>片上算 $m_i^{(j)} = \max\big(m_i^{(j-1)}, \mathrm{rowmax}(S_i^{(j)})\big)$，<span class="cont">$\tilde P_i^{(j)} = \exp\big(S_i^{(j)} - m_i^{(j)}\big)$（逐元素），</span><span class="cont">$\ell_i^{(j)} = \textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}\,\ell_i^{(j-1)} + \mathrm{rowsum}\big(\tilde P_i^{(j)}\big)$</span></li>
+<li class="i2"><span class="ref"><a href="#fig-1-7">图 1-7</a></span>片上算 $\tilde O_i^{(j)} = \mathrm{diag}\big(\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}\big)\,\tilde O_i^{(j-1)} + \tilde P_i^{(j)} V_j$</li>
+<li class="i1"><span class="kw">end for</span></li>
+<li class="i1"><span class="ref"><a href="#fig-1-6">图 1-6</a></span>片上算 $O_i = \mathrm{diag}\big(\ell_i^{(T_k)}\big)^{-1}\,\tilde O_i^{(T_k)}$</li>
+<li class="i1">片上算 $L_i = m_i^{(T_k)} + \log \ell_i^{(T_k)}$</li>
+<li class="i1"><span class="hbm">HBM</span>把 $O_i$ 写回 HBM，作为 $O$ 的第 $i$ 个 block</li>
+<li class="i1"><span class="hbm">HBM</span>把 $L_i$ 写回 HBM，作为 $L$ 的第 $i$ 个 block</li>
+<li><span class="kw">end for</span></li>
+<li>返回 $O$ 和 $L$</li>
+</ol>
+</div>
 
 论文第 10 行没有波浪号，而且 $\mathrm{diag}(\cdot)$ 后面多写了 $^{-1}$，按论文 3.1.1 节的推导应该没有。
 
-第 8 行对应图 1-1 (a)，第 9 行对应图 1-4，第 10 行对应图 1-7，第 12 行按行除以 $\ell$。$K_j$、$V_j$ 只在第 7 行读一次，$S$ 和 $\tilde P$ 不离开片上。第 13 行的 $L_i = m + \log \ell$ 留给反向重算 $P$，$P_{ij} = e^{S_{ij} - L_i}$，额外显存是 $O(N)$。
+右边标的是每一行对应的图；红色是修正因子，标 HBM 的四行是全部的显存读写。$K_j$、$V_j$ 只在第 7 行读一次，$S$ 和 $\tilde P$ 不离开片上。第 13 行的 $L_i = m + \log \ell$ 留给反向重算 $P$，$P_{ij} = e^{S_{ij} - L_i}$，额外显存是 $O(N)$。
 
 causal 时对角线右上方的 block 整块跳过，对角线上的 block 在块内 mask，论文测得快 1.7–1.8 倍。[图 1-9](#fig-1-9) 是 Triton 里一个 program 的执行，①–⑤ 对应第 9、10 行。
 
