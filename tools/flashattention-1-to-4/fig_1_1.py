@@ -84,7 +84,7 @@ T('os2-b', 330, 240, 'o = v_{1} · P_{:,1} + v_{2} · P_{:,2} + v_{3} · P_{:,3}
 
 LABEL = ("(a) 列向量 q 乘行向量 k 转置等于 3 乘 4 的矩阵 S，箭头从 k 的每个元素 k_j 指向 q，S 的第 j 列等于 k_j 乘 q。"
          "(b) 3 乘 4 的矩阵 P 乘 4 乘 1 的列向量 v 等于 3 乘 1 的列向量 o，箭头从 v 的每个元素 v_j 指向 P 的第 j 列，o 等于 v_j 乘 P 第 j 列之和。"
-         "格子换成 block 就是图 1-2：(a) 是 S_ij = Q_i K_j 转置，(b) 是 O_i 等于 P_ij V_j 之和。颜色和图 1-2 一样。")
+         "格子换成 block：(a) 是 S_ij = Q_i K_j 转置，(b) 是 O_i 等于 P_ij V_j 之和。")
 svg = (f'<figure id="{FID}">\n<svg viewBox="0 0 680 252" width="100%" role="img" aria-label="{LABEL}">\n'
        '  <style>\n    .os2 { font-size: 11px; fill: currentColor; }\n    .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }\n'
        '    .os2-s { font-size: 10.5px; fill: currentColor; opacity: .72; }\n  </style>\n'
@@ -101,5 +101,5 @@ if __name__ == '__main__':
     assert n == 1
     s = re.sub(r'(<figcaption><strong>图 1-1</strong>)(.*?)(</figcaption>)', lambda m: m.group(1) +
 
-        ' 两种看矩阵乘法的方式；格子换成 block 就是<a href="#fig-1-2">图 1-2</a>的两次乘法，配色也相同。' + m.group(3), s, count=1, flags=re.S)
+        r' 两种看矩阵乘法的方式；格子换成 block 就是 $S_{ij} = Q_iK_j^\top$ 和 $O_i = \sum_j P_{ij}V_j$，配色和后面的图相同。' + m.group(3), s, count=1, flags=re.S)
     open(p, 'w').write(s)
