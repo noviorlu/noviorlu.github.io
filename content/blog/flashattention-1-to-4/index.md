@@ -284,19 +284,25 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 
 ### 1.2 Online softmax {#online-softmax}
 
-online softmax（Milakov 和 Gimelshein 2018）的核心是把一行的两段合并。一段 A 的最大值和分母是
+online softmax（Milakov 和 Gimelshein 2018）的办法是把一行分成几段，每段各自算出最大值和分母，再两两合并。一段 A 的最大值和分母是
 
 <p align="center">$m_A = \max_{k \in A} s_k, \qquad \ell_A = \sum_{k \in A} e^{s_k - m_A}$</p>
 
-两段 A、B 合起来是
+两段 A、B 合起来，最大值取两段里大的那个，分母是两段的分母各乘一个修正因子再相加：
 
-<p align="center">$m = \max(m_A, m_B), \qquad \ell = \ell_A\, e^{m_A - m} + \ell_B\, e^{m_B - m}$</p>
+<p align="center">$m = \max(m_A, m_B), \qquad \ell = e^{m_A - m}\, \ell_A + e^{m_B - m}\, \ell_B$</p>
 
-放到 block 上，固定第 $i$ 个 query block。每读进一个 $K_j$，A 是前 $j-1$ 个 block，记作 $(m_{j-1}, \ell_{j-1})$；B 是第 $j$ 个 block，$m_B = \mathrm{rowmax}(S_{ij})$，$\ell_B = \mathrm{rowsum}(e^{S_{ij} - m_B})$；合并的结果记作 $(m_j, \ell_j)$，$m_0 = -\infty$，$\ell_0 = 0$。这里的 $m$、$\ell$ 都是长度 $B_q$ 的向量，一行一个数。$\ell_B$ 乘上 $e^{m_B - m_j}$ 正好是 $\mathrm{rowsum}(e^{S_{ij} - m_j})$，记 $\tilde P_{ij} = e^{S_{ij} - m_j}$，合并公式就变成
+修正因子的作用是换最大值。$\ell_A$ 里的每一项都是按 A 段自己的最大值算的 $e^{s_k - m_A}$，乘上 $e^{m_A - m}$ 就变成 $e^{s_k - m}$，是按合并后的最大值算的；B 段同理。两段都换到同一个 $m$ 以后直接相加，就是按定义算的整行分母。严格的证明在下面的 notes 里。
+
+放到 block 上，固定第 $i$ 个 query block，一次读进一个 $K_j$。$S_{ij}$ 的每一行是这一行 score 里的一段，所以 $m$、$\ell$ 都是长度 $B_q$ 的向量，一行一个数。读到第 $j$ 个 block 时，A 是已经合并好的前 $j-1$ 个 block，记作 $(m_{j-1}, \ell_{j-1})$；B 是新读进来的第 $j$ 个 block，$m_B = \mathrm{rowmax}(S_{ij})$，$\ell_B = \mathrm{rowsum}(e^{S_{ij} - m_B})$；合并的结果记作 $(m_j, \ell_j)$。代进合并公式，B 段那一项可以化简：
+
+<p align="center">$e^{m_B - m_j}\, \ell_B = e^{m_B - m_j}\, \mathrm{rowsum}\big(e^{S_{ij} - m_B}\big) = \mathrm{rowsum}\big(e^{S_{ij} - m_j}\big)$</p>
+
+也就是说，新 block 不用先按自己的最大值算一遍再修正，直接用 $m_j$ 算指数就行。这个矩阵记作 $\tilde P_{ij} = e^{S_{ij} - m_j}$（逐元素），是还没除以分母的 softmax。合并公式就变成
 
 <p align="center">$m_j = \max\big(m_{j-1},\, \mathrm{rowmax}(S_{ij})\big), \qquad \tilde P_{ij} = e^{S_{ij} - m_j}, \qquad \ell_j = e^{m_{j-1} - m_j}\, \ell_{j-1} + \mathrm{rowsum}(\tilde P_{ij})$</p>
 
-扫完 $j = T_k$，$m_{T_k}$、$\ell_{T_k}$ 就是整行的 $m$、$\ell$。这三个式子是 Algorithm 1 的第 9 行，推导和证明见下面的 notes。
+初值是 $m_0 = -\infty$，$\ell_0 = 0$。$\ell_j$ 的第一项是旧的和换到新的最大值，最大值没变时修正因子是 1；第二项是新 block 的贡献。扫完 $j = T_k$，$m_{T_k}$、$\ell_{T_k}$ 就是整行的 $m$、$\ell$。这三个式子是 Algorithm 1 的第 9 行。从按定义写的 softmax 一步一步推到这里的过程，在下面的 notes 里。
 
 <details class="fold doc aside">
 <summary>第 1 到第 4 步：从 naive softmax 到 online softmax 和并行</summary>
