@@ -380,7 +380,7 @@ ALGO = {
         ('row', 470, 'V', QL('V', 'T_{k}'), 'vV', ['和 K 一样切', '每个 B_{k} × d（横放）'])]),
     'algo-l2': algo_svg('algo-l2', [
         (44, 'O', QL('O', 'T_{q}'), 'vO', UD, ['输出，和 Q 一样切', '每个 B_{q} × d']),
-        (290, 'L', QL('L', 'T_{q}'), 'vL', UV, ['L = m + log ℓ（logsumexp），T_{q} 段', '每段长 B_{q}；第 13 行算出，给反向用'])]),
+        (290, 'L', QL('L', 'T_{q}'), 'vL', UV, ['L = m + log ℓ（logsumexp），T_{q} 段', '每段长 B_{q}；第 14 行算出，给反向用'])]),
 }
 
 if __name__ == '__main__':

@@ -27,6 +27,7 @@ series_order: 4
 .fa-algo li::marker{color:var(--fig-mute);font-size:.85em}
 .fa-algo li.i1{padding-left:1.6em}.fa-algo li.i2{padding-left:3.2em}
 .fa-algo .kw{font-weight:700;color:var(--fig-1)}
+.fa-algo .cz{display:inline-block;font-size:.72em;line-height:1.5;padding:0 .45em;border-radius:4px;background:color-mix(in srgb,var(--fig-hi) 18%,transparent);color:var(--fig-hi);font-weight:600;margin-right:.45em;vertical-align:.12em}
 .fa-algo .hbm{display:inline-block;font-size:.72em;line-height:1.5;padding:0 .45em;border-radius:4px;background:color-mix(in srgb,var(--fig-1) 22%,transparent);color:var(--fig-1);font-weight:600;margin-right:.45em;vertical-align:.12em}
 .fa-algo .ref{float:right;font-size:.8em;opacity:.75;margin-left:1em}
 .fa-algo .b{--c:var(--fig-mute);display:inline-block;vertical-align:-.22em;margin:0 .14em 0 .3em;border:1px solid var(--c);background:color-mix(in srgb,var(--c) 18%,transparent);box-sizing:border-box}
@@ -1132,7 +1133,7 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 
 ### 1.3 FlashAttention-2 的 Algorithm 1 {#fa-algorithm}
 
-把这三个递推放进两层循环，外层走 $i$，内层走 $j$，就是 FlashAttention-2 论文的 Algorithm 1（[图 1-8](#fig-1-8)）。causal 时对角线右上方的 block 整块跳过，论文测得比不带 mask 快 1.7–1.8 倍；对角线穿过的 block 在算 rowmax 之前，把 key 下标大于 query 下标的位置设成 $-\infty$，第 $r$ 行第 $c$ 列比较的是 $iB_q + r$ 和 $jB_k + c$，exp 以后这些位置是 0，不进 $\ell$ 和 $\tilde O$（图 1-8 的对角线和下方的放大）。下面照抄，$m_i^{(j)}$ 是 1.2 的 $m_j$，$1/\sqrt d$ 已乘进 $Q$。算法里还多了一个 $L$：每行的 logsumexp $L = m + \log\ell$，扫完以后算出来写回 HBM，留给反向用，反向重算 $P$ 时直接 $P_{ij} = e^{S_{ij} - L_i}$，不用再存 $m$ 和 $\ell$。
+把这三个递推放进两层循环，外层走 $i$，内层走 $j$，就是 FlashAttention-2 论文的 Algorithm 1（[图 1-8](#fig-1-8)）。causal 时对角线右上方的 block 整块跳过，论文测得比不带 mask 快 1.7–1.8 倍；对角线穿过的 block 在算 rowmax 之前，把 key 下标大于 query 下标的位置设成 $-\infty$，第 $r$ 行第 $c$ 列比较的是 $iB_q + r$ 和 $jB_k + c$，exp 以后这些位置是 0，不进 $\ell$ 和 $\tilde O$（图 1-8 的对角线和下方的放大）。下面照抄，causal 多出来的两处标了 causal，$m_i^{(j)}$ 是 1.2 的 $m_j$，$1/\sqrt d$ 已乘进 $Q$。算法里还多了一个 $L$：每行的 logsumexp $L = m + \log\ell$，扫完以后算出来写回 HBM，留给反向用，反向重算 $P$ 时直接 $P_{ij} = e^{S_{ij} - L_i}$，不用再存 $m$ 和 $\ell$。
 
 <figure id="fig-1-8" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 452" width="100%" role="img" aria-label="FlashAttention 的 tiling，按 Triton program 看：i = 2 的 program 读 Q 的第 2 个 block，沿 j 依次读 K、V 的 block，S 只在片上算，乘 V 以后累加进 O 的第 2 个 block，最后写回；causal 时对角线右上的 block 跳过。causal 时每个 Q block 一个 program，各自算的 block 数不同：对角线右上方的 block 整块跳过，对角线上的 block 部分 mask。右边放大了 pid_i = 2 的两个部分 mask 的 block。">
@@ -1492,14 +1493,15 @@ causal mask 管的是一对 (query, key)，也就是 $S$ 的一个元素，不�
 <rect x="290" y="105" width="6" height="26" rx="1.5" style="fill: color-mix(in srgb, var(--fig-mute) 20%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
 <text class="os2-s" x="286" y="122" text-anchor="end" style="opacity: 1">L<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">q</tspan></text>
 <text class="os2" x="306" y="48">L = m + log ℓ（logsumexp），T<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> 段</tspan></text>
-<text class="os2-s" x="306" y="66">每段长 B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5">；第 13 行算出，给反向用</tspan></text>
+<text class="os2-s" x="306" y="66">每段长 B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5">；第 14 行算出，给反向用</tspan></text>
 </svg></li>
 <li><span class="kw">for</span> $1 \le i \le T_q$ <span class="kw">do</span></li>
 <li class="i1"><span class="hbm">HBM</span>从 HBM 读 <span class="b h qd vQ"></span>$Q_i$ 到片上 SRAM</li>
 <li class="i1">片上初始化 <span class="b s qd"></span>$\tilde O_i^{(0)}$ $= 0$，<span class="b s vec"></span>$\ell_i^{(0)}$ $= 0$，<span class="b s vec"></span>$m_i^{(0)}$ $= -\infty$</li>
-<li class="i1"><span class="kw">for</span> $1 \le j \le T_k$ <span class="kw">do</span></li>
+<li class="i1"><span class="kw">for</span> $1 \le j \le T_k$ <span class="kw">do</span><span class="cont"><span class="cz">causal</span>$j$ 只走到 $\lceil iB_q / B_k \rceil$，对角线右上方的 block 整块跳过（<a href="#fig-1-8">图 1-8</a>）</span></li>
 <li class="i2"><span class="hbm">HBM</span>从 HBM 读 <span class="b h kd vK"></span>$K_j$、<span class="b h kd vV"></span>$V_j$ 到片上 SRAM</li>
 <li class="i2"><span class="ref"><a href="#fig-1-1">图 1-1</a> (a)</span>片上算 <span class="b t qk"></span>$S_i^{(j)}$ $=$ <span class="b h qd vQ"></span>$Q_i$ <span class="b h kt vK"></span>$K_j^\top$</li>
+<li class="i2"><span class="ref"><a href="#fig-1-9">图 1-9</a></span><span class="cz">causal</span>对角线穿过的 block：<span class="b t qk"></span>$S_i^{(j)}$ 第 $r$ 行第 $c$ 列在 $(j-1)B_k + c > (i-1)B_q + r$ 时设成 $-\infty$（$r$、$c$ 从 1 数，左边是 key 下标，右边是 query 下标）</li>
 <li class="i2"><span class="ref"><a href="#fig-1-4">图 1-4</a></span>片上算 <span class="b s vec"></span>$m_i^{(j)}$ $= \max\big($ <span class="b s vec"></span>$m_i^{(j-1)}$, $\mathrm{rowmax}($ <span class="b t qk"></span>$S_i^{(j)}$ $)\big)$，<span class="cont"><span class="b t qk"></span>$\tilde P_i^{(j)}$ $= \exp\big($ <span class="b t qk"></span>$S_i^{(j)}$ $-$ <span class="b s vec"></span>$m_i^{(j)}$ $\big)$，</span><span class="cont"><span class="b s vec"></span>$\ell_i^{(j)}$ $=$ <span class="b t vec"></span>$\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}$ <span class="b s vec"></span>$\ell_i^{(j-1)}$ $+\ \mathrm{rowsum}($ <span class="b t qk"></span>$\tilde P_i^{(j)}$ $)$</span></li>
 <li class="i2"><span class="ref"><a href="#fig-1-7">图 1-7</a></span>片上算 <span class="b s qd"></span>$\tilde O_i^{(j)}$ $= \mathrm{diag}($ <span class="b t vec"></span>$\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}$ $)$ <span class="b s qd"></span>$\tilde O_i^{(j-1)}$ $+$ <span class="b t qk"></span>$\tilde P_i^{(j)}$ <span class="b h kd vV"></span>$V_j$</li>
 <li class="i1"><span class="kw">end for</span></li>
@@ -1525,7 +1527,7 @@ causal mask 管的是一对 (query, key)，也就是 $S$ 的一个元素，不�
 
 FlashAttention-2（Dao，2023）最要紧的改动有三处。
 
-1. **减少非 matmul 的 FLOPs。** 非 matmul 的计算（exp、行最大值和行和、rescale 的乘法）跑在 FP32 ALU 和特殊函数单元上，不走 Tensor core。A100 的 FP32 算力是 1.95e13 FLOPS，FP16 matmul 是 3.12e14 FLOPS，所以每个非 matmul 的 FLOP 大约贵 16 倍。v1 每一步都让输出保持归一化，除了免不掉的 $\exp(m_{\text{old}}-m_{\text{new}})$ 修正，还要再除以当前的累计和。FA2 的累加器不做归一化，每个 block 只乘 $\exp(m_{\text{old}}-m_{\text{new}})$ 这一项修正，最后才除一次 $\ell$（即 [Algorithm 1](#fa-algorithm) 第 12 行）；给反向存的也只有每行一个 logsumexp $L=m+\log\ell$，不再把 $m$ 和 $\ell$ 都存下来。
+1. **减少非 matmul 的 FLOPs。** 非 matmul 的计算（exp、行最大值和行和、rescale 的乘法）跑在 FP32 ALU 和特殊函数单元上，不走 Tensor core。A100 的 FP32 算力是 1.95e13 FLOPS，FP16 matmul 是 3.12e14 FLOPS，所以每个非 matmul 的 FLOP 大约贵 16 倍。v1 每一步都让输出保持归一化，除了免不掉的 $\exp(m_{\text{old}}-m_{\text{new}})$ 修正，还要再除以当前的累计和。FA2 的累加器不做归一化，每个 block 只乘 $\exp(m_{\text{old}}-m_{\text{new}})$ 这一项修正，最后才除一次 $\ell$（即 [Algorithm 1](#fa-algorithm) 第 13 行）；给反向存的也只有每行一个 logsumexp $L=m+\log\ell$，不再把 $m$ 和 $\ell$ 都存下来。
 2. **交换内外层循环，在序列长度上并行。** v1 只在 (batch × head) 上并行。现在的序列长、每张卡上的 batch 小，这样分出的 thread block 可能不够占满 GPU 的 SM（[图 2-1](#fig-2-1)）。FA2 把 query block 的循环放到外层，各个行 block 之间互相独立：前向里每个 thread block 负责一个 query 行 block。反向里每个 thread block 负责一个 key/value 列 block，在本地累加自己的 $dK_j$、$dV_j$，$dQ$ 则用 atomic add 累加到一块共享的缓冲区里。
 
 <figure id="fig-2-1">
