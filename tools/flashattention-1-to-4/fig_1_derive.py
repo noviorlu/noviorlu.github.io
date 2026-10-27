@@ -121,10 +121,12 @@ def rows(fid, spec, label, leg=None):
         F.w(f'<line x1="8" y1="{y:g}" x2="{W - 8}" y2="{y:g}" stroke="currentColor" stroke-opacity=".14"/>')
         y += 12
         for n, t in enumerate(fm):
-            F.T('os2-m', FX, y + h / 2 - (len(fm) - 1) * 11 + n * 22 + 5, t)
+            if isinstance(t, tuple): F.T(t[2] if len(t) > 2 else 'os2-m', FX, y + t[0], t[1])
+            else: F.T('os2-m', FX, y + h / 2 - (len(fm) - 1) * 11 + n * 22 + 5, t)
         draw(F, DX, y)
         for n, t in enumerate(ex):
-            F.T('os2', EX, y + h / 2 - (len(ex) - 1) * 9 + n * 18 + 4, t)
+            if isinstance(t, tuple): F.T('os2', EX, y + t[0], t[1])
+            else: F.T('os2', EX, y + h / 2 - (len(ex) - 1) * 9 + n * 18 + 4, t)
         y += h + 12
     if leg:
         F.w(f'<line x1="8" y1="{y:g}" x2="{W - 8}" y2="{y:g}" stroke="currentColor" stroke-opacity=".14"/>')
@@ -279,20 +281,26 @@ def acc(cells, under, res_name):
         F.rect(vx + C6 + 28, py, C6 + 8, C6, 'state', res_name)
     return draw
 SK = ('skip', '')
+GEN7 = [('state', 4, 3, 'Õ_{j}', '→ 给 j + 1 用'), '=', ('diag', 4, 'diag(«e^{m_{j−1} − m_{j}}»)'), ('state', 4, 3, 'Õ_{j−1}', '来自 j − 1'), '+', ('tmp', 4, 4, 'P̃_{ij}'), ('new', 4, 3, 'V_{j}')]
+def step2(F, x, y):
+    acc([('res', 'e^{S_{i1} − m_{2}}'), ('tmp', 'e^{S_{i2} − m_{2}}'), SK, SK], ['«× e^{m_{1} − m_{2}}»', '', '还没读', '还没读'], 'Õ_{2}')(F, x, y)
+    F.arrow(x + 150, y + 112, x + 150, y + 140)              # 具体的 j = 2 → 一般的第 j 轮
+    F.T('os2-s', x + 158, y + 130, '一般的第 j 轮，写成矩阵', 'start', 'opacity: 1')
+    seq(F, x, y + 148, GEN7, 14, 1)
 FIGS['fig-1-7'] = rows('fig-1-7', [
     (128, ['Õ_{1} = e^{S_{i1} − m_{1}} V_{1}'],
      acc([('tmp', 'e^{S_{i1} − m_{1}}'), SK, SK, SK], ['', '还没读', '还没读', '还没读'], 'Õ_{1}'),
      ['只读了第 1 个 block，', '按它自己的最大值 m_{1} 算。']),
-    (128, ['Õ_{2} = «e^{m_{1} − m_{2}}» Õ_{1} + e^{S_{i2} − m_{2}} V_{2}'],
-     acc([('res', 'e^{S_{i1} − m_{2}}'), ('tmp', 'e^{S_{i2} − m_{2}}'), SK, SK], ['«× e^{m_{1} − m_{2}}»', '', '还没读', '还没读'], 'Õ_{2}'),
-     ['已经累加的部分乘«修正因子»，', '换成按 m_{2} 算，再加上第 2 个 block。']),
+    (238, [(69, 'Õ_{2} = «e^{m_{1} − m_{2}}» Õ_{1} + e^{S_{i2} − m_{2}} V_{2}'),
+           (130, '⇓ 换成一般的 j', 'os2-s'),
+           (178, 'Õ_{j} = diag(«e^{m_{j−1} − m_{j}}») Õ_{j−1}'), (200, '        + P̃_{ij} V_{j}')],
+     step2,
+     [(60, '已经累加的部分乘«修正因子»，'), (78, '换成按 m_{2} 算，再加上第 2 个 block。'),
+      (178, '同一个更新：旧的 Õ 第 r 行乘第 r 个'), (196, '«修正因子»（图 1-1 (c)），再加 P̃_{ij} V_{j}。')]),
     (128, ['扫完：Σ_{j} e^{S_{ij} − m} V_{j} = Õ'],
      acc([('res', f'e^{{S_{{i{j}}} − m}}') for j in range(1, 5)], ['', '', '', ''], 'Õ'),
      ['扫完以后每一格都按整行的 m 算，', '就是图 1-6 第二行的 Õ。']),
-    (88, ['Õ_{j} = diag(«e^{m_{j−1} − m_{j}}») Õ_{j−1}', '        + P̃_{ij} V_{j}'],
-     lambda F, x, y: seq(F, x, y, [('state', 4, 3, 'Õ_{j}', '→ 给 j + 1 用'), '=', ('diag', 4, 'diag(«e^{m_{j−1} − m_{j}}»)'), ('state', 4, 3, 'Õ_{j−1}', '来自 j − 1'), '+', ('tmp', 4, 4, 'P̃_{ij}'), ('new', 4, 3, 'V_{j}')], 14, 1),
-     ['一般的第 j 轮：旧的 Õ 第 r 行乘第 r 个', '«修正因子»（图 1-1 (c)），再加 P̃_{ij} V_{j}。']),
-], 'Õ 一个 block 一个 block 地累加，画法同图 1-6。第 1 轮只有第 1 个 block，按 m_1 算。第 2 轮旧的一项乘 e 的 m_1 减 m_2 次方，换成按 m_2 算，再加第 2 个 block。扫完以后每一项都按整行的最大值 m 算，就是图 1-6 的 Õ。最后一行是一般的第 j 轮，写成矩阵形式', LEG)
+], 'Õ 一个 block 一个 block 地累加，画法同图 1-6。第 1 轮只有第 1 个 block，按 m_1 算。第 2 轮旧的一项乘 e 的 m_1 减 m_2 次方，换成按 m_2 算，再加第 2 个 block；下面是同一个更新写成一般第 j 轮的矩阵形式。扫完以后每一项都按整行的最大值 m 算，就是图 1-6 的 Õ', LEG)
 
 if __name__ == '__main__':
     p = sys.argv[1]
