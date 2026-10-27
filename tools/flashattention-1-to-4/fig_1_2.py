@@ -316,7 +316,7 @@ for c, rows in enumerate(cols):
 H = yT + 104
 
 LABEL_TOP = ("FlashAttention 的 tiling，按 Triton program 看：i = 2 的 program 读 Q 的第 2 个 block，沿 j 依次读 K、V 的 block，"
-             "S 只在片上算，乘 V 以后累加进 O 的第 2 个 block，最后写回；causal 时对角线右上的 block 跳过。")
+             "S 只在 tile 里算，乘 V 以后累加进 O 的第 2 个 block，最后写回；causal 时对角线右上的 block 跳过。")
 LABEL_BOT = ("causal 时每个 Q block 一个 program，各自算的 block 数不同：对角线右上方的 block 整块跳过，对角线上的 block 部分 mask。"
              "右边放大了 pid_i = 2 的两个部分 mask 的 block。")
 defs = ''.join(m for _, m in MK.values())

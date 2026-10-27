@@ -603,15 +603,15 @@ online softmax（Milakov 和 Gimelshein 2018）把一行分段，各段按自己
 <text class="os2" x="660" y="321">加上新 block 每行的和。</text>
 <line x1="8" y1="366" x2="852" y2="366" stroke="currentColor" stroke-opacity=".14"/>
 <rect x="262" y="377" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
-<text class="os2-s" x="279" y="387">状态：留在片上，给下一个 block 用</text>
-<rect x="467.7" y="377" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
-<text class="os2-s" x="484.7" y="387">临时：这个 block 用完就丢</text>
-<rect x="631.4" y="377" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 22%, transparent); stroke: var(--fig-hi)" stroke-width="1" stroke-dasharray="3 2"/>
-<text class="os2-s" x="648.4" y="387">修正因子（临时）</text>
-<rect x="752.4" y="377" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-<text class="os2-s" x="769.4" y="387">这一轮从 HBM 读的</text>
-<rect x="875.4" y="377" width="12" height="12" rx="2" fill="currentColor" fill-opacity=".25"/>
-<text class="os2-s" x="892.4" y="387">同一行（一个 query）</text>
+<text class="os2-s" x="279" y="387">状态：留给下一个 block 用</text>
+<rect x="425.7" y="377" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="442.7" y="387">临时：这个 block 用完就丢</text>
+<rect x="589.4" y="377" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 22%, transparent); stroke: var(--fig-hi)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="606.4" y="387">修正因子（临时）</text>
+<rect x="710.4" y="377" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="727.4" y="387">这一轮从 HBM 读的</text>
+<rect x="833.4" y="377" width="12" height="12" rx="2" fill="currentColor" fill-opacity=".25"/>
+<text class="os2-s" x="850.4" y="387">同一行（一个 query）</text>
 </svg>
 <figcaption><strong>图 1-4</strong> 第 $j$ 轮 $m$、$\ell$ 的更新，$B_q = 4$。红框是同一行：每一行只和 $m_{j-1}$、$\ell_{j-1}$ 里自己的那个数运算。</figcaption>
 </figure>
@@ -1116,15 +1116,15 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 <text class="os2" x="660" y="531">就是图 1-6 第二行的 Õ。</text>
 <line x1="8" y1="594" x2="852" y2="594" stroke="currentColor" stroke-opacity=".14"/>
 <rect x="262" y="605" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
-<text class="os2-s" x="279" y="615">状态：留在片上，给下一个 block 用</text>
-<rect x="467.7" y="605" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
-<text class="os2-s" x="484.7" y="615">临时：这个 block 用完就丢</text>
-<rect x="631.4" y="605" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 22%, transparent); stroke: var(--fig-hi)" stroke-width="1" stroke-dasharray="3 2"/>
-<text class="os2-s" x="648.4" y="615">修正因子（临时）</text>
-<rect x="752.4" y="605" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-<text class="os2-s" x="769.4" y="615">这一轮从 HBM 读的</text>
-<rect x="875.4" y="605" width="12" height="12" rx="2" fill="currentColor" fill-opacity=".25"/>
-<text class="os2-s" x="892.4" y="615">同一行（一个 query）</text>
+<text class="os2-s" x="279" y="615">状态：留给下一个 block 用</text>
+<rect x="425.7" y="605" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="442.7" y="615">临时：这个 block 用完就丢</text>
+<rect x="589.4" y="605" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 22%, transparent); stroke: var(--fig-hi)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="606.4" y="615">修正因子（临时）</text>
+<rect x="710.4" y="605" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="727.4" y="615">这一轮从 HBM 读的</text>
+<rect x="833.4" y="605" width="12" height="12" rx="2" fill="currentColor" fill-opacity=".25"/>
+<text class="os2-s" x="850.4" y="615">同一行（一个 query）</text>
 </svg>
 <figcaption><strong>图 1-7</strong> $\tilde O$ 一个 block 一个 block 地累加，画法同<a href="#fig-1-6">图 1-6</a>：已经累加的部分乘修正因子换到新的最大值，再加上新 block；第 2 轮下面是同一个更新的矩阵形式，一般的第 $j$ 轮把 1、2 换成 $j-1$、$j$；扫完就是图 1-6 的 $\tilde O$。</figcaption>
 </figure>
@@ -1133,10 +1133,10 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 
 ### 1.3 FlashAttention-2 的 Algorithm 1 {#fa-algorithm}
 
-把这三个递推放进两层循环，外层走 $i$，内层走 $j$，就是 FlashAttention-2 论文的 Algorithm 1（[图 1-8](#fig-1-8)）。causal 时对角线右上方的 block 整块跳过，论文测得比不带 mask 快 1.7–1.8 倍；对角线穿过的 block 在算 rowmax 之前，把 key 下标大于 query 下标的位置设成 $-\infty$，第 $r$ 行第 $c$ 列比较的是 $iB_q + r$ 和 $jB_k + c$，exp 以后这些位置是 0，不进 $\ell$ 和 $\tilde O$（图 1-8 的对角线和下方的放大）。下面照抄，causal 多出来的两处标了 causal，$m_i^{(j)}$ 是 1.2 的 $m_j$，$1/\sqrt d$ 已乘进 $Q$。算法里还多了一个 $L$：每行的 logsumexp $L = m + \log\ell$，扫完以后算出来写回 HBM，留给反向用，反向重算 $P$ 时直接 $P_{ij} = e^{S_{ij} - L_i}$，不用再存 $m$ 和 $\ell$。
+把这三个递推放进两层循环，外层走 $i$，内层走 $j$，就是 FlashAttention-2 论文的 Algorithm 1（[图 1-8](#fig-1-8)）。causal 时对角线右上方的 block 整块跳过，论文测得比不带 mask 快 1.7–1.8 倍；对角线穿过的 block 在算 rowmax 之前，把 key 下标大于 query 下标的位置设成 $-\infty$，第 $r$ 行第 $c$ 列比较的是 $iB_q + r$ 和 $jB_k + c$，exp 以后这些位置是 0，不进 $\ell$ 和 $\tilde O$（图 1-8 的对角线和下方的放大）。下面照抄，causal 多出来的两处标了 causal，$m_i^{(j)}$ 是 1.2 的 $m_j$，$1/\sqrt d$ 已乘进 $Q$。算法里还多了一个 $L$：每行的 logsumexp $L = m + \log\ell$，扫完以后算出来写回 HBM，给 [1.4](#fa1-recompute) 的反向用。
 
 <figure id="fig-1-8" class="fg-fig">
-<svg class="fg" viewBox="0 0 640 452" width="100%" role="img" aria-label="FlashAttention 的 tiling，按 Triton program 看：i = 2 的 program 读 Q 的第 2 个 block，沿 j 依次读 K、V 的 block，S 只在片上算，乘 V 以后累加进 O 的第 2 个 block，最后写回；causal 时对角线右上的 block 跳过。causal 时每个 Q block 一个 program，各自算的 block 数不同：对角线右上方的 block 整块跳过，对角线上的 block 部分 mask。右边放大了 pid_i = 2 的两个部分 mask 的 block。">
+<svg class="fg" viewBox="0 0 640 452" width="100%" role="img" aria-label="FlashAttention 的 tiling，按 Triton program 看：i = 2 的 program 读 Q 的第 2 个 block，沿 j 依次读 K、V 的 block，S 只在 tile 里算，乘 V 以后累加进 O 的第 2 个 block，最后写回；causal 时对角线右上的 block 跳过。causal 时每个 Q block 一个 program，各自算的 block 数不同：对角线右上方的 block 整块跳过，对角线上的 block 部分 mask。右边放大了 pid_i = 2 的两个部分 mask 的 block。">
   <style>
     .fg .lab { font-size: 12px; fill: currentColor; }
     .fg .lab2 { font-size: 11px; fill: currentColor; opacity: .65; }
@@ -1347,7 +1347,7 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
   <text class="s" x="420" y="372">对角线穿过的 block 在块内 mask：</text>
   <text class="s" x="420" y="388">key 下标 > query 下标的位置设成 −∞</text>
 </svg>
-<figcaption><strong>图 1-8</strong> 按 Triton program 看的 tiling，画法同 GPU 与 Triton 入门的<a href="/blog/gpu-triton-intro/#fig-o-1">图 2-1</a>，循环顺序按 FA2，causal，$B_q = 2B_k$，下标按 Triton 从 0 数。$i = 2$ 的 program（加框的一行）读 $Q$ 的第 2 个 block，沿 $j$ 依次读 $K$、$V$ 的 block，$S$ 只在片上算，乘 $V$ 以后累加进 $O$ 的第 2 个 block；$S$ 里每个 block 标出整块都算、部分 mask、整块跳过，下面放大了这个 program 的两个部分 mask 的 block。第 0 个 block 没有整行被 mask 的行，所以 $m$ 不会停在 $-\infty$。</figcaption>
+<figcaption><strong>图 1-8</strong> 按 Triton program 看的 tiling，画法同 GPU 与 Triton 入门的<a href="/blog/gpu-triton-intro/#fig-o-1">图 2-1</a>，循环顺序按 FA2，causal，$B_q = 2B_k$，下标按 Triton 从 0 数。$i = 2$ 的 program（加框的一行）读 $Q$ 的第 2 个 block，沿 $j$ 依次读 $K$、$V$ 的 block，$S$ 只在 tile 里算，乘 $V$ 以后累加进 $O$ 的第 2 个 block；$S$ 里每个 block 标出整块都算、部分 mask、整块跳过，下面放大了这个 program 的两个部分 mask 的 block。第 0 个 block 没有整行被 mask 的行，所以 $m$ 不会停在 $-\infty$。</figcaption>
 </figure>
 
 <details class="fold doc aside">
@@ -1496,28 +1496,30 @@ causal mask 管的是一对 (query, key)，也就是 $S$ 的一个元素，不�
 <text class="os2-s" x="306" y="66">每段长 B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5">；第 14 行算出，给反向用</tspan></text>
 </svg></li>
 <li><span class="kw">for</span> $1 \le i \le T_q$ <span class="kw">do</span></li>
-<li class="i1"><span class="hbm">HBM</span>从 HBM 读 <span class="b h qd vQ"></span>$Q_i$ 到片上 SRAM</li>
-<li class="i1">片上初始化 <span class="b s qd"></span>$\tilde O_i^{(0)}$ $= 0$，<span class="b s vec"></span>$\ell_i^{(0)}$ $= 0$，<span class="b s vec"></span>$m_i^{(0)}$ $= -\infty$</li>
+<li class="i1"><span class="hbm">HBM</span>从 HBM 读 <span class="b h qd vQ"></span>$Q_i$ 到 SRAM</li>
+<li class="i1">初始化 <span class="b s qd"></span>$\tilde O_i^{(0)}$ $= 0$，<span class="b s vec"></span>$\ell_i^{(0)}$ $= 0$，<span class="b s vec"></span>$m_i^{(0)}$ $= -\infty$</li>
 <li class="i1"><span class="kw">for</span> $1 \le j \le T_k$ <span class="kw">do</span><span class="cont"><span class="cz">causal</span>$j$ 只走到 $\lceil iB_q / B_k \rceil$，对角线右上方的 block 整块跳过（<a href="#fig-1-8">图 1-8</a>）</span></li>
-<li class="i2"><span class="hbm">HBM</span>从 HBM 读 <span class="b h kd vK"></span>$K_j$、<span class="b h kd vV"></span>$V_j$ 到片上 SRAM</li>
-<li class="i2"><span class="ref"><a href="#fig-1-1">图 1-1</a> (a)</span>片上算 <span class="b t qk"></span>$S_i^{(j)}$ $=$ <span class="b h qd vQ"></span>$Q_i$ <span class="b h kt vK"></span>$K_j^\top$</li>
+<li class="i2"><span class="hbm">HBM</span>从 HBM 读 <span class="b h kd vK"></span>$K_j$、<span class="b h kd vV"></span>$V_j$ 到 SRAM</li>
+<li class="i2"><span class="ref"><a href="#fig-1-1">图 1-1</a> (a)</span><span class="b t qk"></span>$S_i^{(j)}$ $=$ <span class="b h qd vQ"></span>$Q_i$ <span class="b h kt vK"></span>$K_j^\top$</li>
 <li class="i2"><span class="ref"><a href="#fig-1-9">图 1-9</a></span><span class="cz">causal</span>对角线穿过的 block：<span class="b t qk"></span>$S_i^{(j)}$ 里 key 下标大于 query 下标的位置设成 $-\infty$；$B_q = B_k$ 时只有 $j = i$ 这一个 block，要设的就是第 $r$ 行第 $c$ 列 $c > r$ 的右上三角</li>
-<li class="i2"><span class="ref"><a href="#fig-1-4">图 1-4</a></span>片上算 <span class="b s vec"></span>$m_i^{(j)}$ $= \max\big($ <span class="b s vec"></span>$m_i^{(j-1)}$, $\mathrm{rowmax}($ <span class="b t qk"></span>$S_i^{(j)}$ $)\big)$，<span class="cont"><span class="b t qk"></span>$\tilde P_i^{(j)}$ $= \exp\big($ <span class="b t qk"></span>$S_i^{(j)}$ $-$ <span class="b s vec"></span>$m_i^{(j)}$ $\big)$，</span><span class="cont"><span class="b s vec"></span>$\ell_i^{(j)}$ $=$ <span class="b t vec"></span>$\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}$ <span class="b s vec"></span>$\ell_i^{(j-1)}$ $+\ \mathrm{rowsum}($ <span class="b t qk"></span>$\tilde P_i^{(j)}$ $)$</span></li>
-<li class="i2"><span class="ref"><a href="#fig-1-7">图 1-7</a></span>片上算 <span class="b s qd"></span>$\tilde O_i^{(j)}$ $= \mathrm{diag}($ <span class="b t vec"></span>$\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}$ $)$ <span class="b s qd"></span>$\tilde O_i^{(j-1)}$ $+$ <span class="b t qk"></span>$\tilde P_i^{(j)}$ <span class="b h kd vV"></span>$V_j$</li>
+<li class="i2"><span class="ref"><a href="#fig-1-4">图 1-4</a></span><span class="b s vec"></span>$m_i^{(j)}$ $= \max\big($ <span class="b s vec"></span>$m_i^{(j-1)}$, $\mathrm{rowmax}($ <span class="b t qk"></span>$S_i^{(j)}$ $)\big)$，<span class="cont"><span class="b t qk"></span>$\tilde P_i^{(j)}$ $= \exp\big($ <span class="b t qk"></span>$S_i^{(j)}$ $-$ <span class="b s vec"></span>$m_i^{(j)}$ $\big)$，</span><span class="cont"><span class="b s vec"></span>$\ell_i^{(j)}$ $=$ <span class="b t vec"></span>$\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}$ <span class="b s vec"></span>$\ell_i^{(j-1)}$ $+\ \mathrm{rowsum}($ <span class="b t qk"></span>$\tilde P_i^{(j)}$ $)$</span></li>
+<li class="i2"><span class="ref"><a href="#fig-1-7">图 1-7</a></span><span class="b s qd"></span>$\tilde O_i^{(j)}$ $= \mathrm{diag}($ <span class="b t vec"></span>$\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}$ $)$ <span class="b s qd"></span>$\tilde O_i^{(j-1)}$ $+$ <span class="b t qk"></span>$\tilde P_i^{(j)}$ <span class="b h kd vV"></span>$V_j$</li>
 <li class="i1"><span class="kw">end for</span></li>
-<li class="i1"><span class="ref"><a href="#fig-1-6">图 1-6</a></span>片上算 <span class="b o qd vO"></span>$O_i$ $= \mathrm{diag}($ <span class="b s vec"></span>$\ell_i^{(T_k)}$ $)^{-1}$ <span class="b s qd"></span>$\tilde O_i^{(T_k)}$</li>
-<li class="i1">片上算 <span class="b o vec"></span>$L_i$ $=$ <span class="b s vec"></span>$m_i^{(T_k)}$ $+ \log$ <span class="b s vec"></span>$\ell_i^{(T_k)}$</li>
+<li class="i1"><span class="ref"><a href="#fig-1-6">图 1-6</a></span><span class="b o qd vO"></span>$O_i$ $= \mathrm{diag}($ <span class="b s vec"></span>$\ell_i^{(T_k)}$ $)^{-1}$ <span class="b s qd"></span>$\tilde O_i^{(T_k)}$</li>
+<li class="i1"><span class="b o vec"></span>$L_i$ $=$ <span class="b s vec"></span>$m_i^{(T_k)}$ $+ \log$ <span class="b s vec"></span>$\ell_i^{(T_k)}$</li>
 <li class="i1"><span class="hbm">HBM</span>把 <span class="b o qd vO"></span>$O_i$ 写回 HBM，作为 $O$ 的第 $i$ 个 block</li>
 <li class="i1"><span class="hbm">HBM</span>把 <span class="b o vec"></span>$L_i$ 写回 HBM，作为 $L$ 的第 $i$ 个 block</li>
 <li><span class="kw">end for</span></li>
 <li>返回 $O$ 和 $L$</li>
 </ol>
-<div class="fa-algo-leg">块的形状按大小画：<span><span class="b s qd"></span> $B_q\times d$</span><span><span class="b s qk"></span> $B_q\times B_k$</span><span><span class="b s kt"></span> $d\times B_k$</span><span><span class="b s vec"></span> 长 $B_q$ 的向量</span><br>颜色：<span><span class="b h qd vQ"></span> $Q$</span><span><span class="b h qd vK"></span> $K$</span><span><span class="b h qd vV"></span> $V$</span><span><span class="b o qd vO"></span> $O$</span>边框：<span><span class="b h qd"></span> 细实线：从 HBM 读</span><span><span class="b s qd"></span> 粗实线：状态，留给下一个 block</span><span><span class="b t qd"></span> 虚线：片上临时量</span><span><span class="b o qd"></span> 双线：写回 HBM</span></div>
+<div class="fa-algo-leg">块的形状按大小画：<span><span class="b s qd"></span> $B_q\times d$</span><span><span class="b s qk"></span> $B_q\times B_k$</span><span><span class="b s kt"></span> $d\times B_k$</span><span><span class="b s vec"></span> 长 $B_q$ 的向量</span><br>颜色：<span><span class="b h qd vQ"></span> $Q$</span><span><span class="b h qd vK"></span> $K$</span><span><span class="b h qd vV"></span> $V$</span><span><span class="b o qd vO"></span> $O$</span>边框：<span><span class="b h qd"></span> 细实线：从 HBM 读</span><span><span class="b s qd"></span> 粗实线：状态，留给下一个 block</span><span><span class="b t qd"></span> 虚线：tile 内临时量</span><span><span class="b o qd"></span> 双线：写回 HBM</span></div>
 </div>
 
 前向不存 $P$，反向要重算它，这是下一小节的事。
 
 ### 1.4 反向的 recomputation {#fa1-recompute}
+
+反向重算 $P$ 时直接用前向写回的 $L$：$P_{ij} = e^{S_{ij} - L_i}$，不用再存 $m$ 和 $\ell$。
 
 *待补。*
 

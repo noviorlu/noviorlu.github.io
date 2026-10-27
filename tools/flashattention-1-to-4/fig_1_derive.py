@@ -183,7 +183,7 @@ def seq(F, x, y, parts, cs, hl=None):
     return x
 
 FIGS = {}
-LEG = [('state', '状态：留在片上，给下一个 block 用'), ('tmp', '临时：这个 block 用完就丢'), ('fac', '修正因子（临时）'), ('new', '这一轮从 HBM 读的'), ('row', '同一行（一个 query）')]
+LEG = [('state', '状态：留给下一个 block 用'), ('tmp', '临时：这个 block 用完就丢'), ('fac', '修正因子（临时）'), ('new', '这一轮从 HBM 读的'), ('row', '同一行（一个 query）')]
 
 # ===================== 图 1-2：按定义算 softmax（不分 block） =====================
 NC, CW2 = 8, 36
