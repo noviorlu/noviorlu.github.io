@@ -1,5 +1,5 @@
-"""图 1-8 和图 1-9（FlashAttention 的 tiling，按 Triton program 看）。图 1-8 是上栏（数据怎么分给 program），
-图 1-9 是中栏和下栏（每个 program 算哪些 block，以及一轮里的数据流），两张图由同一份代码画出。画法和配色沿用 gpu-triton-intro 的图 2-1、2-5：
+"""图 1-8（FlashAttention 的 tiling，按 Triton program 看）：上栏是数据怎么分给 program，
+中栏是 causal 时每个 program 算哪些 block；下栏（一轮的数据流）现在不画（每个 program 算哪些 block，以及一轮里的数据流），两张图由同一份代码画出。画法和配色沿用 gpu-triton-intro 的图 2-1、2-5：
 深蓝 = 这个 program 读的数据，红 = 它写回的输出，斜线 = 之后几轮才读的 block，灰 = 别的 program 的。
 用法：python3 tools/flashattention-1-to-4/fig_1_2.py content/blog/flashattention-1-to-4/index.md
 会把文中 <figure id="fig-1-8" ...> 和 <figure id="fig-1-9" ...> 里的 <svg> 换掉，figcaption 不动。
@@ -310,16 +310,16 @@ DEFS = (f'\n  <defs>{defs}<pattern id="{FID}-hatch" width="5" height="5" pattern
         f'<line x1="0" y1="0" x2="0" y2="5" style="stroke: var(--fig-1)" stroke-opacity=".55" stroke-width="1.3"/></pattern></defs>\n')
 HT = SY + SH + 42
 Y1T = Y1 - 4
-svg_top = (f'<svg class="fg" viewBox="0 0 640 {HT}" width="100%" role="img" aria-label="{LABEL_TOP}">\n' + CSS + DEFS
-           + '\n'.join('  ' + x for x in B[:SPLIT]) + '\n</svg>').replace(f'{FID}-', 'fig-1-8-')
+svg_top = (f'<svg class="fg" viewBox="0 0 640 {Y1 + HB + 4}" width="100%" role="img" aria-label="{LABEL_TOP}{LABEL_BOT}">\n' + CSS + DEFS
+           + '\n'.join('  ' + x for x in B[:SPLIT2]) + '\n</svg>').replace(f'{FID}-', 'fig-1-8-')   # 上栏 tiling + 中栏 causal mask
 svg_bot = (f'<svg class="fg" viewBox="0 0 640 {HB + 8}" width="100%" role="img" aria-label="{LABEL_BOT}">\n' + CSS + DEFS
            + f'  <g transform="translate(0 {-Y1T})">\n' + '\n'.join('  ' + x for x in B[SPLIT:SPLIT2]) + '\n  </g>\n</svg>').replace(f'{FID}-', 'fig-1-9-')
 
 if __name__ == '__main__':
     p = sys.argv[1]
     s = open(p).read()
-    for fid, svg in (('fig-1-8', svg_top), ('fig-1-9', svg_bot)):
+    for fid, svg in (('fig-1-8', svg_top),):
         s, n = re.subn(r'(<figure id="' + fid + r'"[^>]*>\n)<svg.*?</svg>', lambda m: m.group(1) + svg, s, count=1, flags=re.S)
         assert n == 1, fid
     open(p, 'w').write(s)
-    print('H =', HT, HB + 8)
+    print('H =', Y1 + HB + 4)
