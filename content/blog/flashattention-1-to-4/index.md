@@ -709,7 +709,7 @@ attention 不需要 $P$，只要 $O_i$，所以把公共分母 $\ell$ 提到外�
 <text class="os2-s" x="660" y="18">解释</text>
 <line x1="8" y1="28" x2="852" y2="28" stroke="currentColor" stroke-opacity=".14"/>
 <text class="os2-m" x="16" y="75">O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> = Σ</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> P</tspan><tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> V</tspan><tspan dy="3.5" font-size="72%">j</tspan></text>
-<text class="os2-m" x="16" y="97">P<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> = diag(ℓ)</tspan><tspan dy="-5" font-size="72%">−1</tspan><tspan dy="5"> e</tspan><tspan dy="-5" font-size="72%">S</tspan><tspan dy="3" font-size="58%">ij</tspan><tspan dy="-3" font-size="72%"> − m</tspan></text>
+<text class="os2-m" x="16" y="97">P<tspan dy="3.5" font-size="72%">ij</tspan><tspan dy="-3.5"> = e</tspan><tspan dy="-5" font-size="72%">S</tspan><tspan dy="3" font-size="58%">ij</tspan><tspan dy="-3" font-size="72%"> − m</tspan><tspan dy="5"> / ℓ</tspan></text>
 <rect x="262" y="61" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
 <text class="os2-s" x="282" y="76" text-anchor="middle">P<tspan dy="3.5" font-size="72%">i1</tspan></text>
 <rect x="302" y="61" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
@@ -741,11 +741,11 @@ attention 不需要 $P$，只要 $O_i$，所以把公共分母 $\ell$ 提到外�
 <rect x="548" y="64" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
 <rect x="564" y="64" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
 <text class="os2" x="556" y="95" text-anchor="middle">O<tspan dy="3.5" font-size="72%">i</tspan></text>
-<text class="os2" x="660" y="76">O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 是 V 各行的加权和，</tspan></text>
-<text class="os2" x="660" y="94">权重的分母都是 ℓ。</text>
+<text class="os2" x="660" y="76">O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> 是 V 各行的加权和；</tspan></text>
+<text class="os2" x="660" y="94">每行的权重除以这一行的 ℓ。</text>
 <line x1="8" y1="134" x2="852" y2="134" stroke="currentColor" stroke-opacity=".14"/>
-<text class="os2-m" x="16" y="181">O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> = diag(ℓ)</tspan><tspan dy="-5" font-size="72%">−1</tspan><tspan dy="5"> Σ</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> e</tspan><tspan dy="-5" font-size="72%">S</tspan><tspan dy="3" font-size="58%">ij</tspan><tspan dy="-3" font-size="72%"> − m</tspan><tspan dy="5"> V</tspan><tspan dy="3.5" font-size="72%">j</tspan></text>
-<text class="os2-m" x="16" y="203">    = diag(ℓ)<tspan dy="-5" font-size="72%">−1</tspan><tspan dy="5"> Õ</tspan></text>
+<text class="os2-m" x="16" y="181">O<tspan dy="3.5" font-size="72%">i</tspan><tspan dy="-3.5"> = (Σ</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> e</tspan><tspan dy="-5" font-size="72%">S</tspan><tspan dy="3" font-size="58%">ij</tspan><tspan dy="-3" font-size="72%"> − m</tspan><tspan dy="5"> V</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">) / ℓ</tspan></text>
+<text class="os2-m" x="16" y="203">    = Õ / ℓ</text>
 <text class="os2-m" x="262" y="183">1/ℓ ×</text>
 <rect x="294" y="167" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
 <text class="os2-s" x="314" y="182" text-anchor="middle">e<tspan dy="-5" font-size="72%">S</tspan><tspan dy="3" font-size="58%">i1</tspan><tspan dy="-3" font-size="72%"> − m</tspan></text>
@@ -779,9 +779,10 @@ attention 不需要 $P$，只要 $O_i$，所以把公共分母 $\ell$ 提到外�
 <rect x="612" y="170" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
 <rect x="628" y="170" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
 <text class="os2" x="620" y="201" text-anchor="middle">Õ</text>
-<text class="os2" x="660" y="191">把 ℓ 提到外面，Õ 和 ℓ 分开累加。</text>
+<text class="os2" x="660" y="182">同一行的分母都一样，提到外面；</text>
+<text class="os2" x="660" y="200">Õ 和 ℓ 分开累加，最后按行相除。</text>
 </svg>
-<figcaption><strong>图 1-6</strong> 把分母提出来。$P_{ij}$ 的分母都是 $\ell$，提到外面以后，$O_i$ 等于没除以 $\ell$ 的 $\tilde O$ 再按行除以 $\ell$。</figcaption>
+<figcaption><strong>图 1-6</strong> 把分母提出来。$m$、$\ell$ 每行一个数，$e^{S_{ij} - m}/\ell$ 是第 $r$ 行减 $m_r$、除以 $\ell_r$；同一行的分母都一样，提到外面以后 $O_i = \tilde O / \ell$。</figcaption>
 </figure>
 
 $\tilde O$ 和 $\ell$ 是同一种求和，用同一个修正因子累加，这就是第 10 行（[图 1-7](#fig-1-7)）。
@@ -922,8 +923,8 @@ $\tilde O$ 和 $\ell$ 是同一种求和，用同一个修正因子累加，这�
 <rect x="573.6" y="194" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
 <rect x="544.1" y="164.5" width="45" height="17" rx="2" fill="currentColor" fill-opacity=".2" stroke="none"/>
 <text class="os2" x="566.6" y="223" text-anchor="middle">V<tspan dy="3.5" font-size="72%">j</tspan></text>
-<text class="os2" x="660" y="191">同一个<tspan style="fill: var(--fig-hi); font-weight: 600">修正因子</tspan><tspan>按行乘旧的 Õ，</tspan></text>
-<text class="os2" x="660" y="209">加上新 block 的 P<tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">ij</tspan><tspan dy="-3.5">V</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">。</tspan></text>
+<text class="os2" x="660" y="191">diag 表示按行乘：旧的 Õ 第 r 行</text>
+<text class="os2" x="660" y="209">乘第 r 个<tspan style="fill: var(--fig-hi); font-weight: 600">修正因子</tspan><tspan>，再加 P</tspan><tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">ij</tspan><tspan dy="-3.5">V</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">。</tspan></text>
 <line x1="8" y1="252" x2="852" y2="252" stroke="currentColor" stroke-opacity=".14"/>
 <rect x="262" y="263" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
 <text class="os2-s" x="279" y="273">状态：留到下一个 tile</text>
