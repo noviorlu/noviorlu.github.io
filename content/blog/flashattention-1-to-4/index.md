@@ -34,9 +34,10 @@ series_order: 4
 .fa-algo .c.h{background:color-mix(in srgb,var(--c) 40%,transparent)}
 .fa-algo .c.s{border-width:2px;background:color-mix(in srgb,var(--c) 12%,transparent)}
 .fa-algo .c.t,.fa-algo .c.f{--c:var(--fig-2);border-style:dashed;background:color-mix(in srgb,var(--fig-3) 35%,transparent)}
+.fa-algo .c.t.vS{background:repeating-linear-gradient(135deg,color-mix(in srgb,#E07A2E 38%,transparent) 0 4px,color-mix(in srgb,#2A9D8F 38%,transparent) 4px 8px)}
 .fa-algo .c.o{border:3px double var(--c);background:color-mix(in srgb,var(--c) 30%,transparent)}
-.fa-algo .vQ{--c:var(--fig-1)}.fa-algo .vK{--c:var(--fig-2)}.fa-algo .vV{--c:#2A9D8F}.fa-algo .vS{--c:#E3A33B}.fa-algo .vP{--c:#8E6CC7}
-.fa-algo .vm{--c:#4E9F5B}.fa-algo .vl{--c:#C2508A}.fa-algo .vO{--c:#3B82C4}.fa-algo .vL{--c:#9C7A4F}.fa-algo .vf{--c:var(--fig-hi)}.fa-algo .vn{--c:var(--fig-mute)}
+.fa-algo .vQ{--c:#E07A2E}.fa-algo .vK{--c:#2A9D8F}.fa-algo .vV{--c:#8E6CC7}.fa-algo .vS{--c:#E3A33B}.fa-algo .vP{--c:#8E6CC7}
+.fa-algo .vm{--c:#6A9F3A}.fa-algo .vl{--c:#C2508A}.fa-algo .vO{--c:#3B82C4}.fa-algo .vL{--c:#9C7A4F}.fa-algo .vf{--c:var(--fig-hi)}.fa-algo .vn{--c:var(--fig-mute)}
 .fa-algo-leg{margin-top:.5em;padding-top:.45em;border-top:1px solid rgba(128,128,128,.25);font-size:.82em;opacity:.85}
 .fa-algo-leg .c{min-width:1.1em;margin-right:.25em}
 .fa-algo-leg>span{margin-right:1.1em;white-space:nowrap}
@@ -1255,36 +1256,36 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
     .os2-hi { fill: var(--fig-hi); }
   </style>
 <text class="os2-b" x="33" y="12" text-anchor="middle">Q</text>
-<rect x="10" y="18" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<rect x="10" y="18" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, #E07A2E 40%, transparent); stroke: #E07A2E" stroke-width="1"/>
 <text class="os2-s" x="33" y="31" text-anchor="middle">Q<tspan dy="3.5" font-size="72%">1</tspan></text>
-<rect x="10" y="38" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<rect x="10" y="38" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, #E07A2E 40%, transparent); stroke: #E07A2E" stroke-width="1"/>
 <text class="os2-s" x="33" y="51" text-anchor="middle">Q<tspan dy="3.5" font-size="72%">2</tspan></text>
 <rect x="10" y="58" width="46" height="18" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
 <text class="os2-s" x="33" y="71" text-anchor="middle">⋯</text>
 <text class="os2-s" x="33" y="70" text-anchor="middle">⋯</text>
-<rect x="10" y="78" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<rect x="10" y="78" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, #E07A2E 40%, transparent); stroke: #E07A2E" stroke-width="1"/>
 <text class="os2-s" x="33" y="91" text-anchor="middle">Q<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">q</tspan></text>
 <text class="os2" x="66" y="42">T<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> = ⌈N / B</tspan><tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5">⌉ 个 block</tspan></text>
 <text class="os2-s" x="66" y="60">每个 B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> × d</tspan></text>
 <text class="os2-b" x="228" y="34" text-anchor="end">K</text>
-<rect x="236" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 40%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="236" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, #2A9D8F 40%, transparent); stroke: #2A9D8F" stroke-width="1"/>
 <text class="os2-s" x="256" y="35" text-anchor="middle">K<tspan dy="3.5" font-size="72%">1</tspan></text>
-<rect x="278" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 40%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="278" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, #2A9D8F 40%, transparent); stroke: #2A9D8F" stroke-width="1"/>
 <text class="os2-s" x="298" y="35" text-anchor="middle">K<tspan dy="3.5" font-size="72%">2</tspan></text>
 <rect x="320" y="20" width="40" height="22" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
 <text class="os2-s" x="340" y="35" text-anchor="middle">⋯</text>
-<rect x="362" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-2) 40%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
+<rect x="362" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, #2A9D8F 40%, transparent); stroke: #2A9D8F" stroke-width="1"/>
 <text class="os2-s" x="382" y="35" text-anchor="middle">K<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">k</tspan></text>
 <text class="os2" x="236" y="62">T<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> = ⌈N / B</tspan><tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5">⌉ 个 block</tspan></text>
 <text class="os2-s" x="236" y="80">每个 B<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> × d</tspan></text>
 <text class="os2-b" x="452" y="34" text-anchor="end">V</text>
-<rect x="460" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, #2A9D8F 40%, transparent); stroke: #2A9D8F" stroke-width="1"/>
+<rect x="460" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, #8E6CC7 40%, transparent); stroke: #8E6CC7" stroke-width="1"/>
 <text class="os2-s" x="480" y="35" text-anchor="middle">V<tspan dy="3.5" font-size="72%">1</tspan></text>
-<rect x="502" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, #2A9D8F 40%, transparent); stroke: #2A9D8F" stroke-width="1"/>
+<rect x="502" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, #8E6CC7 40%, transparent); stroke: #8E6CC7" stroke-width="1"/>
 <text class="os2-s" x="522" y="35" text-anchor="middle">V<tspan dy="3.5" font-size="72%">2</tspan></text>
 <rect x="544" y="20" width="40" height="22" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
 <text class="os2-s" x="564" y="35" text-anchor="middle">⋯</text>
-<rect x="586" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, #2A9D8F 40%, transparent); stroke: #2A9D8F" stroke-width="1"/>
+<rect x="586" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, #8E6CC7 40%, transparent); stroke: #8E6CC7" stroke-width="1"/>
 <text class="os2-s" x="606" y="35" text-anchor="middle">V<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">k</tspan></text>
 <text class="os2" x="460" y="62">和 K 一样切</text>
 <text class="os2-s" x="460" y="80">每个 B<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> × d</tspan></text>

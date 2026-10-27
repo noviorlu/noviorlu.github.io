@@ -60,9 +60,9 @@ STYLE = {
     'state': 'fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)',     # 跨 tile 保留的状态
     'tmp': 'fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)',       # 这一轮的临时量
     # Algorithm 1 第 1、2 行：每个变量一个颜色，和算法框里的色块一致
-    'vQ': 'fill: color-mix(in srgb, var(--fig-1) 40%, transparent); stroke: var(--fig-1)',
-    'vK': 'fill: color-mix(in srgb, var(--fig-2) 40%, transparent); stroke: var(--fig-2)',
-    'vV': 'fill: color-mix(in srgb, #2A9D8F 40%, transparent); stroke: #2A9D8F',
+    'vQ': 'fill: color-mix(in srgb, #E07A2E 40%, transparent); stroke: #E07A2E',
+    'vK': 'fill: color-mix(in srgb, #2A9D8F 40%, transparent); stroke: #2A9D8F',
+    'vV': 'fill: color-mix(in srgb, #8E6CC7 40%, transparent); stroke: #8E6CC7',
     'vO': 'fill: color-mix(in srgb, #3B82C4 30%, transparent); stroke: #3B82C4',
     'vL': 'fill: color-mix(in srgb, #9C7A4F 30%, transparent); stroke: #9C7A4F',
 }
