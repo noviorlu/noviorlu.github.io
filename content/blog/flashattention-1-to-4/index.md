@@ -1265,30 +1265,28 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 <text class="os2-s" x="33" y="91" text-anchor="middle">Q<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">q</tspan></text>
 <text class="os2" x="66" y="42">T<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> = ⌈N / B</tspan><tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5">⌉ 个 block</tspan></text>
 <text class="os2-s" x="66" y="60">每个 B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> × d</tspan></text>
-<text class="os2-b" x="249" y="12" text-anchor="middle">K</text>
-<rect x="226" y="18" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-<text class="os2-s" x="249" y="31" text-anchor="middle">K<tspan dy="3.5" font-size="72%">1</tspan></text>
-<rect x="226" y="38" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-<text class="os2-s" x="249" y="51" text-anchor="middle">K<tspan dy="3.5" font-size="72%">2</tspan></text>
-<rect x="226" y="58" width="46" height="18" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-<text class="os2-s" x="249" y="71" text-anchor="middle">⋯</text>
-<text class="os2-s" x="249" y="70" text-anchor="middle">⋯</text>
-<rect x="226" y="78" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-<text class="os2-s" x="249" y="91" text-anchor="middle">K<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">k</tspan></text>
-<text class="os2" x="282" y="42">T<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> = ⌈N / B</tspan><tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5">⌉ 个 block</tspan></text>
-<text class="os2-s" x="282" y="60">每个 B<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> × d</tspan></text>
-<text class="os2-b" x="465" y="12" text-anchor="middle">V</text>
-<rect x="442" y="18" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-<text class="os2-s" x="465" y="31" text-anchor="middle">V<tspan dy="3.5" font-size="72%">1</tspan></text>
-<rect x="442" y="38" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-<text class="os2-s" x="465" y="51" text-anchor="middle">V<tspan dy="3.5" font-size="72%">2</tspan></text>
-<rect x="442" y="58" width="46" height="18" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
-<text class="os2-s" x="465" y="71" text-anchor="middle">⋯</text>
-<text class="os2-s" x="465" y="70" text-anchor="middle">⋯</text>
-<rect x="442" y="78" width="46" height="18" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-<text class="os2-s" x="465" y="91" text-anchor="middle">V<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">k</tspan></text>
-<text class="os2" x="498" y="42">和 K 一样切</text>
-<text class="os2-s" x="498" y="60">每个 B<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> × d</tspan></text>
+<text class="os2-b" x="228" y="34" text-anchor="end">K</text>
+<rect x="236" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="256" y="35" text-anchor="middle">K<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="278" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="298" y="35" text-anchor="middle">K<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="320" y="20" width="40" height="22" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="340" y="35" text-anchor="middle">⋯</text>
+<rect x="362" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="382" y="35" text-anchor="middle">K<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">k</tspan></text>
+<text class="os2" x="236" y="62">T<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> = ⌈N / B</tspan><tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5">⌉ 个 block</tspan></text>
+<text class="os2-s" x="236" y="80">每个 B<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> × d</tspan></text>
+<text class="os2-b" x="452" y="34" text-anchor="end">V</text>
+<rect x="460" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="480" y="35" text-anchor="middle">V<tspan dy="3.5" font-size="72%">1</tspan></text>
+<rect x="502" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="522" y="35" text-anchor="middle">V<tspan dy="3.5" font-size="72%">2</tspan></text>
+<rect x="544" y="20" width="40" height="22" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="564" y="35" text-anchor="middle">⋯</text>
+<rect x="586" y="20" width="40" height="22" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="606" y="35" text-anchor="middle">V<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">k</tspan></text>
+<text class="os2" x="460" y="62">和 K 一样切</text>
+<text class="os2-s" x="460" y="80">每个 B<tspan dy="3.5" font-size="72%">k</tspan><tspan dy="-3.5"> × d</tspan></text>
 </svg></li>
 <li><svg id="algo-l2" viewBox="0 0 640 102" width="100%" role="img" aria-label="algo-l2" style="max-width: 640px; display: block">
   <style>

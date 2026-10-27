@@ -318,17 +318,26 @@ def split_col(F, x, name, labs, kind, w, annot):
         if t == '⋯': F.T('os2-s', x + w / 2, 18 + k * 20 + 12, '⋯', 'middle')
     for n, t in enumerate(annot):
         F.T('os2' if n == 0 else 'os2-s', x + w + 10, 42 + n * 18, t)
+def split_row(F, x, name, labs, kind, w, annot):
+    F.T('os2-b', x - 8, 34, name, 'end')
+    for k, t in enumerate(labs):
+        F.rect(x + k * (w + 2), 20, w, 22, kind if t != '⋯' else 'skip', t if t != '⋯' else None, 'os2-s')
+        if t == '⋯': F.T('os2-s', x + k * (w + 2) + w / 2, 35, '⋯', 'middle')
+    for n, t in enumerate(annot):
+        F.T('os2' if n == 0 else 'os2-s', x, 62 + n * 18, t)
 def algo_svg(fid, cols, W=640, H=102):
     F = Fig(fid)
-    for c in cols: split_col(F, *c)
+    for c in cols:
+        if c[0] == 'row': split_row(F, *c[1:])     # 横着放：K、V
+        else: split_col(F, *c)                     # 竖着放：Q、O、L
     return (f'<svg id="{fid}" viewBox="0 0 {W} {H}" width="100%" role="img" aria-label="{fid}" style="max-width: {W}px; display: block">\n'
             + CSS + '\n'.join(F.B) + '\n</svg>')
 QL = lambda n, T: [f'{n}_{{1}}', f'{n}_{{2}}', '⋯', f'{n}_{{{T}}}']
 ALGO = {
     'algo-l1': algo_svg('algo-l1', [
         (10, 'Q', QL('Q', 'T_{q}'), 'new', 46, ['T_{q} = ⌈N / B_{q}⌉ 个 block', '每个 B_{q} × d']),
-        (226, 'K', QL('K', 'T_{k}'), 'new', 46, ['T_{k} = ⌈N / B_{k}⌉ 个 block', '每个 B_{k} × d']),
-        (442, 'V', QL('V', 'T_{k}'), 'new', 46, ['和 K 一样切', '每个 B_{k} × d'])]),
+        ('row', 236, 'K', QL('K', 'T_{k}'), 'new', 40, ['T_{k} = ⌈N / B_{k}⌉ 个 block', '每个 B_{k} × d']),
+        ('row', 460, 'V', QL('V', 'T_{k}'), 'new', 40, ['和 K 一样切', '每个 B_{k} × d'])]),
     'algo-l2': algo_svg('algo-l2', [
         (10, 'O', QL('O', 'T_{q}'), 'state', 46, ['输出，和 Q 一样切', '每个 B_{q} × d']),
         (226, 'L', ['', '', '⋯', ''], 'state', 14, ['logsumexp，T_{q} 段', '每段长 B_{q}，给反向用'])]),
