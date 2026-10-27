@@ -27,10 +27,13 @@ OFF = {'n': 0, 'sub': 3.5, 'sup': -5, 'supsub': -2}
 FS = {'sub': '72%', 'sup': '72%', 'supsub': '58%'}
 def parse(t):
     out, buf, i = [], '', 0
+    hl = [False]                              # «…» 包住的是修正因子，单独着色
     def add(x, l):
-        if x: out.append((x, l))
+        if x: out.append((x, l, hl[0]))
     t = t.replace('P̃', 'P\x01')
     while i < len(t):
+        if t[i] in '«»':
+            add(buf, 'n'); buf = ''; hl[0] = t[i] == '«'; i += 1; continue
         if t[i] == '\x01':                     # P̃ 的波浪号单独画：网站字体不渲染组合字符
             add(buf, 'n'); buf = ''; add('~', 'tilde'); i += 1; continue
         if t[i] in '_^' and i + 1 < len(t) and t[i + 1] == '{':
@@ -57,18 +60,19 @@ def parse(t):
     return out
 def T(cls, x, y, t, anchor='start', style='', extra=''):
     cur, h, pend = 0, '', ''
-    for k, (s, l) in enumerate(parse(t)):
+    for k, (s, l, hl) in enumerate(parse(t)):
         s = s.replace('&', '&amp;').replace('<', '&lt;')
-        if k == 0 and l == 'n':
+        c = ' style="fill: var(--fig-hi); font-weight: 600"' if hl else ''
+        if k == 0 and l == 'n' and not hl:
             h += s; continue
         if l == 'tilde':
-            h += '<tspan dx="-5.6" dy="-7" font-size="80%">~</tspan>'
+            h += f'<tspan dx="-5.6" dy="-7" font-size="80%"{c}>~</tspan>'
             cur -= 7; pend = ' dx="1.2"'
             continue
         dy = OFF[l] - cur; cur = OFF[l]
         a = (f' dy="{dy:g}"' if dy else '') + pend; pend = ''
         f = f' font-size="{FS[l]}"' if l in FS else ''
-        h += f'<tspan{a}{f}>{s}</tspan>'
+        h += f'<tspan{a}{f}{c}>{s}</tspan>'
     st = f' style="{style}"' if style else ''
     an = f' text-anchor="{anchor}"' if anchor != 'start' else ''
     w(f'<text class="{cls}" x="{x:g}" y="{y:g}"{an}{st}{extra}>{h}</text>')
@@ -286,8 +290,8 @@ T('lab2', 18, yT + 18, '第 j 轮')
 T('s', 18, yT + 36, 'Algorithm 1'); T('s', 18, yT + 50, '第 9–10 行')
 cols = [['① m_{new} = max(m, rowmax(S_{ij}))',
          '② P̃_{ij} = exp(S_{ij} − m_{new})',
-         '③ ℓ ← exp(m − m_{new})·ℓ + rowsum(P̃_{ij})'],
-        ['④ O_{i} ← exp(m − m_{new})·O_{i} + P̃_{ij}V_{j}',
+         '③ ℓ ← «exp(m − m_{new})»·ℓ + rowsum(P̃_{ij})'],
+        ['④ O_{i} ← «exp(m − m_{new})»·O_{i} + P̃_{ij}V_{j}',
          '⑤ m ← m_{new}',
          '循环后：O_{i} ← O_{i} / ℓ']]
 for c, rows in enumerate(cols):
