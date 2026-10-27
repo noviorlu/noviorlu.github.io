@@ -898,7 +898,7 @@ attention 不需要 $P$，只要 $O_i$，所以把公共分母 $\ell$ 提到外�
 $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累加：先按当前的最大值算，最大值变大时把已经累加的部分整体乘修正因子（[图 1-7](#fig-1-7)）。
 
 <figure id="fig-1-7">
-<svg viewBox="0 0 860 628" width="100%" role="img" aria-label="Õ 一个 block 一个 block 地累加，画法同图 1-6。第 1 轮只有第 1 个 block，按 m_1 算。第 2 轮旧的一项乘 e 的 m_1 减 m_2 次方，换成按 m_2 算，再加第 2 个 block；下面是同一个更新写成一般第 j 轮的矩阵形式。扫完以后每一项都按整行的最大值 m 算，就是图 1-6 的 Õ">
+<svg viewBox="0 0 860 628" width="100%" role="img" aria-label="Õ 一个 block 一个 block 地累加，画法同图 1-6。第 1 轮只有第 1 个 block，按 m_1 算。第 2 轮旧的一项乘 e 的 m_1 减 m_2 次方，换成按 m_2 算，再加第 2 个 block；下面是同一个更新写成矩阵形式，一般的第 j 轮把 1、2 换成 j − 1、j。扫完以后每一项都按整行的最大值 m 算，就是图 1-6 的 Õ">
   <style>
     .os2 { font-size: 11px; fill: currentColor; }
     .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }
@@ -938,9 +938,10 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 <line x1="8" y1="180" x2="852" y2="180" stroke="currentColor" stroke-opacity=".14"/>
 <text class="os2-m" x="16" y="252">Õ<tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5"> = diag(</tspan><tspan style="fill: var(--fig-hi); font-weight: 600">e</tspan><tspan dy="-5" font-size="72%" style="fill: var(--fig-hi); font-weight: 600">m</tspan><tspan dy="3" font-size="58%" style="fill: var(--fig-hi); font-weight: 600">1</tspan><tspan dy="-3" font-size="72%" style="fill: var(--fig-hi); font-weight: 600"> − m</tspan><tspan dy="3" font-size="58%" style="fill: var(--fig-hi); font-weight: 600">2</tspan><tspan dy="2">) Õ</tspan><tspan dy="3.5" font-size="72%">1</tspan></text>
 <text class="os2-m" x="16" y="274">        + e<tspan dy="-5" font-size="72%">S</tspan><tspan dy="3" font-size="58%">i2</tspan><tspan dy="-3" font-size="72%"> − m</tspan><tspan dy="3" font-size="58%">2</tspan><tspan dy="2"> V</tspan><tspan dy="3.5" font-size="72%">2</tspan></text>
-<text class="os2-s" x="16" y="322">⇓ 换成一般的 j</text>
-<text class="os2-m" x="16" y="370">Õ<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> = diag(</tspan><tspan style="fill: var(--fig-hi); font-weight: 600">e</tspan><tspan dy="-5" font-size="72%" style="fill: var(--fig-hi); font-weight: 600">m</tspan><tspan dy="3" font-size="58%" style="fill: var(--fig-hi); font-weight: 600">j−1</tspan><tspan dy="-3" font-size="72%" style="fill: var(--fig-hi); font-weight: 600"> − m</tspan><tspan dy="3" font-size="58%" style="fill: var(--fig-hi); font-weight: 600">j</tspan><tspan dy="2">) Õ</tspan><tspan dy="3.5" font-size="72%">j−1</tspan></text>
-<text class="os2-m" x="16" y="392">        + P<tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">ij</tspan><tspan dy="-3.5"> V</tspan><tspan dy="3.5" font-size="72%">j</tspan></text>
+<text class="os2-s" x="16" y="322">⇓ 写成矩阵</text>
+<text class="os2-m" x="16" y="364">Õ<tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5"> = diag(</tspan><tspan style="fill: var(--fig-hi); font-weight: 600">e</tspan><tspan dy="-5" font-size="72%" style="fill: var(--fig-hi); font-weight: 600">m</tspan><tspan dy="3" font-size="58%" style="fill: var(--fig-hi); font-weight: 600">1</tspan><tspan dy="-3" font-size="72%" style="fill: var(--fig-hi); font-weight: 600"> − m</tspan><tspan dy="3" font-size="58%" style="fill: var(--fig-hi); font-weight: 600">2</tspan><tspan dy="2">) Õ</tspan><tspan dy="3.5" font-size="72%">1</tspan></text>
+<text class="os2-m" x="16" y="386">        + P<tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">i2</tspan><tspan dy="-3.5"> V</tspan><tspan dy="3.5" font-size="72%">2</tspan></text>
+<text class="os2-s" x="16" y="412">一般的第 j 轮：把 1、2 换成 j − 1、j</text>
 <rect x="262" y="244" width="50" height="24" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
 <text class="os2-s" x="287" y="260" text-anchor="middle">e<tspan dy="-5" font-size="72%">S</tspan><tspan dy="3" font-size="58%">i1</tspan><tspan dy="-3" font-size="72%"> − m</tspan><tspan dy="3" font-size="58%">2</tspan></text>
 <rect x="512" y="208" width="24" height="24" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
@@ -965,7 +966,7 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 <rect x="564" y="244" width="32" height="24" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
 <text class="os2" x="580" y="260" text-anchor="middle">Õ<tspan dy="3.5" font-size="72%">2</tspan></text>
 <line x1="412" y1="304" x2="412" y2="332" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#fig-1-7-ar)"/>
-<text class="os2-s" x="420" y="322" style="opacity: 1">一般的第 j 轮，写成矩阵</text>
+<text class="os2-s" x="420" y="322" style="opacity: 1">写成矩阵，B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> = 4 行</tspan></text>
 <rect x="262" y="340" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
 <rect x="276" y="340" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
 <rect x="290" y="340" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
@@ -979,8 +980,7 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 <rect x="276" y="382" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
 <rect x="290" y="382" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
 <rect x="260.5" y="352.5" width="45" height="17" rx="2" fill="currentColor" fill-opacity=".2" stroke="none"/>
-<text class="os2" x="283" y="411" text-anchor="middle">Õ<tspan dy="3.5" font-size="72%">j</tspan></text>
-<text class="os2-s" x="283" y="428" text-anchor="middle" style="opacity: 1; fill: var(--fig-1); font-weight: 600">→ 给 j + 1 用</text>
+<text class="os2" x="283" y="411" text-anchor="middle">Õ<tspan dy="3.5" font-size="72%">2</tspan></text>
 <text class="os2-m" x="316" y="373">=</text>
 <rect x="329.2" y="340" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 22%, transparent); stroke: var(--fig-hi)" stroke-width="1" stroke-dasharray="3 2"/>
 <rect x="343.2" y="340" width="14" height="14" rx="1.5" style="fill: none; stroke: var(--fig-mute)" stroke-width="1" stroke-dasharray="3 2"/>
@@ -1010,7 +1010,7 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 <text class="os2-s" x="378.2" y="350.5" text-anchor="middle">0</text>
 <text class="os2-s" x="378.2" y="364.5" text-anchor="middle">0</text>
 <text class="os2-s" x="378.2" y="378.5" text-anchor="middle">0</text>
-<text class="os2" x="357.2" y="411" text-anchor="middle">diag(<tspan style="fill: var(--fig-hi); font-weight: 600">e</tspan><tspan dy="-5" font-size="72%" style="fill: var(--fig-hi); font-weight: 600">m</tspan><tspan dy="3" font-size="58%" style="fill: var(--fig-hi); font-weight: 600">j−1</tspan><tspan dy="-3" font-size="72%" style="fill: var(--fig-hi); font-weight: 600"> − m</tspan><tspan dy="3" font-size="58%" style="fill: var(--fig-hi); font-weight: 600">j</tspan><tspan dy="2">)</tspan></text>
+<text class="os2" x="357.2" y="411" text-anchor="middle">diag(<tspan style="fill: var(--fig-hi); font-weight: 600">e</tspan><tspan dy="-5" font-size="72%" style="fill: var(--fig-hi); font-weight: 600">m</tspan><tspan dy="3" font-size="58%" style="fill: var(--fig-hi); font-weight: 600">1</tspan><tspan dy="-3" font-size="72%" style="fill: var(--fig-hi); font-weight: 600"> − m</tspan><tspan dy="3" font-size="58%" style="fill: var(--fig-hi); font-weight: 600">2</tspan><tspan dy="2">)</tspan></text>
 <line x1="387.2" y1="347" x2="402.2" y2="347" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#fig-1-7-ar)"/>
 <line x1="387.2" y1="361" x2="402.2" y2="361" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#fig-1-7-ar)"/>
 <line x1="387.2" y1="375" x2="402.2" y2="375" stroke="currentColor" stroke-opacity=".55" stroke-width="1.4" marker-end="url(#fig-1-7-ar)"/>
@@ -1028,8 +1028,7 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 <rect x="417.2" y="382" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
 <rect x="431.2" y="382" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
 <rect x="401.7" y="352.5" width="45" height="17" rx="2" fill="currentColor" fill-opacity=".2" stroke="none"/>
-<text class="os2" x="424.2" y="411" text-anchor="middle">Õ<tspan dy="3.5" font-size="72%">j−1</tspan></text>
-<text class="os2-s" x="424.2" y="428" text-anchor="middle">来自 j − 1</text>
+<text class="os2" x="424.2" y="411" text-anchor="middle">Õ<tspan dy="3.5" font-size="72%">1</tspan></text>
 <text class="os2-m" x="457.2" y="373">+</text>
 <rect x="470.4" y="340" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
 <rect x="484.4" y="340" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
@@ -1048,7 +1047,7 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 <rect x="498.4" y="382" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
 <rect x="512.4" y="382" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
 <rect x="468.9" y="352.5" width="59" height="17" rx="2" fill="currentColor" fill-opacity=".2" stroke="none"/>
-<text class="os2" x="498.4" y="411" text-anchor="middle">P<tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">ij</tspan></text>
+<text class="os2" x="498.4" y="411" text-anchor="middle">P<tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">i2</tspan></text>
 <rect x="536.4" y="340" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
 <rect x="550.4" y="340" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
 <rect x="564.4" y="340" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
@@ -1062,11 +1061,11 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 <rect x="550.4" y="382" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
 <rect x="564.4" y="382" width="14" height="14" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
 <rect x="534.9" y="352.5" width="45" height="17" rx="2" fill="currentColor" fill-opacity=".2" stroke="none"/>
-<text class="os2" x="557.4" y="411" text-anchor="middle">V<tspan dy="3.5" font-size="72%">j</tspan></text>
+<text class="os2" x="557.4" y="411" text-anchor="middle">V<tspan dy="3.5" font-size="72%">2</tspan></text>
 <text class="os2" x="660" y="252">已经累加的部分每行乘自己的<tspan style="fill: var(--fig-hi); font-weight: 600">修正因子</tspan><tspan>，</tspan></text>
 <text class="os2" x="660" y="270">换成按 m<tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5"> 算，再加上第 2 个 block。</tspan></text>
-<text class="os2" x="660" y="370">同一个更新：旧的 Õ 第 r 行乘第 r 个</text>
-<text class="os2" x="660" y="388"><tspan style="fill: var(--fig-hi); font-weight: 600">修正因子</tspan><tspan>（图 1-1 (c)），再加 P</tspan><tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">ij</tspan><tspan dy="-3.5"> V</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5">。</tspan></text>
+<text class="os2" x="660" y="370">同一个更新：Õ<tspan dy="3.5" font-size="72%">1</tspan><tspan dy="-3.5"> 第 r 行乘第 r 个</tspan></text>
+<text class="os2" x="660" y="388"><tspan style="fill: var(--fig-hi); font-weight: 600">修正因子</tspan><tspan>（图 1-1 (c)），再加 P</tspan><tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">i2</tspan><tspan dy="-3.5"> V</tspan><tspan dy="3.5" font-size="72%">2</tspan><tspan dy="-3.5">。</tspan></text>
 <line x1="8" y1="442" x2="852" y2="442" stroke="currentColor" stroke-opacity=".14"/>
 <text class="os2-m" x="16" y="523">扫完：Σ<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> e</tspan><tspan dy="-5" font-size="72%">S</tspan><tspan dy="3" font-size="58%">ij</tspan><tspan dy="-3" font-size="72%"> − m</tspan><tspan dy="5"> V</tspan><tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> = Õ</tspan></text>
 <rect x="262" y="506" width="50" height="24" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)" stroke-width="1"/>
@@ -1107,7 +1106,7 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 <rect x="875.4" y="605" width="12" height="12" rx="2" fill="currentColor" fill-opacity=".25"/>
 <text class="os2-s" x="892.4" y="615">同一行（一个 query）</text>
 </svg>
-<figcaption><strong>图 1-7</strong> $\tilde O$ 一个 block 一个 block 地累加，画法同<a href="#fig-1-6">图 1-6</a>：已经累加的部分乘修正因子换到新的最大值，再加上新 block；第 2 轮下面是同一个更新写成一般第 $j$ 轮的矩阵形式；扫完就是图 1-6 的 $\tilde O$。</figcaption>
+<figcaption><strong>图 1-7</strong> $\tilde O$ 一个 block 一个 block 地累加，画法同<a href="#fig-1-6">图 1-6</a>：已经累加的部分乘修正因子换到新的最大值，再加上新 block；第 2 轮下面是同一个更新的矩阵形式，一般的第 $j$ 轮把 1、2 换成 $j-1$、$j$；扫完就是图 1-6 的 $\tilde O$。</figcaption>
 </figure>
 
 扫完以后按行除以 $\ell$；结果是精确的，只差浮点加法的顺序。
