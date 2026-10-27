@@ -428,7 +428,7 @@ online softmax（Milakov 和 Gimelshein 2018）把一行分段，各段按自己
 <figcaption><strong>图 1-3</strong> 两段合并。各段先按自己的最大值算，乘修正因子换到同一个 $m$，再相加，就是整行的分母。</figcaption>
 </figure>
 
-放到 block 上，A 是前 $j-1$ 个 block，B 是第 $j$ 个 block，每读一个 $K_j$ 合并一次，这就是 Algorithm 1 的第 9 行（[图 1-4](#fig-1-4)）。$m$、$\ell$ 每行一个数，$\tilde P_{ij}$ 是还没除以分母的 softmax。
+放到 block 上，A 是前 $j-1$ 个 block，B 是第 $j$ 个 block，每读一个 $K_j$ 合并一次（[图 1-4](#fig-1-4)）。$m$、$\ell$ 每行一个数，$\tilde P_{ij}$ 是还没除以分母的 softmax。
 
 <figure id="fig-1-4">
 <svg viewBox="0 0 860 400" width="100%" role="img" aria-label="第 j 轮 m 和 ℓ 的更新，B_q 等于 4。m_j 等于 m_{j−1} 和 S_ij 每行最大值中大的那个；P̃_ij 等于 S_ij 每行减去 m_j 的对应数再取 exp；ℓ_j 等于修正因子乘 ℓ_{j−1} 加上 P̃_ij 每行之和。红框标出同一行">
@@ -895,7 +895,7 @@ attention 不需要 $P$，只要 $O_i$，所以把公共分母 $\ell$ 提到外�
 <figcaption><strong>图 1-6</strong> 把分母提出来，画法同<a href="#fig-1-1">图 1-1</a> (b)：$V_j$ 乘 $P$ 第 $i$ 个 block 行的第 $j$ 个 block，加起来是 $O_i$；同一行的分母都是 $\ell$，提到外面以后 $O_i = \tilde O / \ell$。</figcaption>
 </figure>
 
-$\tilde O$ 和 $\ell$ 是同一种求和，用同一个修正因子累加，这就是第 10 行（[图 1-7](#fig-1-7)）。
+$\tilde O$ 和 $\ell$ 是同一种求和，用同一个修正因子累加（[图 1-7](#fig-1-7)）。
 
 <figure id="fig-1-7">
 <svg viewBox="0 0 860 286" width="100%" role="img" aria-label="第 j 轮 ℓ 和 Õ 的更新放在一起。ℓ_j 等于修正因子乘 ℓ_{j−1} 加上 P̃_ij 每行之和；Õ_j 等于同一个修正因子按行乘 Õ_{j−1}，加上 P̃_ij 乘 V_j。两式只差新 block 那一项">
@@ -1050,7 +1050,7 @@ $\tilde O$ 和 $\ell$ 是同一种求和，用同一个修正因子累加，这�
 <figcaption><strong>图 1-7</strong> 第 $j$ 轮 $\ell$ 和 $\tilde O$ 的更新放在一起：修正因子相同，只差新 block 那一项。</figcaption>
 </figure>
 
-两个 block 展开可以验证，修正以后每一项都按整行的最大值算（[图 1-8](#fig-1-8)）。扫完以后按行除以 $\ell$，这是第 12 行；结果是精确的，只差浮点加法的顺序。
+两个 block 展开可以验证，修正以后每一项都按整行的最大值算（[图 1-8](#fig-1-8)）。扫完以后按行除以 $\ell$；结果是精确的，只差浮点加法的顺序。
 
 <figure id="fig-1-8">
 <svg viewBox="0 0 860 204" width="100%" role="img" aria-label="两个 block 时 Õ 的展开。第一行：Õ_1 等于 e 的 S_i1 减 m_1 次方乘 V_1。第二行：先乘 e 的 m_1 减 m 次方，变成 e 的 S_i1 减 m 次方乘 V_1，再加上 e 的 S_i2 减 m 次方乘 V_2，每一项都按整行的最大值 m 算">
