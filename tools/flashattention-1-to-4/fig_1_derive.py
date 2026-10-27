@@ -45,12 +45,15 @@ def parse(t):
 
 STYLE = {
     'old': 'fill: color-mix(in srgb, var(--fig-mute) 24%, transparent); stroke: var(--fig-mute)',
-    'new': 'fill: color-mix(in srgb, var(--fig-1) 32%, transparent); stroke: var(--fig-1)',
+    'new': 'fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)',
     'res': 'fill: color-mix(in srgb, var(--fig-3) 55%, transparent); stroke: var(--fig-2)',
     'out': 'fill: color-mix(in srgb, var(--fig-hi) 30%, transparent); stroke: var(--fig-hi)',
     'skip': 'fill: none; stroke: var(--fig-mute)',
     'fac': 'fill: color-mix(in srgb, var(--fig-hi) 22%, transparent); stroke: var(--fig-hi)',
+    'state': 'fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)',     # 跨 tile 保留的状态
+    'tmp': 'fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)',       # 这一轮的临时量
 }
+DASH = {'skip', 'tmp', 'fac'}                 # 虚线框 = 用完就丢
 CSS = ('  <style>\n    .os2 { font-size: 11px; fill: currentColor; }\n    .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }\n'
        '    .os2-s { font-size: 10.5px; fill: currentColor; opacity: .72; }\n    .os2-m { font-size: 13px; fill: currentColor; }\n'
        '    .os2-hi { fill: var(--fig-hi); }\n  </style>\n')
@@ -78,15 +81,16 @@ class Fig:
         an = f' text-anchor="{anchor}"' if anchor != 'start' else ''
         self.w(f'<text class="{cls}" x="{x:g}" y="{y:g}"{an}{st}>{h}</text>')
     def rect(self, x, y, w, h, kind, label=None, cls='os2', rx=1.5):
-        d = ' stroke-dasharray="3 2"' if kind == 'skip' else ''
-        self.w(f'<rect x="{x:g}" y="{y:g}" width="{w:g}" height="{h:g}" rx="{rx}" style="{STYLE[kind]}" stroke-width="1"{d}/>')
+        d = ' stroke-dasharray="3 2"' if kind in DASH else ''
+        sw = 1.7 if kind == 'state' else 1
+        self.w(f'<rect x="{x:g}" y="{y:g}" width="{w:g}" height="{h:g}" rx="{rx}" style="{STYLE[kind]}" stroke-width="{sw}"{d}/>')
         if label: self.T(cls, x + w / 2, y + h / 2 + 4, label, 'middle')
     def mat(self, x, y, r, c, kind, cs, name=None, hl=None):
         for i in range(r):
             for j in range(c):
                 self.rect(x + j * cs, y + i * cs, cs, cs, kind)
         if hl is not None:
-            self.w(f'<rect x="{x - 1.5:g}" y="{y + hl * cs - 1.5:g}" width="{c * cs + 3:g}" height="{cs + 3:g}" rx="2" fill="none" stroke="currentColor" stroke-opacity=".75" stroke-dasharray="3 2" stroke-width="1.4"/>')
+            self.w(f'<rect x="{x - 1.5:g}" y="{y + hl * cs - 1.5:g}" width="{c * cs + 3:g}" height="{cs + 3:g}" rx="2" fill="currentColor" fill-opacity=".2" stroke="none"/>')
         if name: self.T('os2', x + c * cs / 2, y + r * cs + 15, name, 'middle')
         return x + c * cs
     def arrow(self, x1, y1, x2, y2, hi=False):
@@ -130,7 +134,7 @@ def rows(fid, spec, label, leg=None):
 def legend(F, x, y, items):
     for k, (kind, txt) in enumerate(items):
         if kind == 'row':
-            F.w(f'<rect x="{x}" y="{y - 9}" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-opacity=".75" stroke-dasharray="3 2" stroke-width="1.4"/>')
+            F.w(f'<rect x="{x}" y="{y - 9}" width="12" height="12" rx="2" fill="currentColor" fill-opacity=".25"/>')
         else:
             F.rect(x, y - 9, 12, 12, kind)
         F.T('os2-s', x + 17, y + 1, txt)
@@ -143,12 +147,15 @@ def seq(F, x, y, parts, cs, hl=None):
         if isinstance(p, str):
             F.T('os2-m', x + 2, y + 2 * cs + 5, p); x += len(p) * 7.2 + 8
         else:
-            kind, r, c, name = p
-            x = F.mat(x, y, r, c, kind, cs, name, hl=hl) + 10
+            kind, r, c, name = p[:4]
+            x1 = F.mat(x, y, r, c, kind, cs, name, hl=hl)
+            if len(p) > 4:                    # 名字下面再标一行：上一轮留下的 / 留到下一轮
+                F.T('os2-s', (x + x1) / 2, y + r * cs + 32, p[4], 'middle', 'opacity: 1; fill: var(--fig-1); font-weight: 600' if '下一轮' in p[4] else '')
+            x = x1 + 10
     return x
 
 FIGS = {}
-LEG = [('old', '前 j − 1 个 block 留下的'), ('new', '这一轮读的'), ('res', '这一轮算出来的'), ('fac', '修正因子'), ('row', '同一行（一个 query）')]
+LEG = [('state', '状态：留到下一个 tile'), ('tmp', '临时：这一轮用完就丢'), ('fac', '修正因子（临时）'), ('new', '这一轮从 HBM 读的'), ('row', '同一行（一个 query）')]
 
 # ===================== 图 1-2：softmax 要看完全部 block =====================
 BW, CW = 36, 12
@@ -205,14 +212,14 @@ FIGS['fig-1-3'] = rows('fig-1-3', [
 # ===================== 图 1-4：第 j 轮的 m、ℓ =====================
 CS = 16
 FIGS['fig-1-4'] = rows('fig-1-4', [
-    (82, ['m_{j} = max(m_{j−1}, rowmax(S_{ij}))'],
-     lambda F, x, y: seq(F, x, y, [('res', 4, 1, 'm_{j}'), '=', 'max(', ('old', 4, 1, 'm_{j−1}'), ',', 'rowmax(', ('new', 4, 4, 'S_{ij}'), '))'], CS, 1),
+    (92, ['m_{j} = max(m_{j−1}, rowmax(S_{ij}))'],
+     lambda F, x, y: seq(F, x, y, [('state', 4, 1, 'm_{j}', '→ 下一轮'), '=', 'max(', ('state', 4, 1, 'm_{j−1}', '上一轮的'), ',', 'rowmax(', ('tmp', 4, 4, 'S_{ij}'), '))'], CS, 1),
      ['每行取旧最大值和新 block 最大值', '中大的那个。']),
     (82, ['P̃_{ij} = exp(S_{ij} − m_{j})'],
-     lambda F, x, y: seq(F, x, y, [('res', 4, 4, 'P̃_{ij}'), '=', 'exp(', ('new', 4, 4, 'S_{ij}'), '−', ('res', 4, 1, 'm_{j}'), ')'], CS, 1),
+     lambda F, x, y: seq(F, x, y, [('tmp', 4, 4, 'P̃_{ij}'), '=', 'exp(', ('tmp', 4, 4, 'S_{ij}'), '−', ('state', 4, 1, 'm_{j}'), ')'], CS, 1),
      ['每行减去自己的 m_{j} 再取 exp。']),
-    (82, ['ℓ_{j} = «e^{m_{j−1} − m_{j}}» ℓ_{j−1}', '        + rowsum(P̃_{ij})'],
-     lambda F, x, y: seq(F, x, y, [('res', 4, 1, 'ℓ_{j}'), '=', ('fac', 4, 1, '«e^{m_{j−1} − m_{j}}»'), '·', ('old', 4, 1, 'ℓ_{j−1}'), '+', 'rowsum(', ('res', 4, 4, 'P̃_{ij}'), ')'], CS, 1),
+    (92, ['ℓ_{j} = «e^{m_{j−1} − m_{j}}» ℓ_{j−1}', '        + rowsum(P̃_{ij})'],
+     lambda F, x, y: seq(F, x, y, [('state', 4, 1, 'ℓ_{j}', '→ 下一轮'), '=', ('fac', 4, 1, '«e^{m_{j−1} − m_{j}}»'), '·', ('state', 4, 1, 'ℓ_{j−1}', '上一轮的'), '+', 'rowsum(', ('tmp', 4, 4, 'P̃_{ij}'), ')'], CS, 1),
      ['旧的和乘«修正因子»换到新最大值，', '加上新 block 每行的和。']),
 ], '第 j 轮 m 和 ℓ 的更新，B_q 等于 4。m_j 等于 m_{j−1} 和 S_ij 每行最大值中大的那个；P̃_ij 等于 S_ij 每行减去 m_j 的对应数再取 exp；ℓ_j 等于修正因子乘 ℓ_{j−1} 加上 P̃_ij 每行之和。红框标出同一行', LEG)
 
@@ -244,11 +251,11 @@ FIGS['fig-1-6'] = rows('fig-1-6', [
 # ===================== 图 1-7：ℓ 和 Õ 并排 =====================
 CS = 14
 FIGS['fig-1-7'] = rows('fig-1-7', [
-    (76, ['ℓ_{j} = «e^{m_{j−1} − m_{j}}» ℓ_{j−1}', '        + rowsum(P̃_{ij})'],
-     lambda F, x, y: seq(F, x, y, [('res', 4, 1, 'ℓ_{j}'), '=', ('fac', 4, 1, '«e^{m_{j−1} − m_{j}}»'), '·', ('old', 4, 1, 'ℓ_{j−1}'), '+', 'rowsum(', ('res', 4, 4, 'P̃_{ij}'), ')'], CS, 1),
+    (88, ['ℓ_{j} = «e^{m_{j−1} − m_{j}}» ℓ_{j−1}', '        + rowsum(P̃_{ij})'],
+     lambda F, x, y: seq(F, x, y, [('state', 4, 1, 'ℓ_{j}', '→ 下一轮'), '=', ('fac', 4, 1, '«e^{m_{j−1} − m_{j}}»'), '·', ('state', 4, 1, 'ℓ_{j−1}', '上一轮的'), '+', 'rowsum(', ('tmp', 4, 4, 'P̃_{ij}'), ')'], CS, 1),
      ['旧的和乘«修正因子»，', '加上新 block 每行的和。']),
-    (76, ['Õ_{j} = diag(«e^{m_{j−1} − m_{j}}») Õ_{j−1}', '        + P̃_{ij} V_{j}'],
-     lambda F, x, y: seq(F, x, y, [('res', 4, 3, 'Õ_{j}'), '=', 'diag(', ('fac', 4, 1, '«e^{m_{j−1} − m_{j}}»'), ')', ('old', 4, 3, 'Õ_{j−1}'), '+', ('res', 4, 4, 'P̃_{ij}'), ('new', 4, 3, 'V_{j}')], CS, 1),
+    (88, ['Õ_{j} = diag(«e^{m_{j−1} − m_{j}}») Õ_{j−1}', '        + P̃_{ij} V_{j}'],
+     lambda F, x, y: seq(F, x, y, [('state', 4, 3, 'Õ_{j}', '→ 下一轮'), '=', 'diag(', ('fac', 4, 1, '«e^{m_{j−1} − m_{j}}»'), ')', ('state', 4, 3, 'Õ_{j−1}', '上一轮的'), '+', ('tmp', 4, 4, 'P̃_{ij}'), ('new', 4, 3, 'V_{j}')], CS, 1),
      ['同一个«修正因子»按行乘旧的 Õ，', '加上新 block 的 P̃_{ij}V_{j}。']),
 ], '第 j 轮 ℓ 和 Õ 的更新放在一起。ℓ_j 等于修正因子乘 ℓ_{j−1} 加上 P̃_ij 每行之和；Õ_j 等于同一个修正因子按行乘 Õ_{j−1}，加上 P̃_ij 乘 V_j。两式只差新 block 那一项', LEG)
 
