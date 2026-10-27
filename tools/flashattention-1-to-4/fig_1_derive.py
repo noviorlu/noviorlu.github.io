@@ -1,4 +1,4 @@
-"""1.1–1.2 推导用的示意图：图 1-2、1-3、1-4、1-6、1-7、1-8。每张图对应正文里的一个公式块，
+"""1.1–1.2 推导用的示意图：图 1-2、1-3、1-4、1-6、1-7。每张图对应正文里的一个公式块，
 一行一个操作，分三栏：左边是数学公式，中间是这个操作的示意，右边是解释。
 配色和图 1-1 一致：深蓝 = 这一轮新读的 block，灰 = 前面的 block 留下的，浅蓝 = 这一轮算出来的，红 = 输出；红框标同一行（一个 query）。
 用法：python3 tools/flashattention-1-to-4/fig_1_derive.py content/blog/flashattention-1-to-4/index.md
@@ -246,35 +246,40 @@ FIGS['fig-1-6'] = rows('fig-1-6', [
      ['Õ 的第 r 行除以 ℓ 的第 r 个数', '（图 1-1 (c)），就是 O_{i}。']),
 ], '把分母提出来，画法同图 1-1 (b)。第一行：V 的每个 block V_j 乘 P 第 i 个 block 行的第 j 个 block，加起来是 O_i。第二行：权重换成没除以 ℓ 的 e 的 S_ij 减 m 次方，结果是 Õ。第三行：Õ 的第 r 行除以 ℓ 的第 r 个数，得到 O_i')
 
-# ===================== 图 1-7：ℓ 和 Õ 并排 =====================
-CS = 14
+# ===================== 图 1-7：Õ 一个 block 一个 block 地累加（画法同图 1-6） =====================
+def acc(cells, under, res_name):
+    """cells：每格 (kind, 标签)，kind 为 'skip' 的格子表示还没读；under：每格下面的小字（«» 标红）。"""
+    def draw(F, x, y):
+        py, vx, vy = y + 52, x + 4 * PW6 + 50, y + 16
+        for j, (kind, lab) in enumerate(cells):
+            F.rect(x + j * PW6, py, PW6, C6, kind, lab, 'os2-s')
+            F.rect(vx, vy + j * C6, C6, C6, 'skip' if kind == 'skip' else 'new', f'V_{{{j + 1}}}')
+            if under[j]: F.T('os2-s', x + j * PW6 + PW6 / 2, py + C6 + 15, under[j], 'middle', 'opacity: 1')
+            if kind == 'skip': continue
+            yc, cx = vy + j * C6 + 12, x + j * PW6 + PW6 / 2
+            xj, ty = vx - 8 - 6 * j, y + 2 + 4 * j
+            F.w(f'<path d="M{vx:g},{yc:g} H{xj + 4:g} Q{xj:g},{yc:g} {xj:g},{yc - 4:g} V{ty + 4:g} Q{xj:g},{ty:g} {xj - 4:g},{ty:g} '
+                f'H{cx + 4:g} Q{cx:g},{ty:g} {cx:g},{ty + 4:g} V{py - 1:g}" fill="none" stroke="currentColor" stroke-opacity=".55" '
+                f'stroke-width="1.4" marker-end="url(#{F.fid}-ar)"/>')
+        F.T('os2-b', x + 4 * PW6 + 12, py + 17, '×', 'middle')
+        F.T('os2-b', vx + C6 + 14, py + 17, '=', 'middle')
+        F.rect(vx + C6 + 28, py, C6 + 8, C6, 'state', res_name)
+    return draw
+SK = ('skip', '')
 FIGS['fig-1-7'] = rows('fig-1-7', [
-    (88, ['ℓ_{j} = «e^{m_{j−1} − m_{j}}» ℓ_{j−1}', '        + rowsum(P̃_{ij})'],
-     lambda F, x, y: seq(F, x, y, [('state', 4, 1, 'ℓ_{j}', '→ 下一轮'), '=', ('fac', 4, 1, '«e^{m_{j−1} − m_{j}}»'), '·', ('state', 4, 1, 'ℓ_{j−1}', '上一轮的'), '+', 'rowsum(', ('tmp', 4, 4, 'P̃_{ij}'), ')'], CS, 1),
-     ['旧的和乘«修正因子»，', '加上新 block 每行的和。']),
+    (128, ['Õ_{1} = e^{S_{i1} − m_{1}} V_{1}'],
+     acc([('tmp', 'e^{S_{i1} − m_{1}}'), SK, SK, SK], ['', '还没读', '还没读', '还没读'], 'Õ_{1}'),
+     ['只读了第 1 个 block，', '按它自己的最大值 m_{1} 算。']),
+    (128, ['Õ_{2} = «e^{m_{1} − m_{2}}» Õ_{1} + e^{S_{i2} − m_{2}} V_{2}'],
+     acc([('res', 'e^{S_{i1} − m_{2}}'), ('tmp', 'e^{S_{i2} − m_{2}}'), SK, SK], ['«× e^{m_{1} − m_{2}}»', '', '还没读', '还没读'], 'Õ_{2}'),
+     ['已经累加的部分乘«修正因子»，', '换成按 m_{2} 算，再加上第 2 个 block。']),
+    (128, ['扫完：Σ_{j} e^{S_{ij} − m} V_{j} = Õ'],
+     acc([('res', f'e^{{S_{{i{j}}} − m}}') for j in range(1, 5)], ['', '', '', ''], 'Õ'),
+     ['扫完以后每一格都按整行的 m 算，', '就是图 1-6 第二行的 Õ。']),
     (88, ['Õ_{j} = diag(«e^{m_{j−1} − m_{j}}») Õ_{j−1}', '        + P̃_{ij} V_{j}'],
-     lambda F, x, y: seq(F, x, y, [('state', 4, 3, 'Õ_{j}', '→ 下一轮'), '=', 'diag(', ('fac', 4, 1, '«e^{m_{j−1} − m_{j}}»'), ')', ('state', 4, 3, 'Õ_{j−1}', '上一轮的'), '+', ('tmp', 4, 4, 'P̃_{ij}'), ('new', 4, 3, 'V_{j}')], CS, 1),
-     ['diag 是按行乘（图 1-1 (c)）：旧的 Õ', '第 r 行乘第 r 个«修正因子»，再加 P̃_{ij}V_{j}。']),
-], '第 j 轮 ℓ 和 Õ 的更新放在一起。ℓ_j 等于修正因子乘 ℓ_{j−1} 加上 P̃_ij 每行之和；Õ_j 等于同一个修正因子按行乘 Õ_{j−1}，加上 P̃_ij 乘 V_j。两式只差新 block 那一项', LEG)
-
-# ===================== 图 1-8：两个 block 展开 =====================
-BH, BL = 28, 150
-def bar(F, x, y, kind, t):
-    F.rect(x, y, BL, BH, kind, t, 'os2', rx=6)
-def two1(F, x, y):
-    bar(F, x, y + 4, 'old', 'e^{S_{i1} − m_{1}} V_{1}')
-def two2(F, x, y):
-    F.arrow(x + BL / 2, y - 12, x + BL / 2, y + 26, hi=True)
-    F.T('os2', x + BL / 2 + 8, y + 12, '× «e^{m_{1} − m}»', 'start')
-    bar(F, x, y + 30, 'res', 'e^{S_{i1} − m} V_{1}')
-    F.T('os2-m', x + BL + 7, y + 30 + 19, '+')
-    bar(F, x + BL + 24, y + 30, 'new', 'e^{S_{i2} − m} V_{2}')
-FIGS['fig-1-8'] = rows('fig-1-8', [
-    (36, ['Õ_{1} = e^{S_{i1} − m_{1}} V_{1}'], two1,
-     ['第 1 个 block 按 m_{1} 算。']),
-    (58, ['Õ_{2} = «e^{m_{1} − m}» Õ_{1} + e^{S_{i2} − m} V_{2}', '    = e^{S_{i1} − m} V_{1} + e^{S_{i2} − m} V_{2}'], two2,
-     ['乘 «e^{m_{1} − m}» 以后，', '每一项都按整行的 m 算。']),
-], '两个 block 时 Õ 的展开。第一行：Õ_1 等于 e 的 S_i1 减 m_1 次方乘 V_1。第二行：先乘 e 的 m_1 减 m 次方，变成 e 的 S_i1 减 m 次方乘 V_1，再加上 e 的 S_i2 减 m 次方乘 V_2，每一项都按整行的最大值 m 算', [('old', '按旧的最大值算的'), ('new', '这一轮读的'), ('res', '换到新的最大值以后')])
+     lambda F, x, y: seq(F, x, y, [('state', 4, 3, 'Õ_{j}', '→ 下一轮'), '=', 'diag(', ('fac', 4, 1, '«e^{m_{j−1} − m_{j}}»'), ')', ('state', 4, 3, 'Õ_{j−1}', '上一轮的'), '+', ('tmp', 4, 4, 'P̃_{ij}'), ('new', 4, 3, 'V_{j}')], 14, 1),
+     ['一般的第 j 轮：旧的 Õ 第 r 行乘第 r 个', '«修正因子»（图 1-1 (c)），再加 P̃_{ij} V_{j}。']),
+], 'Õ 一个 block 一个 block 地累加，画法同图 1-6。第 1 轮只有第 1 个 block，按 m_1 算。第 2 轮旧的一项乘 e 的 m_1 减 m_2 次方，换成按 m_2 算，再加第 2 个 block。扫完以后每一项都按整行的最大值 m 算，就是图 1-6 的 Õ。最后一行是一般的第 j 轮，写成矩阵形式', LEG)
 
 if __name__ == '__main__':
     p = sys.argv[1]

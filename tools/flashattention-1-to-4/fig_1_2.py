@@ -1,8 +1,8 @@
-"""图 1-9 和图 1-10（FlashAttention 的 tiling，按 Triton program 看）。图 1-9 是上栏（数据怎么分给 program），
-图 1-10 是中栏和下栏（每个 program 算哪些 block，以及一轮里的数据流），两张图由同一份代码画出。画法和配色沿用 gpu-triton-intro 的图 2-1、2-5：
+"""图 1-8 和图 1-9（FlashAttention 的 tiling，按 Triton program 看）。图 1-8 是上栏（数据怎么分给 program），
+图 1-9 是中栏和下栏（每个 program 算哪些 block，以及一轮里的数据流），两张图由同一份代码画出。画法和配色沿用 gpu-triton-intro 的图 2-1、2-5：
 深蓝 = 这个 program 读的数据，红 = 它写回的输出，斜线 = 之后几轮才读的 block，灰 = 别的 program 的。
 用法：python3 tools/flashattention-1-to-4/fig_1_2.py content/blog/flashattention-1-to-4/index.md
-会把文中 <figure id="fig-1-9" ...> 和 <figure id="fig-1-10" ...> 里的 <svg> 换掉，figcaption 不动。
+会把文中 <figure id="fig-1-8" ...> 和 <figure id="fig-1-9" ...> 里的 <svg> 换掉，figcaption 不动。
 """
 import re, sys
 
@@ -169,7 +169,7 @@ for k, (kind, txt) in enumerate([('read', '这一轮读的（j = 0）'), ('later
     cell(LX, LY + k * 20, 12, 12, kind)
     T('s', LX + 18, LY + k * 20 + 10, txt)
 
-SPLIT = len(B)                 # 这之前是图 1-9，之后是图 1-10
+SPLIT = len(B)                 # 这之前是图 1-8，之后是图 1-9
 
 # ===================== 中间：每个 program 干什么，以及部分 mask 的 block =====================
 Y1 = SY + SH + 46
@@ -310,14 +310,14 @@ DEFS = (f'\n  <defs>{defs}<pattern id="{FID}-hatch" width="5" height="5" pattern
 HT = SY + SH + 42
 Y1T = Y1 - 4
 svg_top = (f'<svg class="fg" viewBox="0 0 640 {HT}" width="100%" role="img" aria-label="{LABEL_TOP}">\n' + CSS + DEFS
-           + '\n'.join('  ' + x for x in B[:SPLIT]) + '\n</svg>').replace(f'{FID}-', 'fig-1-9-')
+           + '\n'.join('  ' + x for x in B[:SPLIT]) + '\n</svg>').replace(f'{FID}-', 'fig-1-8-')
 svg_bot = (f'<svg class="fg" viewBox="0 0 640 {H - Y1T}" width="100%" role="img" aria-label="{LABEL_BOT}">\n' + CSS + DEFS
-           + f'  <g transform="translate(0 {-Y1T})">\n' + '\n'.join('  ' + x for x in B[SPLIT:]) + '\n  </g>\n</svg>').replace(f'{FID}-', 'fig-1-10-')
+           + f'  <g transform="translate(0 {-Y1T})">\n' + '\n'.join('  ' + x for x in B[SPLIT:]) + '\n  </g>\n</svg>').replace(f'{FID}-', 'fig-1-9-')
 
 if __name__ == '__main__':
     p = sys.argv[1]
     s = open(p).read()
-    for fid, svg in (('fig-1-9', svg_top), ('fig-1-10', svg_bot)):
+    for fid, svg in (('fig-1-8', svg_top), ('fig-1-9', svg_bot)):
         s, n = re.subn(r'(<figure id="' + fid + r'"[^>]*>\n)<svg.*?</svg>', lambda m: m.group(1) + svg, s, count=1, flags=re.S)
         assert n == 1, fid
     open(p, 'w').write(s)
