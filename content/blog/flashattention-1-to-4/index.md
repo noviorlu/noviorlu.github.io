@@ -477,15 +477,25 @@ $j = N$ 时就是 safe softmax 的分母。
 
 </details>
 
-$m$、$\ell$ 一遍就能求出来，但 $P_{ij} = e^{S_{ij} - m_{T_k}}/\ell_{T_k}$ 要用扫完以后的 $m_{T_k}$、$\ell_{T_k}$，单独算 softmax 还得再扫一遍才能写出 $P$。attention 不需要 $P$ 本身，只要 $PV$。一行的输出是 $o = \sum_k p_k v_k$，$v_k$ 是 $V$ 的第 $k$ 行；分母 $\ell$ 对每一项都一样，可以提到外面：
+到这里 $m$、$\ell$ 扫一遍就能求出来，但 softmax 的结果 $P_{ij} = e^{S_{ij} - m_{T_k}}/\ell_{T_k}$ 要用扫完以后的 $m_{T_k}$、$\ell_{T_k}$，单算 softmax 还得再扫一遍才能写出 $P$。attention 要的不是 $P$，而是 $O = PV$，这一遍可以省掉。
 
-<p align="center">$o = \dfrac{\tilde o}{\ell}, \qquad \tilde o = \sum_{k=1}^{N_k} e^{s_k - m}\, v_k$</p>
+先把分母提出来。$O$ 的一行是 $V$ 各行的加权和，权重是 $P$ 的那一行（[图 1-1](#fig-1-1) (b)），这些权重的分母都是同一个 $\ell$，可以提到求和外面：
 
-$\tilde o$ 和 $\ell$ 是同一种求和，只是每一项多乘一个 $v_k$，所以两段合并的公式也一样：$\tilde o = \tilde o_A\, e^{m_A - m} + \tilde o_B\, e^{m_B - m}$。按 [图 1-1](#fig-1-1) (b) 的看法，$\tilde o$ 是 $V$ 各行的线性组合，权重全乘 $e^{m_A - m}$，结果就整体乘 $e^{m_A - m}$，所以旧的部分和不用拆开重算。放到 block 上，$\tilde O_j$ 是 $B_q\times d$ 的矩阵，每行乘自己的那个数，写成 $\mathrm{diag}$；B 段的 $\tilde o_B\, e^{m_B - m_j}$ 正好是 $\tilde P_{ij}V_j$：
+<p align="center">$o = \sum_{k=1}^{N_k} \dfrac{e^{s_k - m}}{\ell}\, v_k = \dfrac{1}{\ell} \sum_{k=1}^{N_k} e^{s_k - m}\, v_k$</p>
 
-<p align="center">$\tilde O_j = \mathrm{diag}\big(e^{m_{j-1} - m_j}\big)\, \tilde O_{j-1} + \tilde P_{ij} V_j, \qquad \tilde O_0 = 0$</p>
+$v_k$ 是 $V$ 的第 $k$ 行。右边的求和记作 $\tilde o$，是还没除以 $\ell$ 的输出，所以 $\tilde o$ 和 $\ell$ 可以分开算，最后再相除。
 
-这是 Algorithm 1 的第 10 行。扫完 $j = T_k$，每行除以自己的 $\ell_{T_k}$，$O_i = \mathrm{diag}(\ell_{T_k})^{-1}\,\tilde O_{T_k}$，是第 12 行。$P$ 从头到尾不用写出来；修正以后每一项都等于按最终最大值算的值，所以结果是精确的，只差浮点加法的顺序。
+$\tilde o = \sum_k e^{s_k - m} v_k$ 和 $\ell = \sum_k e^{s_k - m}$ 是同一种求和，只是每一项多乘了一个 $v_k$，所以 $\tilde o$ 也能照 $\ell$ 的办法一个 block 一个 block 地累加：先按当前的最大值 $m_j$ 算，最大值变大时把旧的和整体乘 $e^{m_{j-1} - m_j}$。整体乘是对的：旧的和里每一项的权重都是按 $m_{j-1}$ 算的 $e^{s_k - m_{j-1}}$，都要乘同一个 $e^{m_{j-1} - m_j}$ 才变成按 $m_j$ 算的值，权重全乘同一个数，线性组合的结果也就乘这个数。第 $i$ 个 query block 的累加结果记作 $\tilde O_j$，是 $B_q \times d$ 的矩阵，和 $\ell_j$ 并排写：
+
+<p align="center">$\ell_j = e^{m_{j-1} - m_j}\, \ell_{j-1} + \mathrm{rowsum}(\tilde P_{ij}), \qquad \tilde O_j = \mathrm{diag}\big(e^{m_{j-1} - m_j}\big)\, \tilde O_{j-1} + \tilde P_{ij} V_j$</p>
+
+$\tilde O_0 = 0$。两式只差最后一项：$\ell$ 把 $\tilde P_{ij}$ 每一行的元素加起来，$\tilde O$ 拿 $\tilde P_{ij}$ 的每一行当权重去组合 $V_j$ 的各行。每一行是一个 query，有自己的修正因子，所以 $\tilde O$ 前面写成 $\mathrm{diag}$，意思是第 $r$ 行乘第 $r$ 个数。这是 Algorithm 1 的第 10 行。
+
+只有两个 block 时展开看一下。记 $m = m_2$ 为整行的最大值，$e^{\cdots}$ 都是每行一个数：
+
+<p align="center">$\tilde O_2 = e^{m_1 - m}\, \tilde O_1 + e^{S_{i2} - m}\, V_2 = e^{m_1 - m}\, e^{S_{i1} - m_1}\, V_1 + e^{S_{i2} - m}\, V_2 = e^{S_{i1} - m}\, V_1 + e^{S_{i2} - m}\, V_2$</p>
+
+第一个 block 先按 $m_1$ 算，乘上修正因子以后就和直接按整行的 $m$ 算一样；block 更多时逐个这样推下去。扫完 $j = T_k$，每行除以自己的 $\ell_{T_k}$，$O_i = \mathrm{diag}(\ell_{T_k})^{-1}\, \tilde O_{T_k}$，是第 12 行。$P$ 从头到尾没有写出来，结果和按定义算的完全一样，只差浮点加法的顺序。
 
 ### 1.3 FlashAttention-2 的 Algorithm 1 {#fa-algorithm}
 
