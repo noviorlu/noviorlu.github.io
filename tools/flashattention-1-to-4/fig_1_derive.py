@@ -1,4 +1,4 @@
-"""推导用的示意图：图 1-2、1-3、1-4、1-6、1-7、1-9。每张图对应正文里的一个公式块，
+"""推导用的示意图：图 1-2、1-3、1-4、1-6、1-7、1-9、1-10、1-11。每张图对应正文里的一个公式块，
 一行一个操作，分三栏：左边是数学公式，中间是这个操作的示意，右边是解释。
 配色和图 1-1 一致：深蓝 = 这一轮新读的 block，灰 = 前面的 block 留下的，浅蓝 = 这一轮算出来的，红 = 输出；红框标同一行（一个 query）。
 用法：python3 tools/flashattention-1-to-4/fig_1_derive.py content/blog/flashattention-1-to-4/index.md
@@ -65,7 +65,12 @@ STYLE = {
     'vV': 'fill: color-mix(in srgb, var(--fig-3) 70%, transparent); stroke: var(--fig-2)',
     'vO': 'fill: color-mix(in srgb, var(--fig-hi) 30%, transparent); stroke: var(--fig-hi)',
     'vL': 'fill: color-mix(in srgb, var(--fig-mute) 20%, transparent); stroke: var(--fig-mute)',
+    # Algorithm 2 第 3 行：梯度和原变量同色，粗边框
+    'gQ': 'fill: color-mix(in srgb, var(--fig-1) 12%, transparent); stroke: var(--fig-1)',
+    'gK': 'fill: color-mix(in srgb, var(--fig-2) 14%, transparent); stroke: var(--fig-2)',
+    'gV': 'fill: color-mix(in srgb, var(--fig-3) 30%, transparent); stroke: var(--fig-2)',
 }
+THICK = {'state', 'gQ', 'gK', 'gV'}
 DASH = {'skip', 'tmp', 'fac'}                 # 虚线框 = 用完就丢
 CSS = ('  <style>\n    .os2 { font-size: 11px; fill: currentColor; }\n    .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }\n'
        '    .os2-s { font-size: 10.5px; fill: currentColor; opacity: .72; }\n    .os2-m { font-size: 13px; fill: currentColor; }\n'
@@ -95,7 +100,7 @@ class Fig:
         self.w(f'<text class="{cls}" x="{x:g}" y="{y:g}"{an}{st}>{h}</text>')
     def rect(self, x, y, w, h, kind, label=None, cls='os2', rx=1.5):
         d = ' stroke-dasharray="3 2"' if kind in DASH else ''
-        sw = 1.7 if kind == 'state' else 1
+        sw = 1.7 if kind in THICK else 1
         self.w(f'<rect x="{x:g}" y="{y:g}" width="{w:g}" height="{h:g}" rx="{rx}" style="{STYLE[kind]}" stroke-width="{sw}"{d}/>')
         if label: self.T(cls, x + w / 2, y + h / 2 + 4, label, 'middle')
     def mat(self, x, y, r, c, kind, cs, name=None, hl=None):
@@ -125,7 +130,7 @@ class Fig:
 
 # ---- 三栏：公式 | 示意 | 解释 ----
 W, FX, DX, EX = 860, 16, 262, 660           # 三栏的左边界
-def rows(fid, spec, label, leg=None):
+def rows(fid, spec, label, leg=None, lx=DX):
     """spec：[(行高, [公式...], 画示意的函数 draw(F, x0, y0), [解释...]), ...]"""
     F = Fig(fid)
     F.T('os2-s', FX, 18, '公式'); F.T('os2-s', DX, 18, '示意'); F.T('os2-s', EX, 18, '解释')
@@ -143,7 +148,7 @@ def rows(fid, spec, label, leg=None):
         y += h + 12
     if leg:
         F.w(f'<line x1="8" y1="{y:g}" x2="{W - 8}" y2="{y:g}" stroke="currentColor" stroke-opacity=".14"/>')
-        legend(F, DX, y + 20, leg); y += 30
+        legend(F, lx, y + 20, leg); y += 30
     return F.svg(y + 4, label)
 
 def legend(F, x, y, items):
@@ -156,11 +161,12 @@ def legend(F, x, y, items):
         t = txt.replace('_{', '').replace('}', '')
         x += 17 + sum(10.5 if ord(ch) > 0x2E80 else 4.6 for ch in t) + 20
 
-def seq(F, x, y, parts, cs, hl=None):
-    """把公式画成一排形状：字符串是运算符，(kind, 行, 列, 名字) 是矩阵。"""
+def seq(F, x, y, parts, cs, hl=None, oy=None, hlr=None):
+    """把公式画成一排形状：字符串是运算符，(kind, 行, 列, 名字) 是矩阵。
+    oy：运算符的高度（默认对齐 4 行矩阵的中间）；hlr：只给行数等于 hlr 的矩阵标同一行。"""
     for p in parts:
         if isinstance(p, str):
-            F.T('os2-m', x + 2, y + 2 * cs + 5, p); x += len(p) * 7.2 + 8
+            F.T('os2-m', x + 2, y + (2 * cs if oy is None else oy) + 5, p); x += len(p) * 7.2 + 8
         elif p[0] == 'diag':
             _, n, name = p
             for a in range(n):
@@ -176,7 +182,7 @@ def seq(F, x, y, parts, cs, hl=None):
             x = x + n * cs + 18
         else:
             kind, r, c, name = p[:4]
-            x1 = F.mat(x, y, r, c, kind, cs, name, hl=hl)
+            x1 = F.mat(x, y, r, c, kind, cs, name, hl=hl if hlr is None or r == hlr else None)
             if len(p) > 4:                    # 名字下面再标一行：上一轮留下的 / 留到下一轮
                 F.T('os2-s', (x + x1) / 2, y + r * cs + 32, p[4], 'middle', 'opacity: 1; fill: var(--fig-1); font-weight: 600' if p[4].startswith('→') else '')
             x = x1 + 10
@@ -344,6 +350,45 @@ F.T('os2', tx, SY9 + 114, 'jB_{k} + c > iB_{q} + r 的位置是 −∞，exp 以
 FIGS['fig-1-9'] = F.svg(SY9 + 3 * C9 + 26,
     '对角线上的 3 乘 3 tile：q_1 到 q_3 是 Q_i 的行，k_1 到 k_3 是 K_j 的行，S_ij 的右上三角是 −∞。k_2 这一列对 q_1 要 mask，对 q_2、q_3 要保留，所以不能在 load K_j 时处理；把 k_2 填 0 得到的 score 是 0 不是 −∞。只能先算完 S_ij，再按位置设成 −∞')
 
+# ===================== 图 1-10：softmax 按行求导，D 换成 dO 和 O 的点积 =====================
+C10 = 10
+FIGS['fig-1-10'] = rows('fig-1-10', [
+    (44, ['ds_{c} = p_{c} (dp_{c} − D)', 'D = Σ_{k} p_{k} dp_{k}'],
+     lambda F, x, y: seq(F, x, y + 10, [('tmp', 1, 8, 'ds'), '=', ('tmp', 1, 8, 'p'), '∘', '(', ('tmp', 1, 8, 'dp'), '−', ('state', 1, 1, 'D'), ')'], C10, oy=C10 / 2),
+     ['softmax 按一行求导：每个元素减去', '同一个数 D，再乘 p_{c}。']),
+    (64, ['D_{i} = Σ_{j} rowsum(P_{ij} ∘ dP_{ij})'],
+     lambda F, x, y: seq(F, x, y, [('state', 4, 1, 'D_{i}'), '=', 'rowsum(', ('tmp', 4, 8, 'P_{i1} ⋯ P_{iT_{k}}'), '∘', ('tmp', 4, 8, 'dP_{i1} ⋯ dP_{iT_{k}}'), ')'], C10, 1),
+     ['按定义要用 P、dP 一整个 block 行，', '和前向的分母一样要扫完所有 K_{j}。']),
+    (64, ['D_{i} = rowsum(dO_{i} ∘ O_{i})'],
+     lambda F, x, y: seq(F, x, y, [('state', 4, 1, 'D_{i}'), '=', 'rowsum(', ('new', 4, 2, 'dO_{i}'), '∘', ('new', 4, 2, 'O_{i}'), ')'], C10, 1),
+     ['代入 dP = dO V^{ᵀ} 和 O = PV，只要', 'dO_{i}、O_{i} 的一行，循环前就能算好。']),
+], 'softmax 按行求导。第一行：一个 query 的一行，ds_c 等于 p_c 乘 dp_c 减 D，D 是 p 和 dp 对应元素乘积之和。第二行：按定义 D_i 要用 P 和 dP 一整个 block 行，要扫完所有 K_j。第三行：代入 dP = dO Vᵀ 和 O = PV，D_i 等于 dO_i 和 O_i 每行的点积，循环前就能算好',
+   [('tmp', '按 key 展开，长 N'), ('new', 'HBM 里已有的'), ('state', '每行一个数'), ('row', '同一行（一个 query）')])
+
+# ===================== 图 1-11：一对 (i, j) 的反向（B_q = 4，B_k = 3，d = 2） =====================
+C11 = 13
+FIGS['fig-1-11'] = rows('fig-1-11', [
+    (70, ['S_{ij} = Q_{i} K_{j}^{ᵀ}', 'P_{ij} = exp(S_{ij} − L_{i})'],
+     lambda F, x, y: seq(F, x, y, [('tmp', 4, 3, 'P_{ij}'), '=', 'exp(', ('new', 4, 2, 'Q_{i}'), ('old', 2, 3, 'K_{j}^{ᵀ}'), '−', ('new', 4, 1, 'L_{i}'), ')'], C11, 1, hlr=4),
+     ['先算 S_{ij}，每行减去 L_{i} 里自己的', '那个数再取 exp，就是除过 ℓ 的 P_{ij}。']),
+    (70, ['dV_{j} ← dV_{j} + P_{ij}^{ᵀ} dO_{i}'],
+     lambda F, x, y: seq(F, x, y, [('state', 3, 2, 'dV_{j}'), '+=', ('tmp', 3, 4, 'P_{ij}^{ᵀ}'), ('new', 4, 2, 'dO_{i}')], C11),
+     ['V_{j} 和每个 P_{ij} 都乘过，梯度对 i', '累加，留在 tile 里给下一个 i。']),
+    (70, ['dP_{ij} = dO_{i} V_{j}^{ᵀ}'],
+     lambda F, x, y: seq(F, x, y, [('tmp', 4, 3, 'dP_{ij}'), '=', ('new', 4, 2, 'dO_{i}'), ('old', 2, 3, 'V_{j}^{ᵀ}')], C11),
+     ['O_{i} = Σ_{j} P_{ij} V_{j} 对 P_{ij} 求导，', '形状和 S_{ij} 一样。']),
+    (70, ['dS_{ij} = P_{ij} ∘ (dP_{ij} − D_{i})'],
+     lambda F, x, y: seq(F, x, y, [('tmp', 4, 3, 'dS_{ij}'), '=', ('tmp', 4, 3, 'P_{ij}'), '∘', '(', ('tmp', 4, 3, 'dP_{ij}'), '−', ('new', 4, 1, 'D_{i}'), ')'], C11, 1, hlr=4),
+     ['每行减去 D_{i} 里自己的那个数，', '再和 P_{ij} 对应元素相乘（图 1-10）。']),
+    (70, ['dQ_{i} ← dQ_{i} + dS_{ij} K_{j}'],
+     lambda F, x, y: seq(F, x, y, [('out', 4, 2, 'dQ_{i}'), '+=', ('tmp', 4, 3, 'dS_{ij}'), ('old', 3, 2, 'K_{j}')], C11),
+     ['Q_{i} 和每个 K_{j} 都乘过，梯度对 j', '累加，这一份加回 HBM 里的 dQ_{i}。']),
+    (70, ['dK_{j} ← dK_{j} + dS_{ij}^{ᵀ} Q_{i}'],
+     lambda F, x, y: seq(F, x, y, [('state', 3, 2, 'dK_{j}'), '+=', ('tmp', 3, 4, 'dS_{ij}^{ᵀ}'), ('new', 4, 2, 'Q_{i}')], C11),
+     ['K_{j} 和每个 Q_{i} 都乘过，梯度对 i', '累加，留在 tile 里给下一个 i。']),
+], '一对 (i, j) 的反向，B_q 等于 4，B_k 等于 3，d 等于 2。P_ij 等于 exp(Q_i K_jᵀ 减 L_i)；dV_j 加上 P_ij 转置乘 dO_i；dP_ij 等于 dO_i 乘 V_j 转置；dS_ij 等于 P_ij 和 dP_ij 减 D_i 对应元素相乘；dQ_i 加上 dS_ij 乘 K_j，加回 HBM；dK_j 加上 dS_ij 转置乘 Q_i',
+   [('new', '这一轮从 HBM 读的（第 i 块）'), ('old', '外层读的 K_{j}、V_{j}'), ('state', '累加器，留给下一个 i'), ('tmp', '临时：这一轮用完就丢'), ('out', '加回 HBM'), ('row', '同一行（一个 query）')], lx=FX)
+
 # ===================== Algorithm 1 第 1、2 行：切 block =====================
 # 块的大小按在显存里的形状画（B_q、B_k、d 各取一个长度），符号写在块外面
 UBQ, UBK, UD, UV, GAP = 26, 22, 18, 6, 3
@@ -381,6 +426,19 @@ ALGO = {
     'algo-l2': algo_svg('algo-l2', [
         (44, 'O', QL('O', 'T_{q}'), 'vO', UD, ['输出，和 Q 一样切', '每个 B_{q} × d']),
         (290, 'L', QL('L', 'T_{q}'), 'vL', UV, ['L = m + log ℓ（logsumexp），T_{q} 段', '每段长 B_{q}；第 14 行算出，给反向用'])]),
+    # Algorithm 2 第 1–3 行
+    'algo2-l1': algo_svg('algo2-l1', [
+        (44, 'Q', QL('Q', 'T_{q}'), 'vQ', UD, ['T_{q} = ⌈N / B_{q}⌉ 个 block', '每个 B_{q} × d']),
+        ('row', 250, 'K', QL('K', 'T_{k}'), 'vK', ['T_{k} = ⌈N / B_{k}⌉ 个 block', '每个 B_{k} × d（横放）']),
+        ('row', 470, 'V', QL('V', 'T_{k}'), 'vV', ['和 K 一样切', '每个 B_{k} × d（横放）'])]),
+    'algo2-l2': algo_svg('algo2-l2', [
+        (44, 'O', QL('O', 'T_{q}'), 'vO', UD, ['前向的输出', '每个 B_{q} × d']),
+        (236, 'dO', QL('dO', 'T_{q}'), 'vO', UD, ['O 的梯度，和 O 一样切', '每个 B_{q} × d']),
+        (450, 'L', QL('L', 'T_{q}'), 'vL', UV, ['前向写回的 logsumexp', '每段长 B_{q}'])]),
+    'algo2-l3': algo_svg('algo2-l3', [
+        (44, 'dQ', QL('dQ', 'T_{q}'), 'gQ', UD, ['在 HBM 里初始化成 0', '和 Q 一样切']),
+        ('row', 250, 'dK', QL('dK', 'T_{k}'), 'gK', ['和 K 一样切', '每个 B_{k} × d（横放）']),
+        ('row', 470, 'dV', QL('dV', 'T_{k}'), 'gV', ['和 V 一样切', '每个 B_{k} × d（横放）'])]),
 }
 
 if __name__ == '__main__':
