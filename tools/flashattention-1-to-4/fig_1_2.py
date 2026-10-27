@@ -1,7 +1,8 @@
-"""图 1-2（FlashAttention 的 tiling，按 Triton program 看）。画法和配色沿用 gpu-triton-intro 的图 2-1、2-5：
+"""图 1-2 和图 1-4（FlashAttention 的 tiling，按 Triton program 看）。图 1-2 是上栏（数据怎么分给 program），
+图 1-4 是中栏和下栏（每个 program 算哪些 block，以及一轮里的数据流），两张图由同一份代码画出。画法和配色沿用 gpu-triton-intro 的图 2-1、2-5：
 深蓝 = 这个 program 读的数据，红 = 它写回的输出，斜线 = 之后几轮才读的 block，灰 = 别的 program 的。
 用法：python3 tools/flashattention-1-to-4/fig_1_2.py content/blog/flashattention-1-to-4/index.md
-会把文中 <figure id="fig-1-2" ...> ... </svg> 整段换掉，figcaption 不动。
+会把文中 <figure id="fig-1-2" ...> 和 <figure id="fig-1-4" ...> 里的 <svg> 换掉，figcaption 不动。
 """
 import re, sys
 
@@ -156,6 +157,8 @@ for k, (kind, txt) in enumerate([('read', '这一轮读的（j = 0）'), ('later
     cell(LX, LY + k * 20, 12, 12, kind)
     T('s', LX + 18, LY + k * 20 + 10, txt)
 
+SPLIT = len(B)                 # 这之前是图 1-2，之后是图 1-4
+
 # ===================== 中间：每个 program 干什么，以及部分 mask 的 block =====================
 Y1 = SY + SH + 46
 HB = 182
@@ -272,6 +275,7 @@ T('s', cx(4) + 6, yS + 33, 'tl.store', 'start', 'fill: var(--fig-hi); opacity: 1
 yT = yM + 92 + 16
 w(f'<rect class="band" x="10" y="{yT}" width="620" height="96" rx="8"/>')
 T('lab2', 18, yT + 18, '第 j 轮')
+T('s', 18, yT + 36, 'Algorithm 1'); T('s', 18, yT + 50, '第 9–10 行')
 cols = [['① m_{new} = max(m, rowmax(S_{ij}))',
          '② P̃_{ij} = exp(S_{ij} − m_{new})',
          '③ ℓ ← exp(m − m_{new})·ℓ + rowsum(P̃_{ij})'],
@@ -283,18 +287,26 @@ for c, rows in enumerate(cols):
         T('lab', 92 + c * 272, yT + 30 + k * 24, t)
 H = yT + 104
 
-LABEL = ("FlashAttention 的 tiling，按 Triton program 看。上：i = 2 的 program 读 Q 的第 2 个 block，沿 j 依次读 K、V 的 block，"
-         "S 只在片上算，最后写回 O 的第 2 个 block；causal 时对角线右上的 block 跳过。下：grid 每个 Q block 一个 program；program 里每轮 "
-         "dot 算 S，online softmax 更新 m、ℓ，再 dot 乘 V 累加进 O_i；K、V 经 shared memory 的两个 slot 轮流搬，Q_i、O_i、m、ℓ 一直在 register，扫完除以 ℓ 写回 O。")
+LABEL_TOP = ("FlashAttention 的 tiling，按 Triton program 看：i = 2 的 program 读 Q 的第 2 个 block，沿 j 依次读 K、V 的 block，"
+             "S 只在片上算，乘 V 以后累加进 O 的第 2 个 block，最后写回；causal 时对角线右上的 block 跳过。")
+LABEL_BOT = ("上：grid 里每个 Q block 一个 program，causal 时每个 program 算的 block 数不同，对角线上的 block 部分 mask。"
+             "下：一个 program 的一轮，dot 算 S，online softmax 更新 m、ℓ，再 dot 乘 V 累加进 O_i；K、V 经 shared memory 轮流搬，"
+             "Q_i、O_i、m、ℓ 一直在 register，扫完除以 ℓ 写回 O。")
 defs = ''.join(m for _, m in MK.values())
-svg = (f'<figure id="{FID}" class="fg-fig">\n<svg class="fg" viewBox="0 0 640 {H}" width="100%" role="img" aria-label="{LABEL}">\n' + CSS +
-       f'\n  <defs>{defs}<pattern id="{FID}-hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="5" style="stroke: var(--fig-1)" stroke-opacity=".55" stroke-width="1.3"/></pattern></defs>\n'
-       + '\n'.join('  ' + x for x in B) + '\n</svg>')
+DEFS = (f'\n  <defs>{defs}<pattern id="{FID}-hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
+        f'<line x1="0" y1="0" x2="0" y2="5" style="stroke: var(--fig-1)" stroke-opacity=".55" stroke-width="1.3"/></pattern></defs>\n')
+HT = SY + SH + 42
+Y1T = Y1 - 4
+svg_top = (f'<svg class="fg" viewBox="0 0 640 {HT}" width="100%" role="img" aria-label="{LABEL_TOP}">\n' + CSS + DEFS
+           + '\n'.join('  ' + x for x in B[:SPLIT]) + '\n</svg>')
+svg_bot = (f'<svg class="fg" viewBox="0 0 640 {H - Y1T}" width="100%" role="img" aria-label="{LABEL_BOT}">\n' + CSS + DEFS
+           + f'  <g transform="translate(0 {-Y1T})">\n' + '\n'.join('  ' + x for x in B[SPLIT:]) + '\n  </g>\n</svg>').replace(f'{FID}-', 'fig-1-4-')
 
 if __name__ == '__main__':
     p = sys.argv[1]
     s = open(p).read()
-    new, n = re.subn(r'<figure id="fig-1-2"[^>]*>\n<svg.*?</svg>', lambda m: svg, s, count=1, flags=re.S)
-    assert n == 1
-    open(p, 'w').write(new)
-    print('H =', H)
+    for fid, svg in (('fig-1-2', svg_top), ('fig-1-4', svg_bot)):
+        s, n = re.subn(r'(<figure id="' + fid + r'"[^>]*>\n)<svg.*?</svg>', lambda m: m.group(1) + svg, s, count=1, flags=re.S)
+        assert n == 1, fid
+    open(p, 'w').write(s)
+    print('H =', HT, H - Y1T)
