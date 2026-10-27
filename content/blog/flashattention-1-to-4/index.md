@@ -1136,7 +1136,7 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 
 ### 1.3 FlashAttention-2 的 Algorithm 1 {#fa-algorithm}
 
-把这三个递推放进两层循环，外层走 $i$，内层走 $j$，就是 FlashAttention-2 论文的 Algorithm 1（[图 1-8](#fig-1-8)）。下面照抄，$m_i^{(j)}$ 是 1.2 的 $m_j$，$1/\sqrt d$ 已乘进 $Q$。
+把这三个递推放进两层循环，外层走 $i$，内层走 $j$，就是 FlashAttention-2 论文的 Algorithm 1（[图 1-8](#fig-1-8)）。下面照抄，$m_i^{(j)}$ 是 1.2 的 $m_j$，$1/\sqrt d$ 已乘进 $Q$。算法里还多了一个 $L$：每行的 logsumexp $L = m + \log\ell$，扫完以后算出来写回 HBM，留给反向用，反向重算 $P$ 时直接 $P_{ij} = e^{S_{ij} - L_i}$，不用再存 $m$ 和 $\ell$。
 
 <figure id="fig-1-8" class="fg-fig">
 <svg class="fg" viewBox="0 0 640 334" width="100%" role="img" aria-label="FlashAttention 的 tiling，按 Triton program 看：i = 2 的 program 读 Q 的第 2 个 block，沿 j 依次读 K、V 的 block，S 只在片上算，乘 V 以后累加进 O 的第 2 个 block，最后写回；causal 时对角线右上的 block 跳过。">
@@ -1343,7 +1343,7 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 
 论文第 10 行没有波浪号，而且 $\mathrm{diag}(\cdot)$ 后面多写了 $^{-1}$，按论文 3.1.1 节的推导应该没有。
 
-色块的颜色区分变量，边框区分用途，见框底的图例；右边标的是每一行对应的图，标 HBM 的四行是全部的显存读写。$K_j$、$V_j$ 只在第 7 行读一次，$S$ 和 $\tilde P$ 不离开片上。第 13 行的 $L_i = m + \log \ell$ 留给反向重算 $P$，$P_{ij} = e^{S_{ij} - L_i}$，额外显存是 $O(N)$。
+色块的颜色区分变量，边框区分用途，见框底的图例；右边标的是每一行对应的图，标 HBM 的四行是全部的显存读写。$K_j$、$V_j$ 只在第 7 行读一次，$S$ 和 $\tilde P$ 不离开片上。额外显存只有 $L$，是 $O(N)$。
 
 causal 时对角线右上方的 block 整块跳过，对角线上的 block 在块内 mask，论文测得快 1.7–1.8 倍。[图 1-9](#fig-1-9) 是 Triton 里一个 program 的执行，①–⑤ 对应第 9、10 行。
 
