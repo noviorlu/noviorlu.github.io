@@ -44,7 +44,7 @@
 </script>
 
 <script>
-  /* Every fold (<details class="fold">) also gets a TOC entry, nested under the heading it sits in. */
+  /* Every code fold (<details class="fold">) also gets a TOC entry, nested under the heading it sits in; notes (.aside) stay out of the TOC. */
   (function () {
     function init() {
       var tocs = document.querySelectorAll("#TableOfContents");
@@ -54,7 +54,7 @@
       var anchors = [].filter.call(content.querySelectorAll(".anchor[id]"), function (x) { return inToc(x.id); });
       content.querySelectorAll("details.fold").forEach(function (d, i) {
         var s = d.querySelector(":scope > summary");
-        if (!s) return;
+        if (!s || d.classList.contains("aside")) return;
         if (!d.id) d.id = "note-" + (i + 1);
         var head = null;
         anchors.forEach(function (x) { if (x.compareDocumentPosition(d) & Node.DOCUMENT_POSITION_FOLLOWING) head = x; });
@@ -63,7 +63,7 @@
           li.className = "toc-fold";
           var a = document.createElement("a");
           a.href = "#" + d.id;
-          a.dataset.kind = d.classList.contains("aside") ? "notes" : "code";
+          a.dataset.kind = "code";
           a.textContent = s.textContent.trim();
           a.addEventListener("click", function () { d.open = true; });
           li.appendChild(a);
