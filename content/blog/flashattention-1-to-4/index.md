@@ -61,7 +61,7 @@ Transformer 的每一层 self-attention 都要付两份代价：一份是 FLOPs�
 
 标准 attention 慢在 $N\times N$ 的 $S$ 和 $P$ 要在 HBM 里来回读写。Dao、Fu、Ermon、Rudra、Ré 2022 年的 FlashAttention 把整个 attention 融合成一个 kernel，用 **tiling** 让这两个矩阵完全不进 HBM，用 **recomputation** 省掉反向要存的 $P$；难点在于让 softmax 也能分块算。
 
-<p align="center">$S = \dfrac{QK^\top}{\sqrt d}, \qquad P = \mathrm{softmax}(S), \qquad O = PV, \qquad Q \in \mathbb{R}^{N_q \times d},\ K, V \in \mathbb{R}^{N_k \times d}$</p>
+<p align="center">$S = \dfrac{QK^\top}{\sqrt d}, \qquad P_{rc} = \dfrac{e^{S_{rc}}}{\sum_k e^{S_{rk}}}, \qquad O = PV, \qquad Q \in \mathbb{R}^{N_q \times d},\ K, V \in \mathbb{R}^{N_k \times d}$</p>
 
 ### 1.1 Background {#fa1-tiling}
 
