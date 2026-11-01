@@ -66,24 +66,35 @@ T('os2-b', 16, 240, 'S 的第 j 列 = k_{j} · q')
 
 # ---------- (b) o = P v ----------
 T('os2-b', 330, 20, '(b) 矩阵乘向量 o = P v：o 是 P 各列的组合')
-px, py, vx, vy, ox = 340, 96, 500, 84, 572
+px, py, vx, vy, ox = 340, 58, 500, 46, 572
+pk = lambda r: 'chip' if r == 0 else 'chip_later'
 for j in range(4):
     for r in range(3):
-        cell(px + j * C, py + r * C, 'chip' if r == 0 else 'chip_later', 'P_{%d%d}' % (r + 1, j + 1))
+        cell(px + j * C, py + r * C, pk(r), 'P_{%d%d}' % (r + 1, j + 1))
     cell(vx, vy + j * C, 'read', 'v_{%d}' % (j + 1))
-    yc, cx = vy + j * C + 12, px + j * C + 12
-    xj, ty = 486 - 6 * j, 56 + 8 * j          # 先往左到 xj，再往上到 ty，再往左到第 j 列上方，互不交叉
-    arc(f'M{vx},{yc} H{xj + 4} Q{xj},{yc} {xj},{yc - 4} V{ty + 4} Q{xj},{ty} {xj - 4},{ty} H{cx + 4} Q{cx},{ty} {cx},{ty + 4} V{py - 1}')
 for r in range(3):
     cell(ox, py + r * C, 'write' if r == 0 else 'write_later', 'o_{%d}' % (r + 1))
-T('os2-b', 452, 137, '×', 'middle'); T('os2-b', 548, 137, '=', 'middle')
-T('os2-b', 388, 190, 'P', 'middle'); T('os2-s', 388, 204, '3 × 4', 'middle')
-T('os2-b', 512, 198, 'v', 'middle'); T('os2-s', 512, 212, '4 × 1', 'middle')
-T('os2-b', 584, 190, 'o', 'middle'); T('os2-s', 584, 204, '3 × 1', 'middle')
-T('os2-b', 330, 240, 'o = v_{1} · P_{:,1} + v_{2} · P_{:,2} + v_{3} · P_{:,3} + v_{4} · P_{:,4}')
+T('os2-b', 452, py + 41, '×', 'middle'); T('os2-b', 548, py + 41, '=', 'middle')
+T('os2-b', 388, py + 90, 'P', 'middle'); T('os2-s', 388, py + 104, '3 × 4', 'middle')
+T('os2-b', 512, vy + 112, 'v', 'middle'); T('os2-s', 512, vy + 126, '4 × 1', 'middle')
+T('os2-b', 584, py + 90, 'o', 'middle'); T('os2-s', 584, py + 104, '3 × 1', 'middle')
+# 展开成 v_j 乘 P 的第 j 列再相加；灰带标出同一行：o_1 是这一行各项逐格相加
+ey, ex = py + 128, 336
+w(f'<rect x="{ex - 3}" y="{ey - 2}" width="{657 - ex + 6}" height="{C + 4}" rx="3" fill="currentColor" fill-opacity=".1"/>')
+for r in range(3):
+    cell(ex, ey + r * C, 'write' if r == 0 else 'write_later', 'o_{%d}' % (r + 1))
+T('os2-b', ex + C + 12, ey + 41, '=', 'middle')
+tx = ex + C + 24
+for j in range(4):
+    cell(tx, ey + C, 'read', 'v_{%d}' % (j + 1))
+    for r in range(3):
+        cell(tx + C + 3, ey + r * C, pk(r), 'P_{%d%d}' % (r + 1, j + 1))
+    if j < 3: T('os2-b', tx + 2 * C + 13, ey + 41, '+', 'middle')
+    tx += 2 * C + 26
+T('os2-s', ex, ey + 3 * C + 16, '灰带：o_{1} = v_{1}P_{11} + v_{2}P_{12} + v_{3}P_{13} + v_{4}P_{14}，同一行逐格相加')
 
 # ---------- (c) C = diag(v) A ----------
-Y3 = 268
+Y3 = 298
 w(f'<line x1="8" y1="{Y3 - 14}" x2="672" y2="{Y3 - 14}" stroke="currentColor" stroke-opacity=".14"/>')
 T('os2-b', 8, Y3 + 6, '(c) 对角矩阵乘矩阵 C = diag(v) A：C 的第 r 行是 A 的第 r 行乘 v_{r}')
 ROW = ['fill: color-mix(in srgb, var(--fig-1) 34%, transparent); stroke: var(--fig-1)',
@@ -114,10 +125,10 @@ T('os2-s', 520, y3 + 62, '1.2 里 diag(修正因子) Õ、')
 T('os2-s', 520, y3 + 78, 'Õ / ℓ 都是这种按行缩放')
 
 LABEL = ("(a) 列向量 q 乘行向量 k 转置等于 3 乘 4 的矩阵 S，箭头从 k 的每个元素 k_j 指向 q，S 的第 j 列等于 k_j 乘 q。"
-         "(b) 3 乘 4 的矩阵 P 乘 4 乘 1 的列向量 v 等于 3 乘 1 的列向量 o，箭头从 v 的每个元素 v_j 指向 P 的第 j 列，o 等于 v_j 乘 P 第 j 列之和。"
+         "(b) 3 乘 4 的矩阵 P 乘 4 乘 1 的列向量 v 等于 3 乘 1 的列向量 o；下面展开成 v_j 乘 P 第 j 列之和，o 的每一格是同一行各项相加。"
          "(c) 对角矩阵 diag(v) 乘 3 乘 4 的矩阵 A 等于 C，C 的第 r 行等于 v_r 乘 A 的第 r 行。"
          "格子换成 block：(a) 是 S_ij = Q_i K_j 转置，(b) 是 O_i 等于 P_ij V_j 之和，(c) 是按行乘修正因子或除以 ℓ。")
-svg = (f'<figure id="{FID}">\n<svg viewBox="0 0 680 410" width="100%" role="img" aria-label="{LABEL}">\n'
+svg = (f'<figure id="{FID}">\n<svg viewBox="0 0 680 440" width="100%" role="img" aria-label="{LABEL}">\n'
        '  <style>\n    .os2 { font-size: 11px; fill: currentColor; }\n    .os2-b { font-size: 12px; font-weight: 600; fill: currentColor; }\n'
        '    .os2-s { font-size: 10.5px; fill: currentColor; opacity: .72; }\n  </style>\n'
        f'<defs><marker id="{FID}-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" fill-opacity=".6"/></marker>'

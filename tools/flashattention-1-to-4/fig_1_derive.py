@@ -253,27 +253,38 @@ FIGS['fig-1-4'] = rows('fig-1-4', [
 
 # ===================== 图 1-6：把分母提出来（画法同图 1-1 (b)） =====================
 PW6, C6 = 50, 24
+def pv_draw(F, x, y, cells, res_kind, res_name, res_w=C6, plabel=None, under=None):
+    """上一行：P 的第 i 个 block 行 × V = 结果（同图 1-1 (b) 上半）；下一行：展开成 Σ_j P_ij V_j（同图 1-1 (b) 下半）。
+    cells：每格 (kind, 标签)，kind 为 'skip' 的格子还没读，展开时不画；under：每格下面的小字（«» 标红）。"""
+    under = under or [''] * len(cells)
+    vx, py = x + 4 * PW6 + 50, y + 36
+    for j, (kind, lab) in enumerate(cells):
+        F.rect(x + j * PW6, py, PW6, C6, kind, lab, 'os2-s')
+        F.rect(vx, y + j * C6, C6, C6, 'skip' if kind == 'skip' else 'new', f'V_{{{j + 1}}}')
+        if kind == 'skip' and under[j]: F.T('os2-s', x + j * PW6 + PW6 / 2, py + C6 + 15, under[j], 'middle', 'opacity: 1')
+    F.T('os2-b', x + 4 * PW6 + 12, py + 17, '×', 'middle')
+    F.T('os2-b', vx + C6 + 14, py + 17, '=', 'middle')
+    F.rect(vx + C6 + 28, py, res_w, C6, res_kind, res_name)
+    if plabel: F.T('os2', x + 2 * PW6, py + C6 + 15, plabel, 'middle')
+    F.T('os2', vx + C6 / 2, y + 4 * C6 + 14, 'V', 'middle')
+    ey = y + 4 * C6 + 26                          # 展开：读过的每个 block 乘对应的 V_j，再相加
+    F.T('os2-b', x + 6, ey + 17, '=', 'middle')
+    terms = [j for j, (k, _) in enumerate(cells) if k != 'skip']
+    tx = x + 18
+    for n, j in enumerate(terms):
+        kind, lab = cells[j]
+        F.rect(tx, ey, PW6, C6, kind, lab, 'os2-s')
+        F.rect(tx + PW6 + 2, ey, C6, C6, 'new', f'V_{{{j + 1}}}')
+        if under[j]: F.T('os2-s', tx + PW6 / 2, ey + C6 + 15, under[j], 'middle', 'opacity: 1')
+        if n < len(terms) - 1: F.T('os2-b', tx + PW6 + C6 + 11, ey + 17, '+', 'middle')
+        tx += PW6 + C6 + 20
 def pv(lab, res_name):
-    def draw(F, x, y):
-        py, vx, vy = y + 52, x + 4 * PW6 + 50, y + 16
-        for j in range(4):
-            F.rect(x + j * PW6, py, PW6, C6, 'tmp', lab.format(j=j + 1), 'os2-s')
-            F.rect(vx, vy + j * C6, C6, C6, 'new', f'V_{{{j + 1}}}')
-            yc, cx = vy + j * C6 + 12, x + j * PW6 + PW6 / 2
-            xj, ty = vx - 8 - 6 * j, y + 2 + 4 * j          # 先往左，再往上，再往左到第 j 格上方，互不交叉
-            F.w(f'<path d="M{vx:g},{yc:g} H{xj + 4:g} Q{xj:g},{yc:g} {xj:g},{yc - 4:g} V{ty + 4:g} Q{xj:g},{ty:g} {xj - 4:g},{ty:g} '
-                f'H{cx + 4:g} Q{cx:g},{ty:g} {cx:g},{ty + 4:g} V{py - 1:g}" fill="none" stroke="currentColor" stroke-opacity=".55" '
-                f'stroke-width="1.4" marker-end="url(#{F.fid}-ar)"/>')
-        F.T('os2-b', x + 4 * PW6 + 12, py + 17, '×', 'middle')
-        F.T('os2-b', vx + C6 + 14, py + 17, '=', 'middle')
-        F.rect(vx + C6 + 28, py, C6, C6, 'res', res_name)
-        F.T('os2', x + 2 * PW6, py + C6 + 15, 'P 的第 i 个 block 行' if 'P' in lab else '没除以 ℓ 的权重', 'middle')
-        F.T('os2', vx + C6 / 2, vy + 4 * C6 + 15, 'V', 'middle')
-    return draw
+    return lambda F, x, y: pv_draw(F, x, y, [('tmp', lab.format(j=j + 1)) for j in range(4)], 'res', res_name,
+                                   plabel='P 的第 i 个 block 行' if 'P' in lab else '没除以 ℓ 的权重')
 FIGS['fig-1-6'] = rows('fig-1-6', [
-    (128, ['O_{i} = Σ_{j} P_{ij} V_{j}', 'P_{ij} = e^{S_{ij} − m} / ℓ'], pv('P_{{i{j}}}', 'O_{i}'),
+    (150, ['O_{i} = Σ_{j} P_{ij} V_{j}', 'P_{ij} = e^{S_{ij} − m} / ℓ'], pv('P_{{i{j}}}', 'O_{i}'),
      ['V_{j} 乘 P 的第 j 个 block，', '加起来是 O_{i}（图 1-1 (b)）。']),
-    (128, ['Õ = Σ_{j} e^{S_{ij} − m} V_{j}'], pv('e^{{S_{{i{j}}} − m}}', 'Õ'),
+    (150, ['Õ = Σ_{j} e^{S_{ij} − m} V_{j}'], pv('e^{{S_{{i{j}}} − m}}', 'Õ'),
      ['权重换成没除以 ℓ 的 e^{S_{ij} − m}，', '结果是 Õ。']),
     (82, ['O_{i} = Õ / ℓ'],
      lambda F, x, y: seq(F, x, y, [('res', 4, 3, 'O_{i}'), '=', ('res', 4, 3, 'Õ'), '÷', ('state', 4, 1, 'ℓ')], 16, 1),
@@ -282,42 +293,27 @@ FIGS['fig-1-6'] = rows('fig-1-6', [
 
 # ===================== 图 1-7：Õ 一个 block 一个 block 地累加（画法同图 1-6） =====================
 def acc(cells, under, res_name):
-    """cells：每格 (kind, 标签)，kind 为 'skip' 的格子表示还没读；under：每格下面的小字（«» 标红）。"""
-    def draw(F, x, y):
-        py, vx, vy = y + 52, x + 4 * PW6 + 50, y + 16
-        for j, (kind, lab) in enumerate(cells):
-            F.rect(x + j * PW6, py, PW6, C6, kind, lab, 'os2-s')
-            F.rect(vx, vy + j * C6, C6, C6, 'skip' if kind == 'skip' else 'new', f'V_{{{j + 1}}}')
-            if under[j]: F.T('os2-s', x + j * PW6 + PW6 / 2, py + C6 + 15, under[j], 'middle', 'opacity: 1')
-            if kind == 'skip': continue
-            yc, cx = vy + j * C6 + 12, x + j * PW6 + PW6 / 2
-            xj, ty = vx - 8 - 6 * j, y + 2 + 4 * j
-            F.w(f'<path d="M{vx:g},{yc:g} H{xj + 4:g} Q{xj:g},{yc:g} {xj:g},{yc - 4:g} V{ty + 4:g} Q{xj:g},{ty:g} {xj - 4:g},{ty:g} '
-                f'H{cx + 4:g} Q{cx:g},{ty:g} {cx:g},{ty + 4:g} V{py - 1:g}" fill="none" stroke="currentColor" stroke-opacity=".55" '
-                f'stroke-width="1.4" marker-end="url(#{F.fid}-ar)"/>')
-        F.T('os2-b', x + 4 * PW6 + 12, py + 17, '×', 'middle')
-        F.T('os2-b', vx + C6 + 14, py + 17, '=', 'middle')
-        F.rect(vx + C6 + 28, py, C6 + 8, C6, 'state', res_name)
-    return draw
+    """同图 1-6；kind 为 'skip' 的格子表示还没读。"""
+    return lambda F, x, y: pv_draw(F, x, y, cells, 'state', res_name, C6 + 8, under=under)
 SK = ('skip', '')
 GEN7 = [('state', 4, 3, 'Õ_{2}'), '=', ('diag', 4, 'diag(«e^{m_{1} − m_{2}}»)'), ('state', 4, 3, 'Õ_{1}'), '+', ('tmp', 4, 4, 'P̃_{i2}'), ('new', 4, 3, 'V_{2}')]
 def step2(F, x, y):
     acc([('res', 'e^{S_{i1} − m_{2}}'), ('tmp', 'e^{S_{i2} − m_{2}}'), SK, SK], ['«× e^{m_{1} − m_{2}}»', '', '还没读', '还没读'], 'Õ_{2}')(F, x, y)
-    F.arrow(x + 150, y + 112, x + 150, y + 140)              # 具体的 j = 2 → 一般的第 j 轮
-    F.T('os2-s', x + 158, y + 130, '写成矩阵，B_{q} = 4 行', 'start', 'opacity: 1')
-    seq(F, x, y + 148, GEN7, 14, 1)
+    F.arrow(x + 150, y + 170, x + 150, y + 194)              # 具体的 j = 2 → 一般的第 j 轮
+    F.T('os2-s', x + 158, y + 186, '写成矩阵，B_{q} = 4 行', 'start', 'opacity: 1')
+    seq(F, x, y + 202, GEN7, 14, 1)
 FIGS['fig-1-7'] = rows('fig-1-7', [
-    (128, ['Õ_{1} = e^{S_{i1} − m_{1}} V_{1}'],
+    (150, ['Õ_{1} = e^{S_{i1} − m_{1}} V_{1}'],
      acc([('tmp', 'e^{S_{i1} − m_{1}}'), SK, SK, SK], ['', '还没读', '还没读', '还没读'], 'Õ_{1}'),
      ['只读了第 1 个 block，', '按它自己的最大值 m_{1} 算。']),
-    (238, [(60, 'Õ_{2} = diag(«e^{m_{1} − m_{2}}») Õ_{1}'), (82, '        + e^{S_{i2} − m_{2}} V_{2}'),
-           (130, '⇓ 写成矩阵', 'os2-s'),
-           (172, 'Õ_{2} = diag(«e^{m_{1} − m_{2}}») Õ_{1}'), (194, '        + P̃_{i2} V_{2}'),
-           (220, '一般的第 j 轮：把 1、2 换成 j − 1、j', 'os2-s')],
+    (282, [(70, 'Õ_{2} = diag(«e^{m_{1} − m_{2}}») Õ_{1}'), (92, '        + e^{S_{i2} − m_{2}} V_{2}'),
+           (186, '⇓ 写成矩阵', 'os2-s'),
+           (226, 'Õ_{2} = diag(«e^{m_{1} − m_{2}}») Õ_{1}'), (248, '        + P̃_{i2} V_{2}'),
+           (274, '一般的第 j 轮：把 1、2 换成 j − 1、j', 'os2-s')],
      step2,
-     [(60, '已经累加的部分每行乘自己的«修正因子»，'), (78, '换成按 m_{2} 算，再加上第 2 个 block。'),
-      (178, '同一个更新：Õ_{1} 第 r 行乘第 r 个'), (196, '«修正因子»（图 1-1 (c)），再加 P̃_{i2} V_{2}。')]),
-    (128, ['扫完：Σ_{j} e^{S_{ij} − m} V_{j} = Õ'],
+     [(70, '已经累加的部分每行乘自己的«修正因子»，'), (88, '换成按 m_{2} 算，再加上第 2 个 block。'),
+      (230, '同一个更新：Õ_{1} 第 r 行乘第 r 个'), (248, '«修正因子»（图 1-1 (c)），再加 P̃_{i2} V_{2}。')]),
+    (150, ['扫完：Σ_{j} e^{S_{ij} − m} V_{j} = Õ'],
      acc([('res', f'e^{{S_{{i{j}}} − m}}') for j in range(1, 5)], ['', '', '', ''], 'Õ'),
      ['扫完以后每一格都按整行的 m 算，', '就是图 1-6 第二行的 Õ。']),
 ], 'Õ 一个 block 一个 block 地累加，画法同图 1-6。第 1 轮只有第 1 个 block，按 m_1 算。第 2 轮旧的一项乘 e 的 m_1 减 m_2 次方，换成按 m_2 算，再加第 2 个 block；下面是同一个更新写成矩阵形式，一般的第 j 轮把 1、2 换成 j − 1、j。扫完以后每一项都按整行的最大值 m 算，就是图 1-6 的 Õ', LEG, lx=FX)
