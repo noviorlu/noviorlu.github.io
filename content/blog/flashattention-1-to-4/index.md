@@ -555,8 +555,7 @@ online softmax（Milakov 和 Gimelshein 2018）把一行分段，各段按自己
 <text class="os2-m" x="505.2" y="193">)</text>
 <text class="os2" x="660" y="201">每行减去自己的 m<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> 再取 exp。</tspan></text>
 <line x1="8" y1="250" x2="852" y2="250" stroke="currentColor" stroke-opacity=".14"/>
-<text class="os2-m" x="16" y="302">ℓ<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> = </tspan><tspan style="fill: var(--fig-hi); font-weight: 600">e</tspan><tspan dy="-5" font-size="72%" style="fill: var(--fig-hi); font-weight: 600">m</tspan><tspan dy="3" font-size="58%" style="fill: var(--fig-hi); font-weight: 600">j−1</tspan><tspan dy="-3" font-size="72%" style="fill: var(--fig-hi); font-weight: 600"> − m</tspan><tspan dy="3" font-size="58%" style="fill: var(--fig-hi); font-weight: 600">j</tspan><tspan dy="2"> ℓ</tspan><tspan dy="3.5" font-size="72%">j−1</tspan></text>
-<text class="os2-m" x="16" y="324">        + rowsum(P<tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">ij</tspan><tspan dy="-3.5">)</tspan></text>
+<text class="os2-m" x="16" y="313">ℓ<tspan dy="3.5" font-size="72%">j</tspan><tspan dy="-3.5"> = </tspan><tspan style="fill: var(--fig-hi); font-weight: 600">e</tspan><tspan dy="-5" font-size="72%" style="fill: var(--fig-hi); font-weight: 600">m</tspan><tspan dy="3" font-size="58%" style="fill: var(--fig-hi); font-weight: 600">j−1</tspan><tspan dy="-3" font-size="72%" style="fill: var(--fig-hi); font-weight: 600"> − m</tspan><tspan dy="3" font-size="58%" style="fill: var(--fig-hi); font-weight: 600">j</tspan><tspan dy="2"> ℓ</tspan><tspan dy="3.5" font-size="72%">j−1</tspan><tspan dy="-3.5"> + rowsum(P</tspan><tspan dx="-5.6" dy="-7" font-size="80%">~</tspan><tspan dy="10.5" dx="1.2" font-size="72%">ij</tspan><tspan dy="-3.5">)</tspan></text>
 <rect x="262" y="262" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
 <rect x="262" y="278" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
 <rect x="262" y="294" width="16" height="16" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
@@ -603,16 +602,16 @@ online softmax（Milakov 和 Gimelshein 2018）把一行分段，各段按自己
 <text class="os2" x="660" y="303">旧的和乘<tspan style="fill: var(--fig-hi); font-weight: 600">修正因子</tspan><tspan>换到新最大值，</tspan></text>
 <text class="os2" x="660" y="321">加上新 block 每行的和。</text>
 <line x1="8" y1="366" x2="852" y2="366" stroke="currentColor" stroke-opacity=".14"/>
-<rect x="262" y="377" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
-<text class="os2-s" x="279" y="387">状态：留给下一个 block 用</text>
-<rect x="425.7" y="377" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
-<text class="os2-s" x="442.7" y="387">临时：这个 block 用完就丢</text>
-<rect x="589.4" y="377" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 22%, transparent); stroke: var(--fig-hi)" stroke-width="1" stroke-dasharray="3 2"/>
-<text class="os2-s" x="606.4" y="387">修正因子（临时）</text>
-<rect x="710.4" y="377" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-<text class="os2-s" x="727.4" y="387">这一轮从 HBM 读的</text>
-<rect x="833.4" y="377" width="12" height="12" rx="2" fill="currentColor" fill-opacity=".25"/>
-<text class="os2-s" x="850.4" y="387">同一行（一个 query）</text>
+<rect x="16" y="377" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
+<text class="os2-s" x="33" y="387">状态：留给下一个 block 用</text>
+<rect x="179.7" y="377" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="196.7" y="387">临时：这个 block 用完就丢</text>
+<rect x="343.4" y="377" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 22%, transparent); stroke: var(--fig-hi)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="360.4" y="387">修正因子（临时）</text>
+<rect x="464.4" y="377" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="481.4" y="387">这一轮从 HBM 读的</text>
+<rect x="587.4" y="377" width="12" height="12" rx="2" fill="currentColor" fill-opacity=".25"/>
+<text class="os2-s" x="604.4" y="387">同一行（一个 query）</text>
 </svg>
 <figcaption><strong>图 1-4</strong> 第 $j$ 轮 $m$、$\ell$ 的更新，$B_q = 4$。红框是同一行：每一行只和 $m_{j-1}$、$\ell_{j-1}$ 里自己的那个数运算。</figcaption>
 </figure>
@@ -1116,16 +1115,16 @@ $\tilde O$ 要用整行的 $m$，所以也只能一个 block 一个 block 地累
 <text class="os2" x="660" y="513">扫完以后每一格都按整行的 m 算，</text>
 <text class="os2" x="660" y="531">就是图 1-6 第二行的 Õ。</text>
 <line x1="8" y1="594" x2="852" y2="594" stroke="currentColor" stroke-opacity=".14"/>
-<rect x="262" y="605" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
-<text class="os2-s" x="279" y="615">状态：留给下一个 block 用</text>
-<rect x="425.7" y="605" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
-<text class="os2-s" x="442.7" y="615">临时：这个 block 用完就丢</text>
-<rect x="589.4" y="605" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 22%, transparent); stroke: var(--fig-hi)" stroke-width="1" stroke-dasharray="3 2"/>
-<text class="os2-s" x="606.4" y="615">修正因子（临时）</text>
-<rect x="710.4" y="605" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
-<text class="os2-s" x="727.4" y="615">这一轮从 HBM 读的</text>
-<rect x="833.4" y="605" width="12" height="12" rx="2" fill="currentColor" fill-opacity=".25"/>
-<text class="os2-s" x="850.4" y="615">同一行（一个 query）</text>
+<rect x="16" y="605" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 8%, transparent); stroke: var(--fig-1)" stroke-width="1.7"/>
+<text class="os2-s" x="33" y="615">状态：留给下一个 block 用</text>
+<rect x="179.7" y="605" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-3) 45%, transparent); stroke: var(--fig-2)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="196.7" y="615">临时：这个 block 用完就丢</text>
+<rect x="343.4" y="605" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-hi) 22%, transparent); stroke: var(--fig-hi)" stroke-width="1" stroke-dasharray="3 2"/>
+<text class="os2-s" x="360.4" y="615">修正因子（临时）</text>
+<rect x="464.4" y="605" width="12" height="12" rx="1.5" style="fill: color-mix(in srgb, var(--fig-1) 45%, transparent); stroke: var(--fig-1)" stroke-width="1"/>
+<text class="os2-s" x="481.4" y="615">这一轮从 HBM 读的</text>
+<rect x="587.4" y="605" width="12" height="12" rx="2" fill="currentColor" fill-opacity=".25"/>
+<text class="os2-s" x="604.4" y="615">同一行（一个 query）</text>
 </svg>
 <figcaption><strong>图 1-7</strong> $\tilde O$ 一个 block 一个 block 地累加，画法同<a href="#fig-1-6">图 1-6</a>：已经累加的部分乘修正因子换到新的最大值，再加上新 block；第 2 轮下面是同一个更新的矩阵形式，一般的第 $j$ 轮把 1、2 换成 $j-1$、$j$；扫完就是图 1-6 的 $\tilde O$。</figcaption>
 </figure>
