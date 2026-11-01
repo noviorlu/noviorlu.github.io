@@ -38,7 +38,8 @@ series_order: 4
 .fa-algo .b.o{border:3px double var(--c);background:color-mix(in srgb,var(--c) 30%,transparent)}
 .fa-algo .vQ{--c:var(--fig-1)}.fa-algo .vK{--c:var(--fig-2)}.fa-algo .vV{--c:var(--fig-3)}.fa-algo .vO{--c:var(--fig-hi)}
 .fa-algo-leg .b{margin-left:0}
-.fa-algo .cont{display:block;padding-left:3.4em}
+.fa-algo ol{overflow-x:auto;overflow-y:hidden}.fa-algo ol>li{white-space:nowrap}
+@media (max-width:760px){.fa-algo .ref{display:none}}
 .fa-algo-leg{margin-top:.5em;padding-top:.45em;border-top:1px solid rgba(128,128,128,.25);font-size:.82em;opacity:.85}
 .fa-algo-leg>span{margin-right:1.1em;white-space:nowrap}
 </style>
@@ -1493,16 +1494,18 @@ causal mask 管的是一对 (query, key)，也就是 $S$ 的一个元素，不�
 <rect x="290" y="105" width="6" height="26" rx="1.5" style="fill: color-mix(in srgb, var(--fig-mute) 20%, transparent); stroke: var(--fig-mute)" stroke-width="1"/>
 <text class="os2-s" x="286" y="122" text-anchor="end" style="opacity: 1">L<tspan dy="3.5" font-size="72%">T</tspan><tspan dy="2" font-size="58%">q</tspan></text>
 <text class="os2" x="306" y="48">L = m + log ℓ（logsumexp），T<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5"> 段</tspan></text>
-<text class="os2-s" x="306" y="66">每段长 B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5">；第 14 行算出，给反向用</tspan></text>
+<text class="os2-s" x="306" y="66">每段长 B<tspan dy="3.5" font-size="72%">q</tspan><tspan dy="-3.5">；第 16 行算出，给反向用</tspan></text>
 </svg></li>
 <li><span class="kw">for</span> $1 \le i \le T_q$ <span class="kw">do</span></li>
 <li class="i1"><span class="hbm">HBM</span>从 HBM 读 <span class="b h qd vQ"></span>$Q_i$ 到 SRAM</li>
 <li class="i1">初始化 <span class="b s qd"></span>$\tilde O_i^{(0)}$ $= 0$，<span class="b s vec"></span>$\ell_i^{(0)}$ $= 0$，<span class="b s vec"></span>$m_i^{(0)}$ $= -\infty$</li>
-<li class="i1"><span class="kw">for</span> $1 \le j \le T_k$ <span class="kw">do</span><span class="cont"><span class="cz">causal</span>$j$ 只走到 $\lceil iB_q / B_k \rceil$，对角线右上方的 block 整块跳过（<a href="#fig-1-8">图 1-8</a>）</span></li>
+<li class="i1"><span class="ref"><a href="#fig-1-8">图 1-8</a></span><span class="kw">for</span> $1 \le j \le T_k$ <span class="kw">do</span>&ensp;<span class="cz">causal</span>$j \le \lceil iB_q / B_k \rceil$</li>
 <li class="i2"><span class="hbm">HBM</span>从 HBM 读 <span class="b h kd vK"></span>$K_j$、<span class="b h kd vV"></span>$V_j$ 到 SRAM</li>
 <li class="i2"><span class="ref"><a href="#fig-1-1">图 1-1</a> (a)</span><span class="b t qk"></span>$S_i^{(j)}$ $=$ <span class="b h qd vQ"></span>$Q_i$ <span class="b h kt vK"></span>$K_j^\top$</li>
 <li class="i2"><span class="ref"><a href="#fig-1-9">图 1-9</a></span><span class="cz">causal</span>对角线 block：<span class="b t qk"></span>$S_i^{(j)}$ 里 key 下标 $>$ query 下标的位置设成 $-\infty$</li>
-<li class="i2"><span class="ref"><a href="#fig-1-4">图 1-4</a></span><span class="b s vec"></span>$m_i^{(j)}$ $= \max\big($ <span class="b s vec"></span>$m_i^{(j-1)}$, $\mathrm{rowmax}($ <span class="b t qk"></span>$S_i^{(j)}$ $)\big)$，<span class="cont"><span class="b t qk"></span>$\tilde P_i^{(j)}$ $= \exp\big($ <span class="b t qk"></span>$S_i^{(j)}$ $-$ <span class="b s vec"></span>$m_i^{(j)}$ $\big)$，</span><span class="cont"><span class="b s vec"></span>$\ell_i^{(j)}$ $=$ <span class="b t vec"></span>$\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}$ <span class="b s vec"></span>$\ell_i^{(j-1)}$ $+\ \mathrm{rowsum}($ <span class="b t qk"></span>$\tilde P_i^{(j)}$ $)$</span></li>
+<li class="i2"><span class="ref"><a href="#fig-1-4">图 1-4</a></span><span class="b s vec"></span>$m_i^{(j)}$ $= \max\big($ <span class="b s vec"></span>$m_i^{(j-1)}$, $\mathrm{rowmax}($ <span class="b t qk"></span>$S_i^{(j)}$ $)\big)$</li>
+<li class="i2"><span class="ref"><a href="#fig-1-4">图 1-4</a></span><span class="b t qk"></span>$\tilde P_i^{(j)}$ $= \exp\big($ <span class="b t qk"></span>$S_i^{(j)}$ $-$ <span class="b s vec"></span>$m_i^{(j)}$ $\big)$</li>
+<li class="i2"><span class="ref"><a href="#fig-1-4">图 1-4</a></span><span class="b s vec"></span>$\ell_i^{(j)}$ $=$ <span class="b t vec"></span>$\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}$ <span class="b s vec"></span>$\ell_i^{(j-1)}$ $+\ \mathrm{rowsum}($ <span class="b t qk"></span>$\tilde P_i^{(j)}$ $)$</li>
 <li class="i2"><span class="ref"><a href="#fig-1-7">图 1-7</a></span><span class="b s qd"></span>$\tilde O_i^{(j)}$ $= \mathrm{diag}($ <span class="b t vec"></span>$\textcolor{#D64F38}{e^{m_i^{(j-1)} - m_i^{(j)}}}$ $)$ <span class="b s qd"></span>$\tilde O_i^{(j-1)}$ $+$ <span class="b t qk"></span>$\tilde P_i^{(j)}$ <span class="b h kd vV"></span>$V_j$</li>
 <li class="i1"><span class="kw">end for</span></li>
 <li class="i1"><span class="ref"><a href="#fig-1-6">图 1-6</a></span><span class="b o qd vO"></span>$O_i$ $= \mathrm{diag}($ <span class="b s vec"></span>$\ell_i^{(T_k)}$ $)^{-1}$ <span class="b s qd"></span>$\tilde O_i^{(T_k)}$</li>
@@ -2327,7 +2330,7 @@ causal 时这一列在对角线右上方的 block 整块跳过，$i$ 从对角�
 <li><span class="kw">for</span> $1 \le j \le T_k$ <span class="kw">do</span></li>
 <li class="i1"><span class="hbm">HBM</span>从 HBM 读 <span class="b h kd vK"></span>$K_j$、<span class="b h kd vV"></span>$V_j$ 到 SRAM</li>
 <li class="i1">初始化 <span class="b s kd vK"></span>$dK_j$ $= 0$，<span class="b s kd vV"></span>$dV_j$ $= 0$</li>
-<li class="i1"><span class="kw">for</span> $1 \le i \le T_q$ <span class="kw">do</span><span class="cont"><span class="cz">causal</span>$i$ 从 $\lfloor (j-1)B_k / B_q \rfloor + 1$ 开始，对角线右上方的 block 整块跳过（<a href="#fig-1-12">图 1-12</a>）</span></li>
+<li class="i1"><span class="ref"><a href="#fig-1-12">图 1-12</a></span><span class="kw">for</span> $1 \le i \le T_q$ <span class="kw">do</span>&ensp;<span class="cz">causal</span>$i \ge \lfloor (j-1)B_k / B_q \rfloor + 1$</li>
 <li class="i2"><span class="hbm">HBM</span>从 HBM 读 <span class="b h qd vQ"></span>$Q_i$、<span class="b h qd vO"></span>$dO_i$、<span class="b h vec"></span>$L_i$、<span class="b h vec"></span>$D_i$ 到 SRAM</li>
 <li class="i2"><span class="b t qk"></span>$S_i^{(j)}$ $=$ <span class="b h qd vQ"></span>$Q_i$ <span class="b h kt vK"></span>$K_j^\top$</li>
 <li class="i2"><span class="ref"><a href="#fig-1-9">图 1-9</a></span><span class="cz">causal</span>对角线 block：<span class="b t qk"></span>$S_i^{(j)}$ 里 key 下标 $>$ query 下标的位置设成 $-\infty$</li>
@@ -2357,7 +2360,7 @@ causal 时这一列在对角线右上方的 block 整块跳过，$i$ 从对角�
 
 FlashAttention-2（Dao，2023）最要紧的改动有三处。
 
-1. **减少非 matmul 的 FLOPs。** 非 matmul 的计算（exp、行最大值和行和、rescale 的乘法）跑在 FP32 ALU 和特殊函数单元上，不走 Tensor core。A100 的 FP32 算力是 1.95e13 FLOPS，FP16 matmul 是 3.12e14 FLOPS，所以每个非 matmul 的 FLOP 大约贵 16 倍。v1 每一步都让输出保持归一化，除了免不掉的 $\exp(m_{\text{old}}-m_{\text{new}})$ 修正，还要再除以当前的累计和。FA2 的累加器不做归一化，每个 block 只乘 $\exp(m_{\text{old}}-m_{\text{new}})$ 这一项修正，最后才除一次 $\ell$（即 [Algorithm 1](#fa-algorithm) 第 13 行）；给反向存的也只有每行一个 logsumexp $L=m+\log\ell$，不再把 $m$ 和 $\ell$ 都存下来。
+1. **减少非 matmul 的 FLOPs。** 非 matmul 的计算（exp、行最大值和行和、rescale 的乘法）跑在 FP32 ALU 和特殊函数单元上，不走 Tensor core。A100 的 FP32 算力是 1.95e13 FLOPS，FP16 matmul 是 3.12e14 FLOPS，所以每个非 matmul 的 FLOP 大约贵 16 倍。v1 每一步都让输出保持归一化，除了免不掉的 $\exp(m_{\text{old}}-m_{\text{new}})$ 修正，还要再除以当前的累计和。FA2 的累加器不做归一化，每个 block 只乘 $\exp(m_{\text{old}}-m_{\text{new}})$ 这一项修正，最后才除一次 $\ell$（即 [Algorithm 1](#fa-algorithm) 第 15 行）；给反向存的也只有每行一个 logsumexp $L=m+\log\ell$，不再把 $m$ 和 $\ell$ 都存下来。
 2. **交换内外层循环，在序列长度上并行。** v1 只在 (batch × head) 上并行。现在的序列长、每张卡上的 batch 小，这样分出的 thread block 可能不够占满 GPU 的 SM（[图 2-1](#fig-2-1)）。FA2 把 query block 的循环放到外层，各个行 block 之间互相独立：前向里每个 thread block 负责一个 query 行 block。反向里每个 thread block 负责一个 key/value 列 block，在本地累加自己的 $dK_j$、$dV_j$，$dQ$ 则用 atomic add 累加到一块共享的缓冲区里。
 
 <figure id="fig-2-1">
